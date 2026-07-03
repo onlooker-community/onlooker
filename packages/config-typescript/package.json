@@ -1,0 +1,14 @@
+{
+  "name": "@onlooker/config-typescript",
+  "private": true,
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rimraf node_modules dist turbo"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3"
+  }
+}
