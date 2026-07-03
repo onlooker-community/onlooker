@@ -1,0 +1,182 @@
+{
+  "$schema": "https://turborepo.org/schema.json",
+  "globalEnv": [],
+  "tasks": {
+    "@onlooker/cache#build": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@onlooker/cache#go": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/cache#lint": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/cache#test": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/cache#test:coverage": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/cache#typecheck": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/logger#build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@onlooker/website#dev": {
+      "cache": false,
+      "dependsOn": [
+        "@onlooker/cache#build",
+        "@onlooker/logger#build"
+      ],
+      "persistent": true
+    },
+    "@onlooker/website#go": {
+      "cache": false,
+      "dependsOn": [
+        "@onlooker/cache#build",
+        "@onlooker/logger#build"
+      ],
+      "persistent": true
+    },
+    "@onlooker/website#test": {
+      "dependsOn": [
+        "@onlooker/cache#build",
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/website#test:coverage": {
+      "dependsOn": [
+        "@onlooker/cache#build",
+        "@onlooker/logger#build"
+      ]
+    },
+    "@onlooker/website#typecheck": {
+      "dependsOn": [
+        "@onlooker/cache#build",
+        "@onlooker/logger#build"
+      ]
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "env": [
+        "AUDIT_LOG_ENABLED",
+        "AUDIT_LOG_GET_USER_IP",
+        "BASE_PATH",
+        "DEBUG",
+        "DEBUG_SHOW_RESET_LINK",
+        "E2E_TESTING",
+        "ENCRYPTION_KEY",
+        "ENVIRONMENT",
+        "GITHUB_ID",
+        "GITHUB_SECRET",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "LOG_LEVEL",
+        "NEXT_PUBLIC_ONLOOKER_URL",
+        "NEXT_PUBLIC_ONLOOKER_DEV_API_HOST",
+        "NEXT_PUBLIC_ONLOOKER_DEV_ENVIRONMENT_ID",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "OTEL_SERVICE_NAME",
+        "OTEL_TRACES_SAMPLER",
+        "OTEL_TRACES_SAMPLER_ARG",
+        "NEXT_RUNTIME",
+        "NODE_ENV",
+        "npm_package_version",
+        "PLAYWRIGHT_CI",
+        "PRIVACY_URL",
+        "RATE_LIMITING_DISABLED",
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_DSN",
+        "SENTRY_ENVIRONMENT",
+        "PUBLIC_URL",
+        "TELEMETRY_DISABLED",
+        "TERMS_URL",
+        "VERSION",
+        "WEBAPP_URL",
+        "PROMETHEUS_ENABLED",
+        "PROMETHEUS_EXPORTER_PORT"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**"
+      ]
+    },
+    "build:dev": {
+      "dependsOn": [
+        "^build:dev"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**"
+      ]
+    },
+    "clean": {
+      "cache": false,
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+    },
+    "generate": {
+      "dependsOn": [
+        "^generate"
+      ]
+    },
+    "go": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "outputs": []
+    },
+    "storybook": {
+      "cache": false,
+      "persistent": true
+    },
+    "storybook#storybook": {
+      "dependsOn": [
+        "@onlooker/logger#build"
+      ]
+    },
+    "test": {
+      "outputs": []
+    },
+    "test:coverage": {
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^typecheck"
+      ],
+      "outputs": []
+    }
+  },
+  "ui": "stream"
+}
