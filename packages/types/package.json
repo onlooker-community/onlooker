@@ -1,24 +1,25 @@
 {
-  "name": "@onlooker/types",
-  "private": true,
-  "description": "Type definitions for Onlooker",
-  "main": "index.ts",
-  "exports": {
-    ".": "./index.ts",
-    "./integration": "./integration/index.ts",
-    "./*": "./*.ts"
-  },
-  "sideEffects": false,
-  "scripts": {
-    "lint": "eslint . --ext .ts,.js,.tsx,.jsx",
-    "typecheck": "tsc --noEmit",
-    "clean": "rimraf node_modules .turbo"
-  },
-  "dependencies": {
-    "node-html-parser": "7.1.0",
-    "zod": "4.4.3"
-  },
-  "devDependencies": {
-    "@onlooker/config-typescript": "workspace:*"
-  }
+	"name": "@onlooker/types",
+	"private": true,
+	"description": "Type definitions for Onlooker",
+	"main": "index.ts",
+	"exports": {
+		".": "./index.ts",
+		"./integration": "./integration/index.ts",
+		"./*": "./*.ts"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit",
+		"clean": "rimraf node_modules .turbo"
+	},
+	"dependencies": {
+		"node-html-parser": "7.1.0",
+		"zod": "4.4.3"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*"
+	}
 }

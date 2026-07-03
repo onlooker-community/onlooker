@@ -1,30 +1,34 @@
 {
-  "name": "@onlooker/website",
-  "version": "0.0.0",
-  "packageManager": "pnpm@11.0.9",
-  "private": true,
-  "scripts": {
-    "clean": "rimraf .turbo node_modules .astro .wrangler coverage",
-    "dev": "astro dev",
-    "build": "astro build",
-    "go": "astro dev --turbo",
-    "preview": "astro preview",
-    "astro": "astro",
-    "deploy": "astro build && wrangler deploy",
-    "generate-types": "wrangler types"
-  },
-  "dependencies": {
-    "@astrojs/cloudflare": "^13.5.2",
-    "astro": "^6.3.3",
-    "@onlooker/cache": "workspace:*",
-    "@onlooker/logger": "workspace:*",
-    "@onlooker/types": "workspace:*",
-    "wrangler": "^4.93.0"
-  },
-  "devDependencies": {
-    "@onlooker/config-typescript": "workspace:*"
-  },
-  "overrides": {
-    "vite": "^7"
-  }
+	"name": "@onlooker/website",
+	"version": "0.0.0",
+	"packageManager": "pnpm@11.0.9",
+	"private": true,
+	"scripts": {
+		"clean": "rimraf .turbo node_modules .astro .wrangler coverage",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"dev": "astro dev",
+		"build": "astro build",
+		"go": "astro dev --turbo",
+		"preview": "astro preview",
+		"astro": "astro",
+		"deploy": "astro build && wrangler deploy",
+		"generate-types": "wrangler types"
+	},
+	"dependencies": {
+		"@astrojs/cloudflare": "^13.5.2",
+		"astro": "^6.3.3",
+		"@onlooker/cache": "workspace:*",
+		"@onlooker/logger": "workspace:*",
+		"@onlooker/types": "workspace:*",
+		"wrangler": "^4.93.0"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*"
+	},
+	"overrides": {
+		"vite": "^7"
+	}
 }

@@ -1,0 +1,14 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+	"extends": ["./base.json"],
+	"files": {
+		"ignore": ["dist", "build", "coverage", "*.d.ts"]
+	},
+	"linter": {
+		"rules": {
+			"correctness": {
+				"noUnusedVariables": "warn"
+			}
+		}
+	}
+}

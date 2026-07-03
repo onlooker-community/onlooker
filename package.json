@@ -1,55 +1,56 @@
 {
-  "name": "onlooker",
-  "version": "0.0.0",
-  "private": true,
-  "scripts": {
-    "clean:all": "turbo run clean && rimraf node_modules pnpm-lock.yaml .turbo coverage out",
-    "clean": "turbo run clean && rimraf node_modules .turbo coverage out",
-    "build": "turbo run build",
-    "build:dev": "turbo run build:dev",
-    "go": "turbo run go --concurrency 20",
-    "dev": "turbo run dev --parallel",
-    "pre-commit": "lint-staged",
-    "start": "turbo run start --parallel",
-    "format": "biome format . --write",
-    "generate": "turbo run generate",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test --cache=local:rw",
-    "test:coverage": "turbo run test:coverage --cache=local:rw",
-    "test:e2e": "playwright test",
-    "test-e2e:azure": "pnpm test:e2e -c playwright.service.config.ts --workers=10",
-    "storybook": "turbo run storybook",
-    "dev:setup": "bash ./scripts/setup-dev-env.sh"
-  },
-  "devDependencies": {
-    "@azure/playwright": "1.1.6",
-    "@biomejs/biome": "2.5.0",
-    "@playwright/test": "1.61.0",
-    "@redocly/cli": "2.34.0",
-    "@types/node": "25.9.3",
-    "dotenv": "17.4.2",
-    "lint-staged": "17.0.7",
-    "rimraf": "6.1.3",
-    "tsx": "4.22.4",
-    "turbo": "2.9.18"
-  },
-  "lint-staged": {
-    "(apps|packages)/**/*.{js,ts,jsx,tsx}": [
-      "prettier --write"
-    ],
-    "*.json": [
-      "prettier --write"
-    ]
-  },
-  "engines": {
-    "node": ">=20.19.0 <21 || >=22.12.0 <23 || >=24.0.0 <25"
-  },
-  "packageManager": "pnpm@11.0.9",
-  "nextBundleAnalysis": {
-    "budget": 358400,
-    "budgetPercentIncreaseRed": 20,
-    "minimumChangeThreshold": 0,
-    "showDetails": true
-  }
+	"name": "onlooker",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"clean:all": "turbo run clean && rimraf node_modules pnpm-lock.yaml .turbo coverage out",
+		"clean": "turbo run clean && rimraf node_modules .turbo coverage out",
+		"build": "turbo run build",
+		"build:dev": "turbo run build:dev",
+		"go": "turbo run go --concurrency 20",
+		"dev": "turbo run dev --parallel",
+		"pre-commit": "lint-staged",
+		"start": "turbo run start --parallel",
+		"format": "biome format . --write",
+		"generate": "turbo run generate",
+		"lint": "turbo run lint",
+		"typecheck": "turbo run typecheck",
+		"test": "turbo run test --cache=local:rw",
+		"test:coverage": "turbo run test:coverage --cache=local:rw",
+		"test:e2e": "playwright test",
+		"test-e2e:azure": "pnpm test:e2e -c playwright.service.config.ts --workers=10",
+		"storybook": "turbo run storybook",
+		"dev:setup": "bash ./scripts/setup-dev-env.sh"
+	},
+	"devDependencies": {
+		"@azure/playwright": "1.1.6",
+		"@biomejs/biome": "2.5.0",
+		"@onlooker/config-biome": "workspace:*",
+		"@playwright/test": "1.61.0",
+		"@redocly/cli": "2.34.0",
+		"@types/node": "25.9.3",
+		"dotenv": "17.4.2",
+		"lint-staged": "17.0.7",
+		"rimraf": "6.1.3",
+		"tsx": "4.22.4",
+		"turbo": "2.9.18"
+	},
+	"lint-staged": {
+		"(apps|packages)/**/*.{js,ts,jsx,tsx}": [
+			"prettier --write"
+		],
+		"*.json": [
+			"prettier --write"
+		]
+	},
+	"engines": {
+		"node": ">=20.19.0 <21 || >=22.12.0 <23 || >=24.0.0 <25"
+	},
+	"packageManager": "pnpm@11.0.9",
+	"nextBundleAnalysis": {
+		"budget": 358400,
+		"budgetPercentIncreaseRed": 20,
+		"minimumChangeThreshold": 0,
+		"showDetails": true
+	}
 }
