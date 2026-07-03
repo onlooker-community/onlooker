@@ -164,7 +164,7 @@ interface NetworkError {
 	code: "network_error";
 	message: string;
 	status: number;
-	url: URL;
+	url: string;
 	responseMessage?: string;
 	details?: Record<
 		string,
@@ -176,7 +176,7 @@ interface ForbiddenError {
 	code: "forbidden";
 	message: string;
 	status: number;
-	url: URL;
+	url: string;
 	responseMessage?: string;
 	details?: Record<
 		string,
@@ -249,7 +249,7 @@ export interface ApiErrorResponse {
 		| "too_many_requests";
 	message: string;
 	status: number;
-	url?: URL;
+	url?: string;
 	details?: Record<
 		string,
 		string | string[] | number | number[] | boolean | boolean[]

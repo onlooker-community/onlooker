@@ -70,19 +70,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/config-typescript
 
-  packages/auth:
-    dependencies:
-      '@onlooker/logger':
-        specifier: workspace:*
-        version: link:../logger
-    devDependencies:
-      '@onlooker/config-biome':
-        specifier: workspace:*
-        version: link:../config-biome
-      '@onlooker/config-typescript':
-        specifier: workspace:*
-        version: link:../config-typescript
-
   packages/cache:
     dependencies:
       '@onlooker/logger':
@@ -156,9 +143,6 @@ importers:
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@onlooker/types':
-        specifier: workspace:*
-        version: link:../types
       vite:
         specifier: 8.0.16
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)

@@ -26,8 +26,9 @@
 	},
 	"scripts": {
 		"clean": "rimraf .turbo node_modules coverage dist",
-		"lint": "biome check",
-		"lint:fix": "biome lint --write",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"build": "vite build",
 		"test": "vitest run",

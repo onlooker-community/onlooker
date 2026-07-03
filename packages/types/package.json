@@ -11,6 +11,8 @@
 	"sideEffects": false,
 	"scripts": {
 		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"clean": "rimraf node_modules .turbo"
 	},
