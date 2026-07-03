@@ -5,10 +5,13 @@ import { z } from "zod";
  * This ensures only properly generated cache keys can be used in cache operations
  */
 export const ZCacheKey = z
-  .string()
-  .min(1, "Cache key cannot be empty")
-  .refine((key) => key.trim().length > 0, "Cache key cannot be empty or whitespace only")
-  .brand("CacheKey");
+	.string()
+	.min(1, "Cache key cannot be empty")
+	.refine(
+		(key) => key.trim().length > 0,
+		"Cache key cannot be empty or whitespace only",
+	)
+	.brand("CacheKey");
 
 export type CacheKey = z.infer<typeof ZCacheKey>;
 
@@ -16,4 +19,8 @@ export type CacheKey = z.infer<typeof ZCacheKey>;
  * Possible namespaces for custom cache keys
  * Add new namespaces here as they are introduced
  */
-export type CustomCacheNamespace = "account_deletion" | "analytics" | "billing" | "oauth";
+export type CustomCacheNamespace =
+	| "account_deletion"
+	| "analytics"
+	| "billing"
+	| "oauth";

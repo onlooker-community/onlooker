@@ -1,15 +1,15 @@
 {
-  "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "paths": {
-      "@/*": ["./*"]
-    },
-    "resolveJsonModule": true,
-    "strict": true
-  },
-  "exclude": ["node_modules"],
-  "extends": "@onlooker/config-typescript/node16.json",
-  "include": ["src", "types", "package.json"]
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"paths": {
+			"@/*": ["./*"]
+		},
+		"resolveJsonModule": true,
+		"strict": true
+	},
+	"exclude": ["node_modules"],
+	"extends": "@onlooker/config-typescript/node16.json",
+	"include": ["src", "types", "package.json"]
 }
