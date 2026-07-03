@@ -1,6 +1,7 @@
 {
 	"compilerOptions": {
 		"composite": true,
+		"lib": ["ES2021", "DOM"],
 		"outDir": "./dist",
 		"rootDir": "./"
 	},
