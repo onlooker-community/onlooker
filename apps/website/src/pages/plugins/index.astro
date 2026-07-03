@@ -1,34 +1,34 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import { allPlugins } from '../../data/plugins';
-import type { PluginCategory } from '../../data/plugins';
+import type { PluginCategory } from "../../data/plugins";
+import { allPlugins } from "../../data/plugins";
+import Layout from "../../layouts/Layout.astro";
 
 export const prerender = true;
 
 const categoryOrder: PluginCategory[] = [
-  'memory',
-  'analysis',
-  'safety',
-  'testing',
-  'governance',
-  'quality',
+	"memory",
+	"analysis",
+	"safety",
+	"testing",
+	"governance",
+	"quality",
 ];
 
 const categoryLabel: Record<PluginCategory, string> = {
-  memory: 'Memory',
-  analysis: 'Analysis',
-  safety: 'Safety',
-  testing: 'Testing',
-  governance: 'Governance',
-  quality: 'Quality',
+	memory: "Memory",
+	analysis: "Analysis",
+	safety: "Safety",
+	testing: "Testing",
+	governance: "Governance",
+	quality: "Quality",
 };
 
 const grouped = categoryOrder.reduce<Record<PluginCategory, typeof allPlugins>>(
-  (acc, cat) => {
-    acc[cat] = allPlugins.filter((p) => p.category === cat);
-    return acc;
-  },
-  {} as Record<PluginCategory, typeof allPlugins>,
+	(acc, cat) => {
+		acc[cat] = allPlugins.filter((p) => p.category === cat);
+		return acc;
+	},
+	{} as Record<PluginCategory, typeof allPlugins>,
 );
 ---
 

@@ -1,24 +1,24 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import { allPlugins, pluginsBySlug } from '../../data/plugins';
-import type { PluginCategory } from '../../data/plugins';
+import type { PluginCategory } from "../../data/plugins";
+import { allPlugins, pluginsBySlug } from "../../data/plugins";
+import Layout from "../../layouts/Layout.astro";
 
 export const prerender = true;
 
 export function getStaticPaths() {
-  return allPlugins.map((plugin) => ({ params: { slug: plugin.slug } }));
+	return allPlugins.map((plugin) => ({ params: { slug: plugin.slug } }));
 }
 
 const { slug } = Astro.params;
-const plugin = pluginsBySlug[slug!];
+const plugin = pluginsBySlug[slug as string];
 
 const categoryLabel: Record<PluginCategory, string> = {
-  memory: 'Memory',
-  analysis: 'Analysis',
-  safety: 'Safety',
-  testing: 'Testing',
-  governance: 'Governance',
-  quality: 'Quality',
+	memory: "Memory",
+	analysis: "Analysis",
+	safety: "Safety",
+	testing: "Testing",
+	governance: "Governance",
+	quality: "Quality",
 };
 ---
 
@@ -153,7 +153,7 @@ const categoryLabel: Record<PluginCategory, string> = {
                     <tr>
                       <td><code>{ev.type}</code></td>
                       <td>{ev.when}</td>
-                      {plugin.events!.some((e) => e.keyFields) && (
+                      {plugin.events?.some((e) => e.keyFields) && (
                         <td><code class="dim">{ev.keyFields ?? '—'}</code></td>
                       )}
                     </tr>

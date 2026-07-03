@@ -1,48 +1,48 @@
 export interface PluginTable {
-  title: string;
-  headers: [string, string];
-  rows: [string, string][];
+	title: string;
+	headers: [string, string];
+	rows: [string, string][];
 }
 
 export interface PluginEvent {
-  type: string;
-  when: string;
-  keyFields?: string;
+	type: string;
+	when: string;
+	keyFields?: string;
 }
 
 export type PluginCategory =
-  | 'memory'
-  | 'analysis'
-  | 'safety'
-  | 'testing'
-  | 'governance'
-  | 'quality';
+	| "memory"
+	| "analysis"
+	| "safety"
+	| "testing"
+	| "governance"
+	| "quality";
 
 export interface PluginData {
-  slug: string;
-  name: string;
-  version: string;
-  tagline: string;
-  category: PluginCategory;
+	slug: string;
+	name: string;
+	version: string;
+	tagline: string;
+	category: PluginCategory;
 
-  hero: {
-    headline: string;
-    subheadline: string;
-  };
+	hero: {
+		headline: string;
+		subheadline: string;
+	};
 
-  problem: string;
-  howItWorks: string[];
+	problem: string;
+	howItWorks: string[];
 
-  tables?: PluginTable[];
-  capabilities: string[];
-  events?: PluginEvent[];
+	tables?: PluginTable[];
+	capabilities: string[];
+	events?: PluginEvent[];
 
-  config?: string;
+	config?: string;
 
-  tags: string[];
+	tags: string[];
 
-  // Plugin-specific optional sections
-  idealFor?: string;
-  skillCommands?: string;
-  interventionExample?: string;
+	// Plugin-specific optional sections
+	idealFor?: string;
+	skillCommands?: string;
+	interventionExample?: string;
 }
