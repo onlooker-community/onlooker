@@ -168,7 +168,6 @@ describe("Logger", () => {
 
 		const mockLogger = createMockLogger();
 		mockLogger.child = childSpy;
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any -- Required to mock Pino.Logger with generics in strict TypeScript, as TS cannot infer the correct generic type for the mock object
 		// biome-ignore lint/suspicious/noExplicitAny: Required to mock Pino.Logger with generics in strict TypeScript
 		vi.mocked(Pino).mockReturnValue(mockLogger as any);
 
@@ -191,7 +190,6 @@ describe("Logger", () => {
 
 		const mockLogger = createMockLogger();
 		mockLogger.child = childSpy;
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any -- Required to mock Pino.Logger with generics in strict TypeScript, as TS cannot infer the correct generic type for the mock object
 		// biome-ignore lint/suspicious/noExplicitAny: Required to mock Pino.Logger with generics in strict TypeScript
 		vi.mocked(Pino).mockReturnValue(mockLogger as any);
 
@@ -226,7 +224,6 @@ describe("Logger", () => {
 
 		process.env.NEXT_RUNTIME = "nodejs";
 
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any -- Required to mock Pino.Logger with generics in strict TypeScript, as TS cannot infer the correct generic type for the mock object
 		// biome-ignore lint/suspicious/noExplicitAny: Required to mock Pino.Logger with generics in strict TypeScript
 		vi.mocked(Pino).mockReturnValue(createMockLogger() as any);
 
@@ -253,7 +250,6 @@ describe("Logger", () => {
 
 		process.env.NEXT_RUNTIME = "edge";
 
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any -- Required to mock Pino.Logger with generics in strict TypeScript, as TS cannot infer the correct generic type for the mock object
 		// biome-ignore lint/suspicious/noExplicitAny: Required to mock Pino.Logger with generics in strict TypeScript
 		vi.mocked(Pino).mockReturnValue(createMockLogger() as any);
 
