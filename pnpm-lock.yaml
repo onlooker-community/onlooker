@@ -44,12 +44,25 @@ importers:
       '@astrojs/cloudflare':
         specifier: ^13.5.2
         version: 13.7.0(@types/node@25.9.3)(astro@6.4.8(@azure/storage-blob@12.32.0)(@types/node@25.9.3)(lightningcss@1.32.0)(rollup@4.62.0)(tsx@4.22.4)(yaml@2.9.0))(lightningcss@1.32.0)(tsx@4.22.4)(workerd@1.20260617.1)(wrangler@4.102.0)(yaml@2.9.0)
+      '@onlooker/cache':
+        specifier: workspace:*
+        version: link:../../packages/cache
+      '@onlooker/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@onlooker/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       astro:
         specifier: ^6.3.3
         version: 6.4.8(@azure/storage-blob@12.32.0)(@types/node@25.9.3)(lightningcss@1.32.0)(rollup@4.62.0)(tsx@4.22.4)(yaml@2.9.0)
       wrangler:
         specifier: ^4.93.0
         version: 4.102.0
+    devDependencies:
+      '@onlooker/config-typescript':
+        specifier: workspace:*
+        version: link:../../packages/config-typescript
 
   packages/cache:
     dependencies:

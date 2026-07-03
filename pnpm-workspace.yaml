@@ -12,7 +12,7 @@ allowBuilds:
 autoInstallPeers: true
 linkWorkspacePackages: true
 shamefullyHoist: true
-sharedWorkspaceShrinkwrap: true
+sharedWorkspaceLockfile: true
 access: public
 enablePrePostScripts: true
 legacyPeerDeps: true

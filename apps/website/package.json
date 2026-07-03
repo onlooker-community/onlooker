@@ -1,11 +1,10 @@
 {
   "name": "@onlooker/website",
-  "type": "module",
+  "version": "0.0.0",
+  "packageManager": "pnpm@11.0.9",
   "private": true,
-  "engines": {
-    "node": ">=22.12.0"
-  },
   "scripts": {
+    "clean": "rimraf .turbo node_modules .astro .wrangler coverage",
     "dev": "astro dev",
     "build": "astro build",
     "go": "astro dev --turbo",
@@ -17,7 +16,13 @@
   "dependencies": {
     "@astrojs/cloudflare": "^13.5.2",
     "astro": "^6.3.3",
+    "@onlooker/cache": "workspace:*",
+    "@onlooker/logger": "workspace:*",
+    "@onlooker/types": "workspace:*",
     "wrangler": "^4.93.0"
+  },
+  "devDependencies": {
+    "@onlooker/config-typescript": "workspace:*"
   },
   "overrides": {
     "vite": "^7"
