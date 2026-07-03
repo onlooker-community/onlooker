@@ -1,0 +1,3 @@
+{
+  "extends": "@onlooker/config-typescript/node16.json"
+}

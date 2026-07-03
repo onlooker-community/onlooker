@@ -1,0 +1,22 @@
+{
+  "name": "@onlooker/vite-plugins",
+  "license": "MIT",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "homepage": "https://onlooker.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/onlooker-community/onlooker"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rimraf .turbo node_modules dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.js,.tsx,.jsx"
+  },
+  "devDependencies": {
+    "@onlooker/config-typescript": "workspace:*",
+    "vite": "8.0.16"
+  }
+}
