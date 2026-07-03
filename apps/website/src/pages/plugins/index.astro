@@ -1,0 +1,262 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { allPlugins } from '../../data/plugins';
+import type { PluginCategory } from '../../data/plugins';
+
+export const prerender = true;
+
+const categoryOrder: PluginCategory[] = [
+  'memory',
+  'analysis',
+  'safety',
+  'testing',
+  'governance',
+  'quality',
+];
+
+const categoryLabel: Record<PluginCategory, string> = {
+  memory: 'Memory',
+  analysis: 'Analysis',
+  safety: 'Safety',
+  testing: 'Testing',
+  governance: 'Governance',
+  quality: 'Quality',
+};
+
+const grouped = categoryOrder.reduce<Record<PluginCategory, typeof allPlugins>>(
+  (acc, cat) => {
+    acc[cat] = allPlugins.filter((p) => p.category === cat);
+    return acc;
+  },
+  {} as Record<PluginCategory, typeof allPlugins>,
+);
+---
+
+<Layout
+  title="Plugins — Onlooker"
+  description="Open-source Claude Code plugins for AI development observability — memory, safety, quality, governance, and more."
+>
+  <main>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span class="sep">/</span>
+      <span>Plugins</span>
+    </nav>
+
+    <header class="page-header">
+      <p class="eyebrow">Plugin library</p>
+      <h1>Every plugin. One place.</h1>
+      <p class="subhead">
+        Open-source Claude Code plugins. Drop one in, extend the platform. Adding a new one takes a
+        single config file.
+      </p>
+    </header>
+
+    <div class="plugin-list">
+      {
+        categoryOrder.map((cat) => {
+          const plugins = grouped[cat];
+          if (!plugins.length) return null;
+          return (
+            <section class="category-section">
+              <h2 class="category-heading">
+                <span class="category-badge">{categoryLabel[cat]}</span>
+              </h2>
+              <div class="plugin-grid">
+                {plugins.map((plugin) => (
+                  <a class="plugin-card" href={`/plugins/${plugin.slug}`}>
+                    <div class="card-top">
+                      <span class="plugin-name">{plugin.name}</span>
+                      <span class="plugin-version">v{plugin.version}</span>
+                    </div>
+                    <p class="plugin-tagline">{plugin.tagline}</p>
+                    <p class="plugin-sub">{plugin.hero.subheadline}</p>
+                    <div class="card-footer">
+                      <span class="card-link">View plugin →</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </section>
+          );
+        })
+      }
+    </div>
+  </main>
+</Layout>
+
+<style>
+  main {
+    flex: 1;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    width: 100%;
+  }
+
+  .breadcrumb {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.06em;
+    margin-bottom: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .breadcrumb a {
+    color: var(--text-3);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .breadcrumb a:hover {
+    color: var(--accent);
+  }
+
+  .sep {
+    opacity: 0.4;
+  }
+
+  .page-header {
+    margin-bottom: 64px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-size: clamp(32px, 5vw, 56px);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--text-1);
+    margin-bottom: 20px;
+  }
+
+  .subhead {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text-2);
+    max-width: 540px;
+  }
+
+  .category-section {
+    margin-bottom: 56px;
+  }
+
+  .category-heading {
+    margin-bottom: 20px;
+  }
+
+  .category-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 4px 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+  }
+
+  .plugin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  .plugin-card {
+    background: var(--bg-2);
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+
+  .plugin-card:hover {
+    background: var(--bg-3);
+  }
+
+  .card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .plugin-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  .plugin-version {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+
+  .plugin-tagline {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+    letter-spacing: 0.04em;
+    font-style: italic;
+  }
+
+  .plugin-sub {
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-2);
+    flex: 1;
+  }
+
+  .card-footer {
+    margin-top: 8px;
+  }
+
+  .card-link {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+
+  .plugin-card:hover .card-link {
+    opacity: 1;
+  }
+
+  @media (max-width: 640px) {
+    main {
+      padding: 32px 20px 64px;
+    }
+
+    .plugin-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

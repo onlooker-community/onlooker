@@ -1,0 +1,55 @@
+---
+import '../styles/globals.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content="Onlooker" />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="page">
+      <nav>
+        <a class="logo" href="/">
+          <span class="logo-pulse"></span>
+          Onlooker
+        </a>
+        <span class="nav-tag">Early Access</span>
+      </nav>
+
+      <slot />
+
+      <footer>
+        <span class="footer-copy">© 2026 Onlooker Community</span>
+        <div class="footer-links">
+          <a href="https://github.com/onlooker-community" target="_blank" rel="noopener">GitHub</a>
+          <a href="mailto:community@onlooker.dev">Contact</a>
+        </div>
+      </footer>
+    </div>
+
+    <div class="radar">
+      <div class="radar-sweep"></div>
+    </div>
+  </body>
+</html>
