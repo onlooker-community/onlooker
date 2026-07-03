@@ -1,12 +1,14 @@
-export type Result<T, E = Error> = { ok: true; data: T } | { ok: false; error: E };
+export type Result<T, E = Error> =
+	| { ok: true; data: T }
+	| { ok: false; error: E };
 
 export const ok = <T, E>(data: T): Result<T, E> => ({ ok: true, data });
 
 export const okVoid = <E>(): Result<void, E> => ({ ok: true, data: undefined });
 
 export const err = <E = Error>(error: E): Result<never, E> => ({
-  ok: false,
-  error,
+	ok: false,
+	error,
 });
 
 // Applies the given function `fn` to the data property of the input `result` object
@@ -38,9 +40,9 @@ export const err = <E = Error>(error: E): Result<never, E> => ({
 // console.log(wrappedDivideByTwo(result2)); // { ok: false, error: "Invalid input" }
 // console.log(wrappedDivideByTwo(result3)); // { ok: false, error: "Cannot divide zero" }
 export const wrap =
-  <T, R>(fn: (value: T) => R) =>
-  (result: Result<T>): Result<R> =>
-    result.ok ? { ok: true, data: fn(result.data) } : result;
+	<T, R>(fn: (value: T) => R) =>
+	(result: Result<T>): Result<R> =>
+		result.ok ? { ok: true, data: fn(result.data) } : result;
 
 // Matches the given `result` object against its `ok` property and invokes the `onSuccess` function
 // if `ok` is `true`, or the `onError` function if `ok` is `false`. Returns the result of the invoked function.
@@ -68,9 +70,9 @@ export const wrap =
 //  console.log(error); // Error: error happened
 // });
 export const match = <TSuccess, TError, TReturn>(
-  result: Result<TSuccess, TError>,
-  onSuccess: (value: TSuccess) => TReturn,
-  onError: (error: TError) => TReturn
+	result: Result<TSuccess, TError>,
+	onSuccess: (value: TSuccess) => TReturn,
+	onError: (error: TError) => TReturn,
 ): TReturn => (result.ok ? onSuccess(result.data) : onError(result.error));
 
 // Wraps a function `fn` that may throw an error into a new function that returns a `Result` object.
@@ -97,20 +99,22 @@ export const match = <TSuccess, TError, TReturn>(
 // const result1: Result<number> = wrappedDivideByTwo(10); // { ok: true, data: 5 }
 // const result2: Result<number> = wrappedDivideByTwo(0); // { ok: false, error: Error("Cannot divide zero") }
 export const wrapThrows =
-  <T, A extends unknown[]>(fn: (...args: A) => T): ((...args: A) => Result<T>) =>
-  (...args: A): Result<T> => {
-    try {
-      return {
-        ok: true,
-        data: fn(...args),
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error as Error,
-      };
-    }
-  };
+	<T, A extends unknown[]>(
+		fn: (...args: A) => T,
+	): ((...args: A) => Result<T>) =>
+	(...args: A): Result<T> => {
+		try {
+			return {
+				ok: true,
+				data: fn(...args),
+			};
+		} catch (error) {
+			return {
+				ok: false,
+				error: error as Error,
+			};
+		}
+	};
 
 // Wraps an asynchronous function `fn` that may throw an error into a new function that returns a `Result` object.
 // If the wrapped function throws an error, the returned `Result` object will have an `ok` property of `false`
@@ -137,17 +141,17 @@ export const wrapThrows =
 // const result1: Result<string> = await wrappedFetchData("https://example.com"); // { ok: true, data: "..." }
 // const result2: Result<string> = await wrappedFetchData("https://bad-url.com"); // { ok: false, error: Error("Network response was not ok") }
 export const wrapThrowsAsync =
-  <T, A extends unknown[]>(fn: (...args: A) => Promise<T>) =>
-  async (...args: A): Promise<Result<T>> => {
-    try {
-      return {
-        ok: true,
-        data: await fn(...args),
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error as Error,
-      };
-    }
-  };
+	<T, A extends unknown[]>(fn: (...args: A) => Promise<T>) =>
+	async (...args: A): Promise<Result<T>> => {
+		try {
+			return {
+				ok: true,
+				data: await fn(...args),
+			};
+		} catch (error) {
+			return {
+				ok: false,
+				error: error as Error,
+			};
+		}
+	};

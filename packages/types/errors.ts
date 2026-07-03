@@ -1,166 +1,213 @@
 import { z } from "zod";
 
-export const INVALID_PASSWORD_RESET_TOKEN_ERROR_CODE = "ERR_INVALID_PASSWORD_RESET_TOKEN";
+export type ErrorCode =
+	| "auth_token_missing"
+	| "auth_token_invalid"
+	| "auth_token_expired"
+	| "payment_required"
+	| "payment_method_failed"
+	| "subscription_past_due"
+	| "permission_denied"
+	| "permission_plan_required"
+	| "not_found_user"
+	| "invalid_request_body"
+	| "invalid_query_param"
+	| "invalid_path_param"
+	| "idempotency_key_reused"
+	| "rate_limit_exceeded"
+	| "internal_error"
+	| "unavailable_maintenance";
+
+export const ErrorResponseSchema = z
+	.object({
+		error: z
+			.object({
+				code: z.string(),
+				message: z.string(),
+				hint: z.string().optional(),
+				retriable: z.boolean(),
+				request_id: z.string(),
+				doc_url: z.string().url().optional(),
+				details: z.record(z.string(), z.unknown()).optional(),
+			})
+			.strict(),
+	})
+	.strict();
+
+export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
+
+export const INVALID_PASSWORD_RESET_TOKEN_ERROR_CODE =
+	"ERR_INVALID_PASSWORD_RESET_TOKEN";
 
 class ResourceNotFoundError extends Error {
-  statusCode = 404;
-  resourceId: string | null;
-  resourceType: string;
+	statusCode = 404;
+	resourceId: string | null;
+	resourceType: string;
 
-  constructor(resource: string, id: string | null) {
-    super(id ? `${resource} with ID ${id} not found` : `${resource} not found`);
-    this.name = "ResourceNotFoundError";
-    this.resourceType = resource;
-    this.resourceId = id;
-  }
+	constructor(resource: string, id: string | null) {
+		super(id ? `${resource} with ID ${id} not found` : `${resource} not found`);
+		this.name = "ResourceNotFoundError";
+		this.resourceType = resource;
+		this.resourceId = id;
+	}
 }
 
 class InvalidInputError extends Error {
-  statusCode = 400;
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidInputError";
-  }
+	statusCode = 400;
+	constructor(message: string) {
+		super(message);
+		this.name = "InvalidInputError";
+	}
 }
 
 class ValidationError extends Error {
-  statusCode = 400;
-  constructor(message: string) {
-    super(message);
-    this.name = "ValidationError";
-  }
+	statusCode = 400;
+	constructor(message: string) {
+		super(message);
+		this.name = "ValidationError";
+	}
 }
 
 class QueryExecutionError extends Error {
-  statusCode = 500;
-  constructor(message: string) {
-    super(message);
-    this.name = "QueryExecutionError";
-  }
+	statusCode = 500;
+	constructor(message: string) {
+		super(message);
+		this.name = "QueryExecutionError";
+	}
 }
 
 class UnknownError extends Error {
-  statusCode = 500;
-  constructor(message: string) {
-    super(message);
-    this.name = "UnknownError";
-  }
+	statusCode = 500;
+	constructor(message: string) {
+		super(message);
+		this.name = "UnknownError";
+	}
 }
 
 class DatabaseError extends Error {
-  statusCode = 500;
-  constructor(message: string) {
-    super(message);
-    this.name = "DatabaseError";
-  }
+	statusCode = 500;
+	constructor(message: string) {
+		super(message);
+		this.name = "DatabaseError";
+	}
 }
 
 class UniqueConstraintError extends Error {
-  statusCode = 409;
-  constructor(message: string) {
-    super(message);
-    this.name = "UniqueConstraintError";
-  }
+	statusCode = 409;
+	constructor(message: string) {
+		super(message);
+		this.name = "UniqueConstraintError";
+	}
 }
 
 class ForeignKeyConstraintError extends Error {
-  statusCode = 409;
-  constructor(message: string) {
-    super(message);
-    this.name = "ForeignKeyConstraintError";
-  }
+	statusCode = 409;
+	constructor(message: string) {
+		super(message);
+		this.name = "ForeignKeyConstraintError";
+	}
 }
 
 class OperationNotAllowedError extends Error {
-  statusCode = 403;
-  constructor(message: string) {
-    super(message);
-    this.name = "OperationNotAllowedError";
-  }
+	statusCode = 403;
+	constructor(message: string) {
+		super(message);
+		this.name = "OperationNotAllowedError";
+	}
 }
 
 class AuthenticationError extends Error {
-  statusCode = 401;
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthenticationError";
-  }
+	statusCode = 401;
+	constructor(message: string) {
+		super(message);
+		this.name = "AuthenticationError";
+	}
 }
 
 class AuthorizationError extends Error {
-  statusCode = 403;
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthorizationError";
-  }
+	statusCode = 403;
+	constructor(message: string) {
+		super(message);
+		this.name = "AuthorizationError";
+	}
 }
 
 class TooManyRequestsError extends Error {
-  statusCode = 429;
-  retryAfter?: number;
-  constructor(message: string, retryAfter?: number) {
-    super(message);
-    this.name = "TooManyRequestsError";
-    this.retryAfter = retryAfter;
-  }
+	statusCode = 429;
+	retryAfter?: number;
+	constructor(message: string, retryAfter?: number) {
+		super(message);
+		this.name = "TooManyRequestsError";
+		this.retryAfter = retryAfter;
+	}
 }
 
 class InvalidPasswordResetTokenError extends Error {
-  statusCode = 400;
-  code: string;
-  reason?: string;
-  userId?: string;
-  constructor(code = INVALID_PASSWORD_RESET_TOKEN_ERROR_CODE, reason?: string, userId?: string) {
-    super(code);
-    this.name = "InvalidPasswordResetTokenError";
-    this.code = code;
-    this.reason = reason;
-    this.userId = userId;
-  }
+	statusCode = 400;
+	code: string;
+	reason?: string;
+	userId?: string;
+	constructor(
+		code = INVALID_PASSWORD_RESET_TOKEN_ERROR_CODE,
+		reason?: string,
+		userId?: string,
+	) {
+		super(code);
+		this.name = "InvalidPasswordResetTokenError";
+		this.code = code;
+		this.reason = reason;
+		this.userId = userId;
+	}
 }
 
 interface NetworkError {
-  code: "network_error";
-  message: string;
-  status: number;
-  url: URL;
-  responseMessage?: string;
-  details?: Record<string, string | string[] | number | number[] | boolean | boolean[]>;
+	code: "network_error";
+	message: string;
+	status: number;
+	url: URL;
+	responseMessage?: string;
+	details?: Record<
+		string,
+		string | string[] | number | number[] | boolean | boolean[]
+	>;
 }
 
 interface ForbiddenError {
-  code: "forbidden";
-  message: string;
-  status: number;
-  url: URL;
-  responseMessage?: string;
-  details?: Record<string, string | string[] | number | number[] | boolean | boolean[]>;
+	code: "forbidden";
+	message: string;
+	status: number;
+	url: URL;
+	responseMessage?: string;
+	details?: Record<
+		string,
+		string | string[] | number | number[] | boolean | boolean[]
+	>;
 }
 
 export const ZErrorHandler = z.function({ input: [z.any()], output: z.void() });
 
+export type { ForbiddenError, NetworkError };
 export {
-  ResourceNotFoundError,
-  InvalidInputError,
-  ValidationError,
-  QueryExecutionError,
-  DatabaseError,
-  UniqueConstraintError,
-  UnknownError,
-  ForeignKeyConstraintError,
-  OperationNotAllowedError,
-  AuthenticationError,
-  AuthorizationError,
-  TooManyRequestsError,
-  InvalidPasswordResetTokenError,
+	AuthenticationError,
+	AuthorizationError,
+	DatabaseError,
+	ForeignKeyConstraintError,
+	InvalidInputError,
+	InvalidPasswordResetTokenError,
+	OperationNotAllowedError,
+	QueryExecutionError,
+	ResourceNotFoundError,
+	TooManyRequestsError,
+	UniqueConstraintError,
+	UnknownError,
+	ValidationError,
 };
-export type { NetworkError, ForbiddenError };
 
 export const FILE_UPLOAD_ERROR_NAMES = {
-  INVALID_FILE_NAME: "InvalidFileNameError",
-  STORAGE_NOT_CONFIGURED: "StorageNotConfiguredError",
-  STORAGE_UPLOAD_FAILED: "StorageUploadFailedError",
-  FILE_TOO_LARGE: "FileTooLargeError",
+	INVALID_FILE_NAME: "InvalidFileNameError",
+	STORAGE_NOT_CONFIGURED: "StorageNotConfiguredError",
+	STORAGE_UPLOAD_FAILED: "StorageUploadFailedError",
+	FILE_TOO_LARGE: "FileTooLargeError",
 } as const;
 
 /**
@@ -168,42 +215,46 @@ export const FILE_UPLOAD_ERROR_NAMES = {
  * These are handled gracefully in the UI and should NOT be reported to Sentry.
  */
 export const EXPECTED_ERROR_NAMES = new Set([
-  "ResourceNotFoundError",
-  "AuthorizationError",
-  "InvalidInputError",
-  "ValidationError",
-  "QueryExecutionError",
-  "AuthenticationError",
-  "OperationNotAllowedError",
-  "TooManyRequestsError",
-  "InvalidPasswordResetTokenError",
-  "UniqueConstraintError",
-  "RequestBodyTooLargeError",
+	"ResourceNotFoundError",
+	"AuthorizationError",
+	"InvalidInputError",
+	"ValidationError",
+	"QueryExecutionError",
+	"AuthenticationError",
+	"OperationNotAllowedError",
+	"TooManyRequestsError",
+	"InvalidPasswordResetTokenError",
+	"UniqueConstraintError",
+	"RequestBodyTooLargeError",
 ]);
 
 /**
  * Check whether an error is an expected business-logic failure.
  * Works with both error instances and serialised errors (where only `name` survives).
  */
-export const isExpectedError = (error: Error): boolean => EXPECTED_ERROR_NAMES.has(error.name);
+export const isExpectedError = (error: Error): boolean =>
+	EXPECTED_ERROR_NAMES.has(error.name);
 
 export interface ApiErrorResponse {
-  code:
-    | "not_found"
-    | "gone"
-    | "bad_request"
-    | "internal_server_error"
-    | "unauthorized"
-    | "method_not_allowed"
-    | "not_authenticated"
-    | "forbidden"
-    | "network_error"
-    | "too_many_requests";
-  message: string;
-  status: number;
-  url?: URL;
-  details?: Record<string, string | string[] | number | number[] | boolean | boolean[]>;
-  responseMessage?: string;
+	code:
+		| "not_found"
+		| "gone"
+		| "bad_request"
+		| "internal_server_error"
+		| "unauthorized"
+		| "method_not_allowed"
+		| "not_authenticated"
+		| "forbidden"
+		| "network_error"
+		| "too_many_requests";
+	message: string;
+	status: number;
+	url?: URL;
+	details?: Record<
+		string,
+		string | string[] | number | number[] | boolean | boolean[]
+	>;
+	responseMessage?: string;
 }
 
 /**
@@ -212,27 +263,27 @@ export interface ApiErrorResponse {
 export type ClientErrorType = "rate_limit" | "general";
 
 export interface ClientErrorData {
-  /** Error type to determine which translations to use */
-  type: ClientErrorType;
-  /** Whether to show action buttons */
-  showButtons?: boolean;
+	/** Error type to determine which translations to use */
+	type: ClientErrorType;
+	/** Whether to show action buttons */
+	showButtons?: boolean;
 }
 
 /**
  * Helper function to get error data from any error for UI display
  */
 export const getClientErrorData = (error: Error): ClientErrorData => {
-  // Check by error name as fallback (in case instanceof fails due to module loading issues)
-  if (error.name === "TooManyRequestsError") {
-    return {
-      type: "rate_limit",
-      showButtons: false,
-    };
-  }
+	// Check by error name as fallback (in case instanceof fails due to module loading issues)
+	if (error.name === "TooManyRequestsError") {
+		return {
+			type: "rate_limit",
+			showButtons: false,
+		};
+	}
 
-  // Default to general error for any other error
-  return {
-    type: "general",
-    showButtons: true,
-  };
+	// Default to general error for any other error
+	return {
+		type: "general",
+		showButtons: true,
+	};
 };
