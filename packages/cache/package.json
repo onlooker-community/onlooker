@@ -1,0 +1,49 @@
+{
+  "name": "@onlooker/cache",
+  "private": true,
+  "type": "module",
+  "homepage": "https://onlooker.dev",
+  "description": "Unified Redis cache for Onlooker services with robust validation and error handling",
+  "main": "./dist/index.js",
+  "types": "./dist/src/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/onlooker-community/onlooker"
+  },
+  "keywords": [
+    "onlooker",
+    "cache",
+    "redis"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "types": "./dist/src/index.d.ts",
+    "import": "./dist/index.js",
+    "require": "./dist/index.cjs"
+  },
+  "scripts": {
+    "clean": "rimraf .turbo node_modules coverage dist",
+    "lint": "biome check",
+    "lint:fix": "biome lint --write",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "go": "vite build --watch --mode dev"
+  },
+  "author": "Onlooker Community <community@onlooker.dev>",
+  "dependencies": {
+    "@onlooker/logger": "workspace:*",
+    "redis": "6.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@onlooker/config-typescript": "workspace:*",
+    "@vitest/coverage-v8": "4.1.9",
+    "vite": "8.0.16",
+    "vite-plugin-dts": "5.0.2",
+    "vitest": "4.1.9"
+  }
+}
