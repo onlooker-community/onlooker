@@ -14,6 +14,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.0
         version: 2.5.0
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:packages/config-biome
       '@playwright/test':
         specifier: 1.61.0
         version: 1.61.0
@@ -60,9 +63,25 @@ importers:
         specifier: ^4.93.0
         version: 4.102.0
     devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../../packages/config-biome
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
+
+  packages/auth:
+    dependencies:
+      '@onlooker/logger':
+        specifier: workspace:*
+        version: link:../logger
+    devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../config-biome
+      '@onlooker/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
 
   packages/cache:
     dependencies:
@@ -76,6 +95,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../config-biome
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
@@ -91,6 +113,12 @@ importers:
       vitest:
         specifier: 4.1.9
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/config-biome:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 2.5.0
+        version: 2.5.0
 
   packages/config-typescript:
     devDependencies:
@@ -122,9 +150,15 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../config-biome
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
+      '@onlooker/types':
+        specifier: workspace:*
+        version: link:../types
       vite:
         specifier: 8.0.16
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
@@ -141,12 +175,18 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../config-biome
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
 
   packages/vite-plugins:
     devDependencies:
+      '@onlooker/config-biome':
+        specifier: workspace:*
+        version: link:../config-biome
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
