@@ -1,0 +1,28 @@
+{
+  "name": "@onlooker/auth-react",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "biome check src",
+    "lint:fix": "biome check --write src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@onlooker/auth-core": "workspace:*",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@onlooker/config-biome": "workspace:*",
+    "@onlooker/config-typescript": "workspace:*",
+    "@types/react": "^18.3.1",
+    "typescript": "^5.6.3"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  }
+}
