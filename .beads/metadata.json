@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "onlooker",
+  "project_id": "88bf4be5-de3b-4e53-87c0-ffda48fa8100"
+}
