@@ -29,7 +29,7 @@ export function copyCompiledAssetsPlugin(
 		name: "copy-compiled-assets",
 		apply: "build",
 
-		configResolved(_config) {
+		configResolved(_config: ResolvedConfig) {
 			config = _config;
 		},
 

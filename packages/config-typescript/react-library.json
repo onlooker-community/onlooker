@@ -4,6 +4,7 @@
 		"jsx": "react-jsx",
 		"lib": ["ES2015", "DOM"],
 		"module": "ESNext",
+		"moduleResolution": "bundler",
 		"target": "ES2022"
 	},
 	"display": "React Library",

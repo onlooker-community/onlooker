@@ -13,7 +13,10 @@
 		"preserveWatchOutput": true,
 		"skipLibCheck": true,
 		"strict": true,
-		"strictNullChecks": true
+		"strictNullChecks": true,
+		"paths": {
+			"@onlooker/*": ["../../packages/*/src"]
+		}
 	},
 	"display": "Default",
 	"exclude": ["node_modules", "dist"]

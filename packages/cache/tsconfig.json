@@ -2,6 +2,7 @@
 	"compilerOptions": {
 		"allowImportingTsExtensions": true,
 		"isolatedModules": true,
+		"lib": ["ES2022"],
 		"noEmit": true,
 		"paths": {
 			"@/*": ["./*"]

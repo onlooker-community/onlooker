@@ -485,6 +485,9 @@ describe("Cache Integration Tests - End-to-End Redis Operations", () => {
 
 		// Verify each operation behaved correctly
 		results.forEach(({ i, firstCall, secondCall }) => {
+			if (!firstCall || !secondCall) {
+				throw new Error("Unexpected undefined cache result");
+			}
 			// First call should have executed the function
 			expect(firstCall.id).toBe(i);
 
