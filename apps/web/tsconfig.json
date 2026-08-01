@@ -1,7 +1,10 @@
 {
   "extends": "@onlooker/config-typescript/react-library.json",
   "compilerOptions": {
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "paths": {
+      "@onlooker/*": ["../../packages/*/src"]
+    }
   },
   "include": ["src"],
   "exclude": ["dist", "node_modules"]
