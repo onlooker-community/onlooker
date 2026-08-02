@@ -20,7 +20,21 @@
 		"test:e2e": "playwright test",
 		"test-e2e:azure": "pnpm test:e2e -c playwright.service.config.ts --workers=10",
 		"storybook": "turbo run storybook",
-		"dev:setup": "bash ./scripts/setup-dev-env.sh"
+		"dev:setup": "bash ./scripts/setup-dev-env.sh",
+		"deploy": "pnpm deploy:api && pnpm deploy:web",
+		"deploy:staging": "pnpm deploy:api:staging && pnpm deploy:web:staging",
+		"deploy:prod": "pnpm deploy:api:prod && pnpm deploy:web:prod",
+		"deploy:api": "pnpm --filter @onlooker/api deploy",
+		"deploy:api:staging": "pnpm --filter @onlooker/api deploy --env staging",
+		"deploy:api:prod": "pnpm --filter @onlooker/api deploy --env production",
+		"deploy:web": "pnpm --filter @onlooker/web deploy",
+		"deploy:web:staging": "pnpm --filter @onlooker/web deploy --env staging",
+		"deploy:web:prod": "pnpm --filter @onlooker/web deploy --env production",
+		"tail:api": "pnpm wrangler tail --env production",
+		"tail:api:staging": "pnpm wrangler tail --env staging",
+		"db:backup": "pnpm wrangler d1 export onlooker-db > backup_$(date +%s).sql",
+		"db:migrate": "pnpm wrangler d1 migrations apply onlooker-db --remote",
+		"cloudflare:login": "pnpm wrangler login"
 	},
 	"devDependencies": {
 		"@azure/playwright": "1.1.6",

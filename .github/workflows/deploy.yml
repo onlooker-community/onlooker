@@ -1,0 +1,220 @@
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '11.0.9'
+
+jobs:
+  # ============================================================================
+  # LINT AND TYPECHECK
+  # ============================================================================
+  quality:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace:
+          - '@onlooker/api'
+          - '@onlooker/web'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (${{ matrix.workspace }})
+        run: pnpm --filter ${{ matrix.workspace }} lint
+
+      - name: TypeCheck (${{ matrix.workspace }})
+        run: pnpm --filter ${{ matrix.workspace }} typecheck
+
+  # ============================================================================
+  # BUILD AND TEST
+  # ============================================================================
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: quality
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter @onlooker/api build
+
+      - name: Build Web
+        run: pnpm --filter @onlooker/web build
+
+      - name: Test
+        run: pnpm test --cache=local:rw
+
+  # ============================================================================
+  # DEPLOY TO STAGING
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.onlooker.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter @onlooker/api build
+
+      - name: Build Web
+        run: pnpm --filter @onlooker/web build
+
+      - name: Deploy API to Staging
+        run: pnpm --filter @onlooker/api deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Web to Staging
+        run: pnpm --filter @onlooker/web deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Notify Deployment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const deployment_url = 'https://staging.onlooker.example.com';
+            const commit_sha = '${{ github.sha }}'.substring(0, 7);
+
+            console.log(`Staging deployment: ${status}`);
+            console.log(`URL: ${deployment_url}`);
+            console.log(`Commit: ${commit_sha}`);
+
+  # ============================================================================
+  # DEPLOY TO PRODUCTION
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://onlooker.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter @onlooker/api build
+
+      - name: Build Web
+        run: pnpm --filter @onlooker/web build
+
+      - name: Deploy API to Production
+        run: pnpm --filter @onlooker/api deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Web to Production
+        run: pnpm --filter @onlooker/web deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Notify Deployment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const deployment_url = 'https://onlooker.example.com';
+            const commit_sha = '${{ github.sha }}'.substring(0, 7);
+
+            console.log(`Production deployment: ${status}`);
+            console.log(`URL: ${deployment_url}`);
+            console.log(`Commit: ${commit_sha}`);
+
+      - name: Create Deployment Status
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment.id,
+              state: 'success',
+              environment_url: 'https://onlooker.example.com',
+              description: 'Deployment to Cloudflare completed'
+            });

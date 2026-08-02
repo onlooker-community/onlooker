@@ -1,0 +1,100 @@
+name = "onlooker-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-16"
+compatibility_flags = ["nodejs_compat"]
+
+# Routes configuration
+routes = [
+  { pattern = "api.onlooker.example.com/*", zone_name = "example.com" }
+]
+
+# ============================================================================
+# DEVELOPMENT ENVIRONMENT
+# ============================================================================
+[env.development.vars]
+DB_HOST = "localhost"
+DB_PORT = "5432"
+DB_NAME = "onlooker_dev"
+JWT_SECRET = "dev-secret-key-change-in-production"
+TOKEN_EXPIRY_MINUTES = "180"
+REFRESH_TOKEN_EXPIRY_DAYS = "30"
+ENVIRONMENT = "development"
+CORS_ORIGIN = "http://localhost:5173"
+
+# Development: Use local D1 database (if available)
+# Uncomment to test with local D1
+# [[env.development.d1_databases]]
+# binding = "DB"
+# database_name = "onlooker_dev"
+# database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# ============================================================================
+# STAGING ENVIRONMENT
+# ============================================================================
+[env.staging.vars]
+DB_HOST = "staging-db.onlooker.example.com"
+DB_PORT = "5432"
+DB_NAME = "onlooker_staging"
+TOKEN_EXPIRY_MINUTES = "180"
+REFRESH_TOKEN_EXPIRY_DAYS = "30"
+ENVIRONMENT = "staging"
+CORS_ORIGIN = "https://staging.onlooker.example.com"
+
+# Staging: Use staging D1 database
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "onlooker_staging"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Staging: KV namespace for token revocation and caching
+[[env.staging.kv_namespaces]]
+binding = "TOKEN_CACHE"
+id = "xxxxxxxx"
+preview_id = "yyyyyyyy"
+
+# ============================================================================
+# PRODUCTION ENVIRONMENT
+# ============================================================================
+[env.production.vars]
+DB_HOST = "prod-db.onlooker.example.com"
+DB_PORT = "5432"
+DB_NAME = "onlooker_prod"
+TOKEN_EXPIRY_MINUTES = "180"
+REFRESH_TOKEN_EXPIRY_DAYS = "30"
+ENVIRONMENT = "production"
+CORS_ORIGIN = "https://onlooker.example.com"
+
+# Production: Use production D1 database
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "onlooker-db"
+database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
+
+# Production: KV namespace for token revocation and caching
+[[env.production.kv_namespaces]]
+binding = "TOKEN_CACHE"
+id = "yyyyyyyy"
+preview_id = "zzzzzzzz"
+
+# ============================================================================
+# BUILD CONFIGURATION
+# ============================================================================
+[build]
+command = "pnpm build"
+cwd = "."
+
+[build.upload]
+format = "service-worker"
+
+# ============================================================================
+# OBSERVABILITY & MONITORING
+# ============================================================================
+[observability]
+enabled = true
+
+# ============================================================================
+# TAIL WORKERS FOR LOCAL DEVELOPMENT
+# ============================================================================
+[tail]
+# Enable tail for local testing: wrangler tail --env development
+# This streams real-time logs to your terminal
