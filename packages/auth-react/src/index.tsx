@@ -1,4 +1,8 @@
-import { AuthApiError, type AuthResponse, type AuthSession } from "@onlooker/auth-core";
+import {
+	AuthApiError,
+	type AuthResponse,
+	type AuthSession,
+} from "@onlooker/auth-core";
 import { createContext, useContext } from "react";
 
 // ============================================================================
@@ -13,7 +17,9 @@ export interface AuthTokenStorage {
 
 export function createLocalStorageTokenStorage(
 	key: string = "auth_token",
-	storage: Storage = typeof window !== "undefined" ? window.localStorage : (undefined as any),
+	storage: Storage = typeof window !== "undefined"
+		? window.localStorage
+		: (undefined as any),
 ): AuthTokenStorage {
 	return {
 		getToken: () => {
@@ -55,7 +61,8 @@ export interface AuthApiClientOptions {
 }
 
 export function createAuthApiClient(options: AuthApiClientOptions) {
-	const fetchImpl = options.fetchImpl ?? (typeof fetch !== "undefined" ? fetch : undefined);
+	const fetchImpl =
+		options.fetchImpl ?? (typeof fetch !== "undefined" ? fetch : undefined);
 	const baseUrl = options.baseUrl ?? "";
 
 	if (!fetchImpl) {
@@ -94,7 +101,8 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 			throw new AuthApiError(
 				response.status,
 				(data as any).error ?? "unknown_error",
-				(data as any).message ?? `Request failed with status ${response.status}`,
+				(data as any).message ??
+					`Request failed with status ${response.status}`,
 				(data as any).details,
 			);
 		}
@@ -124,11 +132,11 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 // ============================================================================
 
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
 	useState,
-	type ReactNode,
 } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
@@ -137,9 +145,17 @@ export interface CreateReactAuthOptions<TUser, TExtra extends object> {
 	initialState: TExtra;
 	loadSession: () => Promise<AuthSession<TUser, TExtra>>;
 	login: (email: string, password: string) => Promise<AuthResponse<TUser>>;
-	signup: (email: string, password: string, name?: string) => Promise<AuthResponse<TUser>>;
-	hydrateAfterLogin?: (response: AuthResponse<TUser>) => Promise<AuthSession<TUser, TExtra>>;
-	hydrateAfterSignup?: (response: AuthResponse<TUser>) => Promise<AuthSession<TUser, TExtra>>;
+	signup: (
+		email: string,
+		password: string,
+		name?: string,
+	) => Promise<AuthResponse<TUser>>;
+	hydrateAfterLogin?: (
+		response: AuthResponse<TUser>,
+	) => Promise<AuthSession<TUser, TExtra>>;
+	hydrateAfterSignup?: (
+		response: AuthResponse<TUser>,
+	) => Promise<AuthSession<TUser, TExtra>>;
 	refreshSession?: () => Promise<AuthSession<TUser, TExtra>>;
 	logout?: () => Promise<void> | void;
 }
@@ -149,11 +165,11 @@ export type ReactAuthState<TUser, TExtra extends object> = {
 	loading: boolean;
 	error: string | null;
 } & TExtra & {
-	login: (email: string, password: string) => Promise<void>;
-	signup: (email: string, password: string, name?: string) => Promise<void>;
-	logout: () => Promise<void>;
-	refresh: () => Promise<void>;
-};
+		login: (email: string, password: string) => Promise<void>;
+		signup: (email: string, password: string, name?: string) => Promise<void>;
+		logout: () => Promise<void>;
+		refresh: () => Promise<void>;
+	};
 
 export function createReactAuth<TUser, TExtra extends object>(
 	options: CreateReactAuthOptions<TUser, TExtra>,
@@ -179,12 +195,9 @@ export function createReactAuth<TUser, TExtra extends object>(
 			...initialExtraState,
 		});
 
-		const setPartialState = useCallback(
-			(partial: Record<string, any>) => {
-				setState((current: any) => ({ ...current, ...partial }));
-			},
-			[],
-		);
+		const setPartialState = useCallback((partial: Record<string, any>) => {
+			setState((current: any) => ({ ...current, ...partial }));
+		}, []);
 
 		const applySession = useCallback((session: AuthSession<TUser, TExtra>) => {
 			const { user, ...extra } = session;
@@ -209,7 +222,8 @@ export function createReactAuth<TUser, TExtra extends object>(
 		useEffect(() => {
 			if (!options.tokenStorage.getToken()) return;
 
-			options.loadSession()
+			options
+				.loadSession()
 				.then(applySession)
 				.catch(() => {
 					options.tokenStorage.clearToken();
@@ -217,41 +231,55 @@ export function createReactAuth<TUser, TExtra extends object>(
 				});
 		}, [applySession, resetState]);
 
-		const login = useCallback(async (email: string, password: string) => {
-			setPartialState({ error: null, loading: true });
-			try {
-				const response = await options.login(email, password);
-				options.tokenStorage.setToken(response.token);
+		const login = useCallback(
+			async (email: string, password: string) => {
+				setPartialState({ error: null, loading: true });
+				try {
+					const response = await options.login(email, password);
+					options.tokenStorage.setToken(response.token);
 
-				const session = options.hydrateAfterLogin
-					? await options.hydrateAfterLogin(response)
-					: ({ user: response.user, ...initialExtraState } as AuthSession<TUser, TExtra>);
+					const session = options.hydrateAfterLogin
+						? await options.hydrateAfterLogin(response)
+						: ({ user: response.user, ...initialExtraState } as AuthSession<
+								TUser,
+								TExtra
+							>);
 
-				applySession(session);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : "Login failed";
-				setPartialState({ error: message, loading: false });
-				throw error;
-			}
-		}, [applySession, initialExtraState, setPartialState]);
+					applySession(session);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : "Login failed";
+					setPartialState({ error: message, loading: false });
+					throw error;
+				}
+			},
+			[applySession, initialExtraState, setPartialState],
+		);
 
-		const signup = useCallback(async (email: string, password: string, name?: string) => {
-			setPartialState({ error: null, loading: true });
-			try {
-				const response = await options.signup(email, password, name);
-				options.tokenStorage.setToken(response.token);
+		const signup = useCallback(
+			async (email: string, password: string, name?: string) => {
+				setPartialState({ error: null, loading: true });
+				try {
+					const response = await options.signup(email, password, name);
+					options.tokenStorage.setToken(response.token);
 
-				const session = options.hydrateAfterSignup
-					? await options.hydrateAfterSignup(response)
-					: ({ user: response.user, ...initialExtraState } as AuthSession<TUser, TExtra>);
+					const session = options.hydrateAfterSignup
+						? await options.hydrateAfterSignup(response)
+						: ({ user: response.user, ...initialExtraState } as AuthSession<
+								TUser,
+								TExtra
+							>);
 
-				applySession(session);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : "Signup failed";
-				setPartialState({ error: message, loading: false });
-				throw error;
-			}
-		}, [applySession, initialExtraState, setPartialState]);
+					applySession(session);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : "Signup failed";
+					setPartialState({ error: message, loading: false });
+					throw error;
+				}
+			},
+			[applySession, initialExtraState, setPartialState],
+		);
 
 		const logout = useCallback(async () => {
 			options.tokenStorage.clearToken();
@@ -313,5 +341,5 @@ export function createReactAuth<TUser, TExtra extends object>(
 	};
 }
 
-export type { AuthApiError };
 export type { AuthResponse, AuthSession };
+export { AuthApiError };

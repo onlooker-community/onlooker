@@ -22,7 +22,10 @@ export default function LoginPage() {
 	};
 
 	return (
-		<form onSubmit={handleSubmit} style={{ maxWidth: "400px", margin: "0 auto", padding: "2rem" }}>
+		<form
+			onSubmit={handleSubmit}
+			style={{ maxWidth: "400px", margin: "0 auto", padding: "2rem" }}
+		>
 			<h1>Login</h1>
 
 			{(error || authError) && (

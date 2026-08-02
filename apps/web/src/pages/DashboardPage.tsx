@@ -18,7 +18,11 @@ export default function DashboardPage() {
 					<p>Welcome, {user.name || user.email}!</p>
 					<p>Email: {user.email}</p>
 					<p>User ID: {user.id}</p>
-					<button onClick={handleLogout} style={{ padding: "0.75rem 1.5rem", cursor: "pointer" }}>
+					<button
+						type="button"
+						onClick={handleLogout}
+						style={{ padding: "0.75rem 1.5rem", cursor: "pointer" }}
+					>
 						Logout
 					</button>
 				</>
