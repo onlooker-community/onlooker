@@ -1,13 +1,23 @@
-// Phase 1: Integration test - verify auth-react exports are accessible
-import { AuthProvider } from "@onlooker/auth-react";
+import { Routes, Route } from "react-router-dom";
+import HomePage from "./pages/HomePage";
+import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
+import { auth } from "./auth";
 
 export default function App() {
 	return (
-		<AuthProvider>
-			<div>
-				<h1>Onlooker Web App</h1>
-				<p>Scaffold ready for feature development.</p>
-			</div>
-		</AuthProvider>
+		<Routes>
+			<Route path="/" element={<HomePage />} />
+			<Route path="/login" element={<LoginPage />} />
+			<Route
+				path="/dashboard"
+				element={
+					<auth.RequireAuth>
+						<DashboardPage />
+					</auth.RequireAuth>
+				}
+			/>
+			<Route path="*" element={<div>404 Not Found</div>} />
+		</Routes>
 	);
 }
