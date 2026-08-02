@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalStorageTokenStorage } from "./index";
 
 describe("createLocalStorageTokenStorage", () => {
@@ -26,26 +26,38 @@ describe("createLocalStorageTokenStorage", () => {
 	};
 
 	it("stores and retrieves token", () => {
-		const storage = createLocalStorageTokenStorage("auth_token", createMockStorage());
+		const storage = createLocalStorageTokenStorage(
+			"auth_token",
+			createMockStorage(),
+		);
 		storage.setToken("test-token-123");
 		expect(storage.getToken()).toBe("test-token-123");
 	});
 
 	it("clears token", () => {
-		const storage = createLocalStorageTokenStorage("auth_token", createMockStorage());
+		const storage = createLocalStorageTokenStorage(
+			"auth_token",
+			createMockStorage(),
+		);
 		storage.setToken("test-token-123");
 		storage.clearToken();
 		expect(storage.getToken()).toBeNull();
 	});
 
 	it("returns null if no token is set", () => {
-		const storage = createLocalStorageTokenStorage("auth_token", createMockStorage());
+		const storage = createLocalStorageTokenStorage(
+			"auth_token",
+			createMockStorage(),
+		);
 		expect(storage.getToken()).toBeNull();
 	});
 
 	it("uses custom key", () => {
 		const mockStorageInstance = createMockStorage();
-		const storage = createLocalStorageTokenStorage("custom_key", mockStorageInstance);
+		const storage = createLocalStorageTokenStorage(
+			"custom_key",
+			mockStorageInstance,
+		);
 		storage.setToken("token-123");
 		expect(mockStorageInstance.getItem("custom_key")).toBe("token-123");
 	});

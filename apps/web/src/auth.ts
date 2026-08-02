@@ -1,10 +1,17 @@
 import type { AuthResponse, AuthSession } from "@onlooker/auth-react";
+import { createReactAuth } from "@onlooker/auth-react";
 import {
-	createAuthApiClient,
-	createLocalStorageTokenStorage,
-	createReactAuth,
-} from "@onlooker/auth-react";
-import { createMockFetch } from "./api/mockApi";
+	activeApiConfig,
+	apiClient,
+	refreshTokens,
+	setUnauthorizedHandler,
+	tokenStore,
+} from "./api/client";
+import {
+	AUTH_ENDPOINTS,
+	type AuthTokenResponse,
+	type MeResponse,
+} from "./api/types";
 
 export interface User {
 	id: string;
@@ -12,53 +19,86 @@ export interface User {
 	name?: string;
 }
 
-export type AppAuthState = {};
+// Empty extra session state. `Record<never, never>` (not `Record<string, never>`)
+// avoids an index signature that would clash with the `user` field in AuthSession.
+export type AppAuthState = Record<never, never>;
 
-const tokenStorage =
-	typeof window !== "undefined"
-		? createLocalStorageTokenStorage("auth_token")
-		: { getToken: () => null, setToken: () => {}, clearToken: () => {} };
-
-const mockFetch = createMockFetch();
-
-const apiClient = createAuthApiClient({
-	baseUrl: "",
-	tokenStorage,
-	fetchImpl: mockFetch as typeof fetch,
-});
+// Coordination seam: the real API client lives in `./api/client`. Re-exported
+// here so existing consumers importing from `../auth` keep working while
+// workstreams migrate to importing `../api/client` directly.
+export {
+	apiClient,
+	authenticatedFetch,
+	refreshTokens,
+	tokenStore,
+} from "./api/client";
 
 export const auth = createReactAuth<User, AppAuthState>({
-	tokenStorage,
+	tokenStorage: tokenStore,
 	initialState: {},
 	loadSession: async (): Promise<AuthSession<User, AppAuthState>> => {
-		try {
-			const response = await apiClient.get<{ user: User }>("/auth/me");
-			return { user: response.user };
-		} catch {
-			return { user: null as any };
-		}
+		// Throws on failure (e.g. unrecoverable 401); createReactAuth resets state.
+		const response = await apiClient.get<MeResponse>(AUTH_ENDPOINTS.me);
+		return { user: response.user };
 	},
 	login: async (
 		email: string,
 		password: string,
 	): Promise<AuthResponse<User>> => {
-		return apiClient.post<AuthResponse<User>>("/auth/login", {
-			email,
-			password,
-		});
+		const response = await apiClient.post<AuthTokenResponse>(
+			AUTH_ENDPOINTS.login,
+			{ email, password },
+		);
+		tokenStore.setRefreshToken(response.refreshToken);
+		return { token: response.token, user: response.user };
 	},
 	signup: async (
 		email: string,
 		password: string,
 		name?: string,
 	): Promise<AuthResponse<User>> => {
-		return apiClient.post<AuthResponse<User>>("/auth/signup", {
-			email,
-			password,
-			name,
-		});
+		const response = await apiClient.post<AuthTokenResponse>(
+			AUTH_ENDPOINTS.signup,
+			{ email, password, name },
+		);
+		tokenStore.setRefreshToken(response.refreshToken);
+		return { token: response.token, user: response.user };
 	},
 	logout: async () => {
-		await apiClient.post("/auth/logout", {});
+		try {
+			await apiClient.post(AUTH_ENDPOINTS.logout, {});
+		} finally {
+			// Always clear local tokens even if the server call fails.
+			tokenStore.clear();
+		}
 	},
+	// WS3: proactive, scheduled refresh (fires ~1 min before token expiry),
+	// layered on top of the reactive on-401 refresh in ./api/client. Both reuse
+	// the same single-flight refreshTokens(), so proactive and reactive refresh
+	// can never race. Throwing forces the factory to re-login.
+	refreshSession: async (): Promise<AuthSession<User, AppAuthState>> => {
+		const refreshed = await refreshTokens();
+		if (!refreshed) {
+			throw new Error("Session refresh failed");
+		}
+		const response = await apiClient.get<MeResponse>(AUTH_ENDPOINTS.me);
+		return { user: response.user };
+	},
+	// WS3: extra cleanup for reactive logout paths (failed refresh, cross-tab
+	// logout) where the API logout call is skipped — clears the refresh token
+	// too, which the factory's access-token storage doesn't own.
+	onLogoutCleanup: () => {
+		tokenStore.clear();
+	},
+	// WS3: cross-tab sync watches this localStorage key for login/logout in
+	// other tabs. Kept in lock-step with the client's configured access key.
+	tokenStorageKey: activeApiConfig.tokenStorageKey,
+});
+
+// WS3: route the API client's terminal-401 signal (a mid-session request whose
+// token refresh failed) to a local-only session reset, so RequireAuth redirects
+// to /login. Local-only (never POSTs /auth/logout) so it can't re-enter the
+// client's 401 path and loop.
+setUnauthorizedHandler(() => {
+	auth.expireSession();
 });

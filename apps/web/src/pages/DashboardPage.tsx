@@ -1,9 +1,18 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
+import SessionExpiryBanner from "../components/SessionExpiryBanner";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
+import type { DashboardData } from "../types/api";
 
 export default function DashboardPage() {
 	const { user, logout } = auth.useAuth();
 	const navigate = useNavigate();
+	const {
+		data: dashboard,
+		loading,
+		error,
+		refetch,
+	} = useAuthenticatedFetch<DashboardData>("/api/dashboard");
 
 	const handleLogout = async () => {
 		await logout();
@@ -11,22 +20,85 @@ export default function DashboardPage() {
 	};
 
 	return (
-		<div style={{ padding: "2rem" }}>
+		<div style={{ maxWidth: "720px", margin: "0 auto", padding: "2rem" }}>
 			<h1>Dashboard</h1>
-			{user && (
-				<>
-					<p>Welcome, {user.name || user.email}!</p>
-					<p>Email: {user.email}</p>
-					<p>User ID: {user.id}</p>
-					<button
-						type="button"
-						onClick={handleLogout}
-						style={{ padding: "0.75rem 1.5rem", cursor: "pointer" }}
+			<SessionExpiryBanner />
+
+			{user && <p>Welcome, {user.name || user.email}!</p>}
+
+			<nav style={{ display: "flex", gap: "1rem", margin: "1rem 0" }}>
+				<Link to="/profile">Profile</Link>
+				<Link to="/settings">Settings</Link>
+				<a href="#recent-activity">Activity log</a>
+			</nav>
+
+			<section>
+				<h2>Overview</h2>
+				{loading && <p>Loading your dashboard…</p>}
+				{error && !loading && (
+					<div style={{ color: "red" }}>
+						<p>Could not load dashboard data: {error}</p>
+						<button
+							type="button"
+							onClick={() => refetch()}
+							style={{ padding: "0.5rem 1rem", cursor: "pointer" }}
+						>
+							Retry
+						</button>
+					</div>
+				)}
+				{dashboard && !loading && (
+					<ul
+						style={{
+							display: "flex",
+							gap: "2rem",
+							listStyle: "none",
+							padding: 0,
+						}}
 					>
-						Logout
-					</button>
-				</>
+						<li>
+							<strong>{dashboard.stats.totalSessions}</strong>
+							<div>Sessions</div>
+						</li>
+						<li>
+							<strong>{dashboard.stats.activeProjects}</strong>
+							<div>Active projects</div>
+						</li>
+						<li>
+							<strong>{dashboard.stats.unreadNotifications}</strong>
+							<div>Unread</div>
+						</li>
+					</ul>
+				)}
+			</section>
+
+			{dashboard && dashboard.recentActivity.length > 0 && (
+				<section id="recent-activity">
+					<h2>Recent activity</h2>
+					<ul>
+						{dashboard.recentActivity.map((item) => (
+							<li key={item.id}>
+								{item.description} —{" "}
+								<time dateTime={item.timestamp}>
+									{new Date(item.timestamp).toLocaleString()}
+								</time>
+							</li>
+						))}
+					</ul>
+				</section>
 			)}
+
+			<button
+				type="button"
+				onClick={handleLogout}
+				style={{
+					padding: "0.75rem 1.5rem",
+					cursor: "pointer",
+					marginTop: "1.5rem",
+				}}
+			>
+				Logout
+			</button>
 		</div>
 	);
 }

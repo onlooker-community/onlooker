@@ -1,0 +1,246 @@
+import { AuthApiError } from "@onlooker/auth-react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApiClient } from "./client";
+import type { ApiConfig } from "./config";
+import { createTokenStore, type TokenStore } from "./tokenStore";
+
+function memoryStorage(): Storage {
+	const map = new Map<string, string>();
+	return {
+		get length() {
+			return map.size;
+		},
+		clear: () => map.clear(),
+		getItem: (key: string) => map.get(key) ?? null,
+		key: (index: number) => [...map.keys()][index] ?? null,
+		removeItem: (key: string) => {
+			map.delete(key);
+		},
+		setItem: (key: string, value: string) => {
+			map.set(key, value);
+		},
+	};
+}
+
+function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
+	return {
+		baseUrl: "",
+		useMockApi: false,
+		requestTimeoutMs: 1000,
+		maxRetries: 2,
+		retryBaseDelayMs: 0,
+		retryMaxDelayMs: 0,
+		tokenStorageKey: "auth_token",
+		refreshTokenStorageKey: "auth_refresh_token",
+		logRequests: false,
+		...overrides,
+	};
+}
+
+function json(
+	status: number,
+	body: unknown,
+	headers?: Record<string, string>,
+): Response {
+	return new Response(JSON.stringify(body), { status, headers });
+}
+
+function authHeaderOf(init: RequestInit | undefined): string | null {
+	return new Headers(init?.headers as HeadersInit | undefined).get(
+		"Authorization",
+	);
+}
+
+let store: TokenStore;
+
+beforeEach(() => {
+	store = createTokenStore("auth_token", "auth_refresh_token", memoryStorage());
+});
+
+describe("createApiClient — token refresh", () => {
+	it("refreshes on 401 and replays the request with the new access token", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "r1" });
+
+		const baseFetch = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url.endsWith("/auth/refresh")) {
+				return json(200, { token: "new", refreshToken: "r2" });
+			}
+			return authHeaderOf(init) === "Bearer new"
+				? json(200, { user: { id: "u1", email: "a@b.co" } })
+				: json(401, { error: "unauthorized" });
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const result = await apiClient.get<{ user: { id: string } }>("/auth/me");
+
+		expect(result.user.id).toBe("u1");
+		expect(store.getToken()).toBe("new");
+		expect(store.getRefreshToken()).toBe("r2");
+		// original 401, refresh, successful replay
+		expect(baseFetch).toHaveBeenCalledTimes(3);
+	});
+
+	it("clears tokens and reports unauthorized when refresh fails", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "bad" });
+		const onUnauthorized = vi.fn();
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				return json(401, { error: "invalid_refresh_token" });
+			}
+			return json(401, { error: "unauthorized" });
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+			onUnauthorized,
+		});
+
+		await expect(apiClient.get("/auth/me")).rejects.toBeInstanceOf(
+			AuthApiError,
+		);
+		expect(store.getToken()).toBeNull();
+		expect(store.getRefreshToken()).toBeNull();
+		expect(onUnauthorized).toHaveBeenCalled();
+	});
+
+	it("coalesces concurrent 401s into a single refresh call", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "r1" });
+		let refreshCalls = 0;
+
+		const baseFetch = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url.endsWith("/auth/refresh")) {
+				refreshCalls += 1;
+				return json(200, { token: "new", refreshToken: "r2" });
+			}
+			return authHeaderOf(init) === "Bearer new"
+				? json(200, { ok: true })
+				: json(401, { error: "unauthorized" });
+		});
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const [a, b] = await Promise.all([
+			authenticatedFetch("/auth/me"),
+			authenticatedFetch("/auth/me"),
+		]);
+
+		expect(a.status).toBe(200);
+		expect(b.status).toBe(200);
+		expect(refreshCalls).toBe(1);
+	});
+
+	it("does not attempt refresh on login/signup 401s", async () => {
+		store.setRefreshToken("r1");
+		const baseFetch = vi.fn(async () =>
+			json(401, { error: "invalid_credentials" }),
+		);
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/auth/login", {
+			method: "POST",
+		});
+
+		expect(response.status).toBe(401);
+		expect(baseFetch).toHaveBeenCalledTimes(1); // no /auth/refresh call
+	});
+});
+
+describe("createApiClient — retry & backoff", () => {
+	it("retries retryable 5xx responses up to maxRetries", async () => {
+		let calls = 0;
+		const baseFetch = vi.fn(async () => {
+			calls += 1;
+			return calls < 3
+				? json(503, { error: "unavailable" })
+				: json(200, { ok: true });
+		});
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 2 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(200);
+		expect(baseFetch).toHaveBeenCalledTimes(3);
+	});
+
+	it("stops retrying after maxRetries and returns the last 5xx", async () => {
+		const baseFetch = vi.fn(async () => json(500, { error: "boom" }));
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 1 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(500);
+		expect(baseFetch).toHaveBeenCalledTimes(2); // initial + 1 retry
+	});
+
+	it("does not retry non-retryable 4xx responses", async () => {
+		const baseFetch = vi.fn(async () => json(404, { error: "not_found" }));
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 3 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(404);
+		expect(baseFetch).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createApiClient — timeout", () => {
+	it("aborts a slow request and retries it", async () => {
+		let calls = 0;
+		const baseFetch = vi.fn((_: string, init?: RequestInit) => {
+			calls += 1;
+			if (calls === 1) {
+				return new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => {
+						const err = new Error("aborted");
+						err.name = "AbortError";
+						reject(err);
+					});
+				});
+			}
+			return Promise.resolve(json(200, { ok: true }));
+		});
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ requestTimeoutMs: 20, maxRetries: 1 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/slow");
+
+		expect(response.status).toBe(200);
+		expect(baseFetch).toHaveBeenCalledTimes(2);
+	});
+});

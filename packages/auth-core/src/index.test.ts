@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	isUserTokenClaims,
-	isMachineTokenClaims,
-	parseAuthTokenClaims,
-	loginInputSchema,
-	signupInputSchema,
 	AuthApiError,
+	isMachineTokenClaims,
+	isUserTokenClaims,
+	loginInputSchema,
+	parseAuthTokenClaims,
+	signupInputSchema,
 } from "./index";
 
 describe("auth-core", () => {
@@ -16,14 +16,22 @@ describe("auth-core", () => {
 		});
 
 		it("returns false for machine token claims", () => {
-			const claims = { sub: "machine-1", kind: "machine" as const, machine_id: "m-1" };
+			const claims = {
+				sub: "machine-1",
+				kind: "machine" as const,
+				machine_id: "m-1",
+			};
 			expect(isUserTokenClaims(claims)).toBe(false);
 		});
 	});
 
 	describe("isMachineTokenClaims", () => {
 		it("returns true for machine token claims", () => {
-			const claims = { sub: "machine-1", kind: "machine" as const, machine_id: "m-1" };
+			const claims = {
+				sub: "machine-1",
+				kind: "machine" as const,
+				machine_id: "m-1",
+			};
 			expect(isMachineTokenClaims(claims)).toBe(true);
 		});
 
@@ -46,7 +54,11 @@ describe("auth-core", () => {
 		});
 
 		it("parses valid machine token claims", () => {
-			const claims = { sub: "machine-1", kind: "machine" as const, machine_id: "m-1" };
+			const claims = {
+				sub: "machine-1",
+				kind: "machine" as const,
+				machine_id: "m-1",
+			};
 			const parsed = parseAuthTokenClaims(claims);
 			expect(parsed).toEqual(claims);
 		});
@@ -86,7 +98,11 @@ describe("auth-core", () => {
 
 	describe("signupInputSchema", () => {
 		it("validates valid signup input with name", () => {
-			const input = { email: "user@example.com", password: "password123", name: "Test User" };
+			const input = {
+				email: "user@example.com",
+				password: "password123",
+				name: "Test User",
+			};
 			expect(signupInputSchema.parse(input)).toEqual(input);
 		});
 
@@ -106,14 +122,22 @@ describe("auth-core", () => {
 		});
 
 		it("rejects empty name", () => {
-			const input = { email: "user@example.com", password: "password123", name: "" };
+			const input = {
+				email: "user@example.com",
+				password: "password123",
+				name: "",
+			};
 			expect(() => signupInputSchema.parse(input)).toThrow();
 		});
 	});
 
 	describe("AuthApiError", () => {
 		it("creates error with status, code, message", () => {
-			const error = new AuthApiError(401, "unauthorized", "Invalid credentials");
+			const error = new AuthApiError(
+				401,
+				"unauthorized",
+				"Invalid credentials",
+			);
 			expect(error.status).toBe(401);
 			expect(error.code).toBe("unauthorized");
 			expect(error.message).toBe("Invalid credentials");
@@ -122,14 +146,23 @@ describe("auth-core", () => {
 
 		it("includes details if provided", () => {
 			const details = { field: "email" };
-			const error = new AuthApiError(422, "validation_error", "Invalid email", details);
+			const error = new AuthApiError(
+				422,
+				"validation_error",
+				"Invalid email",
+				details,
+			);
 			expect(error.status).toBe(422);
 			expect(error.code).toBe("validation_error");
 			expect(error.details).toEqual(details);
 		});
 
 		it("sets name to AuthApiError", () => {
-			const error = new AuthApiError(401, "unauthorized", "Invalid credentials");
+			const error = new AuthApiError(
+				401,
+				"unauthorized",
+				"Invalid credentials",
+			);
 			expect(error.name).toBe("AuthApiError");
 		});
 	});

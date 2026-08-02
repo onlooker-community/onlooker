@@ -3,9 +3,7 @@ import { z } from "zod";
 export const TOKEN_KIND_USER = "user";
 export const TOKEN_KIND_MACHINE = "machine";
 
-export type TokenKind =
-	| typeof TOKEN_KIND_USER
-	| typeof TOKEN_KIND_MACHINE;
+export type TokenKind = typeof TOKEN_KIND_USER | typeof TOKEN_KIND_MACHINE;
 
 export interface BaseTokenClaims extends Record<string, unknown> {
 	sub: string;
@@ -25,16 +23,20 @@ export interface MachineTokenClaims extends BaseTokenClaims {
 
 export type AuthTokenClaims = UserTokenClaims | MachineTokenClaims;
 
-export const userTokenClaimsSchema = z.object({
-	sub: z.string().min(1),
-	kind: z.literal(TOKEN_KIND_USER),
-}).passthrough();
+export const userTokenClaimsSchema = z
+	.object({
+		sub: z.string().min(1),
+		kind: z.literal(TOKEN_KIND_USER),
+	})
+	.passthrough();
 
-export const machineTokenClaimsSchema = z.object({
-	sub: z.string().min(1),
-	kind: z.literal(TOKEN_KIND_MACHINE),
-	machine_id: z.string().min(1),
-}).passthrough();
+export const machineTokenClaimsSchema = z
+	.object({
+		sub: z.string().min(1),
+		kind: z.literal(TOKEN_KIND_MACHINE),
+		machine_id: z.string().min(1),
+	})
+	.passthrough();
 
 export const authTokenClaimsSchema = z.discriminatedUnion("kind", [
 	userTokenClaimsSchema,
@@ -50,8 +52,9 @@ export function isUserTokenClaims(
 export function isMachineTokenClaims(
 	claims: Record<string, unknown>,
 ): claims is MachineTokenClaims {
-	return claims.kind === TOKEN_KIND_MACHINE &&
-		typeof claims.machine_id === "string";
+	return (
+		claims.kind === TOKEN_KIND_MACHINE && typeof claims.machine_id === "string"
+	);
 }
 
 export function parseAuthTokenClaims(claims: unknown): AuthTokenClaims {
@@ -100,8 +103,10 @@ export interface AuthResponse<TUser> {
 	user: TUser;
 }
 
-export type AuthSession<TUser, TExtra extends object = Record<string, never>> =
-	{ user: TUser } & TExtra;
+export type AuthSession<
+	TUser,
+	TExtra extends object = Record<string, never>,
+> = { user: TUser } & TExtra;
 
 export class AuthApiError extends Error {
 	readonly status: number;

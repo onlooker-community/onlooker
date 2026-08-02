@@ -1,13 +1,20 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
 
 export default function LoginPage() {
 	const { login, error: authError, loading } = auth.useAuth();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
+
+	// RequireAuth stashes the page the user was blocked from in `state.from`;
+	// send them back there after login, falling back to the dashboard.
+	const returnTo =
+		(location.state as { from?: { pathname?: string } } | null)?.from
+			?.pathname ?? "/dashboard";
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -15,7 +22,7 @@ export default function LoginPage() {
 
 		try {
 			await login(email, password);
-			navigate("/dashboard");
+			navigate(returnTo, { replace: true });
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Login failed");
 		}

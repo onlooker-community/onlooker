@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createReactAuth } from "./index";
 
 describe("createReactAuth", () => {
 	it("exports AuthProvider, RequireAuth, useAuth, AuthContext", () => {
 		const auth = createReactAuth({
-			tokenStorage: { getToken: () => null, setToken: () => {}, clearToken: () => {} },
+			tokenStorage: {
+				getToken: () => null,
+				setToken: () => {},
+				clearToken: () => {},
+			},
 			initialState: {},
 			loadSession: async () => ({ user: null }),
 			login: async () => ({ token: "", user: {} as any }),
@@ -20,7 +24,11 @@ describe("createReactAuth", () => {
 
 	it("useAuth is defined on returned object", () => {
 		const auth = createReactAuth({
-			tokenStorage: { getToken: () => null, setToken: () => {}, clearToken: () => {} },
+			tokenStorage: {
+				getToken: () => null,
+				setToken: () => {},
+				clearToken: () => {},
+			},
 			initialState: {},
 			loadSession: async () => ({ user: null }),
 			login: async () => ({ token: "", user: {} as any }),
@@ -32,7 +40,11 @@ describe("createReactAuth", () => {
 
 	it("initial state has user null and loading false with no token", () => {
 		const auth = createReactAuth({
-			tokenStorage: { getToken: () => null, setToken: () => {}, clearToken: () => {} },
+			tokenStorage: {
+				getToken: () => null,
+				setToken: () => {},
+				clearToken: () => {},
+			},
 			initialState: { role: "user" },
 			loadSession: async () => ({ user: null, role: "user" }),
 			login: async () => ({ token: "", user: {} as any }),
@@ -46,7 +58,11 @@ describe("createReactAuth", () => {
 	it("supports custom initialState", () => {
 		const customState = { theme: "dark", permissions: ["read"] };
 		const auth = createReactAuth({
-			tokenStorage: { getToken: () => null, setToken: () => {}, clearToken: () => {} },
+			tokenStorage: {
+				getToken: () => null,
+				setToken: () => {},
+				clearToken: () => {},
+			},
 			initialState: customState,
 			loadSession: async () => ({ user: null, ...customState }),
 			login: async () => ({ token: "", user: {} as any }),
