@@ -77,24 +77,7 @@ id = "yyyyyyyy"
 preview_id = "zzzzzzzz"
 
 # ============================================================================
-# BUILD CONFIGURATION
-# ============================================================================
-[build]
-command = "pnpm build"
-cwd = "."
-
-[build.upload]
-format = "service-worker"
-
-# ============================================================================
 # OBSERVABILITY & MONITORING
 # ============================================================================
 [observability]
 enabled = true
-
-# ============================================================================
-# TAIL WORKERS FOR LOCAL DEVELOPMENT
-# ============================================================================
-[tail]
-# Enable tail for local testing: wrangler tail --env development
-# This streams real-time logs to your terminal
