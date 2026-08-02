@@ -2,6 +2,19 @@
 	"$schema": "https://turborepo.org/schema.json",
 	"globalEnv": [],
 	"tasks": {
+		"@onlooker/db#build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"]
+		},
+		"@onlooker/db#lint": {
+			"outputs": []
+		},
+		"@onlooker/db#test": {
+			"outputs": []
+		},
+		"@onlooker/db#typecheck": {
+			"outputs": []
+		},
 		"@onlooker/cache#build": {
 			"dependsOn": ["@onlooker/logger#build"],
 			"outputs": ["dist/**"]
@@ -43,6 +56,10 @@
 		},
 		"@onlooker/website#typecheck": {
 			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"]
+		},
+		"@onlooker/api#dev": {
+			"cache": false,
+			"persistent": true
 		},
 		"build": {
 			"dependsOn": ["^build"],

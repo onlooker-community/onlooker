@@ -1,0 +1,29 @@
+{
+	"name": "@onlooker/db",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"generate:migrations": "drizzle-kit generate",
+		"push:migrations": "drizzle-kit push"
+	},
+	"dependencies": {
+		"drizzle-orm": "^0.31.2"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20241218.1",
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"drizzle-kit": "^0.20.14",
+		"typescript": "^5.6.3",
+		"vitest": "^4.1.9"
+	}
+}
