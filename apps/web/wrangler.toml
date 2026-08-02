@@ -1,42 +1,25 @@
 name = "onlooker-web"
 type = "javascript"
 compatibility_date = "2024-12-16"
+pages_build_caching = true
 
 # Build configuration for Vite app
 [build]
 command = "pnpm build"
 cwd = "."
 watch_paths = ["src/**/*.{ts,tsx}"]
-
-[build.upload]
-format = "service-worker"
-
-# Development environment
-[env.development]
-routes = [
-  { pattern = "localhost:8788/*", zone_name = "localhost" }
-]
+output_dir = "dist"
 
 # Production environment configuration
 [env.production]
-routes = [
-  { pattern = "onlooker.example.com/*", zone_name = "example.com" }
-]
-
+route = "onlooker.example.com/*"
+zone_name = "example.com"
 vars = { VITE_API_URL = "https://api.onlooker.example.com" }
 
 # Development environment variables
-[env.development.vars]
-VITE_API_URL = "http://localhost:8787"
+[env.development]
+vars = { VITE_API_URL = "http://localhost:8787" }
 
 # Local development environment
 [env.local]
 vars = { VITE_API_URL = "http://localhost:8787" }
-
-# Pages configuration for deployment
-[pages_build_caching]
-on_platform = true
-
-# Output directory (where Vite builds to)
-[build]
-output_dir = "dist"
