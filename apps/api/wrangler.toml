@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # Routes configuration
 routes = [
-  { pattern = "api.onlooker.example.com/*", zone_name = "example.com" }
+  { pattern = "api.onlooker.dev/*", zone_name = "onlooker.dev" }
 ]
 
 # ============================================================================
@@ -31,20 +31,25 @@ CORS_ORIGIN = "http://localhost:5173"
 # ============================================================================
 # STAGING ENVIRONMENT
 # ============================================================================
+[env.staging]
+routes = [
+  { pattern = "api-staging.onlooker.dev/*", zone_name = "onlooker.dev" }
+]
+
 [env.staging.vars]
-DB_HOST = "staging-db.onlooker.example.com"
+DB_HOST = "staging-db.onlooker.dev"
 DB_PORT = "5432"
 DB_NAME = "onlooker_staging"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "staging"
-CORS_ORIGIN = "https://staging.onlooker.example.com"
+CORS_ORIGIN = "https://app-staging.onlooker.dev"
 
 # Staging: Use staging D1 database
 [[env.staging.d1_databases]]
 binding = "DB"
-database_name = "onlooker_staging"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+database_name = "onlooker-db-staging"
+database_id = "ff3a01c8-aedb-4bc2-8231-b8511b353728"
 
 # Staging: KV namespace for token revocation and caching
 [[env.staging.kv_namespaces]]
@@ -55,14 +60,19 @@ preview_id = "yyyyyyyy"
 # ============================================================================
 # PRODUCTION ENVIRONMENT
 # ============================================================================
+[env.production]
+routes = [
+  { pattern = "api.onlooker.dev/*", zone_name = "onlooker.dev" }
+]
+
 [env.production.vars]
-DB_HOST = "prod-db.onlooker.example.com"
+DB_HOST = "prod-db.onlooker.dev"
 DB_PORT = "5432"
 DB_NAME = "onlooker_prod"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "production"
-CORS_ORIGIN = "https://onlooker.example.com"
+CORS_ORIGIN = "https://app.onlooker.dev"
 
 # Production: Use production D1 database
 [[env.production.d1_databases]]

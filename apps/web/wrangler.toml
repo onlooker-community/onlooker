@@ -10,11 +10,17 @@ cwd = "."
 watch_paths = ["src/**/*.{ts,tsx}"]
 output_dir = "dist"
 
+# Staging environment configuration
+[env.staging]
+route = "app-staging.onlooker.dev/*"
+zone_name = "onlooker.dev"
+vars = { VITE_API_URL = "https://api-staging.onlooker.dev" }
+
 # Production environment configuration
 [env.production]
-route = "onlooker.example.com/*"
-zone_name = "example.com"
-vars = { VITE_API_URL = "https://api.onlooker.example.com" }
+route = "app.onlooker.dev/*"
+zone_name = "onlooker.dev"
+vars = { VITE_API_URL = "https://api.onlooker.dev" }
 
 # Development environment variables
 [env.development]
