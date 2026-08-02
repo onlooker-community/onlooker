@@ -51,12 +51,6 @@ binding = "DB"
 database_name = "onlooker-db-staging"
 database_id = "ff3a01c8-aedb-4bc2-8231-b8511b353728"
 
-# Staging: KV namespace for token revocation and caching
-[[env.staging.kv_namespaces]]
-binding = "TOKEN_CACHE"
-id = "xxxxxxxx"
-preview_id = "yyyyyyyy"
-
 # ============================================================================
 # PRODUCTION ENVIRONMENT
 # ============================================================================
@@ -79,12 +73,6 @@ CORS_ORIGIN = "https://app.onlooker.dev"
 binding = "DB"
 database_name = "onlooker-db"
 database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
-
-# Production: KV namespace for token revocation and caching
-[[env.production.kv_namespaces]]
-binding = "TOKEN_CACHE"
-id = "yyyyyyyy"
-preview_id = "zzzzzzzz"
 
 # ============================================================================
 # OBSERVABILITY & MONITORING
