@@ -7,11 +7,7 @@
  */
 
 import { jsonResponse, requireAuth } from "../middleware";
-import type {
-	DashboardData,
-	UserProfile,
-	WorkerEnv,
-} from "../types";
+import type { DashboardData, UserProfile, WorkerEnv } from "../types";
 
 /**
  * GET /api/users/me

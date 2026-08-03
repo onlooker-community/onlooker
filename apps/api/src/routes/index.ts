@@ -4,23 +4,22 @@
  */
 
 export {
-	handleLogin,
-	handleSignup,
-	handleRefresh,
-	handleMe,
-	handleLogout,
-} from "./auth";
-
-export {
-	handleUpdateProfile,
 	handleChangePassword,
-	handleGetProfile,
 	handleDeleteAccount,
 	handleForgotPassword,
-	handleResetPassword,
-	handleVerifyResetToken,
+	handleGetProfile,
 	handleResendVerification,
+	handleResetPassword,
+	handleUpdateProfile,
 	handleVerifyEmail,
+	handleVerifyResetToken,
 } from "./account";
+export {
+	handleLogin,
+	handleLogout,
+	handleMe,
+	handleRefresh,
+	handleSignup,
+} from "./auth";
 
-export { handleGetUserProfile, handleGetDashboard } from "./data";
+export { handleGetDashboard, handleGetUserProfile } from "./data";

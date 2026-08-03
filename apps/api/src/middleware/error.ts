@@ -10,10 +10,7 @@ export interface ApiResponse<T = unknown> {
 	};
 }
 
-export function jsonResponse<T>(
-	data: T,
-	status: number = 200,
-): Response {
+export function jsonResponse<T>(data: T, status: number = 200): Response {
 	return new Response(JSON.stringify({ success: true, data }), {
 		status,
 		headers: { "Content-Type": "application/json" },
@@ -38,7 +35,8 @@ export function errorHandler(error: unknown): Response {
 		);
 	}
 
-	const message = error instanceof Error ? error.message : "Internal server error";
+	const message =
+		error instanceof Error ? error.message : "Internal server error";
 
 	return new Response(
 		JSON.stringify({

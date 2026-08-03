@@ -40,8 +40,14 @@ async function handleRequest(
 
 	// Add CORS headers
 	response.headers.set("Access-Control-Allow-Origin", "*");
-	response.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-	response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+	response.headers.set(
+		"Access-Control-Allow-Methods",
+		"GET, POST, PATCH, DELETE, OPTIONS",
+	);
+	response.headers.set(
+		"Access-Control-Allow-Headers",
+		"Content-Type, Authorization",
+	);
 
 	return response;
 }
@@ -56,7 +62,8 @@ function handleRoot(env: WorkerEnv): Response {
 		version: "0.0.1",
 		environment: env.ENVIRONMENT || "development",
 		endpoints: routes,
-		documentation: "https://github.com/onlooker-community/onlooker/blob/main/apps/api/README.md",
+		documentation:
+			"https://github.com/onlooker-community/onlooker/blob/main/apps/api/README.md",
 	};
 	return new Response(JSON.stringify(info, null, 2), {
 		headers: {
@@ -70,7 +77,11 @@ function handleRoot(env: WorkerEnv): Response {
  * This is the entry point for all requests.
  */
 export default {
-	async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+	async fetch(
+		request: Request,
+		env: WorkerEnv,
+		ctx: ExecutionContext,
+	): Promise<Response> {
 		const url = new URL(request.url);
 
 		// Root endpoint

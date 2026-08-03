@@ -8,7 +8,9 @@ import {
 	handleChangePassword,
 	handleDeleteAccount,
 	handleForgotPassword,
+	handleGetDashboard,
 	handleGetProfile,
+	handleGetUserProfile,
 	handleLogin,
 	handleLogout,
 	handleMe,
@@ -19,8 +21,6 @@ import {
 	handleUpdateProfile,
 	handleVerifyEmail,
 	handleVerifyResetToken,
-	handleGetUserProfile,
-	handleGetDashboard,
 } from "./routes";
 import type { WorkerEnv } from "./types";
 import { ApiError } from "./types";
@@ -129,13 +129,8 @@ const ROUTES: Route[] = [
  * Match a request to a route and dispatch to the handler.
  * Returns null if no route matches.
  */
-function findRoute(
-	method: string,
-	path: string,
-): Route | undefined {
-	return ROUTES.find(
-		(route) => route.method === method && route.path === path,
-	);
+function findRoute(method: string, path: string): Route | undefined {
+	return ROUTES.find((route) => route.method === method && route.path === path);
 }
 
 /**
@@ -154,9 +149,7 @@ export async function dispatch(
 	const route = findRoute(method, path);
 
 	if (!route) {
-		return errorHandler(
-			new ApiError(404, "not_found", "Route not found"),
-		);
+		return errorHandler(new ApiError(404, "not_found", "Route not found"));
 	}
 
 	try {

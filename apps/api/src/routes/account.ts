@@ -34,7 +34,11 @@ export async function handleGetProfile(
 	// TODO: WS1 will implement
 	// const user = await db.getAccountProfile(auth.userId)
 
-	throw new ApiError(501, "not_implemented", "Get profile not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Get profile not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -74,7 +78,11 @@ export async function handleUpdateProfile(
 	// 4. If email changed, create verification token: await verificationStore.createVerificationToken(auth.userId, body.email)
 	// 5. Queue verification email (future)
 
-	throw new ApiError(501, "not_implemented", "Update profile not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Update profile not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -96,11 +104,19 @@ export async function handleChangePassword(
 
 	// Validate input
 	if (!body.current_password || !body.new_password) {
-		throw new ApiError(400, "invalid_input", "Current and new password are required");
+		throw new ApiError(
+			400,
+			"invalid_input",
+			"Current and new password are required",
+		);
 	}
 
 	if (body.new_password.length < 8) {
-		throw new ApiError(400, "invalid_password", "New password must be at least 8 characters");
+		throw new ApiError(
+			400,
+			"invalid_password",
+			"New password must be at least 8 characters",
+		);
 	}
 
 	// TODO: WS1 will implement
@@ -110,7 +126,11 @@ export async function handleChangePassword(
 	// 4. Update password: await db.changePassword(auth.userId, newHash)
 	// 5. Revoke all active tokens: await tokenStore.revokeAllForUser(auth.userId)
 
-	throw new ApiError(501, "not_implemented", "Change password not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Change password not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -134,7 +154,11 @@ export async function handleDeleteAccount(
 	// 3. Delete verification tokens: await verificationStore.deleteAllForUser(auth.userId)
 	// 4. Delete reset tokens: await resetStore.deleteAllForUser(auth.userId)
 
-	throw new ApiError(501, "not_implemented", "Delete account not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Delete account not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -163,7 +187,11 @@ export async function handleVerifyEmail(
 	// 3. Mark verified: await db.setEmailVerified(user.id, true)
 	// 4. Consume token: await verificationStore.consumeVerificationToken(body.token)
 
-	throw new ApiError(501, "not_implemented", "Verify email not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Verify email not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -186,7 +214,11 @@ export async function handleResendVerification(
 	// 2. Create verification token: const token = await verificationStore.createVerificationToken(auth.userId, user.email)
 	// 3. Queue email: send verification email (future)
 
-	throw new ApiError(501, "not_implemented", "Resend verification not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Resend verification not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -216,7 +248,11 @@ export async function handleForgotPassword(
 	// 3. If exists, queue email: send reset link (future)
 	// Note: Always return success to prevent email enumeration
 
-	throw new ApiError(501, "not_implemented", "Forgot password not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Forgot password not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -243,7 +279,11 @@ export async function handleVerifyResetToken(
 	// 1. Check token: const email = await resetStore.getResetEmail(token)
 	// 2. Return validity
 
-	throw new ApiError(501, "not_implemented", "Verify reset token not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Verify reset token not yet implemented - awaiting WS1 database integration",
+	);
 }
 
 /**
@@ -267,7 +307,11 @@ export async function handleResetPassword(
 	}
 
 	if (body.password.length < 8) {
-		throw new ApiError(400, "invalid_password", "Password must be at least 8 characters");
+		throw new ApiError(
+			400,
+			"invalid_password",
+			"Password must be at least 8 characters",
+		);
 	}
 
 	// TODO: WS1 will implement
@@ -277,5 +321,9 @@ export async function handleResetPassword(
 	// 4. Revoke all tokens: await tokenStore.revokeAllForUser(user.id)
 	// 5. Consume token: await resetStore.consumeResetToken(body.token)
 
-	throw new ApiError(501, "not_implemented", "Reset password not yet implemented - awaiting WS1 database integration");
+	throw new ApiError(
+		501,
+		"not_implemented",
+		"Reset password not yet implemented - awaiting WS1 database integration",
+	);
 }
