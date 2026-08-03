@@ -4,6 +4,7 @@ packages:
 
 allowBuilds:
   '@sentry/cli': true
+  es5-ext: false
   esbuild: false
   protobufjs: false
   sharp: false
