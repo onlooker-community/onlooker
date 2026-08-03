@@ -4,9 +4,10 @@
 export interface UserProfile {
 	id: string;
 	email: string;
-	name?: string;
+	name: string;
 	createdAt: string;
 	emailVerified?: string | null;
+	lastLoginAt?: string;
 }
 
 /**
@@ -27,5 +28,6 @@ export interface DashboardData {
 	stats?: {
 		totalRequests?: number;
 		lastActive?: string;
+		totalSessions?: number;
 	};
 }
