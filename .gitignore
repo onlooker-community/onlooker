@@ -37,6 +37,7 @@ pnpm-debug.log*
 *.pem
 /bash.exe.stackdump
 .idea/
+.vscode/
 
 
 # Beads / Dolt files (added by bd init)
