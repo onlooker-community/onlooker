@@ -574,13 +574,14 @@ export async function mockDataApi(
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof AuthApiError) {
+		const apiError = error as AuthApiError;
 		return new Response(
 			JSON.stringify({
-				error: error.code,
-				message: error.message,
-				details: error.details,
+				error: apiError.code,
+				message: apiError.message,
+				details: apiError.details,
 			}),
-			{ status: error.status },
+			{ status: apiError.status },
 		);
 	}
 	const message = error instanceof Error ? error.message : String(error);
