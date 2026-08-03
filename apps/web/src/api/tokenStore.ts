@@ -10,6 +10,9 @@ import type { AuthTokenStorage } from "@onlooker/auth-react";
 import type { AuthTokens } from "./types";
 
 export interface TokenStore extends AuthTokenStorage {
+	// AuthTokenStorage interface methods (getToken, setToken, clearToken)
+	// are inherited from the extends clause above
+
 	getRefreshToken(): string | null;
 	setRefreshToken(token: string): void;
 	clearRefreshToken(): void;

@@ -583,7 +583,8 @@ function errorResponse(error: unknown): Response {
 			{ status: error.status },
 		);
 	}
-	throw error;
+	const message = error instanceof Error ? error.message : String(error);
+	throw new Error(message);
 }
 
 export function createMockFetch() {

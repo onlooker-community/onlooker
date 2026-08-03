@@ -54,7 +54,7 @@ export function useAuthenticatedFetch<T>(
 
 		apiClient
 			.request<T>(method, path, parsedBody)
-			.then((result) => {
+			.then((result: T) => {
 				if (active) setData(result);
 			})
 			.catch((err: unknown) => {
