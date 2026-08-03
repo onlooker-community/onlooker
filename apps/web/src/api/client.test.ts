@@ -97,8 +97,17 @@ describe("createApiClient — token refresh", () => {
 		const exp = iat + 60; // expired
 		const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
 		const payload = btoa(
-			JSON.stringify({ sub: "test@example.com", type: "refresh", iat, exp, jti: 1 }),
-		).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+			JSON.stringify({
+				sub: "test@example.com",
+				type: "refresh",
+				iat,
+				exp,
+				jti: 1,
+			}),
+		)
+			.replace(/\+/g, "-")
+			.replace(/\//g, "_")
+			.replace(/=+$/, "");
 		const expiredRefresh = `${header}.${payload}.mock-signature`;
 
 		store.setTokens({ accessToken: "old", refreshToken: expiredRefresh });
@@ -235,10 +244,16 @@ describe("createApiClient — token refresh", () => {
 		// Log in successfully
 		let response = await authenticatedFetch("/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
 		});
 		expect(response.status).toBe(200);
-		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		const loginData = (await response.json()) as {
+			token: string;
+			refreshToken: string;
+		};
 		store.setTokens({
 			accessToken: loginData.token,
 			refreshToken: loginData.refreshToken,
@@ -268,10 +283,16 @@ describe("createApiClient — token refresh", () => {
 		// First, log in to populate the owner-map
 		let response = await authenticatedFetch("/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
 		});
 		expect(response.status).toBe(200);
-		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		const loginData = (await response.json()) as {
+			token: string;
+			refreshToken: string;
+		};
 		const accessToken = loginData.token;
 
 		// In-session: owner-map is authoritative
@@ -282,7 +303,11 @@ describe("createApiClient — token refresh", () => {
 		// Simulate a reload: owner-map would be cold, but the token is still valid
 		// via stateless decode (exp not reached)
 		// We verify this by creating a fresh client with the same tokens
-		const store2 = createTokenStore("auth_token", "auth_refresh_token", memoryStorage());
+		const store2 = createTokenStore(
+			"auth_token",
+			"auth_refresh_token",
+			memoryStorage(),
+		);
 		store2.setTokens({ accessToken, refreshToken: loginData.refreshToken });
 
 		const { authenticatedFetch: fetch2 } = createApiClient({
@@ -304,10 +329,16 @@ describe("createApiClient — token refresh", () => {
 		// Log in to get a valid token
 		let response = await authenticatedFetch("/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
 		});
 		expect(response.status).toBe(200);
-		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		const loginData = (await response.json()) as {
+			token: string;
+			refreshToken: string;
+		};
 		store.setTokens({
 			accessToken: loginData.token,
 			refreshToken: loginData.refreshToken,
