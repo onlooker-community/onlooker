@@ -24,6 +24,7 @@
 		"@onlooker/config-typescript": "workspace:*",
 		"drizzle-kit": "^0.20.14",
 		"typescript": "^5.6.3",
+		"vite": "8.0.16",
 		"vitest": "^4.1.9"
 	}
 }
