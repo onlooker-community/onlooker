@@ -1,28 +1,28 @@
 {
-  "name": "@onlooker/api",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "wrangler dev",
-    "build": "tsc --noEmit && wrangler deploy --dry-run",
-    "deploy": "wrangler deploy",
-    "lint": "biome check src",
-    "lint:fix": "biome check --write src",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@onlooker/auth-core": "workspace:*",
-    "bcryptjs": "^2.4.3",
-    "jose": "^5.4.0"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250109.1",
-    "@onlooker/config-biome": "workspace:*",
-    "@onlooker/config-typescript": "workspace:*",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^25.9.3",
-    "typescript": "^5.6.3",
-    "wrangler": "^4"
-  }
+	"name": "@onlooker/api",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "wrangler dev",
+		"build": "tsc --noEmit && wrangler deploy --dry-run",
+		"deploy": "wrangler deploy",
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@onlooker/auth-core": "workspace:*",
+		"bcryptjs": "^2.4.3",
+		"jose": "^5.4.0"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20250109.1",
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"@types/bcryptjs": "^2.4.6",
+		"@types/node": "^25.9.3",
+		"typescript": "^5.6.3",
+		"wrangler": "^4"
+	}
 }

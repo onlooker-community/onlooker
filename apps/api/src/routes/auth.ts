@@ -55,8 +55,8 @@ export async function handleSignup(
 	const passwordHash = await hashPassword(body.password);
 	const user = await createUser(env.DB!, body.email, passwordHash, body.name);
 
-	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES);
-	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS);
+	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES, 10);
+	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS, 10);
 
 	const token = await signJwt(
 		{
@@ -115,8 +115,8 @@ export async function handleLogin(
 		throw new ApiError(401, "invalid_credentials", "Invalid email or password");
 	}
 
-	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES);
-	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS);
+	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES, 10);
+	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS, 10);
 
 	const token = await signJwt(
 		{
@@ -178,8 +178,8 @@ export async function handleRefresh(
 		throw new ApiError(401, "invalid_token", "User not found");
 	}
 
-	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES);
-	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS);
+	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES, 10);
+	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS, 10);
 
 	const newAccessToken = await signJwt(
 		{
