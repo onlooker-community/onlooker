@@ -85,6 +85,33 @@ describe("createApiClient — token refresh", () => {
 		expect(baseFetch).toHaveBeenCalledTimes(3);
 	});
 
+	it("fails to refresh when refresh token is expired", async () => {
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store,
+		});
+
+		// Set an access token that will trigger a refresh (we'll fail it in the refresh call)
+		// and an expired refresh token
+		const iat = Math.floor(Date.now() / 1000) - 300;
+		const exp = iat + 60; // expired
+		const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+		const payload = btoa(
+			JSON.stringify({ sub: "test@example.com", type: "refresh", iat, exp, jti: 1 }),
+		).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+		const expiredRefresh = `${header}.${payload}.mock-signature`;
+
+		store.setTokens({ accessToken: "old", refreshToken: expiredRefresh });
+
+		// First request will get 401 (no valid access token)
+		// Then refresh attempt will fail (expired refresh token)
+		const response = await authenticatedFetch("/auth/me", { method: "GET" });
+
+		expect(response.status).toBe(401);
+		expect(store.getToken()).toBeNull();
+		expect(store.getRefreshToken()).toBeNull();
+	});
+
 	it("clears tokens and reports unauthorized when refresh fails", async () => {
 		store.setTokens({ accessToken: "old", refreshToken: "bad" });
 		const onUnauthorized = vi.fn();
