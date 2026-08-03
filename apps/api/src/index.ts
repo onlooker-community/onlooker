@@ -1,6 +1,84 @@
-const PORT = 3000;
+/**
+ * Onlooker API Server
+ * Cloudflare Workers backend for authentication, account management, and protected resources.
+ *
+ * Workstream integration:
+ * - WS1: Database schema and D1 queries (not yet implemented)
+ * - WS2: Account management endpoints (scaffold complete, awaiting WS1)
+ * - WS3: Session management and refresh flow (frontend, not backend)
+ * - WS4: Protected dashboard data (awaiting WS1 database)
+ * - WS5: Rate limiting and security (not yet implemented)
+ */
 
-console.log(`API server starting on port ${PORT}...`);
-console.log("Scaffold ready for endpoint development.");
+import type { ExecutionContext } from "@cloudflare/workers-types";
+import { dispatch, listRoutes } from "./router";
+import type { WorkerEnv } from "./types";
 
-// Placeholder: Server startup will be added in Phase 2
+/**
+ * Main request handler for Cloudflare Workers.
+ * Dispatches incoming requests to route handlers.
+ */
+async function handleRequest(
+	request: Request,
+	env: WorkerEnv,
+	_ctx: ExecutionContext,
+): Promise<Response> {
+	// Enable CORS for development
+	if (request.method === "OPTIONS") {
+		return new Response(null, {
+			headers: {
+				"Access-Control-Allow-Origin": "*",
+				"Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+				"Access-Control-Allow-Headers": "Content-Type, Authorization",
+				"Access-Control-Max-Age": "86400",
+			},
+		});
+	}
+
+	// Route the request
+	const response = await dispatch(request, env);
+
+	// Add CORS headers
+	response.headers.set("Access-Control-Allow-Origin", "*");
+	response.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+	response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+	return response;
+}
+
+/**
+ * Root endpoint: returns API info and available routes.
+ */
+function handleRoot(env: WorkerEnv): Response {
+	const routes = listRoutes();
+	const info = {
+		service: "Onlooker API",
+		version: "0.0.1",
+		environment: env.ENVIRONMENT || "development",
+		endpoints: routes,
+		documentation: "https://github.com/onlooker-community/onlooker/blob/main/apps/api/README.md",
+	};
+	return new Response(JSON.stringify(info, null, 2), {
+		headers: {
+			"Content-Type": "application/json",
+		},
+	});
+}
+
+/**
+ * Cloudflare Workers export.
+ * This is the entry point for all requests.
+ */
+export default {
+	async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+		const url = new URL(request.url);
+
+		// Root endpoint
+		if (url.pathname === "/" && request.method === "GET") {
+			return handleRoot(env);
+		}
+
+		// Route all other requests
+		return handleRequest(request, env, ctx);
+	},
+};
