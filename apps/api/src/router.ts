@@ -23,6 +23,7 @@ import {
 	handleGetDashboard,
 } from "./routes";
 import type { WorkerEnv } from "./types";
+import { ApiError } from "./types";
 
 interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -154,7 +155,7 @@ export async function dispatch(
 
 	if (!route) {
 		return errorHandler(
-			new Error(`${method} ${path} not found`),
+			new ApiError(404, "not_found", "Route not found"),
 		);
 	}
 

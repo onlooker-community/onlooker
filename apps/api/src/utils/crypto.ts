@@ -35,16 +35,12 @@ export async function signJwt(
   secret: string,
   expiresInMinutes: number,
 ): Promise<string> {
-  const secretKey = await jose.importSPKI(
-    `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----`,
-    "HS256",
-  );
-
+  const secretBuffer = new TextEncoder().encode(secret);
   return new jose.SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${expiresInMinutes}m`)
-    .sign(secretKey);
+    .sign(secretBuffer);
 }
 
 /**
@@ -55,12 +51,8 @@ export async function verifyJwt(
   secret: string,
 ): Promise<JwtPayload | null> {
   try {
-    const secretKey = await jose.importSPKI(
-      `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----`,
-      "HS256",
-    );
-
-    const verified = await jose.jwtVerify(token, secretKey);
+    const secretBuffer = new TextEncoder().encode(secret);
+    const verified = await jose.jwtVerify(token, secretBuffer);
     return verified.payload as unknown as JwtPayload;
   } catch {
     return null;
