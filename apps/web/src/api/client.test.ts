@@ -160,6 +160,41 @@ describe("createApiClient — token refresh", () => {
 		expect(response.status).toBe(401);
 		expect(baseFetch).toHaveBeenCalledTimes(1); // no /auth/refresh call
 	});
+
+	it("rejects expired access tokens with 401", async () => {
+		// Use the real mock API which mints JWTs with exp
+		const { apiClient } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store,
+		});
+
+		// Manually set an expired access token (past exp claim)
+		const expiredToken = (() => {
+			const iat = Math.floor(Date.now() / 1000) - 300; // issued 5min ago
+			const exp = iat + 60; // expired 4min ago
+			const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"; // {alg: HS256, typ: JWT}
+			const payload = btoa(
+				JSON.stringify({
+					sub: "test@example.com",
+					type: "access",
+					iat,
+					exp,
+					jti: 1,
+				}),
+			)
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+			return `${header}.${payload}.mock-signature`;
+		})();
+
+		store.setTokens({ accessToken: expiredToken, refreshToken: "r1" });
+
+		// Attempt to use the expired token — should fail because mockApi validates exp
+		await expect(apiClient.get("/auth/me")).rejects.toBeInstanceOf(
+			AuthApiError,
+		);
+	});
 });
 
 describe("createApiClient — retry & backoff", () => {
