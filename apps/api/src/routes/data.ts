@@ -69,6 +69,7 @@ export async function handleGetDashboard(
 			id: auth.userId,
 			email: auth.email,
 			name: "User Name",
+			createdAt: new Date().toISOString(),
 		},
 		stats: {
 			totalSessions: 0,

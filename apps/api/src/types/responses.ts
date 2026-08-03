@@ -29,5 +29,8 @@ export interface DashboardData {
 		totalRequests?: number;
 		lastActive?: string;
 		totalSessions?: number;
+		activeProjects?: number;
+		unreadNotifications?: number;
 	};
+	recentActivity?: unknown[];
 }
