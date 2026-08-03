@@ -222,6 +222,109 @@ describe("createApiClient — token refresh", () => {
 			AuthApiError,
 		);
 	});
+
+	it("emits onUnauthorized exactly once when refresh-of-refresh fails", async () => {
+		const onUnauthorized = vi.fn();
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store,
+			onUnauthorized,
+		});
+
+		// Log in successfully
+		let response = await authenticatedFetch("/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+		});
+		expect(response.status).toBe(200);
+		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		store.setTokens({
+			accessToken: loginData.token,
+			refreshToken: loginData.refreshToken,
+		});
+
+		// Invalidate the refresh token to make refresh fail
+		await authenticatedFetch("/auth/logout", { method: "POST" });
+
+		// Now make a request that will 401 and try to refresh
+		// The refresh will fail (refresh token is revoked), so we get a terminal 401
+		response = await authenticatedFetch("/auth/me", { method: "GET" });
+		expect(response.status).toBe(401);
+
+		// onUnauthorized should be called exactly once
+		expect(onUnauthorized).toHaveBeenCalledTimes(1);
+		expect(store.getToken()).toBeNull();
+		expect(store.getRefreshToken()).toBeNull();
+	});
+
+	it("validates tokens via owner-map (in-session) and decode fallback (reload)", async () => {
+		// Use mock API which maintains both owner-map and stateless decode
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store,
+		});
+
+		// First, log in to populate the owner-map
+		let response = await authenticatedFetch("/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+		});
+		expect(response.status).toBe(200);
+		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		const accessToken = loginData.token;
+
+		// In-session: owner-map is authoritative
+		store.setTokens({ accessToken, refreshToken: loginData.refreshToken });
+		response = await authenticatedFetch("/auth/me", { method: "GET" });
+		expect(response.status).toBe(200);
+
+		// Simulate a reload: owner-map would be cold, but the token is still valid
+		// via stateless decode (exp not reached)
+		// We verify this by creating a fresh client with the same tokens
+		const store2 = createTokenStore("auth_token", "auth_refresh_token", memoryStorage());
+		store2.setTokens({ accessToken, refreshToken: loginData.refreshToken });
+
+		const { authenticatedFetch: fetch2 } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store2,
+		});
+
+		// This request succeeds because the token is decoded and validated (not expired)
+		response = await fetch2("/auth/me", { method: "GET" });
+		expect(response.status).toBe(200);
+	});
+
+	it("rejects revoked tokens (logout / rotation / session invalidation)", async () => {
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ useMockApi: true }),
+			tokenStore: store,
+		});
+
+		// Log in to get a valid token
+		let response = await authenticatedFetch("/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+		});
+		expect(response.status).toBe(200);
+		const loginData = (await response.json()) as { token: string; refreshToken: string };
+		store.setTokens({
+			accessToken: loginData.token,
+			refreshToken: loginData.refreshToken,
+		});
+
+		// Verify token works
+		response = await authenticatedFetch("/auth/me", { method: "GET" });
+		expect(response.status).toBe(200);
+
+		// Logout invalidates sessions (revokes the token)
+		response = await authenticatedFetch("/auth/logout", { method: "POST" });
+		expect(response.status).toBe(200);
+
+		// Now the revoked token should be rejected
+		response = await authenticatedFetch("/auth/me", { method: "GET" });
+		expect(response.status).toBe(401);
+	});
 });
 
 describe("createApiClient — retry & backoff", () => {
