@@ -128,6 +128,7 @@ describe("useAuthenticatedFetch", () => {
 	});
 
 	it("unmount mid-flight: no state update after unmount (no act warning)", async () => {
+		const errSpy = vi.spyOn(console, "error");
 		let resolveRequest: ((value: unknown) => void) | null = null;
 		vi.mocked(clientModule.apiClient.request).mockImplementationOnce(
 			() =>
@@ -145,16 +146,18 @@ describe("useAuthenticatedFetch", () => {
 		// Unmount before request completes
 		unmount();
 
-		// Now resolve the request — should not cause state update warning
-		if (resolveRequest) {
-			resolveRequest({ data: "late response" });
-		}
+		// Now resolve the request — should not cause state update warning.
+		// Cast because control-flow analysis narrows `resolveRequest` to `never`:
+		// it's only ever assigned inside the Promise executor callback.
+		(resolveRequest as ((value: unknown) => void) | null)?.({
+			data: "late response",
+		});
 
 		// Give any pending state updates a chance to fire (they shouldn't)
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
-		// No error should have been thrown about state update after unmount
-		// (This is tested by the absence of a warning/error, not by an assertion)
-		expect(true).toBe(true); // Placeholder; the real test is that no warning fired
+		// A state update after unmount surfaces as a console.error act warning
+		expect(errSpy).not.toHaveBeenCalled();
+		errSpy.mockRestore();
 	});
 });

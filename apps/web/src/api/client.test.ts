@@ -300,22 +300,43 @@ describe("createApiClient — token refresh", () => {
 		response = await authenticatedFetch("/auth/me", { method: "GET" });
 		expect(response.status).toBe(200);
 
-		// Simulate a reload: owner-map would be cold, but the token is still valid
-		// via stateless decode (exp not reached)
-		// We verify this by creating a fresh client with the same tokens
+		// Simulate a reload: hand-mint a valid, unexpired token that was never
+		// registered in the owner map. Because it is absent from the map, the only
+		// way it can validate is through the stateless decode fallback
+		// (`?? decodedEmail`) — which is exactly the reload path we want to cover.
+		const newToken = (() => {
+			const iat = Math.floor(Date.now() / 1000);
+			const exp = iat + 3600; // valid for 1 hour (NOT expired)
+			const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+			const payload = btoa(
+				JSON.stringify({
+					sub: "test@example.com",
+					type: "access",
+					iat,
+					exp,
+					jti: 999, // unique, never registered in the owner map
+				}),
+			)
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+			return `${header}.${payload}.mock-signature`;
+		})();
+
 		const store2 = createTokenStore(
 			"auth_token",
 			"auth_refresh_token",
 			memoryStorage(),
 		);
-		store2.setTokens({ accessToken, refreshToken: loginData.refreshToken });
+		store2.setTokens({ accessToken: newToken, refreshToken: "fake-refresh" });
 
 		const { authenticatedFetch: fetch2 } = createApiClient({
 			config: testConfig({ useMockApi: true }),
 			tokenStore: store2,
 		});
 
-		// This request succeeds because the token is decoded and validated (not expired)
+		// Succeeds only if the decode fallback runs: the token is valid (not
+		// expired) but absent from the owner map.
 		response = await fetch2("/auth/me", { method: "GET" });
 		expect(response.status).toBe(200);
 	});
