@@ -668,9 +668,10 @@ describe("ZCounterObservation", () => {
 		).toBe(false);
 	});
 
-	it("has no status field, because the reporter does not decide", () => {
-		const parsed = ZCounterObservation.parse(valid);
-		expect("status" in parsed).toBe(false);
+	it("rejects a smuggled verdict, because the reporter does not decide", () => {
+		expect(
+			ZCounterObservation.safeParse({ ...valid, status: "refuted" }).success,
+		).toBe(false);
 	});
 });
 ```
