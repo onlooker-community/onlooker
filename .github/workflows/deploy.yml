@@ -91,7 +91,7 @@ jobs:
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     environment:
       name: staging
-      url: https://staging.onlooker.example.com
+      url: https://app-staging.onlooker.dev
     steps:
       - uses: actions/checkout@v4
 
@@ -127,7 +127,7 @@ jobs:
         with:
           script: |
             const status = '${{ job.status }}';
-            const deployment_url = 'https://staging.onlooker.example.com';
+            const deployment_url = 'https://app-staging.onlooker.dev';
             const commit_sha = '${{ github.sha }}'.substring(0, 7);
 
             console.log(`Staging deployment: ${status}`);
@@ -144,7 +144,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://onlooker.example.com
+      url: https://app.onlooker.dev
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +180,7 @@ jobs:
         with:
           script: |
             const status = '${{ job.status }}';
-            const deployment_url = 'https://onlooker.example.com';
+            const deployment_url = 'https://app.onlooker.dev';
             const commit_sha = '${{ github.sha }}'.substring(0, 7);
 
             console.log(`Production deployment: ${status}`);

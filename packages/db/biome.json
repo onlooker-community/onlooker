@@ -1,3 +1,4 @@
 {
-	"extends": ["@onlooker/config-biome"]
+	"root": false,
+	"extends": ["@onlooker/config-biome/library.json"]
 }

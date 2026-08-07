@@ -1,10 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-	sqliteTable,
-	text,
-	uniqueIndex,
-	index,
-} from "drizzle-orm/sqlite-core";
+import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Users table - stores user account information
@@ -24,9 +19,7 @@ export const users = sqliteTable(
 		email: text("email").notNull().unique(),
 		password_hash: text("password_hash").notNull(),
 		name: text("name"),
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		email_verified: text("email_verified"), // ISO 8601 timestamp
 		deleted_at: text("deleted_at"), // Soft delete
 	},
@@ -61,9 +54,7 @@ export const sessions = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		token: text("token").notNull(), // Hashed refresh token
 		expires_at: text("expires_at").notNull(), // ISO 8601
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => {
 		return {
@@ -97,9 +88,7 @@ export const email_verification_tokens = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		token: text("token").notNull(), // Hashed verification token
 		expires_at: text("expires_at").notNull(), // ISO 8601
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		used_at: text("used_at"), // ISO 8601 timestamp when verified
 	},
 	(table) => {
@@ -141,9 +130,7 @@ export const password_reset_tokens = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		token: text("token").notNull(), // Hashed reset token
 		expires_at: text("expires_at").notNull(), // ISO 8601
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		used_at: text("used_at"), // ISO 8601 timestamp when reset was completed
 	},
 	(table) => {
@@ -183,9 +170,7 @@ export const email_change_tokens = sqliteTable(
 		new_email: text("new_email").notNull(), // The new email being verified
 		token: text("token").notNull(), // Hashed change token
 		expires_at: text("expires_at").notNull(), // ISO 8601
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		used_at: text("used_at"), // ISO 8601 timestamp when email was changed
 	},
 	(table) => {
@@ -228,9 +213,7 @@ export const machine_tokens = sqliteTable(
 		machine_id: text("machine_id").notNull(), // UUID
 		name: text("name").notNull(), // e.g., "GitHub CI", "Local Dev"
 		token: text("token").notNull(), // Hashed machine token
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		expires_at: text("expires_at"), // ISO 8601, null = no expiration
 		revoked_at: text("revoked_at"), // ISO 8601 timestamp when revoked
 		last_used_at: text("last_used_at"), // ISO 8601 timestamp
@@ -239,9 +222,7 @@ export const machine_tokens = sqliteTable(
 		return {
 			userIdIdx: index("machine_tokens_user_id_idx").on(table.user_id),
 			machineIdIdx: index("machine_tokens_machine_id_idx").on(table.machine_id),
-			revokedAtIdx: index("machine_tokens_revoked_at_idx").on(
-				table.revoked_at,
-			),
+			revokedAtIdx: index("machine_tokens_revoked_at_idx").on(table.revoked_at),
 		};
 	},
 );
@@ -263,15 +244,15 @@ export const audit_logs = sqliteTable(
 	"audit_logs",
 	{
 		id: text("id").primaryKey(), // UUID
-		user_id: text("user_id").references(() => users.id, { onDelete: "set null" }),
+		user_id: text("user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
 		action: text("action").notNull(), // e.g., "user_login", "password_changed"
 		resource_type: text("resource_type"), // e.g., "session", "password", "email"
 		resource_id: text("resource_id"), // e.g., session UUID, user UUID
 		ip_address: text("ip_address"), // IPv4 or IPv6
 		user_agent: text("user_agent"),
-		created_at: text("created_at")
-			.notNull()
-			.default(sql`CURRENT_TIMESTAMP`),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		details: text("details"), // JSON string
 	},
 	(table) => {
@@ -292,8 +273,10 @@ export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
-export type EmailVerificationToken = typeof email_verification_tokens.$inferSelect;
-export type NewEmailVerificationToken = typeof email_verification_tokens.$inferInsert;
+export type EmailVerificationToken =
+	typeof email_verification_tokens.$inferSelect;
+export type NewEmailVerificationToken =
+	typeof email_verification_tokens.$inferInsert;
 
 export type PasswordResetToken = typeof password_reset_tokens.$inferSelect;
 export type NewPasswordResetToken = typeof password_reset_tokens.$inferInsert;
