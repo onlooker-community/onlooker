@@ -24,6 +24,13 @@ export default defineConfig({
 	plugins: [
 		dts({
 			include: ["src/**/*", "types/**/*"],
+			exclude: [
+				"**/*.test.ts",
+				"**/*.test.tsx",
+				"**/*.spec.ts",
+				"**/*.spec.tsx",
+				"**/__tests__/**",
+			],
 			entryRoot: ".",
 			outDirs: ["dist"],
 			beforeWriteFile: rewriteNodeNextDtsSpecifiers,
