@@ -1,19 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	users,
-	sessions,
-	email_verification_tokens,
-	password_reset_tokens,
-	email_change_tokens,
-	machine_tokens,
-	audit_logs,
-	type User,
-	type Session,
-	type EmailVerificationToken,
-	type PasswordResetToken,
-	type EmailChangeToken,
-	type MachineToken,
 	type AuditLog,
+	audit_logs,
+	type EmailChangeToken,
+	type EmailVerificationToken,
+	email_change_tokens,
+	email_verification_tokens,
+	type MachineToken,
+	machine_tokens,
+	type PasswordResetToken,
+	password_reset_tokens,
+	type Session,
+	sessions,
+	type User,
+	users,
 } from "../schema";
 
 describe("Database Schema Types", () => {
