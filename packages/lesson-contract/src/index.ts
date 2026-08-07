@@ -1,4 +1,8 @@
 export { type TAppliesTo, ZAppliesTo } from "./applies-to.js";
+export {
+	type TCounterObservation,
+	ZCounterObservation,
+} from "./counter-observation.js";
 export { type TEvidence, ZEvidence } from "./evidence.js";
 export {
 	type TConsensus,
