@@ -2,10 +2,7 @@
 	"name": "@onlooker/types",
 	"private": true,
 	"description": "Type definitions for Onlooker",
-	"main": "index.ts",
 	"exports": {
-		".": "./index.ts",
-		"./integration": "./integration/index.ts",
 		"./*": "./*.ts"
 	},
 	"sideEffects": false,
