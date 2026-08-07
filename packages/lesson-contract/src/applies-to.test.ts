@@ -37,6 +37,20 @@ describe("ZAppliesTo", () => {
 		).toBe(false);
 	});
 
+	it("rejects two bounds facing the same direction", () => {
+		for (const range of [">4 >6", "<4 <2"]) {
+			expect(
+				ZAppliesTo.safeParse({ ...valid, versions: { vite: range } }).success,
+			).toBe(false);
+		}
+	});
+
+	it("rejects an exact match carrying a second bound", () => {
+		expect(
+			ZAppliesTo.safeParse({ ...valid, versions: { vite: "=4 <6" } }).success,
+		).toBe(false);
+	});
+
 	it("requires at least one stack entry so a lesson cannot match everything", () => {
 		expect(ZAppliesTo.safeParse({ ...valid, stack: [] }).success).toBe(false);
 	});

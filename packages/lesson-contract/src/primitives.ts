@@ -20,6 +20,9 @@ export type TUlid = z.infer<typeof ZUlid>;
 export const ZProjectKey = z.string().regex(/^[0-9a-f]{12}$/);
 export type TProjectKey = z.infer<typeof ZProjectKey>;
 
+const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;
+const COMPARATOR = "(<|<=|>|>=|=)";
+
 /**
  * A comparator-prefixed version range: "<6", ">=4", ">=4 <6", ">=4.1.2".
  *
@@ -27,8 +30,20 @@ export type TProjectKey = z.infer<typeof ZProjectKey>;
  * above", and this field decides whether a lesson is still true, so an
  * ambiguous value is worse than a rejected one.
  *
- * Kept as a regex rather than a refinement so it survives into the emitted
- * JSON Schema as `pattern`, where plugins can enforce the same rule.
+ * A two-sided range must read lower bound first, upper bound second, so
+ * ">4 >6", "<4 <2" and "=4 <6" are all rejected. Without that constraint a
+ * pair of same-facing comparators would validate as a "range" while
+ * describing no interval at all.
+ *
+ * Residual limitation: ">6 <2" still validates. Rejecting it means comparing
+ * magnitudes, which a regex cannot do and which .refine() must not do here
+ * (refinements vanish from the emitted JSON Schema). That check belongs with
+ * the other cross-field rules in server-side ingest.
+ *
+ * Built with RegExp rather than a literal so the pattern stays inside the
+ * 80-column limit; z.toJSONSchema reads .source either way, so it still
+ * emits as `pattern`.
  */
-export const VERSION_RANGE =
-	/^(<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?( (<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?)?$/;
+export const VERSION_RANGE = new RegExp(
+	`^(${COMPARATOR}${VERSION_PART}|(>|>=)${VERSION_PART} (<|<=)${VERSION_PART})$`,
+);
