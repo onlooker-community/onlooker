@@ -39,7 +39,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install -g pnpm@latest
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -70,19 +70,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install -g pnpm@latest
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build API
-        run: pnpm --filter @onlooker/api build
-
-      - name: Build Web
-        run: pnpm --filter @onlooker/web build
+      - name: Build
+        run: pnpm build
 
       - name: Test
-        run: pnpm test --cache=local:rw
+        run: pnpm test
 
   # ============================================================================
   # DEPLOY TO STAGING
@@ -104,16 +101,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install -g pnpm@latest
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build API
-        run: pnpm --filter @onlooker/api build
-
-      - name: Build Web
-        run: pnpm --filter @onlooker/web build
+      - name: Build
+        run: pnpm build
 
       - name: Deploy API to Staging
         run: pnpm --filter @onlooker/api deploy --env staging
@@ -160,16 +154,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install -g pnpm@latest
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build API
-        run: pnpm --filter @onlooker/api build
-
-      - name: Build Web
-        run: pnpm --filter @onlooker/web build
+      - name: Build
+        run: pnpm build
 
       - name: Deploy API to Production
         run: pnpm --filter @onlooker/api deploy --env production
