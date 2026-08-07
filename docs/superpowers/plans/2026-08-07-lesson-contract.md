@@ -322,6 +322,20 @@ describe("ZAppliesTo", () => {
 		).toBe(false);
 	});
 
+	it("rejects two bounds facing the same direction", () => {
+		for (const range of [">4 >6", "<4 <2"]) {
+			expect(
+				ZAppliesTo.safeParse({ ...valid, versions: { vite: range } }).success,
+			).toBe(false);
+		}
+	});
+
+	it("rejects an exact match carrying a second bound", () => {
+		expect(
+			ZAppliesTo.safeParse({ ...valid, versions: { vite: "=4 <6" } }).success,
+		).toBe(false);
+	});
+
 	it("requires at least one stack entry so a lesson cannot match everything", () => {
 		expect(ZAppliesTo.safeParse({ ...valid, stack: [] }).success).toBe(false);
 	});
@@ -342,6 +356,9 @@ Expected: FAIL — `Failed to resolve import "./applies-to.js"`.
 Append to `packages/lesson-contract/src/primitives.ts`:
 
 ```ts
+const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;
+const COMPARATOR = "(<|<=|>|>=|=)";
+
 /**
  * A comparator-prefixed version range: "<6", ">=4", ">=4 <6", ">=4.1.2".
  *
@@ -349,11 +366,23 @@ Append to `packages/lesson-contract/src/primitives.ts`:
  * above", and this field decides whether a lesson is still true, so an
  * ambiguous value is worse than a rejected one.
  *
- * Kept as a regex rather than a refinement so it survives into the emitted
- * JSON Schema as `pattern`, where plugins can enforce the same rule.
+ * A two-sided range must read lower bound first, upper bound second, so
+ * ">4 >6", "<4 <2" and "=4 <6" are all rejected. Without that constraint a
+ * pair of same-facing comparators would validate as a "range" while
+ * describing no interval at all.
+ *
+ * Residual limitation: ">6 <2" still validates. Rejecting it means comparing
+ * magnitudes, which a regex cannot do and which .refine() must not do here
+ * (refinements vanish from the emitted JSON Schema). That check belongs with
+ * the other cross-field rules in server-side ingest.
+ *
+ * Built with RegExp rather than a literal so the pattern stays inside the
+ * 80-column limit; z.toJSONSchema reads .source either way, so it still
+ * emits as `pattern`.
  */
-export const VERSION_RANGE =
-	/^(<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?( (<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?)?$/;
+export const VERSION_RANGE = new RegExp(
+	`^(${COMPARATOR}${VERSION_PART}|(>|>=)${VERSION_PART} (<|<=)${VERSION_PART})$`,
+);
 ```
 
 - [ ] **Step 4: Write the applicability schema**
@@ -387,7 +416,7 @@ export type TAppliesTo = z.infer<typeof ZAppliesTo>;
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 13 tests total.
+Expected: PASS — 15 tests total.
 
 - [ ] **Step 6: Commit**
 
@@ -596,7 +625,7 @@ export {
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 20 tests total.
+Expected: PASS — 22 tests total.
 
 The "rejects unknown top-level fields" test is what `z.strictObject` buys. With a plain `z.object` it would fail: zod strips the unknown key and reports success, while the emitted JSON Schema still says `additionalProperties: false`. If this test ever goes red, something has been downgraded to `z.object` and the artifact no longer describes the server.
 
@@ -727,7 +756,7 @@ export {
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 25 tests total.
+Expected: PASS — 27 tests total.
 
 - [ ] **Step 6: Commit**
 
@@ -839,7 +868,7 @@ describe("emitted JSON Schema", () => {
 - [ ] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 29 tests total.
+Expected: PASS — 31 tests total.
 
 If the first assertion fails with `pattern` undefined, a `.refine()` has crept in somewhere in the chain. Replace it with a regex; do not weaken the test.
 
