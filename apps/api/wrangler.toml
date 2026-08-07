@@ -32,8 +32,11 @@ CORS_ORIGIN = "http://localhost:5173"
 # STAGING ENVIRONMENT
 # ============================================================================
 [env.staging]
+# custom_domain lets Cloudflare create and manage the DNS record itself. A plain
+# route does not create DNS, which is why api-staging.onlooker.dev never
+# resolved even though the worker and the route both existed.
 routes = [
-  { pattern = "api-staging.onlooker.dev/*", zone_name = "onlooker.dev" }
+  { pattern = "api-staging.onlooker.dev", custom_domain = true }
 ]
 
 [env.staging.vars]
@@ -50,6 +53,9 @@ CORS_ORIGIN = "https://app-staging.onlooker.dev"
 binding = "DB"
 database_name = "onlooker-db-staging"
 database_id = "ff3a01c8-aedb-4bc2-8231-b8511b353728"
+# Explicit so `d1 migrations apply` cannot pick up packages/db/migrations,
+# which describes a different schema than the one apps/api queries.
+migrations_dir = "migrations"
 
 # ============================================================================
 # PRODUCTION ENVIRONMENT
@@ -72,6 +78,7 @@ CORS_ORIGIN = "https://app.onlooker.dev"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "onlooker-db"
+migrations_dir = "migrations"
 database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
 
 # ============================================================================

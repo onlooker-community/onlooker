@@ -30,6 +30,8 @@
 		"deploy:web": "pnpm --filter @onlooker/web exec wrangler deploy",
 		"deploy:web:staging": "pnpm --filter @onlooker/web exec wrangler deploy --env staging",
 		"deploy:web:prod": "pnpm --filter @onlooker/web exec wrangler deploy --env production",
+		"migrate:staging": "pnpm --filter @onlooker/api exec wrangler d1 migrations apply DB --env staging --remote",
+		"migrate:prod": "pnpm --filter @onlooker/api exec wrangler d1 migrations apply DB --env production --remote",
 		"tail:api": "pnpm wrangler tail --env production",
 		"tail:api:staging": "pnpm wrangler tail --env staging",
 		"db:backup": "pnpm wrangler d1 export onlooker-db > backup_$(date +%s).sql",
