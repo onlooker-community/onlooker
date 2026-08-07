@@ -1,14 +1,16 @@
 # Shared Lesson Contract — Design
 
-**Status:** In progress — sections 1–2 approved, 3–5 pending
+**Status:** Complete — all five sections approved
 **Bead:** onlooker-66u (Design: Shared Lesson contract for cross-machine Playbooks)
-**Date:** 2026-08-06
+**Date:** 2026-08-06, sections 3–5 added 2026-08-07
 
 ---
 
-## Resuming this document
+## Reading this document
 
-Sections 1 and 2 are approved and settled. Pick up at **Section 3: visibility and trust tiers in detail**, then Section 4 (staleness and lifecycle) and Section 5 (package placement and validation). Do not re-litigate sections 1–2 or the decisions in "Settled context" below; they were reached over a full brainstorming pass.
+All five sections are settled. The design covers **the lesson contract only** — see the scope table below for the five sub-projects that depend on it, each of which needs its own spec.
+
+The next step from here is an implementation plan, not implementation.
 
 ---
 
@@ -36,7 +38,7 @@ This spec covers **the lesson contract only**. The following are separate sub-pr
 | 3 | Sync + storage | 1, 2 | nothing; `apps/api` is auth-only |
 | 4 | Waypoint retrieval | 1, 3 | nothing; named on landing page |
 | 5 | Web app | 1–4 | auth scaffold only |
-| 6 | Visual design system | 5 | inline styles |
+| 6 | Visual design system | 5 | brand exists in `apps/website` (`globals.css` tokens); `apps/web` uses none of it — 71 inline styles, no CSS, no fonts (bead onlooker-pbh) |
 
 ---
 
@@ -95,13 +97,13 @@ Note also `"source": "local"` — the existing local schema already has a field 
   "visibility": "private | org | public",
   "consensus": { "judges": 3, "agreed": 3, "decided_at": "..." },
 
-  // ── Lifecycle (reserved; minimal now) ──
-  "status": "active | refuted | superseded",
+  // ── Lifecycle (see Section 4; expiry is NOT a status) ──
+  "status": "active | refuted | superseded | retracted",
   "superseded_by": null,
 
   // ── Provenance ──
   "source": "local | org | public",
-  "author_key": "pseudonymous",
+  "author_key": "...",            // HMAC(user_secret, scope) — see Section 3
   "promoted_at": "..."
 }
 ```
@@ -159,23 +161,171 @@ Librarian's ADR-001 commits to never writing to the typed memory store without e
 
 ---
 
-## Section 3 — Visibility and trust tiers *(pending)*
+## Section 3 — Visibility and trust tiers *(approved)*
 
-Next up. Open questions to work through:
+### `author_key` is derived per scope, not global
 
-- What exactly does `author_key` mean across tiers — stable per user, per org, or per machine?
-- Can a lesson move between tiers after publication (private -> org -> public), and what re-gating does that require?
-- How does an org revoke a lesson a member published?
-- Does the public pool need moderation beyond consensus, or is refutation sufficient?
+```
+author_key = HMAC(user_master_secret, scope)
+scope = "private" | "org:<org_id>" | "public"
+```
 
-## Section 4 — Staleness and lifecycle *(pending)*
+The field has three jobs, and two of them pull against each other: an org needs stable attribution in order to revoke, the public pool needs stable identity in order to block a bad actor, and an observer must not be able to correlate everything a person has ever published.
 
-- How does `status: refuted` get set — who or what refutes a lesson?
-- Does contradicting evidence from a later session automatically refute?
-- Supersession semantics when a newer lesson covers the same `applies_to` space.
+Deriving per scope satisfies all three. Org identity and public identity are unlinkable to observers, while each stays stable within its own pool.
 
-## Section 5 — Package placement and validation *(pending)*
+Per-machine derivation is wrong: it fragments one person's identity across their laptops for no benefit, and org revocation would silently miss lessons published from a second machine.
 
-- Likely home: `@onlooker/types`, which currently declares `main: "index.ts"` and an `./integration` subpath that **do not exist** and has zero importers (bead onlooker-2a1). Fixing that is a prerequisite.
-- Schema validation approach — zod is already a dependency in `packages/types` and `packages/cache`.
-- How the contract is versioned as `schema_version` advances.
+### Visibility only moves up; downward is retraction
+
+`private -> org -> public`, re-gated at each step, with `public` requiring the server-side re-judge from Section 2. A tier may be skipped — `org` is not a required waypoint.
+
+`public -> private` is a fiction. Once a lesson is public, other machines have pulled it; flipping the field back recalls nothing and leaves the record lying about its own reach. The honest operation is `status: retracted`, which is the reserved `status` field from decision 6 paying for itself.
+
+A lesson keeps its `id` across promotion, so `evidence.artifact_ids` and supersession links stay valid.
+
+### Org-visible lessons belong to the org
+
+Publishing into an org transfers custody. The author keeps attribution through `author_key`; they do not keep control.
+
+- Any org admin can retract any lesson in org scope.
+- A member leaving retracts nothing.
+
+The alternative — lessons evaporating when someone departs — drains org knowledge at exactly the moment it is most valuable, which defeats the purpose of sharing. The cost is real and accepted: you cannot take your lessons with you.
+
+### The public pool needs a second lens, not more judges
+
+Tribunal judges ask whether the claim follows from the evidence. That is correctness. A lesson can be entirely correct and still unfit to publish:
+
+- "Set `NODE_TLS_REJECT_UNAUTHORIZED=0` to fix cert errors in CI" — true, effective, terrible.
+- A lesson whose `evidence.resolution` quotes a config block containing a live API key.
+- A lesson naming an internal hostname or a colleague.
+
+Correctness judges pass all three. Redundant judges catch the same class of error; different lenses catch different classes.
+
+| Lens | Asks | Status |
+|---|---|---|
+| correctness | does the claim follow from the evidence? | exists (Section 2) |
+| safety / disclosure | does this leak a secret or an identity, or advocate a harmful practice? | **new, public tier only** |
+
+Plus a reactive `report -> retract` path, because the safety lens will miss things.
+
+**Correctness rots; harm does not.** `applies_to.versions` retires a stale correctness claim by construction. A leaked credential never expires on its own. That asymmetry is why safety needs both a gate and a way to reach back, while correctness needed only scoping.
+
+### One pool, filtered on read
+
+Decision 5 keeps all visibilities in one store, so retrieval filters by viewer: `private` matches the requester's own scope key, `org` checks membership, `public` passes.
+
+That filter **is** the security boundary. A bug there leaks private lessons, so it belongs in exactly one place rather than spread across every query site.
+
+---
+
+## Section 4 — Staleness and lifecycle *(approved)*
+
+### Expiry is not a status
+
+When `applies_to.versions` stops matching, nothing happens to the record. The lesson is simply not selected. No state change, no scan, no job.
+
+This is Section 1's structural staleness doing the work, and it handles the majority of rot silently. Storing an "expired" status would require something sweeping the pool to set it — the review-queue failure mode this design exists to avoid.
+
+Lifecycle states therefore cover only what expiry cannot reach:
+
+| State | Means | Set by |
+|---|---|---|
+| `active` | in play | promotion |
+| `refuted` | wrong **within its own declared scope** | consensus |
+| `superseded` | a better lesson covers this ground | consensus |
+| `retracted` | should not be shared regardless of correctness | org admin / safety report |
+
+The vitest lesson that motivated this spec was never refuted. It was true, and then the world moved. That is expiry. Refutation is for claims that were wrong even in their stated scope — something `applies_to` can never catch.
+
+### Contradiction is a signal, not a verdict
+
+```
+consumer files counter-observation   (own artifact_ids, session_id)
+  └→ counter-observations accumulate on the lesson
+     └→ threshold crossed -> triggers re-judgment
+        └→ tribunal weighs claim vs. original evidence + counter-evidence
+           └→ tribunal sets status, not the reporter
+```
+
+Auto-refuting on contradicting evidence is tempting and wrong. A session failing while a lesson matched is weak evidence: the lesson may have been applied incorrectly, the context may differ subtly, the failure may be unrelated. A lesson that merely failed to help is not wrong. Auto-refutation is also a trivial denial-of-service vector.
+
+Routing refutation through consensus keeps a single authority over truth claims and makes refutation **symmetric with promotion** — the same machinery, run in the opposite direction. Nothing enters the pool without consensus; nothing is invalidated without it either.
+
+One deliberate asymmetry: refutation should be **cheaper to trigger** than promotion. A wrong lesson actively misleads, while a missing lesson merely fails to help. Fail toward removal.
+
+**Open number:** the counter-observation threshold is currently guesswork. Too high and wrong lessons persist; too low and a couple of unlucky sessions can bury a good one. It needs a real value before implementation.
+
+### Supersession is detected locally, confirmed by consensus
+
+Overlapping `applies_to` is not conflict. "vite <6 + vitest >=4 -> upgrade vite" and "vite <6 + rollup 3 -> pin rollup" can both hold. Auto-superseding on overlap would produce constant false positives.
+
+Section 2's pipeline already runs conflict/dup detection locally. Extend that step: when a new candidate substantially overlaps an existing lesson **and its claim differs**, treat it as a supersession candidate and send both to the tribunal together. If confirmed, set `status: superseded` and `superseded_by: <new id>`.
+
+### Retrieval semantics
+
+| Status | Injected into context? | Reachable on explicit lookup? |
+|---|---|---|
+| `active` | yes | yes |
+| `superseded` | no — follows `superseded_by` | yes |
+| `refuted` | no | yes, with counter-evidence attached |
+| `retracted` | no | no, except to the retracting admin |
+
+**Nothing is deleted.** Every state change is a visibility change plus a link. Provenance stays intact, and a mistaken refutation is recoverable rather than destructive.
+
+Superseded lessons staying reachable is what should have happened to the artifact that motivated this spec: worthless as advice, genuinely useful as history — it records that the mismatch was real on 2026-08-03 and how it resolved.
+
+Re-judgment runs where promotion runs — locally for `private` and `org`, server-side for `public` — so Section 2's trust model holds without a second set of rules.
+
+---
+
+## Section 5 — Package placement and validation *(approved)*
+
+### The defining constraint is a repo boundary
+
+| Side | What it is | Can it import a zod package? |
+|---|---|---|
+| server | `apps/api` sync + storage, `apps/web` | yes |
+| local | archivist / librarian / tribunal | **no** — shell-based, separate repo |
+
+The plugins are not in this repository. `apps/website/src/data/plugins/` is marketing copy for 16 plugin pages; the implementations live in the Claude Code plugin ecosystem and are driven by shell scripts.
+
+Per Section 2, transform and tribunal judging run locally. **The side that produces Lessons is the side that cannot import the schema.**
+
+### Zod is the source of truth, JSON Schema is the published artifact
+
+```
+packages/lesson-contract/lesson.ts     ZLesson (zod)       <- single definition
+  ├→ z.toJSONSchema(ZLesson)           lesson.schema.json  <- generated, published
+  │    └→ local plugins validate against it (or simply conform)
+  └→ apps/api imports ZLesson directly
+       └→ sync endpoint rejects malformed lessons   <- the real boundary
+```
+
+Zod 4.4.3 ships `z.toJSONSchema` (verified in this workspace), so this costs a build step rather than a second implementation. One definition, two artifacts, no drift.
+
+The server must validate regardless: Section 2 established that a modified client can lie, so client-side validation was never a trust boundary. Publishing the JSON Schema is a convenience for plugin authors, not a security control.
+
+An `onlooker-schemas` Worker already exists in the Cloudflare account (created 2026-05-21) and may already be a schema-hosting service. Check it before building another.
+
+### Versioning, given the two sides cannot be upgraded atomically
+
+- Additive optional field -> same `schema_version`
+- New required field, or changed meaning -> increment
+- **The server accepts `N` and `N-1`, translating up on ingest**
+
+The `N-1` window is forced by the repo boundary. Plugins ship on their own cadence; without a grace window every schema bump breaks every plugin that has not yet updated.
+
+### Placement: a dedicated package, not `@onlooker/types`
+
+| | `@onlooker/types/lesson` | **`packages/lesson-contract`** |
+|---|---|---|
+| Setup | zero — `./*` already resolves | new package |
+| Inherited deps | drags in `node-html-parser` | zod only |
+| Neighbors | 7 zero-importer vendored schemas (`ZActionClass`, `ZOverlay`, …) | only the contract |
+| JSON Schema build step | odd fit | natural home |
+
+The inherited dependency decides it. A wire contract has no business depending on an HTML parser, and anything importing `@onlooker/types/lesson` would acquire one. A dedicated package also gives the contract a clear owner, which matters once `schema_version` starts advancing.
+
+Note that `@onlooker/types` is `private: true`, as any workspace package would be — publishing the JSON Schema, not the TypeScript package, is what crosses the repo boundary.
