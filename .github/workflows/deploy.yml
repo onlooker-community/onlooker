@@ -110,13 +110,13 @@ jobs:
         run: pnpm build
 
       - name: Deploy API to Staging
-        run: pnpm --filter @onlooker/api deploy --env staging
+        run: pnpm deploy:api:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Web to Staging
-        run: pnpm --filter @onlooker/web deploy --env staging
+        run: pnpm deploy:web:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -163,13 +163,13 @@ jobs:
         run: pnpm build
 
       - name: Deploy API to Production
-        run: pnpm --filter @onlooker/api deploy --env production
+        run: pnpm deploy:api:prod
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Web to Production
-        run: pnpm --filter @onlooker/web deploy --env production
+        run: pnpm deploy:web:prod
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
