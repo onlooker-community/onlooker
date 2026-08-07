@@ -19,3 +19,16 @@ export type TUlid = z.infer<typeof ZUlid>;
  */
 export const ZProjectKey = z.string().regex(/^[0-9a-f]{12}$/);
 export type TProjectKey = z.infer<typeof ZProjectKey>;
+
+/**
+ * A comparator-prefixed version range: "<6", ">=4", ">=4 <6", ">=4.1.2".
+ *
+ * A bare "4" is rejected deliberately. It could mean "exactly 4" or "4 and
+ * above", and this field decides whether a lesson is still true, so an
+ * ambiguous value is worse than a rejected one.
+ *
+ * Kept as a regex rather than a refinement so it survives into the emitted
+ * JSON Schema as `pattern`, where plugins can enforce the same rule.
+ */
+export const VERSION_RANGE =
+	/^(<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?( (<|<=|>|>=|=)\d+(\.\d+)?(\.\d+)?)?$/;
