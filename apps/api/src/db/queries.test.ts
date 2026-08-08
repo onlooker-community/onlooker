@@ -129,4 +129,20 @@ describe("refresh tokens", () => {
 			revokeRefreshToken(db(), "not-a-real-token"),
 		).resolves.toBeUndefined();
 	});
+
+	// Every other revoke test checks only the token it just revoked, so all of
+	// them would still pass if revokeRefreshToken lost its where clause and
+	// deleted the whole sessions table. This is the one that would catch it -
+	// the scope of the delete, not just its effect on the target.
+	it("revoking one token leaves another user's session intact", async () => {
+		const alice = await createUser(db(), "alice@example.com", "hash");
+		const bob = await createUser(db(), "bob@example.com", "hash");
+		await storeRefreshToken(db(), alice.id, "alice-token", future());
+		await storeRefreshToken(db(), bob.id, "bob-token", future());
+
+		await revokeRefreshToken(db(), "alice-token");
+
+		expect(await getRefreshToken(db(), "alice-token")).toBeNull();
+		expect(await getRefreshToken(db(), "bob-token")).not.toBeNull();
+	});
 });

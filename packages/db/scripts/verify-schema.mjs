@@ -141,7 +141,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	if (diffs.length > 0) {
 		console.error(`Schema drift in ${database} (${env}):\n`);
 		for (const d of diffs) console.error(`  - ${d}`);
-		console.error("\nThe live database does not match packages/db/src/schema.ts.");
+		console.error(
+			"\nThe live database does not match packages/db/src/schema.ts.",
+		);
 		process.exit(1);
 	}
 	console.log(`${database} (${env}) matches packages/db/src/schema.ts`);

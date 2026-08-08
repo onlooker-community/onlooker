@@ -129,6 +129,27 @@ would have accepted empty maps while the published schema declared them invalid
 separately, matching the existing pattern in `json-schema.test.ts` that guards
 constraints against being lost in emission.
 
+### Cross-field rules the ingest endpoint must enforce
+
+Some constraints span two fields, and JSON Schema cannot express those at all.
+They are deliberately absent from `packages/lesson-contract` rather than added
+as `.check()` calls, because a check would make the package reject values the
+published artifact accepts — and the shell-based plugins validate against that
+artifact and cannot import the package. An invisible rule would fail them with
+no way to have known. Each is documented in a `.describe()` so it reaches the
+artifact as prose, and each must be implemented when the sync endpoint is built:
+
+| Rule | Where it is described |
+|---|---|
+| `consensus.agreed <= consensus.judges` | `ZConsensus` in `lesson.ts` |
+| every key of `applies_to.scope.versions` names an entry in `applies_to.stack` | `ZAppliesTo` in `applies-to.ts` |
+
+The second matters more than it looks. Depending on how retrieval treats a key
+naming something absent from `stack`, the lesson either never matches or the
+constraint is silently skipped — and skipping it yields a lesson that never
+expires, which is the failure class the `applies_to.scope` union exists to
+close, reached by a different route.
+
 A record is kept rather than an array of `{name, range}` pairs. An array makes
 `minItems: 1` native and avoids the double mechanism, but trades the empty-map
 ambiguity for a duplicate-key one: nothing would stop two entries for `vite`,
