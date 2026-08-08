@@ -66,11 +66,30 @@ export type TScope = z.infer<typeof ZScope>;
  * scope is the field that makes staleness structural. Scoping a lesson to
  * vite <6 means a session on vite 8 never matches it, so the lesson retires
  * itself by construction rather than waiting for someone to review it.
+ *
+ * Every key of scope.versions must name an entry in stack. That is deliberately
+ * NOT enforced here, for the same reason ZConsensus does not enforce
+ * agreed <= judges: it is a cross-field rule, JSON Schema cannot express one,
+ * and a .check() would make this package reject values the published artifact
+ * accepts. The plugins that produce lessons validate against that artifact and
+ * cannot import this package, so an invisible rule would fail them with no way
+ * to have known. Cross-field rules belong at ingest, where both sides see the
+ * same error.
+ *
+ * A key naming something absent from stack is a defect: depending on how
+ * retrieval treats an unmatched key, the lesson either never matches or the
+ * constraint is skipped, and skipping it produces a lesson that never expires.
  */
-export const ZAppliesTo = z.strictObject({
-	stack: z.array(z.string().min(1)).min(1),
-	scope: ZScope,
-	file_patterns: z.array(z.string().min(1)),
-	task_kinds: z.array(z.string().min(1)),
-});
+export const ZAppliesTo = z
+	.strictObject({
+		stack: z.array(z.string().min(1)).min(1),
+		scope: ZScope,
+		file_patterns: z.array(z.string().min(1)),
+		task_kinds: z.array(z.string().min(1)),
+	})
+	.describe(
+		"Every key of scope.versions must name an entry in stack. That rule " +
+			"is enforced at ingest, not by this schema, because JSON Schema " +
+			"cannot express a constraint spanning two fields.",
+	);
 export type TAppliesTo = z.infer<typeof ZAppliesTo>;

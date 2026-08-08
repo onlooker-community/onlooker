@@ -80,4 +80,18 @@ describe("emitted JSON Schema", () => {
 			/AND/,
 		);
 	});
+
+	// The published artifact is the only channel that reaches the shell-based
+	// plugins, which cannot import this package. A cross-field rule JSON Schema
+	// cannot express is therefore invisible to them unless it is stated in a
+	// description — the same reason ZConsensus documents "agreed <= judges"
+	// rather than silently enforcing it server-side only.
+	it("tells plugins that versions keys must come from stack", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const description = json.properties.applies_to.description;
+
+		expect(description).toBeDefined();
+		expect(description).toMatch(/stack/);
+		expect(description).toMatch(/ingest/);
+	});
 });

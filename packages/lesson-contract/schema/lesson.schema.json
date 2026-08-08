@@ -142,7 +142,8 @@
         "file_patterns",
         "task_kinds"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "Every key of scope.versions must name an entry in stack. That rule is enforced at ingest, not by this schema, because JSON Schema cannot express a constraint spanning two fields."
     },
     "visibility": {
       "type": "string",
