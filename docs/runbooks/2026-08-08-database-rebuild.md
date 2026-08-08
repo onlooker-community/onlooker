@@ -66,16 +66,18 @@ that re-login is Step 9's success check, not a bug.
   [database source of truth plan](../superpowers/plans/2026-08-08-database-source-of-truth.md)
   (`packages/db/migrations/0000_kind_starjammers.sql` exists, and
   `apps/api/wrangler.toml` points `migrations_dir` at it for both `staging`
-  and `production`). Steps 1–3 and 6 run from this checkout, before that
-  branch is merged.
+  and `production`). Steps 1–3 run from this checkout before that branch is
+  merged. Step 6 also runs from this checkout, but only *after* the Step 4
+  merge — see Step 6 for why the order matters.
 - `wrangler` authenticated with access to both D1 databases (`pnpm
   cloudflare:login`, or `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` set
   in the environment) — needed for the local `wrangler d1 execute`/`export`
-  commands in Steps 1, 2, 3, 6, 8, and 9.
+  commands in Steps 1, 2, 3, 6, and 8.
 - `pnpm install` has been run.
 - A place **outside this git repository** to record the Step 1 export and
-  the Step 2 row values. Both contain a live email address and password
-  hash and must never be committed — see the warnings in those steps.
+  the Step 2 row values, created ahead of time (e.g. `mkdir -p
+  ~/secure/onlooker`). Both contain a live email address and password hash
+  and must never be committed — see the warnings in those steps.
 - **Check now whether the `production` GitHub environment has a required
   reviewer gate**: repo Settings → Environments → `production` → look for
   "Required reviewers." The sequence in Steps 4 and 7 branches on the
@@ -422,7 +424,8 @@ restore therefore also means:
 1. Reverting the merge/deploy from Step 4 and Step 7 (or otherwise getting
    the old API build back in front of the databases) — the current API
    code will not run correctly against the restored old schema.
-2. Restoring both databases from export.
+2. Restoring production from the Step 1 export. (Staging was never
+   exported and doesn't need to be — nothing in staging is irreplaceable.)
 3. Re-running schema verification against the restored state before
    trusting the API again.
 
