@@ -1,11 +1,15 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { sessions, users } from "@onlooker/db";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 
 export interface User {
 	id: string;
 	email: string;
 	password_hash: string;
 	name?: string;
-	email_verified: boolean;
+	// ISO 8601 timestamp of verification, or null when unverified.
+	email_verified: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -19,6 +23,15 @@ export interface RefreshToken {
 }
 
 /**
+ * The drizzle client is constructed per call rather than passed in, so these
+ * signatures stay identical to the raw-D1 versions they replaced. That keeps
+ * every call site in routes/auth.ts untouched and keeps the characterization
+ * tests meaningful across this rewrite. Construction is a thin wrapper over
+ * the binding, not a connection.
+ */
+const client = (db: D1Database) => drizzle(db);
+
+/**
  * Create a new user in the database
  */
 export async function createUser(
@@ -30,19 +43,17 @@ export async function createUser(
 	const userId = crypto.randomUUID();
 	const now = new Date().toISOString();
 
-	const result = await db
-		.prepare(
-			`
-      INSERT INTO users (id, email, password_hash, name, email_verified, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-		)
-		.bind(userId, email, passwordHash, name || null, false, now, now)
-		.run();
-
-	if (!result.success) {
-		throw new Error(`Failed to create user: ${result.error}`);
-	}
+	await client(db)
+		.insert(users)
+		.values({
+			id: userId,
+			email,
+			password_hash: passwordHash,
+			name: name ?? null,
+			email_verified: null,
+			created_at: now,
+			updated_at: now,
+		});
 
 	return { id: userId, email, name };
 }
@@ -54,12 +65,13 @@ export async function getUserByEmail(
 	db: D1Database,
 	email: string,
 ): Promise<User | null> {
-	const result = await db
-		.prepare("SELECT * FROM users WHERE email = ?")
-		.bind(email)
-		.first();
+	const [row] = await client(db)
+		.select()
+		.from(users)
+		.where(eq(users.email, email))
+		.limit(1);
 
-	return (result as unknown as User) || null;
+	return (row as User) ?? null;
 }
 
 /**
@@ -69,14 +81,20 @@ export async function getUserById(
 	db: D1Database,
 	userId: string,
 ): Promise<Omit<User, "password_hash"> | null> {
-	const result = await db
-		.prepare(
-			"SELECT id, email, name, email_verified, created_at, updated_at FROM users WHERE id = ?",
-		)
-		.bind(userId)
-		.first();
+	const [row] = await client(db)
+		.select({
+			id: users.id,
+			email: users.email,
+			name: users.name,
+			email_verified: users.email_verified,
+			created_at: users.created_at,
+			updated_at: users.updated_at,
+		})
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1);
 
-	return (result as Omit<User, "password_hash">) || null;
+	return (row as Omit<User, "password_hash">) ?? null;
 }
 
 /**
@@ -88,23 +106,13 @@ export async function storeRefreshToken(
 	token: string,
 	expiresAt: Date,
 ): Promise<void> {
-	const tokenId = crypto.randomUUID();
-	const tokenHash = await hashToken(token);
-	const now = new Date().toISOString();
-
-	const result = await db
-		.prepare(
-			`
-      INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `,
-		)
-		.bind(tokenId, userId, tokenHash, expiresAt.toISOString(), now)
-		.run();
-
-	if (!result.success) {
-		throw new Error(`Failed to store refresh token: ${result.error}`);
-	}
+	await client(db).insert(sessions).values({
+		id: crypto.randomUUID(),
+		user_id: userId,
+		token_hash: await hashToken(token),
+		expires_at: expiresAt.toISOString(),
+		created_at: new Date().toISOString(),
+	});
 }
 
 /**
@@ -114,25 +122,20 @@ export async function getRefreshToken(
 	db: D1Database,
 	token: string,
 ): Promise<{ user_id: string; expires_at: string } | null> {
-	const tokenHash = await hashToken(token);
+	const [row] = await client(db)
+		.select({ user_id: sessions.user_id, expires_at: sessions.expires_at })
+		.from(sessions)
+		.where(eq(sessions.token_hash, await hashToken(token)))
+		.limit(1);
 
-	const result = await db
-		.prepare("SELECT user_id, expires_at FROM sessions WHERE token_hash = ?")
-		.bind(tokenHash)
-		.first();
+	if (!row) return null;
 
-	if (!result) return null;
+	// Expiry is checked here rather than in SQL because expires_at is an ISO
+	// string, so a SQL comparison would be lexicographic. Same behavior as the
+	// raw-D1 version: an expired token reads as absent but its row remains.
+	if (new Date(row.expires_at) < new Date()) return null;
 
-	// Check if expired
-	const expiresAt = new Date(result.expires_at as string);
-	if (expiresAt < new Date()) {
-		return null;
-	}
-
-	return {
-		user_id: result.user_id as string,
-		expires_at: result.expires_at as string,
-	};
+	return { user_id: row.user_id, expires_at: row.expires_at };
 }
 
 /**
@@ -142,20 +145,13 @@ export async function revokeRefreshToken(
 	db: D1Database,
 	token: string,
 ): Promise<void> {
-	const tokenHash = await hashToken(token);
-
-	const result = await db
-		.prepare("DELETE FROM sessions WHERE token_hash = ?")
-		.bind(tokenHash)
-		.run();
-
-	if (!result.success) {
-		throw new Error(`Failed to revoke token: ${result.error}`);
-	}
+	await client(db)
+		.delete(sessions)
+		.where(eq(sessions.token_hash, await hashToken(token)));
 }
 
 /**
- * Simple hash for token comparison (not password - tokens use SHA256)
+ * SHA-256 of the raw token. Sessions store only this.
  */
 async function hashToken(token: string): Promise<string> {
 	const encoder = new TextEncoder();

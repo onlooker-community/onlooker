@@ -11,7 +11,7 @@ import { defineConfig } from "vitest/config";
 // Migrations are still read at config time and handed to the test worker as
 // a binding, then applied per-suite by test/apply-migrations.ts.
 export default defineConfig(async () => {
-	const migrations = await readD1Migrations("./migrations");
+	const migrations = await readD1Migrations("../../packages/db/migrations");
 
 	return {
 		plugins: [
