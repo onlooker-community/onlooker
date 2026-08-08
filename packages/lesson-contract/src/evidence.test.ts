@@ -31,6 +31,12 @@ describe("ZEvidence", () => {
 		);
 	});
 
+	it("requires at least one session id", () => {
+		expect(ZEvidence.safeParse({ ...valid, session_ids: [] }).success).toBe(
+			false,
+		);
+	});
+
 	it("rejects a lowercase ulid", () => {
 		expect(
 			ZEvidence.safeParse({

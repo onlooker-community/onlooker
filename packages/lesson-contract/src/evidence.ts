@@ -8,7 +8,7 @@ import { ZProjectKey, ZUlid } from "./primitives.js";
  */
 export const ZEvidence = z.strictObject({
 	artifact_ids: z.array(ZUlid).min(1),
-	session_ids: z.array(z.string().min(1)),
+	session_ids: z.array(z.string().min(1)).min(1),
 	project_key: ZProjectKey,
 	observed_at: z.iso.datetime(),
 	resolution: z.string().min(1),
