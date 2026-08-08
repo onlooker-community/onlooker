@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "claim": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "artifact_ids": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        },
+        "session_ids": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "project_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "resolution": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "artifact_ids",
+        "session_ids",
+        "project_key",
+        "observed_at",
+        "resolution"
+      ],
+      "additionalProperties": false
+    },
+    "applies_to": {
+      "type": "object",
+      "properties": {
+        "stack": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "versions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^((<|<=|>|>=|=)\\d+(\\.\\d+)?(\\.\\d+)?|(>|>=)\\d+(\\.\\d+)?(\\.\\d+)? (<|<=)\\d+(\\.\\d+)?(\\.\\d+)?)$"
+          },
+          "description": "Comparator-prefixed version ranges keyed by stack entry, for example {\"vite\": \"<6\"}. A two-sided range reads lower bound then upper bound. Multiple entries combine with AND: every entry must match for the lesson to still apply."
+        },
+        "file_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "task_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "stack",
+        "versions",
+        "file_patterns",
+        "task_kinds"
+      ],
+      "additionalProperties": false
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "private",
+        "org",
+        "public"
+      ]
+    },
+    "consensus": {
+      "type": "object",
+      "properties": {
+        "judges": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "agreed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "decided_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        }
+      },
+      "required": [
+        "judges",
+        "agreed",
+        "decided_at"
+      ],
+      "additionalProperties": false,
+      "description": "The tribunal's verdict. agreed <= judges is enforced at ingest, not by this schema."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "refuted",
+        "superseded",
+        "retracted"
+      ],
+      "description": "Lifecycle state. There is no 'expired' state: expiry is structural — when applies_to.versions stops matching, this field does not change."
+    },
+    "superseded_by": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The id of the lesson that replaced this one."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "local",
+        "org",
+        "public"
+      ]
+    },
+    "author_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{12}$",
+      "description": "Derived per visibility scope from the author's secret; not linkable across scopes."
+    },
+    "promoted_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+    }
+  },
+  "required": [
+    "id",
+    "schema_version",
+    "claim",
+    "rationale",
+    "evidence",
+    "applies_to",
+    "visibility",
+    "consensus",
+    "status",
+    "superseded_by",
+    "source",
+    "author_key",
+    "promoted_at"
+  ],
+  "additionalProperties": false
+}

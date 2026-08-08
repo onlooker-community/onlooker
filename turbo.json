@@ -104,7 +104,7 @@
 				"PROMETHEUS_ENABLED",
 				"PROMETHEUS_EXPORTER_PORT"
 			],
-			"outputs": ["dist/**", ".next/**"]
+			"outputs": ["dist/**", ".next/**", "schema/**"]
 		},
 		"build:dev": {
 			"dependsOn": ["^build:dev"],

@@ -1,0 +1,25 @@
+{
+	"name": "@onlooker/lesson-contract",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"scripts": {
+		"build": "tsc --project tsconfig.build.json && node scripts/emit-json-schema.mjs",
+		"dev": "tsc --watch",
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"zod": "4.4.3"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"typescript": "^5.6.3",
+		"vitest": "^4.1.9"
+	}
+}
