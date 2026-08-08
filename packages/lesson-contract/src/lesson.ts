@@ -9,15 +9,15 @@ export type TVisibility = z.infer<typeof ZVisibility>;
 /**
  * Lifecycle states. Note what is absent: there is no "expired".
  *
- * When applies_to.versions stops matching, nothing happens to the record at
- * all. Storing an expired state would require a job sweeping the pool to set
- * it, which is the review-queue failure mode this design exists to avoid.
+ * When applies_to.scope stops matching, nothing happens to the record at all.
+ * Storing an expired state would require a job sweeping the pool to set it,
+ * which is the review-queue failure mode this design exists to avoid.
  */
 export const ZStatus = z
 	.enum(["active", "refuted", "superseded", "retracted"])
 	.describe(
 		"Lifecycle state. There is no 'expired' state: expiry is structural " +
-			"— when applies_to.versions stops matching, this field does not " +
+			"— when applies_to.scope stops matching, this field does not " +
 			"change.",
 	);
 export type TStatus = z.infer<typeof ZStatus>;

@@ -1,4 +1,9 @@
-export { type TAppliesTo, ZAppliesTo } from "./applies-to.js";
+export {
+	type TAppliesTo,
+	type TScope,
+	ZAppliesTo,
+	ZScope,
+} from "./applies-to.js";
 export {
 	type TCounterObservation,
 	ZCounterObservation,

@@ -16,7 +16,7 @@ const valid = {
 	},
 	applies_to: {
 		stack: ["vitest", "vite"],
-		versions: { vite: "<6", vitest: ">=4" },
+		scope: { kind: "versioned", versions: { vite: "<6", vitest: ">=4" } },
 		file_patterns: ["**/vite.config.*"],
 		task_kinds: ["test-setup", "ci"],
 	},

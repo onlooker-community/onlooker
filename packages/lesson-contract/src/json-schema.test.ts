@@ -7,6 +7,15 @@ import { ZCounterObservation, ZLesson } from "./index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * The versioned branch of applies_to.scope. Found by discriminator rather than
+ * by index so the test does not depend on how zod happens to order oneOf.
+ */
+const versionedBranch = (json: Record<string, any>) =>
+	json.properties.applies_to.properties.scope.oneOf.find(
+		(branch: any) => branch.properties.kind.const === "versioned",
+	);
+
 describe("emitted JSON Schema", () => {
 	it("guards the committed schema against drift from the zod source", () => {
 		const committed = JSON.parse(
@@ -18,13 +27,28 @@ describe("emitted JSON Schema", () => {
 	it("keeps the version-range pattern, which refinements would have lost", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
 		const pattern =
-			json.properties.applies_to.properties.versions.additionalProperties
-				.pattern;
+			versionedBranch(json).properties.versions.additionalProperties.pattern;
 
 		expect(pattern).toBeDefined();
 		expect(new RegExp(pattern).test("<6")).toBe(true);
 		expect(new RegExp(pattern).test(">=4 <6")).toBe(true);
 		expect(new RegExp(pattern).test("potato")).toBe(false);
+	});
+
+	// The artifact half of the non-empty rule. Its runtime twin lives in
+	// applies-to.test.ts. Both are asserted because .meta() does not affect
+	// parsing and .check() does not reach the artifact, so the two can drift.
+	it("carries the non-empty versions rule into the artifact", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		expect(versionedBranch(json).properties.versions.minProperties).toBe(1);
+	});
+
+	it("publishes both scope branches so plugins can emit either", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const kinds = json.properties.applies_to.properties.scope.oneOf.map(
+			(branch: any) => branch.properties.kind.const,
+		);
+		expect(kinds.sort()).toEqual(["version_independent", "versioned"]);
 	});
 
 	it("keeps the ULID pattern on ids", () => {
@@ -52,7 +76,7 @@ describe("emitted JSON Schema", () => {
 
 	it("carries the versions AND-combining rule into the artifact", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
-		expect(json.properties.applies_to.properties.versions.description).toMatch(
+		expect(versionedBranch(json).properties.versions.description).toMatch(
 			/AND/,
 		);
 	});
