@@ -174,13 +174,14 @@ pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db-staging --env s
 ```
 
 Expect `users`, `sessions`, `verification_tokens`, `d1_migrations`, and
-possibly Cloudflare-managed tables prefixed `_cf_` (e.g. `_cf_KV`) — leave
-any `_cf_%` table alone, it isn't ours to drop.
+possibly Cloudflare-managed tables prefixed `_cf_` (e.g. `_cf_KV`) or
+SQLite-managed tables prefixed `sqlite_` (e.g. `sqlite_sequence`) — leave
+any `_cf_%` or `sqlite_%` table alone, neither is ours to drop.
 
 > **Stop here if:** the list contains a table other than the ones named
-> above and `_cf_%`. That means staging has drifted further than this
-> runbook accounts for, and dropping blind could lose something unrecorded.
-> Reconcile it first.
+> above, `_cf_%`, or `sqlite_%`. That means staging has drifted further
+> than this runbook accounts for, and dropping blind could lose something
+> unrecorded. Reconcile it first.
 >
 > **Safe to continue if:** the table list matches the expected set.
 
@@ -192,7 +193,8 @@ pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db-staging --env s
 ```
 
 > **Safe to continue if:** the command completes without error. Re-run 3a
-> if you want to confirm staging is now empty (aside from `_cf_%` tables).
+> if you want to confirm staging is now empty (aside from `_cf_%` or
+> `sqlite_%` tables).
 
 ---
 
@@ -291,11 +293,13 @@ pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db --env productio
 ```
 
 Expect `users`, `sessions`, `verification_tokens`, `audit_logs`,
-`d1_migrations`, and possibly `_cf_%` tables — leave `_cf_%` alone.
+`d1_migrations`, and possibly `_cf_%` or `sqlite_%` tables (e.g.
+`sqlite_sequence`) — leave those alone.
 
-> **Stop here if:** the list doesn't match. Same reasoning as 3a, but the
-> stakes here are the live user's only copy of data — do not drop anything
-> until this matches what's described above.
+> **Stop here if:** the list doesn't match — that is, it contains a table
+> other than the ones named above, `_cf_%`, or `sqlite_%`. Same reasoning
+> as 3a, but the stakes here are the live user's only copy of data — do not
+> drop anything until this matches what's described above.
 >
 > **Safe to continue if:** the table list matches the expected set.
 
