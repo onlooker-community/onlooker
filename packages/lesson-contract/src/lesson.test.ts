@@ -3,7 +3,7 @@ import { ZLesson } from "./lesson.js";
 
 const valid = {
 	id: "01KZ8FMKAM734ZS7JK24D2DK0R",
-	schema_version: 1,
+	schema_version: 2,
 	claim: "Pin vitest and vite to compatible majors; vitest >=4 needs vite >=6.",
 	rationale:
 		"vitest 4 imports vite/module-runner, a subpath vite 5 does not export.",
@@ -62,10 +62,12 @@ describe("ZLesson", () => {
 		);
 	});
 
-	it("rejects a schema_version other than 1", () => {
-		expect(ZLesson.safeParse({ ...valid, schema_version: 2 }).success).toBe(
-			false,
-		);
+	it("rejects any schema_version other than 2", () => {
+		for (const schema_version of [1, 3]) {
+			expect(ZLesson.safeParse({ ...valid, schema_version }).success).toBe(
+				false,
+			);
+		}
 	});
 
 	it("rejects unknown top-level fields", () => {

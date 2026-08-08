@@ -3,7 +3,7 @@ import { ZCounterObservation } from "./counter-observation.js";
 
 const valid = {
 	id: "01KZB1MKAM734ZS7JK24D2DK0R",
-	schema_version: 1,
+	schema_version: 2,
 	lesson_id: "01KZ8FMKAM734ZS7JK24D2DK0R",
 	observed_at: "2026-08-07T09:15:00Z",
 	artifact_ids: ["01KZB2MKAM734ZS7JK24D2DK0R"],
@@ -56,5 +56,13 @@ describe("ZCounterObservation", () => {
 				author_key: "c4d5e6f7a8b9",
 			}).success,
 		).toBe(false);
+	});
+
+	it("rejects any schema_version other than 2", () => {
+		for (const schema_version of [1, 3]) {
+			expect(
+				ZCounterObservation.safeParse({ ...valid, schema_version }).success,
+			).toBe(false);
+		}
 	});
 });

@@ -47,7 +47,7 @@ export type TConsensus = z.infer<typeof ZConsensus>;
 
 export const ZLesson = z.strictObject({
 	id: ZUlid,
-	schema_version: z.literal(1),
+	schema_version: z.literal(2),
 
 	claim: z.string().min(1),
 	rationale: z.string().min(1),
