@@ -9,7 +9,7 @@ const valid = {
 	artifact_ids: ["01KZB2MKAM734ZS7JK24D2DK0R"],
 	session_id: "aa11bb22-3344-4556-8899-ccddeeff0011",
 	summary: "Applied the vite pin on a matching project; tests still failed.",
-	author_key: "c4d5e6f7a8b9",
+	author_key: "c4d5e6f7a8b90123c4d5e6f7a8b90123",
 };
 
 describe("ZCounterObservation", () => {
@@ -45,6 +45,15 @@ describe("ZCounterObservation", () => {
 			ZCounterObservation.safeParse({
 				...valid,
 				author_key: "meagan@example.com",
+			}).success,
+		).toBe(false);
+	});
+
+	it("rejects the old 12-hex author_key width", () => {
+		expect(
+			ZCounterObservation.safeParse({
+				...valid,
+				author_key: "c4d5e6f7a8b9",
 			}).success,
 		).toBe(false);
 	});

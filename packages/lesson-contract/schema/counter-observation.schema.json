@@ -37,7 +37,7 @@
     },
     "author_key": {
       "type": "string",
-      "pattern": "^[0-9a-f]{12}$",
+      "pattern": "^[0-9a-f]{32}$",
       "description": "Derived per visibility scope from the author's secret; not linkable across scopes."
     }
   },

@@ -25,7 +25,7 @@ const valid = {
 	status: "active",
 	superseded_by: null,
 	source: "local",
-	author_key: "b3f1c2d4e5a6",
+	author_key: "b3f1c2d4e5a67890b3f1c2d4e5a67890",
 	promoted_at: "2026-08-06T12:00:01Z",
 };
 
@@ -78,6 +78,12 @@ describe("ZLesson", () => {
 				...valid,
 				author_key: "meagan@example.com",
 			}).success,
+		).toBe(false);
+	});
+
+	it("rejects the old 12-hex author_key width", () => {
+		expect(
+			ZLesson.safeParse({ ...valid, author_key: "b3f1c2d4e5a6" }).success,
 		).toBe(false);
 	});
 });

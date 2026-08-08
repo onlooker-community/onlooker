@@ -21,14 +21,20 @@ export const ZProjectKey = z.string().regex(/^[0-9a-f]{12}$/);
 export type TProjectKey = z.infer<typeof ZProjectKey>;
 
 /**
- * Opaque 12-character hex author identifier, derived per visibility scope as
+ * Opaque 32-character hex author identifier, derived per visibility scope as
  * HMAC(user_secret, scope). Pinning the format matters: this field carries
  * the unlinkability guarantee, and an unconstrained string would happily
  * accept a plaintext email address.
+ *
+ * Deliberately wider than ZProjectKey. project_key is a local-only label with
+ * no security role, while author_key is what org revocation and public
+ * blocking act on, so a collision would block an innocent author alongside a
+ * bad actor. 128 bits makes that negligible; truncating further buys nothing,
+ * because the field is not size-constrained anywhere that matters.
  */
 export const ZAuthorKey = z
 	.string()
-	.regex(/^[0-9a-f]{12}$/)
+	.regex(/^[0-9a-f]{32}$/)
 	.describe(
 		"Derived per visibility scope from the author's secret; not " +
 			"linkable across scopes.",
