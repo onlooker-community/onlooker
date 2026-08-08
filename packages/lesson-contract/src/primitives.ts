@@ -44,11 +44,18 @@ export type TAuthorKey = z.infer<typeof ZAuthorKey>;
 const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;
 
 /**
- * All-zero version part: "0", "0.0", "0.0.0" (and multi-digit runs like
- * "00" or "0.00"). Used below to keep a single-sided lower bound from
- * being vacuous — see VERSION_RANGE.
+ * A version part with at least one nonzero component: "4", "0.5", "0.0.1",
+ * but not "0", "0.0" or "0.0.0". Expressed positively — "contains a nonzero
+ * digit somewhere" — rather than as a negative-lookahead exclusion of
+ * ZERO_VERSION, because the emitted `pattern` in the JSON Schema artifact
+ * must stay parseable by RE2-based validators (Go, Rust) that reject
+ * lookaheads categorically rather than merely mis-parsing them. The three
+ * alternatives place the first nonzero component in the 1st, 2nd or 3rd
+ * position respectively; between them they cover every shape VERSION_PART
+ * can take. Used below to keep a single-sided lower bound from being
+ * vacuous — see VERSION_RANGE.
  */
-const ZERO_VERSION = String.raw`0+(\.0+)?(\.0+)?`;
+const NONZERO_VERSION = String.raw`\d*[1-9]\d*(\.\d+)?(\.\d+)?|0+\.\d*[1-9]\d*(\.\d+)?|0+\.0+\.\d*[1-9]\d*`;
 
 /**
  * A comparator-prefixed version range: "<6", ">=4", ">=4 <6", ">=4.1.2".
@@ -85,7 +92,10 @@ const ZERO_VERSION = String.raw`0+(\.0+)?(\.0+)?`;
  * emits as `pattern`.
  */
 export const VERSION_RANGE = new RegExp(
+	// NONZERO_VERSION carries its own top-level "|" alternatives, so it must
+	// stay parenthesized at the use site or those alternatives would escape
+	// and swallow the surrounding branches.
 	`^((<|<=|=)${VERSION_PART}` +
-		`|(>|>=)(?!${ZERO_VERSION}$)${VERSION_PART}` +
+		`|(>|>=)(${NONZERO_VERSION})` +
 		`|(>|>=)${VERSION_PART} (<|<=)${VERSION_PART})$`,
 );
