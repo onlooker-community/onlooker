@@ -42,7 +42,13 @@ export const ZAuthorKey = z
 export type TAuthorKey = z.infer<typeof ZAuthorKey>;
 
 const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;
-const COMPARATOR = "(<|<=|>|>=|=)";
+
+/**
+ * All-zero version part: "0", "0.0", "0.0.0" (and multi-digit runs like
+ * "00" or "0.00"). Used below to keep a single-sided lower bound from
+ * being vacuous — see VERSION_RANGE.
+ */
+const ZERO_VERSION = String.raw`0+(\.0+)?(\.0+)?`;
 
 /**
  * A comparator-prefixed version range: "<6", ">=4", ">=4 <6", ">=4.1.2".
@@ -50,6 +56,19 @@ const COMPARATOR = "(<|<=|>|>=|=)";
  * A bare "4" is rejected deliberately. It could mean "exactly 4" or "4 and
  * above", and this field decides whether a lesson is still true, so an
  * ambiguous value is worse than a rejected one.
+ *
+ * A single-sided lower bound whose version is entirely zeros — ">=0",
+ * ">=0.0", ">=0.0.0", and ">0" by the same reasoning — is rejected too. It
+ * excludes nothing real: every release that exists is greater than literal
+ * 0, so it would match every session forever and never reach the
+ * version_independent justification gate that the scope design exists to
+ * enforce. ">0" does technically exclude the exact version 0, unlike
+ * ">=0"; it is rejected anyway because no real package ships that version,
+ * so the exclusion is vacuous in practice. Non-zero pre-1.0 bounds like
+ * ">=0.5" and ">0.9.1" are unaffected — they exclude a real range of
+ * versions and stay meaningful. The same "0" is legal again once it is
+ * paired with an upper bound (">=0 <6"), because the range is already
+ * structurally finite from the upper side.
  *
  * A two-sided range must read lower bound first, upper bound second, so
  * ">4 >6", "<4 <2" and "=4 <6" are all rejected. Without that constraint a
@@ -66,5 +85,7 @@ const COMPARATOR = "(<|<=|>|>=|=)";
  * emits as `pattern`.
  */
 export const VERSION_RANGE = new RegExp(
-	`^(${COMPARATOR}${VERSION_PART}|(>|>=)${VERSION_PART} (<|<=)${VERSION_PART})$`,
+	`^((<|<=|=)${VERSION_PART}` +
+		`|(>|>=)(?!${ZERO_VERSION}$)${VERSION_PART}` +
+		`|(>|>=)${VERSION_PART} (<|<=)${VERSION_PART})$`,
 );

@@ -88,7 +88,7 @@
                   },
                   "additionalProperties": {
                     "type": "string",
-                    "pattern": "^((<|<=|>|>=|=)\\d+(\\.\\d+)?(\\.\\d+)?|(>|>=)\\d+(\\.\\d+)?(\\.\\d+)? (<|<=)\\d+(\\.\\d+)?(\\.\\d+)?)$"
+                    "pattern": "^((<|<=|=)\\d+(\\.\\d+)?(\\.\\d+)?|(>|>=)(?!0+(\\.0+)?(\\.0+)?$)\\d+(\\.\\d+)?(\\.\\d+)?|(>|>=)\\d+(\\.\\d+)?(\\.\\d+)? (<|<=)\\d+(\\.\\d+)?(\\.\\d+)?)$"
                   },
                   "description": "Comparator-prefixed version ranges keyed by stack entry, for example {\"vite\": \"<6\"}. A two-sided range reads lower bound then upper bound. Multiple entries combine with AND: every entry must match for the lesson to still apply.",
                   "minProperties": 1

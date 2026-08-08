@@ -56,6 +56,30 @@ describe("ZAppliesTo", () => {
 		);
 	});
 
+	// A vacuous lower bound matches every session forever and never faces
+	// the version_independent justification gate.
+	it("rejects vacuous single-sided lower bounds", () => {
+		for (const range of [">=0", ">=0.0", ">=0.0.0", ">0"]) {
+			expect(ZAppliesTo.safeParse(withVersions({ vite: range })).success).toBe(
+				false,
+			);
+		}
+	});
+
+	it("accepts non-zero pre-1.0 lower bounds", () => {
+		for (const range of [">=0.5", ">0.9.1"]) {
+			expect(ZAppliesTo.safeParse(withVersions({ vite: range })).success).toBe(
+				true,
+			);
+		}
+	});
+
+	it("accepts a zero lower bound once an upper bound makes it finite", () => {
+		expect(ZAppliesTo.safeParse(withVersions({ vite: ">=0 <6" })).success).toBe(
+			true,
+		);
+	});
+
 	it("requires at least one stack entry so a lesson cannot match everything", () => {
 		expect(ZAppliesTo.safeParse({ ...valid, stack: [] }).success).toBe(false);
 	});
