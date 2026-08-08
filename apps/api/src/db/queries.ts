@@ -106,13 +106,15 @@ export async function storeRefreshToken(
 	token: string,
 	expiresAt: Date,
 ): Promise<void> {
-	await client(db).insert(sessions).values({
-		id: crypto.randomUUID(),
-		user_id: userId,
-		token_hash: await hashToken(token),
-		expires_at: expiresAt.toISOString(),
-		created_at: new Date().toISOString(),
-	});
+	await client(db)
+		.insert(sessions)
+		.values({
+			id: crypto.randomUUID(),
+			user_id: userId,
+			token_hash: await hashToken(token),
+			expires_at: expiresAt.toISOString(),
+			created_at: new Date().toISOString(),
+		});
 }
 
 /**
