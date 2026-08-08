@@ -10,6 +10,7 @@
 			"outputs": []
 		},
 		"@onlooker/db#test": {
+			"dependsOn": ["@onlooker/db#build"],
 			"outputs": []
 		},
 		"@onlooker/db#typecheck": {
@@ -136,6 +137,7 @@
 			"dependsOn": ["@onlooker/logger#build"]
 		},
 		"test": {
+			"dependsOn": ["^build"],
 			"outputs": []
 		},
 		"test:coverage": {

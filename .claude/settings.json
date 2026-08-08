@@ -1,4 +1,15 @@
 {
+  "enabledPlugins": {
+    "typescript-architect@meaganewaller-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "meaganewaller-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "meaganewaller/marketplace"
+      }
+    }
+  },
   "hooks": {
     "SessionStart": [
       {

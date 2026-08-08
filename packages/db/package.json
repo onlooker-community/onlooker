@@ -13,7 +13,9 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"generate:migrations": "drizzle-kit generate",
-		"push:migrations": "drizzle-kit push"
+		"push:migrations": "drizzle-kit push",
+		"generate:expected-schema": "node scripts/generate-expected-schema.mjs",
+		"verify:schema": "node scripts/verify-schema.mjs"
 	},
 	"dependencies": {
 		"drizzle-orm": "^0.31.2"
@@ -22,7 +24,7 @@
 		"@cloudflare/workers-types": "^4.20241218.1",
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
-		"drizzle-kit": "^0.20.14",
+		"drizzle-kit": "^0.22.8",
 		"typescript": "^5.6.3",
 		"vite": "8.0.16",
 		"vitest": "^4.1.9"
