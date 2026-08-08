@@ -25,7 +25,9 @@ export function describe(table) {
 			notnull: c.notNull ? 1 : 0,
 			pk: c.primary ? 1 : 0,
 		})),
-		indexes: config.indexes.map((i) => i.config.name).sort(),
+		indexes: config.indexes
+			.map((i) => ({ name: i.config.name, unique: i.config.unique }))
+			.sort((a, b) => a.name.localeCompare(b.name)),
 	};
 }
 

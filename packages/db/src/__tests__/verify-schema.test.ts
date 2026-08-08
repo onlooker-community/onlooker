@@ -9,7 +9,7 @@ const expected = {
 			{ name: "id", type: "TEXT", notnull: 1, pk: 1 },
 			{ name: "email", type: "TEXT", notnull: 1, pk: 0 },
 		],
-		indexes: ["users_email_idx"],
+		indexes: [{ name: "users_email_idx", unique: true }],
 	},
 };
 
@@ -31,7 +31,7 @@ describe("diffSchema", () => {
 		const live = {
 			users: {
 				columns: [expected.users.columns[0]],
-				indexes: ["users_email_idx"],
+				indexes: [{ name: "users_email_idx", unique: true }],
 			},
 		};
 		expect(diffSchema(expected, live).join(" ")).toMatch(/email/);
@@ -47,6 +47,16 @@ describe("diffSchema", () => {
 		const live = structuredClone(expected);
 		live.users.indexes = [];
 		expect(diffSchema(expected, live).join(" ")).toMatch(/users_email_idx/);
+	});
+
+	// The exact defect production had: an index present under the right name
+	// but missing UNIQUE. A name-only comparison would call this a match.
+	it("reports a uniqueness mismatch on an index that matches by name", () => {
+		const live = structuredClone(expected);
+		live.users.indexes[0].unique = false;
+		const diffs = diffSchema(expected, live);
+		expect(diffs.join(" ")).toMatch(/users_email_idx/);
+		expect(diffs.join(" ")).toMatch(/unique/);
 	});
 
 	it("reports an unexpected extra table", () => {

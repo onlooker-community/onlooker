@@ -39,13 +39,20 @@ export function diffSchema(expected, live) {
 		}
 
 		for (const idx of spec.indexes) {
-			if (!actual.indexes.includes(idx)) {
-				diffs.push(`${table}: missing index ${idx}`);
+			const found = actual.indexes.find((i) => i.name === idx.name);
+			if (!found) {
+				diffs.push(`${table}: missing index ${idx.name}`);
+				continue;
+			}
+			if (Boolean(found.unique) !== Boolean(idx.unique)) {
+				diffs.push(
+					`${table}: index ${idx.name} unique is ${found.unique}, expected ${idx.unique}`,
+				);
 			}
 		}
 		for (const idx of actual.indexes) {
-			if (!spec.indexes.includes(idx)) {
-				diffs.push(`${table}: unexpected index ${idx}`);
+			if (!spec.indexes.find((i) => i.name === idx.name)) {
+				diffs.push(`${table}: unexpected index ${idx.name}`);
 			}
 		}
 	}
@@ -113,13 +120,14 @@ export function readLiveSchema(database, env) {
 					pk: c.pk,
 				}),
 			),
-			indexes: d1Query(
-				database,
-				env,
-				`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='${table}' AND name NOT LIKE 'sqlite_%'`,
-			)
-				.map((r) => r.name)
-				.sort(),
+			// index_list (not sqlite_master) so uniqueness travels with the name -
+			// a live index that matches by name but isn't UNIQUE is exactly the
+			// defect production had (see schema.ts on sessions_token_hash_idx),
+			// and a name-only comparison would pass it silently.
+			indexes: d1Query(database, env, `PRAGMA index_list(${table})`)
+				.filter((r) => !r.name.startsWith("sqlite_"))
+				.map((r) => ({ name: r.name, unique: Boolean(r.unique) }))
+				.sort((a, b) => a.name.localeCompare(b.name)),
 		};
 	}
 	return live;

@@ -35,9 +35,18 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 		indexes: [
-			"sessions_expires_at_idx",
-			"sessions_token_hash_idx",
-			"sessions_user_id_idx",
+			{
+				name: "sessions_expires_at_idx",
+				unique: false,
+			},
+			{
+				name: "sessions_token_hash_idx",
+				unique: true,
+			},
+			{
+				name: "sessions_user_id_idx",
+				unique: false,
+			},
 		],
 	},
 	users: {
@@ -85,7 +94,16 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 		],
-		indexes: ["users_created_at_idx", "users_email_idx"],
+		indexes: [
+			{
+				name: "users_created_at_idx",
+				unique: false,
+			},
+			{
+				name: "users_email_idx",
+				unique: true,
+			},
+		],
 	},
 	verification_tokens: {
 		columns: [
@@ -127,10 +145,22 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 		indexes: [
-			"verification_tokens_expires_at_idx",
-			"verification_tokens_token_idx",
-			"verification_tokens_type_idx",
-			"verification_tokens_user_id_idx",
+			{
+				name: "verification_tokens_expires_at_idx",
+				unique: false,
+			},
+			{
+				name: "verification_tokens_token_idx",
+				unique: true,
+			},
+			{
+				name: "verification_tokens_type_idx",
+				unique: false,
+			},
+			{
+				name: "verification_tokens_user_id_idx",
+				unique: false,
+			},
 		],
 	},
 } as const;
