@@ -1,8 +1,20 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ZCounterObservation, ZLesson } from "./index.js";
 
+const here = dirname(fileURLToPath(import.meta.url));
+
 describe("emitted JSON Schema", () => {
+	it("guards the committed schema against drift from the zod source", () => {
+		const committed = JSON.parse(
+			readFileSync(resolve(here, "../schema/lesson.schema.json"), "utf-8"),
+		);
+		expect(committed).toEqual(z.toJSONSchema(ZLesson));
+	});
+
 	it("keeps the version-range pattern, which refinements would have lost", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
 		const pattern =
