@@ -19,7 +19,7 @@
 - Biome: `{"root": false, "extends": ["@onlooker/config-biome/library.json"]}`. Root config sets **tabs**, line width 80. Do not extend the bare package name — see bead onlooker-go2.
 - `schema_version` is `1` for both record types in this plan.
 - American English throughout.
-- No changes to `turbo.json` are needed: generic `build` / `lint` / `test` / `typecheck` tasks already apply to every workspace package, and `pnpm-workspace.yaml` already globs `packages/*`.
+- No changes to `turbo.json` task *registration* are needed: generic `build` / `lint` / `test` / `typecheck` tasks already apply to every workspace package, and `pnpm-workspace.yaml` already globs `packages/*`. One change to task `outputs` was needed post-review: the generic `build` task only declared `dist/**` and `.next/**`, so `schema/**` had to be added — this is the one package whose build writes outside `dist/`, and without it a warm turbo cache could restore `dist/` without regenerating the committed schema artifact.
 
 ---
 
@@ -177,6 +177,12 @@ describe("ZEvidence", () => {
 		);
 	});
 
+	it("requires at least one session id", () => {
+		expect(ZEvidence.safeParse({ ...valid, session_ids: [] }).success).toBe(
+			false,
+		);
+	});
+
 	it("rejects a lowercase ulid", () => {
 		expect(
 			ZEvidence.safeParse({
@@ -193,6 +199,10 @@ describe("ZEvidence", () => {
 	});
 });
 ```
+
+`session_ids` requires `.min(1)` — post-review fix, see Important finding M1: every
+artifact came from a session, so an empty `session_ids` alongside a non-empty
+`artifact_ids` is not a state the producer should be able to reach.
 
 - [ ] **Step 5: Run the test and confirm it fails**
 
@@ -225,7 +235,27 @@ export type TUlid = z.infer<typeof ZUlid>;
  */
 export const ZProjectKey = z.string().regex(/^[0-9a-f]{12}$/);
 export type TProjectKey = z.infer<typeof ZProjectKey>;
+
+/**
+ * Opaque 12-character hex author identifier, derived per visibility scope as
+ * HMAC(user_secret, scope). Pinning the format matters: this field carries
+ * the unlinkability guarantee, and an unconstrained string would happily
+ * accept a plaintext email address.
+ */
+export const ZAuthorKey = z
+	.string()
+	.regex(/^[0-9a-f]{12}$/)
+	.describe(
+		"Derived per visibility scope from the author's secret; not " +
+			"linkable across scopes.",
+	);
+export type TAuthorKey = z.infer<typeof ZAuthorKey>;
 ```
+
+`ZAuthorKey` is a post-review addition (Important finding 2): `author_key` was
+originally left as `z.string().min(1)`, the only identity-bearing field in the
+package without a format, even though the spec's unlinkability argument
+depends on it being an opaque HMAC output rather than a plaintext identity.
 
 - [ ] **Step 7: Write the evidence schema**
 
@@ -242,7 +272,7 @@ import { ZProjectKey, ZUlid } from "./primitives.js";
  */
 export const ZEvidence = z.strictObject({
 	artifact_ids: z.array(ZUlid).min(1),
-	session_ids: z.array(z.string().min(1)),
+	session_ids: z.array(z.string().min(1)).min(1),
 	project_key: ZProjectKey,
 	observed_at: z.iso.datetime(),
 	resolution: z.string().min(1),
@@ -253,7 +283,7 @@ export type TEvidence = z.infer<typeof ZEvidence>;
 - [ ] **Step 8: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 6 tests.
+Expected: PASS — 7 tests.
 
 - [ ] **Step 9: Commit**
 
@@ -416,7 +446,7 @@ export type TAppliesTo = z.infer<typeof ZAppliesTo>;
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 15 tests total.
+Expected: PASS — 16 tests total.
 
 - [ ] **Step 6: Commit**
 
@@ -516,8 +546,21 @@ describe("ZLesson", () => {
 	it("rejects unknown top-level fields", () => {
 		expect(ZLesson.safeParse({ ...valid, injected: true }).success).toBe(false);
 	});
+
+	it("rejects an email address as an author_key", () => {
+		expect(
+			ZLesson.safeParse({
+				...valid,
+				author_key: "meagan@example.com",
+			}).success,
+		).toBe(false);
+	});
 });
 ```
+
+The `author_key` rejection test is a post-review addition (Important finding 2)
+that only passes once `author_key` uses `ZAuthorKey` rather than
+`z.string().min(1)`; see Step 3 below.
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
@@ -532,7 +575,7 @@ Expected: FAIL — `Failed to resolve import "./lesson.js"`.
 import { z } from "zod";
 import { ZAppliesTo } from "./applies-to.js";
 import { ZEvidence } from "./evidence.js";
-import { ZUlid } from "./primitives.js";
+import { ZAuthorKey, ZUlid } from "./primitives.js";
 
 export const ZVisibility = z.enum(["private", "org", "public"]);
 export type TVisibility = z.infer<typeof ZVisibility>;
@@ -587,12 +630,15 @@ export const ZLesson = z.strictObject({
 	superseded_by: ZUlid.nullable(),
 
 	source: ZSource,
-	/** HMAC(user_secret, scope) — stable within a scope, unlinkable across scopes. */
-	author_key: z.string().min(1),
+	author_key: ZAuthorKey,
 	promoted_at: z.iso.datetime(),
 });
 export type TLesson = z.infer<typeof ZLesson>;
 ```
+
+`author_key` uses `ZAuthorKey` from `primitives.js` rather than
+`z.string().min(1)` — post-review fix, see Important finding 2 and Step 6 of
+Task 1.
 
 - [ ] **Step 4: Write the barrel**
 
@@ -615,8 +661,10 @@ export {
 } from "./lesson.js";
 export {
 	VERSION_RANGE,
+	ZAuthorKey,
 	ZProjectKey,
 	ZUlid,
+	type TAuthorKey,
 	type TProjectKey,
 	type TUlid,
 } from "./primitives.js";
@@ -625,7 +673,7 @@ export {
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 22 tests total.
+Expected: PASS — 24 tests total.
 
 The "rejects unknown top-level fields" test is what `z.strictObject` buys. With a plain `z.object` it would fail: zod strips the unknown key and reports success, while the emitted JSON Schema still says `additionalProperties: false`. If this test ever goes red, something has been downgraded to `z.object` and the artifact no longer describes the server.
 
@@ -702,8 +750,20 @@ describe("ZCounterObservation", () => {
 			ZCounterObservation.safeParse({ ...valid, status: "refuted" }).success,
 		).toBe(false);
 	});
+
+	it("rejects an email address as an author_key", () => {
+		expect(
+			ZCounterObservation.safeParse({
+				...valid,
+				author_key: "meagan@example.com",
+			}).success,
+		).toBe(false);
+	});
 });
 ```
+
+The `author_key` rejection test is a post-review addition (Important finding
+2), matching the one added to `lesson.test.ts` in Task 3.
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
@@ -716,7 +776,7 @@ Expected: FAIL — `Failed to resolve import "./counter-observation.js"`.
 
 ```ts
 import { z } from "zod";
-import { ZUlid } from "./primitives.js";
+import { ZAuthorKey, ZUlid } from "./primitives.js";
 
 /**
  * A consumer's report that a lesson did not hold in a context where it
@@ -737,10 +797,13 @@ export const ZCounterObservation = z.strictObject({
 	artifact_ids: z.array(ZUlid).min(1),
 	session_id: z.string().min(1),
 	summary: z.string().min(1),
-	author_key: z.string().min(1),
+	author_key: ZAuthorKey,
 });
 export type TCounterObservation = z.infer<typeof ZCounterObservation>;
 ```
+
+`author_key` uses `ZAuthorKey`, matching the change made to `lesson.ts` in
+Task 3.
 
 - [ ] **Step 4: Add it to the barrel**
 
@@ -756,7 +819,7 @@ export {
 - [ ] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 27 tests total.
+Expected: PASS — 30 tests total.
 
 - [ ] **Step 6: Commit**
 
@@ -865,10 +928,17 @@ describe("emitted JSON Schema", () => {
 });
 ```
 
+Post-review, two more tests were added to this file (Important findings 1 and
+4): one that reads the committed `schema/lesson.schema.json` from disk and
+deep-equals it against a live `z.toJSONSchema(ZLesson)`, guarding the
+*artifact* rather than just the emission function; and one asserting the
+`applies_to.versions` AND-combining rule actually reaches the emitted
+`description`. That brings this file to 6 tests, and the package to 36.
+
 - [ ] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm --filter @onlooker/lesson-contract test`
-Expected: PASS — 31 tests total.
+Expected: PASS — 36 tests total.
 
 If the first assertion fails with `pattern` undefined, a `.refine()` has crept in somewhere in the chain. Replace it with a regex; do not weaken the test.
 
