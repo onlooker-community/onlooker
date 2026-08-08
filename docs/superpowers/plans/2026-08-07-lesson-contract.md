@@ -436,11 +436,26 @@ import { VERSION_RANGE } from "./primitives.js";
  */
 export const ZAppliesTo = z.strictObject({
 	stack: z.array(z.string().min(1)).min(1),
-	versions: z.record(z.string().min(1), z.string().regex(VERSION_RANGE)),
+	versions: z
+		.record(z.string().min(1), z.string().regex(VERSION_RANGE))
+		.describe(
+			"Comparator-prefixed version ranges keyed by stack entry, for " +
+				'example {"vite": "<6"}. A two-sided range reads lower bound ' +
+				"then upper bound. Multiple entries combine with AND: every " +
+				"entry must match for the lesson to still apply.",
+		),
 	file_patterns: z.array(z.string().min(1)),
 	task_kinds: z.array(z.string().min(1)),
 });
 export type TAppliesTo = z.infer<typeof ZAppliesTo>;
+```
+
+`.describe()` is not decoration. It survives `z.toJSONSchema` into the
+published artifact, and it is the only place the AND-combining rule is
+stated — plugins in the other repository cannot read these TypeScript
+comments, so anything a consumer must know goes in a description.
+
+```ts
 ```
 
 - [ ] **Step 5: Run the test and confirm it passes**
@@ -587,12 +602,13 @@ export type TVisibility = z.infer<typeof ZVisibility>;
  * all. Storing an expired state would require a job sweeping the pool to set
  * it, which is the review-queue failure mode this design exists to avoid.
  */
-export const ZStatus = z.enum([
-	"active",
-	"refuted",
-	"superseded",
-	"retracted",
-]);
+export const ZStatus = z
+	.enum(["active", "refuted", "superseded", "retracted"])
+	.describe(
+		"Lifecycle state. There is no 'expired' state: expiry is structural " +
+			"— when applies_to.versions stops matching, this field does not " +
+			"change.",
+	);
 export type TStatus = z.infer<typeof ZStatus>;
 
 export const ZSource = z.enum(["local", "org", "public"]);
@@ -606,11 +622,16 @@ export type TSource = z.infer<typeof ZSource>;
  * hold server-side and be invisible in the published artifact. Cross-field
  * rules belong in ingest logic where both sides can see the same error.
  */
-export const ZConsensus = z.strictObject({
-	judges: z.number().int().min(1),
-	agreed: z.number().int().min(0),
-	decided_at: z.iso.datetime(),
-});
+export const ZConsensus = z
+	.strictObject({
+		judges: z.number().int().min(1),
+		agreed: z.number().int().min(0),
+		decided_at: z.iso.datetime(),
+	})
+	.describe(
+		"The tribunal's verdict. agreed <= judges is enforced at ingest, " +
+			"not by this schema.",
+	);
 export type TConsensus = z.infer<typeof ZConsensus>;
 
 export const ZLesson = z.strictObject({
@@ -627,7 +648,9 @@ export const ZLesson = z.strictObject({
 	consensus: ZConsensus,
 
 	status: ZStatus,
-	superseded_by: ZUlid.nullable(),
+	superseded_by: ZUlid.nullable().describe(
+		"The id of the lesson that replaced this one.",
+	),
 
 	source: ZSource,
 	author_key: ZAuthorKey,
