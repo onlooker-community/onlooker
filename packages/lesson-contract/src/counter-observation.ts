@@ -14,7 +14,7 @@ import { ZAuthorKey, ZUlid } from "./primitives.js";
  */
 export const ZCounterObservation = z.strictObject({
 	id: ZUlid,
-	schema_version: z.literal(1),
+	schema_version: z.literal(2),
 	lesson_id: ZUlid,
 	observed_at: z.iso.datetime(),
 	artifact_ids: z.array(ZUlid).min(1),

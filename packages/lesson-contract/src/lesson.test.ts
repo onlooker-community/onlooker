@@ -3,7 +3,7 @@ import { ZLesson } from "./lesson.js";
 
 const valid = {
 	id: "01KZ8FMKAM734ZS7JK24D2DK0R",
-	schema_version: 1,
+	schema_version: 2,
 	claim: "Pin vitest and vite to compatible majors; vitest >=4 needs vite >=6.",
 	rationale:
 		"vitest 4 imports vite/module-runner, a subpath vite 5 does not export.",
@@ -16,7 +16,7 @@ const valid = {
 	},
 	applies_to: {
 		stack: ["vitest", "vite"],
-		versions: { vite: "<6", vitest: ">=4" },
+		scope: { kind: "versioned", versions: { vite: "<6", vitest: ">=4" } },
 		file_patterns: ["**/vite.config.*"],
 		task_kinds: ["test-setup", "ci"],
 	},
@@ -25,7 +25,7 @@ const valid = {
 	status: "active",
 	superseded_by: null,
 	source: "local",
-	author_key: "b3f1c2d4e5a6",
+	author_key: "b3f1c2d4e5a67890b3f1c2d4e5a67890",
 	promoted_at: "2026-08-06T12:00:01Z",
 };
 
@@ -62,10 +62,12 @@ describe("ZLesson", () => {
 		);
 	});
 
-	it("rejects a schema_version other than 1", () => {
-		expect(ZLesson.safeParse({ ...valid, schema_version: 2 }).success).toBe(
-			false,
-		);
+	it("rejects any schema_version other than 2", () => {
+		for (const schema_version of [1, 3]) {
+			expect(ZLesson.safeParse({ ...valid, schema_version }).success).toBe(
+				false,
+			);
+		}
 	});
 
 	it("rejects unknown top-level fields", () => {
@@ -78,6 +80,12 @@ describe("ZLesson", () => {
 				...valid,
 				author_key: "meagan@example.com",
 			}).success,
+		).toBe(false);
+	});
+
+	it("rejects the old 12-hex author_key width", () => {
+		expect(
+			ZLesson.safeParse({ ...valid, author_key: "b3f1c2d4e5a6" }).success,
 		).toBe(false);
 	});
 });

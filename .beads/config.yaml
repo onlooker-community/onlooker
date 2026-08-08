@@ -66,5 +66,14 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 export.auto: true
+
+# Stage .beads/issues.jsonl as soon as a bd command exports it.
+# Without this the pre-commit hook still refreshes the export, but only after
+# git has snapshotted the index, so a manually staged copy commits stale and
+# silently drops issues. The cost is that beads changes stage themselves into
+# whatever commit is in progress; issues.jsonl is a passive mirror of the Dolt
+# DB, so tracking it is the desired state anyway.
+export.git-add: true
+
 sync:
     remote: "git+ssh://git@github.com/onlooker-community/onlooker.git"
