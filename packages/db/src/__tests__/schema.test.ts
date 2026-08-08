@@ -1,151 +1,91 @@
+import { is } from "drizzle-orm";
+import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
-import {
-	type AuditLog,
-	audit_logs,
-	type EmailChangeToken,
-	type EmailVerificationToken,
-	email_change_tokens,
-	email_verification_tokens,
-	type MachineToken,
-	machine_tokens,
-	type PasswordResetToken,
-	password_reset_tokens,
-	type Session,
-	sessions,
-	type User,
-	users,
-} from "../schema";
+import { sessions, users, verification_tokens } from "../schema.js";
 
-describe("Database Schema Types", () => {
-	it("should export all tables", () => {
-		expect(users).toBeDefined();
-		expect(sessions).toBeDefined();
-		expect(email_verification_tokens).toBeDefined();
-		expect(password_reset_tokens).toBeDefined();
-		expect(email_change_tokens).toBeDefined();
-		expect(machine_tokens).toBeDefined();
-		expect(audit_logs).toBeDefined();
+const columnNames = (table: Parameters<typeof getTableConfig>[0]) =>
+	getTableConfig(table)
+		.columns.map((c) => c.name)
+		.sort();
+
+const indexNames = (table: Parameters<typeof getTableConfig>[0]) =>
+	getTableConfig(table)
+		.indexes.map((i) => i.config.name)
+		.sort();
+
+describe("users", () => {
+	it("declares exactly the columns apps/api queries", () => {
+		expect(columnNames(users)).toEqual([
+			"created_at",
+			"email",
+			"email_verified",
+			"id",
+			"name",
+			"password_hash",
+			"updated_at",
+		]);
 	});
 
-	it("should have correct User type shape", () => {
-		const user: User = {
-			id: "uuid-1",
-			email: "test@example.com",
-			password_hash: "$2b$10$...",
-			name: "Test User",
-			created_at: new Date().toISOString(),
-			email_verified: new Date().toISOString(),
-			deleted_at: null as any,
-		};
-
-		expect(user.id).toBeDefined();
-		expect(user.email).toBeDefined();
-		expect(user.password_hash).toBeDefined();
+	it("keeps email unique", () => {
+		const idx = getTableConfig(users).indexes.find(
+			(i) => i.config.name === "users_email_idx",
+		);
+		expect(idx?.config.unique).toBe(true);
 	});
 
-	it("should have correct Session type shape", () => {
-		const session: Session = {
-			id: "session-uuid",
-			user_id: "user-uuid",
-			token: "hashed-token",
-			expires_at: new Date().toISOString(),
-			created_at: new Date().toISOString(),
-		};
+	it("allows email_verified to be null, meaning unverified", () => {
+		const col = getTableConfig(users).columns.find(
+			(c) => c.name === "email_verified",
+		);
+		expect(col?.notNull).toBe(false);
+	});
+});
 
-		expect(session.id).toBeDefined();
-		expect(session.user_id).toBeDefined();
-		expect(session.token).toBeDefined();
+describe("sessions", () => {
+	it("stores a token hash, not a token", () => {
+		expect(columnNames(sessions)).toContain("token_hash");
+		expect(columnNames(sessions)).not.toContain("token");
 	});
 
-	it("should have correct EmailVerificationToken type shape", () => {
-		const token: EmailVerificationToken = {
-			id: "token-uuid",
-			user_id: "user-uuid",
-			token: "hashed-token",
-			expires_at: new Date().toISOString(),
-			created_at: new Date().toISOString(),
-			used_at: null as any,
-		};
-
-		expect(token.id).toBeDefined();
-		expect(token.user_id).toBeDefined();
-		expect(token.token).toBeDefined();
+	// Production had lost this constraint; two sessions sharing a token hash
+	// is a defect, so it is asserted rather than assumed.
+	it("keeps token_hash unique", () => {
+		const idx = getTableConfig(sessions).indexes.find(
+			(i) => i.config.name === "sessions_token_hash_idx",
+		);
+		expect(idx?.config.unique).toBe(true);
 	});
 
-	it("should have correct PasswordResetToken type shape", () => {
-		const token: PasswordResetToken = {
-			id: "token-uuid",
-			user_id: "user-uuid",
-			token: "hashed-token",
-			expires_at: new Date().toISOString(),
-			created_at: new Date().toISOString(),
-			used_at: null as any,
-		};
-
-		expect(token.id).toBeDefined();
-		expect(token.user_id).toBeDefined();
-		expect(token.token).toBeDefined();
+	it("cascades when its user is deleted", () => {
+		const fk = getTableConfig(sessions).foreignKeys[0];
+		expect(fk.onDelete).toBe("cascade");
 	});
+});
 
-	it("should have correct EmailChangeToken type shape", () => {
-		const token: EmailChangeToken = {
-			id: "token-uuid",
-			user_id: "user-uuid",
-			new_email: "newemail@example.com",
-			token: "hashed-token",
-			expires_at: new Date().toISOString(),
-			created_at: new Date().toISOString(),
-			used_at: null as any,
-		};
-
-		expect(token.id).toBeDefined();
-		expect(token.user_id).toBeDefined();
-		expect(token.new_email).toBeDefined();
+describe("verification_tokens", () => {
+	it("is one table carrying a type discriminator", () => {
+		expect(columnNames(verification_tokens)).toEqual([
+			"created_at",
+			"expires_at",
+			"id",
+			"token",
+			"type",
+			"user_id",
+		]);
+		expect(indexNames(verification_tokens)).toContain(
+			"verification_tokens_type_idx",
+		);
 	});
+});
 
-	it("should have correct MachineToken type shape", () => {
-		const token: MachineToken = {
-			id: "token-uuid",
-			user_id: "user-uuid",
-			machine_id: "machine-uuid",
-			name: "GitHub CI",
-			token: "hashed-token",
-			created_at: new Date().toISOString(),
-			expires_at: new Date().toISOString(),
-			revoked_at: null as any,
-			last_used_at: null as any,
-		};
-
-		expect(token.id).toBeDefined();
-		expect(token.user_id).toBeDefined();
-		expect(token.machine_id).toBeDefined();
-		expect(token.name).toBeDefined();
-	});
-
-	it("should have correct AuditLog type shape", () => {
-		const log: AuditLog = {
-			id: "log-uuid",
-			user_id: "user-uuid",
-			action: "user_login",
-			resource_type: "session",
-			resource_id: "session-uuid",
-			ip_address: "192.168.1.1",
-			user_agent: "Mozilla/5.0...",
-			created_at: new Date().toISOString(),
-			details: JSON.stringify({ key: "value" }),
-		};
-
-		expect(log.id).toBeDefined();
-		expect(log.user_id).toBeDefined();
-		expect(log.action).toBeDefined();
-	});
-
-	it("should have tables with correct column definitions", () => {
-		// Verify tables have the expected structure
-		// In Drizzle, the _ property contains table metadata, but is treated as internal
-		// Instead, verify that tables exist and have the TypeScript types we expect
-		expect(users).toBeDefined();
-		expect(sessions).toBeDefined();
-		// The actual column structure is validated at compile-time via TypeScript
+describe("the schema as a whole", () => {
+	// The deferred tables are deferred on purpose. If one reappears, it should
+	// arrive with the feature that needs it, not by accident.
+	it("declares only the three tables in use", async () => {
+		const schema = await import("../schema.js");
+		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
+		// metadata behind a symbol in 0.31, so the string key no longer matches.
+		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
+		expect(tables).toHaveLength(3);
 	});
 });

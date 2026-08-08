@@ -22,7 +22,7 @@
 		"@cloudflare/workers-types": "^4.20241218.1",
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
-		"drizzle-kit": "^0.20.14",
+		"drizzle-kit": "^0.22.8",
 		"typescript": "^5.6.3",
 		"vite": "8.0.16",
 		"vitest": "^4.1.9"

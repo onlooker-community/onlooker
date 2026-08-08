@@ -53,9 +53,10 @@ CORS_ORIGIN = "https://app-staging.onlooker.dev"
 binding = "DB"
 database_name = "onlooker-db-staging"
 database_id = "ff3a01c8-aedb-4bc2-8231-b8511b353728"
-# Explicit so `d1 migrations apply` cannot pick up packages/db/migrations,
-# which describes a different schema than the one apps/api queries.
-migrations_dir = "migrations"
+# Points at packages/db, which owns the schema and generates these migrations.
+# Previously "migrations" (apps/api/migrations), which described a different
+# schema than packages/db did - that divergence is what onlooker-1g9 fixed.
+migrations_dir = "../../packages/db/migrations"
 
 # ============================================================================
 # PRODUCTION ENVIRONMENT
@@ -78,7 +79,7 @@ CORS_ORIGIN = "https://app.onlooker.dev"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "onlooker-db"
-migrations_dir = "migrations"
+migrations_dir = "../../packages/db/migrations"
 database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
 
 # ============================================================================
