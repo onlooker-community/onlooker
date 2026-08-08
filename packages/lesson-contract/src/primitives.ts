@@ -26,7 +26,13 @@ export type TProjectKey = z.infer<typeof ZProjectKey>;
  * the unlinkability guarantee, and an unconstrained string would happily
  * accept a plaintext email address.
  */
-export const ZAuthorKey = z.string().regex(/^[0-9a-f]{12}$/);
+export const ZAuthorKey = z
+	.string()
+	.regex(/^[0-9a-f]{12}$/)
+	.describe(
+		"Derived per visibility scope from the author's secret; not " +
+			"linkable across scopes.",
+	);
 export type TAuthorKey = z.infer<typeof ZAuthorKey>;
 
 const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;

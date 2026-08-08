@@ -49,4 +49,11 @@ describe("emitted JSON Schema", () => {
 		const json = z.toJSONSchema(ZCounterObservation) as Record<string, any>;
 		expect(Object.keys(json.properties)).not.toContain("status");
 	});
+
+	it("carries the versions AND-combining rule into the artifact", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		expect(json.properties.applies_to.properties.versions.description).toMatch(
+			/AND/,
+		);
+	});
 });

@@ -79,7 +79,8 @@
           "additionalProperties": {
             "type": "string",
             "pattern": "^((<|<=|>|>=|=)\\d+(\\.\\d+)?(\\.\\d+)?|(>|>=)\\d+(\\.\\d+)?(\\.\\d+)? (<|<=)\\d+(\\.\\d+)?(\\.\\d+)?)$"
-          }
+          },
+          "description": "Comparator-prefixed version ranges keyed by stack entry, for example {\"vite\": \"<6\"}. A two-sided range reads lower bound then upper bound. Multiple entries combine with AND: every entry must match for the lesson to still apply."
         },
         "file_patterns": {
           "type": "array",
@@ -136,7 +137,8 @@
         "agreed",
         "decided_at"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "The tribunal's verdict. agreed <= judges is enforced at ingest, not by this schema."
     },
     "status": {
       "type": "string",
@@ -145,7 +147,8 @@
         "refuted",
         "superseded",
         "retracted"
-      ]
+      ],
+      "description": "Lifecycle state. There is no 'expired' state: expiry is structural — when applies_to.versions stops matching, this field does not change."
     },
     "superseded_by": {
       "anyOf": [
@@ -156,7 +159,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "The id of the lesson that replaced this one."
     },
     "source": {
       "type": "string",
@@ -168,7 +172,8 @@
     },
     "author_key": {
       "type": "string",
-      "pattern": "^[0-9a-f]{12}$"
+      "pattern": "^[0-9a-f]{12}$",
+      "description": "Derived per visibility scope from the author's secret; not linkable across scopes."
     },
     "promoted_at": {
       "type": "string",

@@ -14,7 +14,14 @@ import { VERSION_RANGE } from "./primitives.js";
  */
 export const ZAppliesTo = z.strictObject({
 	stack: z.array(z.string().min(1)).min(1),
-	versions: z.record(z.string().min(1), z.string().regex(VERSION_RANGE)),
+	versions: z
+		.record(z.string().min(1), z.string().regex(VERSION_RANGE))
+		.describe(
+			"Comparator-prefixed version ranges keyed by stack entry, for " +
+				'example {"vite": "<6"}. A two-sided range reads lower bound ' +
+				"then upper bound. Multiple entries combine with AND: every " +
+				"entry must match for the lesson to still apply.",
+		),
 	file_patterns: z.array(z.string().min(1)),
 	task_kinds: z.array(z.string().min(1)),
 });
