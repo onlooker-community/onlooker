@@ -156,9 +156,12 @@ size-constrained anywhere that matters.
 ### No `N-1` translation layer
 
 Section 5 commits the server to accepting `schema_version` `N` and `N-1`. No
-plugin emits v1 lessons today, so there is nothing to translate. The window is
-honored by not rejecting v1 outright; building a translation path for a version
-that was never produced would be a no-op with a maintenance cost.
+plugin emits v1 lessons today, so there is nothing to translate — and nothing
+to accept: `ZLesson` pins `schema_version` to the literal `2` and rejects
+everything else, v1 included. The `N-1` window exists for the next bump, once
+something upstream of it actually produces `N-1` lessons; building a
+translation path for a version that was never produced would be a no-op with
+a maintenance cost.
 
 ---
 
