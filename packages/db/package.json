@@ -8,8 +8,8 @@
 	"scripts": {
 		"build": "tsc --project tsconfig.build.json",
 		"dev": "tsc --watch",
-		"lint": "biome check src",
-		"lint:fix": "biome check --write src",
+		"lint": "biome check src scripts",
+		"lint:fix": "biome check --write src scripts",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"generate:migrations": "drizzle-kit generate",
