@@ -40,6 +40,11 @@ pnpm-debug.log*
 .vscode/
 
 
+# D1 export backups (see docs/runbooks/2026-08-08-database-rebuild.md) -
+# these can contain live emails and password hashes and must never be
+# committed, even transiently before they're moved to secure storage.
+*backup*.sql
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
