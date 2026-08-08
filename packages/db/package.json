@@ -13,7 +13,9 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"generate:migrations": "drizzle-kit generate",
-		"push:migrations": "drizzle-kit push"
+		"push:migrations": "drizzle-kit push",
+		"generate:expected-schema": "node scripts/generate-expected-schema.mjs",
+		"verify:schema": "node scripts/verify-schema.mjs"
 	},
 	"dependencies": {
 		"drizzle-orm": "^0.31.2"
