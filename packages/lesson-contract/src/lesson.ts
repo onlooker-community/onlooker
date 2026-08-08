@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ZAppliesTo } from "./applies-to.js";
 import { ZEvidence } from "./evidence.js";
-import { ZUlid } from "./primitives.js";
+import { ZAuthorKey, ZUlid } from "./primitives.js";
 
 export const ZVisibility = z.enum(["private", "org", "public"]);
 export type TVisibility = z.infer<typeof ZVisibility>;
@@ -51,8 +51,7 @@ export const ZLesson = z.strictObject({
 	superseded_by: ZUlid.nullable(),
 
 	source: ZSource,
-	/** HMAC(user_secret, scope) — stable within a scope, unlinkable across scopes. */
-	author_key: z.string().min(1),
+	author_key: ZAuthorKey,
 	promoted_at: z.iso.datetime(),
 });
 export type TLesson = z.infer<typeof ZLesson>;

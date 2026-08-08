@@ -71,4 +71,13 @@ describe("ZLesson", () => {
 	it("rejects unknown top-level fields", () => {
 		expect(ZLesson.safeParse({ ...valid, injected: true }).success).toBe(false);
 	});
+
+	it("rejects an email address as an author_key", () => {
+		expect(
+			ZLesson.safeParse({
+				...valid,
+				author_key: "meagan@example.com",
+			}).success,
+		).toBe(false);
+	});
 });

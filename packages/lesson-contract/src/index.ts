@@ -17,9 +17,11 @@ export {
 	ZVisibility,
 } from "./lesson.js";
 export {
+	type TAuthorKey,
 	type TProjectKey,
 	type TUlid,
 	VERSION_RANGE,
+	ZAuthorKey,
 	ZProjectKey,
 	ZUlid,
 } from "./primitives.js";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ZUlid } from "./primitives.js";
+import { ZAuthorKey, ZUlid } from "./primitives.js";
 
 /**
  * A consumer's report that a lesson did not hold in a context where it
@@ -20,6 +20,6 @@ export const ZCounterObservation = z.strictObject({
 	artifact_ids: z.array(ZUlid).min(1),
 	session_id: z.string().min(1),
 	summary: z.string().min(1),
-	author_key: z.string().min(1),
+	author_key: ZAuthorKey,
 });
 export type TCounterObservation = z.infer<typeof ZCounterObservation>;

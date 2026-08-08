@@ -20,6 +20,15 @@ export type TUlid = z.infer<typeof ZUlid>;
 export const ZProjectKey = z.string().regex(/^[0-9a-f]{12}$/);
 export type TProjectKey = z.infer<typeof ZProjectKey>;
 
+/**
+ * Opaque 12-character hex author identifier, derived per visibility scope as
+ * HMAC(user_secret, scope). Pinning the format matters: this field carries
+ * the unlinkability guarantee, and an unconstrained string would happily
+ * accept a plaintext email address.
+ */
+export const ZAuthorKey = z.string().regex(/^[0-9a-f]{12}$/);
+export type TAuthorKey = z.infer<typeof ZAuthorKey>;
+
 const VERSION_PART = String.raw`\d+(\.\d+)?(\.\d+)?`;
 const COMPARATOR = "(<|<=|>|>=|=)";
 

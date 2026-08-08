@@ -39,4 +39,13 @@ describe("ZCounterObservation", () => {
 			ZCounterObservation.safeParse({ ...valid, status: "refuted" }).success,
 		).toBe(false);
 	});
+
+	it("rejects an email address as an author_key", () => {
+		expect(
+			ZCounterObservation.safeParse({
+				...valid,
+				author_key: "meagan@example.com",
+			}).success,
+		).toBe(false);
+	});
 });
