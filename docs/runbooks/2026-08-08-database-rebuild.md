@@ -1,5 +1,12 @@
 # Database Rebuild — Staging and Production
 
+> **EXECUTED 2026-08-09 — do not run again.** Both databases were rebuilt from
+> `0000_kind_starjammers.sql` and verified by direct query. Re-running this
+> would drop live data. Kept as the record of what was done, and as the shape
+> to copy if a future rebuild is ever needed. Two deviations from the text
+> below: the merge had already landed, so Step 4 was a re-run of the failed
+> staging job rather than a merge; and `test@onlooker.dev` was dropped rather
+> than preserved, which made Steps 2 and 8 unnecessary. Tracked by onlooker-f35.
 > **HUMAN-EXECUTED RUNBOOK. No agent may run the destructive parts of Step 3
 > or Step 6, or Step 7's production deploy.** This procedure drops tables in
 > both D1 databases. Do not paste these commands into an agent session and
