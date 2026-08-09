@@ -25,7 +25,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # Routes: where the API is deployed
 routes = [
-  { pattern = "api.onlooker.example.com/*", zone_name = "example.com" }
+  { pattern = "api.onlooker.dev/*", zone_name = "example.com" }
 ]
 
 # Environments: dev, staging, production
@@ -41,7 +41,7 @@ Each environment has its own configuration:
 ```toml
 [env.production.vars]
 ENVIRONMENT = "production"
-CORS_ORIGIN = "https://onlooker.example.com"
+CORS_ORIGIN = "https://app.onlooker.dev"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 
@@ -106,12 +106,22 @@ pnpm wrangler d1 create onlooker-db
 
 ### Run Migrations
 
-```bash
-# Local
-pnpm wrangler d1 execute onlooker-db --local < ../migrations/0001_init.sql
+CI applies migrations on every merge to `main`, before the schema verifier and
+before this worker deploys — see [DEPLOYMENT.md](../../DEPLOYMENT.md). You
+should not normally apply them by hand.
 
-# Production
-pnpm wrangler d1 execute onlooker-db --remote < ../migrations/0001_init.sql
+Migrations are generated from `packages/db/src/schema.ts` and live in
+`packages/db/migrations`; `wrangler.toml` points `migrations_dir` there. Apply
+them through wrangler's migration system rather than piping a file, so
+`d1_migrations` stays an accurate record of what has been applied:
+
+```bash
+# Local (miniflare)
+pnpm --filter @onlooker/api exec wrangler d1 migrations apply DB --env staging --local
+
+# Remote — normally CI's job
+pnpm migrate:staging
+pnpm migrate:prod
 ```
 
 ### Query Database
@@ -229,7 +239,7 @@ Configured to allow only the web app domain:
 
 ```toml
 [env.production.vars]
-CORS_ORIGIN = "https://onlooker.example.com"
+CORS_ORIGIN = "https://app.onlooker.dev"
 ```
 
 ### JWT Validation

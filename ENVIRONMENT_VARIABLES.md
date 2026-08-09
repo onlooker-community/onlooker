@@ -6,10 +6,10 @@ Complete reference of all environment variables used across the Onlooker platfor
 
 | Variable | Service | Type | Purpose | Example |
 |----------|---------|------|---------|---------|
-| `VITE_API_URL` | Web | Build | API endpoint for Vite | `https://api.onlooker.example.com` |
+| `VITE_API_URL` | Web | Build | API endpoint for Vite | `https://api.onlooker.dev` |
 | `JWT_SECRET` | API | Secret | JWT signing key | `openssl rand -hex 32` |
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
-| `CORS_ORIGIN` | API | Vars | Allowed origin for CORS | `https://onlooker.example.com` |
+| `CORS_ORIGIN` | API | Vars | Allowed origin for CORS | `https://app.onlooker.dev` |
 | `DB_HOST` | API | Vars | D1 database host | Cloudflare D1 (auto) |
 | `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `180` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
@@ -43,7 +43,7 @@ VITE_API_URL = "http://localhost:8787"
 
 ```toml
 [env.staging.vars]
-VITE_API_URL = "https://api-staging.onlooker.example.com"
+VITE_API_URL = "https://api-staging.onlooker.dev"
 ```
 
 #### Production
@@ -52,7 +52,7 @@ VITE_API_URL = "https://api-staging.onlooker.example.com"
 
 ```toml
 [env.production.vars]
-VITE_API_URL = "https://api.onlooker.example.com"
+VITE_API_URL = "https://api.onlooker.dev"
 ```
 
 ### Usage in Code
@@ -105,7 +105,7 @@ REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```toml
 [env.staging.vars]
 ENVIRONMENT = "staging"
-CORS_ORIGIN = "https://staging.onlooker.example.com"
+CORS_ORIGIN = "https://app-staging.onlooker.dev"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```
@@ -117,7 +117,7 @@ REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```toml
 [env.production.vars]
 ENVIRONMENT = "production"
-CORS_ORIGIN = "https://onlooker.example.com"
+CORS_ORIGIN = "https://app.onlooker.dev"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```
@@ -240,11 +240,11 @@ JWT_SECRET=<dev-key>
 
 ```env
 # Web app (wrangler.toml [env.staging])
-VITE_API_URL=https://api-staging.onlooker.example.com
+VITE_API_URL=https://api-staging.onlooker.dev
 
 # API (wrangler.toml [env.staging])
 ENVIRONMENT=staging
-CORS_ORIGIN=https://staging.onlooker.example.com
+CORS_ORIGIN=https://app-staging.onlooker.dev
 TOKEN_EXPIRY_MINUTES=180
 REFRESH_TOKEN_EXPIRY_DAYS=30
 
@@ -257,11 +257,11 @@ DATABASE_PASSWORD=<staging-password>
 
 ```env
 # Web app (wrangler.toml [env.production])
-VITE_API_URL=https://api.onlooker.example.com
+VITE_API_URL=https://api.onlooker.dev
 
 # API (wrangler.toml [env.production])
 ENVIRONMENT=production
-CORS_ORIGIN=https://onlooker.example.com
+CORS_ORIGIN=https://app.onlooker.dev
 TOKEN_EXPIRY_MINUTES=180
 REFRESH_TOKEN_EXPIRY_DAYS=30
 
@@ -460,7 +460,7 @@ pnpm --filter @onlooker/api build
 2. Update `VITE_API_URL` in `wrangler.toml`:
    ```toml
    [env.staging.vars]
-   VITE_API_URL = "https://api-staging.onlooker.example.com"
+   VITE_API_URL = "https://api-staging.onlooker.dev"
    ```
 
 3. Deploy:
@@ -517,7 +517,7 @@ pnpm wrangler secret put SECRET_NAME --env production
 **Solution:**
 ```toml
 [env.production.vars]
-CORS_ORIGIN = "https://onlooker.example.com"  # Match exactly
+CORS_ORIGIN = "https://app.onlooker.dev"  # Match exactly
 ```
 
 ### Build fails with undefined variable
@@ -538,5 +538,5 @@ const API_URL = import.meta.env.API_URL;
 ## Next Steps
 
 1. Review [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment steps
-2. Check [CLOUDFLARE_SETUP.md](./CLOUDFLARE_SETUP.md) for setup details
+2. Check [DEPLOYMENT.md](./DEPLOYMENT.md) for how the pipeline applies them
 3. Set up secrets: `pnpm wrangler secret put JWT_SECRET --env production`
