@@ -1,0 +1,41 @@
+name: Heartbeat
+
+# Generates a steady request floor across all four hosts so the Cloudflare
+# dashboards can tell "idle" from "dead", and fails loudly when production
+# stops answering correctly.
+#
+# workflow_dispatch is deliberate: without it the only way to test a change
+# here is to wait for the next scheduled run.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+# A slow run must never stack up behind the next scheduled one.
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    name: Check all environments
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # Staging runs first and never fails the job. It breaks by design during
+      # deploys and migrations, and a monitor that fires during normal work is
+      # one people mute. Its result still reaches you as an annotation, and the
+      # requests still reach Cloudflare either way.
+      - name: Staging (advisory)
+        run: |
+          if ! scripts/heartbeat.sh staging; then
+            echo "::warning title=Staging heartbeat failed::One or more staging checks did not return the expected status. This does not fail the run."
+            echo "⚠️ **Staging heartbeat failed** — see the step log above." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Production failures fail the run, which is the whole alerting
+      # mechanism: GitHub emails on workflow failure by default.
+      - name: Production
+        run: scripts/heartbeat.sh production
