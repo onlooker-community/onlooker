@@ -33,7 +33,7 @@ output_dir = "dist"
 VITE_API_URL = "http://localhost:8787"
 
 [env.production.vars]
-VITE_API_URL = "https://api.onlooker.example.com"
+VITE_API_URL = "https://api.onlooker.dev"
 ```
 
 ### Environment Variables
@@ -42,7 +42,7 @@ Build-time variables are prefixed with `VITE_`:
 
 ```toml
 [env.production.vars]
-VITE_API_URL = "https://api.onlooker.example.com"
+VITE_API_URL = "https://api.onlooker.dev"
 ```
 
 Access in code:
@@ -127,11 +127,11 @@ VITE_API_URL = "http://localhost:8787"
 
 # Staging
 [env.staging.vars]
-VITE_API_URL = "https://api-staging.onlooker.example.com"
+VITE_API_URL = "https://api-staging.onlooker.dev"
 
 # Production
 [env.production.vars]
-VITE_API_URL = "https://api.onlooker.example.com"
+VITE_API_URL = "https://api.onlooker.dev"
 ```
 
 ### Using API URL in Code
@@ -264,7 +264,7 @@ dist/
 **Solution:**
 ```toml
 [env.production.vars]
-VITE_API_URL = "https://api.onlooker.example.com"
+VITE_API_URL = "https://api.onlooker.dev"
 ```
 
 ### App loads but API calls fail (CORS error)
@@ -276,20 +276,20 @@ VITE_API_URL = "https://api.onlooker.example.com"
    ```toml
    # apps/api/wrangler.toml
    [env.production.vars]
-   CORS_ORIGIN = "https://onlooker.example.com"
+   CORS_ORIGIN = "https://app.onlooker.dev"
    ```
 
 2. Check VITE_API_URL is correct:
    ```toml
    # apps/web/wrangler.toml
    [env.production.vars]
-   VITE_API_URL = "https://api.onlooker.example.com"
+   VITE_API_URL = "https://api.onlooker.dev"
    ```
 
 3. Test preflight:
    ```bash
-   curl -i -X OPTIONS https://api.onlooker.example.com/auth/login \
-     -H 'Origin: https://onlooker.example.com' \
+   curl -i -X OPTIONS https://api.onlooker.dev/auth/login \
+     -H 'Origin: https://app.onlooker.dev' \
      -H 'Access-Control-Request-Method: POST'
    ```
 
@@ -333,7 +333,7 @@ pnpm --filter @onlooker/web build
 
 1. Go to Cloudflare Dashboard → Pages → onlooker-web
 2. Settings → Custom Domains
-3. Add domain: `onlooker.example.com`
+3. Add domain: `app.onlooker.dev`
 4. Cloudflare auto-provisions SSL certificate
 
 ### DNS
@@ -370,7 +370,7 @@ pnpm --filter @onlooker/web deploy --env production
 
 ```bash
 # Build with staging variables
-VITE_API_URL=https://api-staging.onlooker.example.com \
+VITE_API_URL=https://api-staging.onlooker.dev \
 pnpm --filter @onlooker/web build
 
 # Or use wrangler environment
@@ -393,7 +393,7 @@ pnpm --filter @onlooker/web preview
 
 ```bash
 # Build with production API URL
-VITE_API_URL=https://api.onlooker.example.com \
+VITE_API_URL=https://api.onlooker.dev \
 pnpm --filter @onlooker/web build
 
 # Preview locally
