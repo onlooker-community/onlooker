@@ -264,8 +264,11 @@ Then push the branch so the workflow exists on the remote.
 
 - [ ] **Step 3: Trigger it manually and confirm it passes**
 
-A scheduled workflow only runs from the default branch, so before merge the
-only way to exercise it is `workflow_dispatch` on the branch:
+GitHub only registers a workflow once it exists on the default branch;
+`--ref` selects which version of an *already-registered* workflow runs, and
+cannot register a new one. So Steps 3–5 are **post-merge** steps — once the
+workflow is registered, `workflow_dispatch` lets you exercise it on demand
+instead of waiting for the next scheduled run:
 
 ```bash
 gh workflow run Heartbeat --ref feat/heartbeat
@@ -303,8 +306,9 @@ pipeline. The second would mean the dashboards cannot see heartbeat traffic at
 all, which invalidates the design rather than the implementation.
 
 Note that scheduled runs only fire from the default branch, so a continuous
-floor will not appear until this branch merges. Until then, each
-`workflow_dispatch` produces one burst.
+floor will not appear until after this branch merges. Once merged, the
+schedule keeps the floor going on its own; `workflow_dispatch` remains
+available afterward for on-demand bursts between scheduled runs.
 
 ---
 
@@ -316,8 +320,6 @@ floor will not appear until this branch merges. Until then, each
   host exits `1`
 - `gh workflow run Heartbeat` completes successfully, and its log shows all six
   checks
-- The workflow file contains `workflow_dispatch`, so it can be tested without
-  waiting for cron
 - Cloudflare's request-by-hostname chart shows a non-zero floor for all four
   hosts
 
