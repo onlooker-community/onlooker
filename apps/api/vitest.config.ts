@@ -18,6 +18,14 @@ export default defineConfig(async () => {
 			cloudflareTest({
 				singleWorker: true,
 				miniflare: {
+					// Must match wrangler.toml, and must be pinned. Left unset, the
+					// test runner asks workerd for *today's* date, so the suite breaks
+					// at midnight on any day the installed workerd is older than the
+					// calendar - which is every day, since the binary ships behind.
+					// It failed in CI and locally on 2026-08-09 for exactly that.
+					// Pinning also makes the tests run under the same compatibility
+					// date as the deployed worker, rather than a newer one.
+					compatibilityDate: "2024-12-16",
 					d1Databases: ["DB"],
 					bindings: { TEST_MIGRATIONS: migrations },
 				},
