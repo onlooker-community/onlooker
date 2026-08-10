@@ -79,7 +79,7 @@ jobs:
       - name: Verify generated schemas are committed
         run: |
           git diff --exit-code -- packages/lesson-contract/schema || {
-            echo "::error::packages/lesson-contract/schema is out of date. Run 'pnpm --filter @onlooker/lesson-contract build' and commit the result."
+            echo "::error::packages/lesson-contract/schema is out of date. Run 'pnpm --filter @onlooker-community/lesson-contract build' and commit the result."
             exit 1
           }
 
