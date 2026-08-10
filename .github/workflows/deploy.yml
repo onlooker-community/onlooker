@@ -52,6 +52,44 @@ jobs:
         run: pnpm --filter ${{ matrix.workspace }} typecheck
 
   # ============================================================================
+  # LESSON CONTRACT VERSION GUARD
+  # ============================================================================
+  contract-version:
+    name: Contract version bumped with schema
+    runs-on: ubuntu-latest
+    # Pull requests only: the comparison is against the PR's base, which a push
+    # to main does not have.
+    if: github.event_name == 'pull_request'
+    steps:
+      # Full history so the base ref is available to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if the schema changed without a version bump
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet "${BASE}...HEAD" -- packages/lesson-contract/schema/; then
+            echo "lesson contract schema unchanged - nothing to check"
+            exit 0
+          fi
+
+          echo "lesson contract schema changed; checking for a version bump"
+
+          old="$(git show "${BASE}:packages/lesson-contract/package.json" | jq -r .version)"
+          new="$(jq -r .version packages/lesson-contract/package.json)"
+
+          if [ "${old}" = "${new}" ]; then
+            echo "::error title=Schema changed without a version bump::packages/lesson-contract/schema/ changed but the version is still ${new}. Nothing would publish, so consumers would keep resolving the old contract. Bump the version - a schema_version change is a major bump."
+            exit 1
+          fi
+
+          echo "version moved ${old} -> ${new}"
+
+  # ============================================================================
   # BUILD AND TEST
   # ============================================================================
   test:
