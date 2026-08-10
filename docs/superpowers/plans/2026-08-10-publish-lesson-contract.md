@@ -401,10 +401,16 @@ landed on `main` after this branch started do not count as changes made here.
 
 - [ ] **Step 2: Verify the guard FAILS when it should**
 
-Reproduce the job's logic locally against the real base:
+**Do not use `origin/main` as the base for this check.** Task 1 already moved the
+version from `0.0.1` to `2.0.0` on this branch, so any comparison against `main`
+finds the versions unequal and the guard passes — no matter what you do to the
+schema. The failure branch would be unreachable and the test would prove
+nothing.
+
+Compare against the tamper commit's own parent instead, which holds the version
+constant on both sides and isolates the schema change:
 
 ```bash
-git fetch origin main
 python3 - <<'PY'
 import json, pathlib
 p = pathlib.Path("packages/lesson-contract/schema/lesson.schema.json")
@@ -415,15 +421,20 @@ PY
 git add packages/lesson-contract/schema/lesson.schema.json
 git commit -m "temp: tamper for guard verification"
 
-BASE=origin/main
+BASE=HEAD~1
 git diff --quiet "${BASE}...HEAD" -- packages/lesson-contract/schema/ && echo "no change seen" || echo "change detected (correct)"
 old="$(git show "${BASE}:packages/lesson-contract/package.json" | jq -r .version)"
 new="$(jq -r .version packages/lesson-contract/package.json)"
 echo "old=${old} new=${new}"
+[ "${old}" = "${new}" ] && echo "GUARD WOULD FAIL (exit 1) - condition confirmed" || echo "guard would pass - test did not reach the failure branch"
 ```
 
-Expected: `change detected (correct)`, and `old` equals `new` — which is the
-condition that makes the job exit 1.
+Expected: `change detected (correct)`, `old=2.0.0 new=2.0.0`, and
+`GUARD WOULD FAIL (exit 1) - condition confirmed`.
+
+In real CI the job's `${{ github.base_ref }}` resolves to the PR's actual base
+and the equality check works as written — this substitution only exists because
+this branch's own history makes `main` an unusable base for the test.
 
 Note `old` will be `0.0.1` here because Task 1's rename is not yet on `main`.
 That is fine; the guard compares equality, not ordering.
