@@ -26,8 +26,8 @@ publishes but drifts is exactly the failure this replaces.
 - **`dist/` is gitignored; `schema/` is committed.** Any step that packs or
   publishes must build first. Any step that reads `schema/*.json` need not.
 - **Schema emission is byte-deterministic** — verified by rebuilding and
-  comparing checksums. Guard 1 depends on this and would false-positive without
-  it.
+  comparing checksums. The existing freshness guard depends on this and would
+  false-positive without it.
 - **Every guard must be observed failing before it is trusted.** Break the thing
   it protects, watch it fail, restore. A guard nobody has seen fail is
   indistinguishable from one that cannot.
@@ -44,7 +44,7 @@ publishes but drifts is exactly the failure this replaces.
 | File | Responsibility | Task |
 |---|---|---|
 | `packages/lesson-contract/package.json` | identity, what ships, publish config | 1 |
-| `.github/workflows/deploy.yml` (new job) | Guard 1 — committed schema is current | 2 |
+| `.github/workflows/deploy.yml` (`test` job) | Guard 1 already exists — fix its stale command | 2 |
 | `.github/workflows/deploy.yml` (new job) | Guard 2 — schema change carries a version bump | 3 |
 | `.github/workflows/deploy.yml` (new job) | publish on version change | 4 |
 
@@ -204,119 +204,121 @@ starts at `2.0.0` rather than continuing from `0.0.1`.
 
 ---
 
-## Task 2: Guard 1 — the committed schema is current
+## Task 2: Correct the existing schema guard's stale command
 
 **Files:**
-- Modify: `.github/workflows/deploy.yml` (the `quality` job)
+- Modify: `.github/workflows/deploy.yml` (the `test` job)
 
 **Interfaces:**
-- Consumes: `pnpm --filter @onlooker-community/lesson-contract build` from Task 1.
+- Consumes: the package rename from Task 1.
 
-The failure this catches: someone edits `src/*.ts`, does not rebuild, and
-`schema/*.json` silently stops describing the contract. Everything downstream
-then consumes a stale artifact that looks authoritative.
+**This guard already exists.** The `test` job has a step named
+`Verify generated schemas are committed` that runs `pnpm build` and then
+`git diff --exit-code -- packages/lesson-contract/schema`. That is exactly the
+freshness guard this plan originally proposed adding, and it already runs on
+pull requests. **Do not add a second one.**
 
-- [ ] **Step 1: Add the guard as its own job**
+What Task 1 broke: that step's error message tells the reader to run
+`pnpm --filter @onlooker/lesson-contract build`. The package is now
+`@onlooker-community/lesson-contract`, so following that instruction fails with
+"No projects matched the filters" — at exactly the moment someone is trying to
+fix a stale schema. A guard whose remediation advice does not work is only half
+a guard.
 
-In `.github/workflows/deploy.yml`, add this job immediately after the `quality`
-job:
-
-```yaml
-  # ============================================================================
-  # LESSON CONTRACT SCHEMA FRESHNESS
-  # ============================================================================
-  contract-schema:
-    name: Contract schema is current
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # The committed schema artifacts are generated from the zod source. If
-      # someone edits src/ without rebuilding, schema/*.json silently stops
-      # describing the contract while still looking authoritative. Emission is
-      # byte-deterministic, so rebuilding and finding a diff means exactly one
-      # thing: the committed artifacts are stale.
-      - name: Rebuild and assert the committed schema matches
-        run: |
-          pnpm --filter @onlooker-community/lesson-contract build
-          if ! git diff --exit-code -- packages/lesson-contract/schema/; then
-            echo "::error title=Stale lesson contract schema::packages/lesson-contract/schema/ does not match the zod source. Run 'pnpm --filter @onlooker-community/lesson-contract build' and commit the result."
-            exit 1
-          fi
-```
-
-**It is a standalone job, not a step inside `quality`.** `quality` is a matrix
-over `@onlooker/api` and `@onlooker/web`, so a step added there would run twice
-per PR and annotate twice on failure. A standalone job also runs in parallel
-rather than behind the matrix, and matches the shape Task 3 uses.
-
-The job has no `if:` guard, so it runs on both `push` and `pull_request` — this
-must gate PRs.
-
-- [ ] **Step 2: Verify the guard FAILS when it should — locally first**
-
-Deliberately stale the artifact, then run the guard's logic:
+- [ ] **Step 1: Confirm the existing guard is really there**
 
 ```bash
-cd /path/to/repo
-python3 - <<'PY'
+grep -n -A5 'Verify generated schemas are committed' .github/workflows/deploy.yml
+```
+
+Expected: the step, containing `git diff --exit-code -- packages/lesson-contract/schema`
+and an error message naming `@onlooker/lesson-contract`.
+
+If the step is absent, **stop and report** — the plan's premise for this task is
+wrong and it needs rewriting rather than improvising a new guard.
+
+- [ ] **Step 2: Update the stale package name**
+
+In `.github/workflows/deploy.yml`, in that step's error message only, change:
+
+```
+pnpm --filter @onlooker/lesson-contract build
+```
+
+to:
+
+```
+pnpm --filter @onlooker-community/lesson-contract build
+```
+
+Change nothing else in the step. The guard logic is correct as written.
+
+- [ ] **Step 3: Verify the old filter really fails and the new one works**
+
+This is the whole point of the change — confirm both halves:
+
+```bash
+pnpm --filter @onlooker/lesson-contract build ; echo "old filter exit=$?"
+pnpm --filter @onlooker-community/lesson-contract build ; echo "new filter exit=$?"
+```
+
+Expected: the old filter reports no matching projects (non-zero, or a "None of
+the selected packages" style message); the new filter builds successfully with
+`exit=0`.
+
+If the old filter *succeeds*, stop and report — it would mean the rename did not
+take effect and Task 1 is incomplete.
+
+- [ ] **Step 4: Verify the guard still passes on a clean tree**
+
+```bash
+pnpm build
+git diff --exit-code -- packages/lesson-contract/schema ; echo "exit=$?"
+```
+
+Expected: `exit=0`. This is the determinism the guard depends on.
+
+- [ ] **Step 5: Verify the guard FAILS when the artifact is stale**
+
+```bash
+python3 - <<'PYEOF'
 import json, pathlib
 p = pathlib.Path("packages/lesson-contract/schema/lesson.schema.json")
 d = json.loads(p.read_text())
 d["properties"]["claim"]["description"] = "TAMPERED - should be reverted"
 p.write_text(json.dumps(d, indent=2) + "\n")
-PY
+PYEOF
 
-pnpm --filter @onlooker-community/lesson-contract build
-git diff --exit-code -- packages/lesson-contract/schema/ ; echo "exit=$?"
+pnpm build
+git diff --exit-code -- packages/lesson-contract/schema ; echo "exit=$?"
 ```
 
 Expected: a diff is printed and `exit=1`.
 
 `properties.claim` has no `description` key in the real schema, so the script
 adds one and the rebuild removes it again. The diff you see is that key being
-stripped — which is the guard correctly reporting that the committed artifact
-did not match what the source generates.
+stripped — the guard correctly reporting that the committed artifact did not
+match what the source generates.
 
-- [ ] **Step 3: Restore**
+- [ ] **Step 6: Restore**
 
 ```bash
 git checkout -- packages/lesson-contract/schema/
-git diff --exit-code -- packages/lesson-contract/schema/ ; echo "exit=$?"
+git diff --exit-code -- packages/lesson-contract/schema ; echo "exit=$?"
 ```
 
 Expected: no output, `exit=0`.
 
-- [ ] **Step 4: Verify the guard PASSES on a clean tree**
-
-```bash
-pnpm --filter @onlooker-community/lesson-contract build
-git diff --exit-code -- packages/lesson-contract/schema/ ; echo "exit=$?"
-```
-
-Expected: `exit=0`. This is the determinism the guard depends on — if this
-fails on an untouched tree, emission is not deterministic and **the guard must
-not ship**; stop and report.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 Use the `/commit` skill with `.github/workflows/deploy.yml`.
 
-Suggested subject: `ci(lesson-contract): catch schema artifacts that went stale :mag:`
+Suggested subject: `fix(ci): point the schema guard at the renamed package :label:`
 
-The body should record that emission is byte-deterministic and that this is what
-makes a rebuild-and-diff guard valid rather than flaky.
+The body should say that the guard itself was already correct and already
+running, and that the rename in Task 1 invalidated only its remediation advice —
+which matters because that advice is read precisely when someone is trying to
+fix a failure.
 
 ---
 
@@ -609,8 +611,9 @@ appear in the PR's checks, green. A guard that was never invoked is not a guard.
 - A fresh install in a scratch directory can import
   `@onlooker-community/lesson-contract/schema/lesson.schema.json` and read
   `schema_version.const === 2`
-- Guard 1 has been **observed failing** on a deliberately staled artifact and
-  passing on a clean tree
+- The pre-existing freshness guard has been **observed failing** on a
+  deliberately staled artifact and passing on a clean tree, and its remediation
+  command names the renamed package
 - Guard 2 has been **observed failing** on a schema change without a version
   bump and passing when the schema is untouched
 - `npm pack --dry-run` output was read, and contains `dist/` and `schema/` and
