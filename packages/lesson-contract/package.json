@@ -1,10 +1,27 @@
 {
-	"name": "@onlooker/lesson-contract",
-	"version": "0.0.1",
-	"private": true,
+	"name": "@onlooker-community/lesson-contract",
+	"version": "2.0.0",
+	"description": "Shared lesson contract for the Onlooker ecosystem",
+	"license": "MIT",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/onlooker-community/onlooker",
+		"directory": "packages/lesson-contract"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./schema/*": "./schema/*"
+	},
+	"files": ["dist", "schema"],
 	"scripts": {
 		"build": "tsc --project tsconfig.build.json && node scripts/emit-json-schema.mjs",
 		"dev": "tsc --watch",

@@ -52,6 +52,125 @@ jobs:
         run: pnpm --filter ${{ matrix.workspace }} typecheck
 
   # ============================================================================
+  # LESSON CONTRACT VERSION GUARD
+  # ============================================================================
+  contract-version:
+    name: Contract version bumped with schema
+    runs-on: ubuntu-latest
+    # Pull requests only: the comparison is against the PR's base, which a push
+    # to main does not have.
+    if: github.event_name == 'pull_request'
+    steps:
+      # Full history so the base ref is available to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if the schema changed without a version bump
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet "${BASE}...HEAD" -- packages/lesson-contract/schema/; then
+            echo "lesson contract schema unchanged - nothing to check"
+            exit 0
+          fi
+
+          echo "lesson contract schema changed; checking for a version bump"
+
+          old="$(git show "${BASE}:packages/lesson-contract/package.json" | jq -r .version)"
+          new="$(jq -r .version packages/lesson-contract/package.json)"
+
+          if [ "${old}" = "${new}" ]; then
+            echo "::error title=Schema changed without a version bump::packages/lesson-contract/schema/ changed but the version is still ${new}. Nothing would publish, so consumers would keep resolving the old contract. Bump the version - a schema_version change is a major bump."
+            exit 1
+          fi
+
+          newest="$(printf '%s\n%s\n' "${old}" "${new}" | sort -V | tail -1)"
+          if [ "${newest}" != "${new}" ]; then
+            echo "::error title=Version moved backward::packages/lesson-contract went from ${old} to ${new}. Publishing that would move the latest dist-tag backward, and a consumer doing a bare install would silently get an older contract. This cannot be cleanly undone on a public registry."
+            exit 1
+          fi
+
+          echo "version moved ${old} -> ${new}"
+
+  # ============================================================================
+  # PUBLISH THE LESSON CONTRACT
+  # ============================================================================
+  publish-contract:
+    name: Publish lesson contract
+    runs-on: ubuntu-latest
+    needs: test
+    # Merges to main only. Never publish from a pull request.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Required for NODE_AUTH_TOKEN to reach the registry.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # dist/ is gitignored, so the tarball has nothing to ship without this.
+      #
+      # The assertion is not paranoia. `pnpm --filter <name>` exits 0 when the
+      # filter matches nothing - it prints "No projects matched the filters" and
+      # succeeds. Verified against pnpm 11.0.9, and --fail-if-no-match does not
+      # change it. So a typo or a future rename would build nothing, exit clean,
+      # and publish a tarball with no dist/ in it. Check the artifact exists
+      # rather than trusting the build's exit code.
+      - name: Build
+        run: |
+          set -euo pipefail
+          pnpm --filter @onlooker-community/lesson-contract build
+          if [ ! -s packages/lesson-contract/dist/index.js ]; then
+            echo "::error title=Build produced no output::packages/lesson-contract/dist/index.js is missing or empty after the build. The --filter probably matched no project, which pnpm reports as success. Publishing now would ship a tarball without dist/."
+            exit 1
+          fi
+          if [ ! -s packages/lesson-contract/schema/lesson.schema.json ]; then
+            echo "::error title=Schema missing from the publish tree::packages/lesson-contract/schema/lesson.schema.json is missing or empty. That file is the reason this package is published; shipping without it would produce a tarball no consumer can use."
+            exit 1
+          fi
+
+      - name: Publish if this exact version is not on the registry
+        working-directory: packages/lesson-contract
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error title=NPM_TOKEN is not configured::This repository has no NPM_TOKEN secret, so the package cannot be published. Add it as a repository secret scoped to publish only. Nothing else in this workflow depends on this job, so deploys are unaffected."
+            exit 1
+          fi
+
+          name="$(jq -r .name package.json)"
+          version="$(jq -r .version package.json)"
+
+          # Queries the exact version rather than "latest". An unpublished
+          # version and an unpublished package both yield empty output, so the
+          # very first publish - where no latest exists to compare against -
+          # takes the same path as every later one.
+          published="$(npm view "${name}@${version}" version 2>/dev/null || true)"
+
+          if [ -n "${published}" ]; then
+            echo "${name}@${version} is already published; nothing to do"
+            exit 0
+          fi
+
+          echo "publishing ${name}@${version}"
+          npm publish
+
+  # ============================================================================
   # BUILD AND TEST
   # ============================================================================
   test:
@@ -78,10 +197,11 @@ jobs:
 
       - name: Verify generated schemas are committed
         run: |
-          git diff --exit-code -- packages/lesson-contract/schema || {
-            echo "::error::packages/lesson-contract/schema is out of date. Run 'pnpm --filter @onlooker/lesson-contract build' and commit the result."
+          if [ -n "$(git status --porcelain -- packages/lesson-contract/schema)" ]; then
+            git status --short -- packages/lesson-contract/schema
+            echo "::error::packages/lesson-contract/schema is out of date. Run 'pnpm --filter @onlooker-community/lesson-contract build' and commit the result."
             exit 1
-          }
+          fi
 
       - name: Test
         run: pnpm test
