@@ -44,7 +44,7 @@ publishes but drifts is exactly the failure this replaces.
 | File | Responsibility | Task |
 |---|---|---|
 | `packages/lesson-contract/package.json` | identity, what ships, publish config | 1 |
-| `.github/workflows/deploy.yml` (quality job) | Guard 1 — committed schema is current | 2 |
+| `.github/workflows/deploy.yml` (new job) | Guard 1 — committed schema is current | 2 |
 | `.github/workflows/deploy.yml` (new job) | Guard 2 — schema change carries a version bump | 3 |
 | `.github/workflows/deploy.yml` (new job) | publish on version change | 4 |
 
@@ -216,18 +216,38 @@ The failure this catches: someone edits `src/*.ts`, does not rebuild, and
 `schema/*.json` silently stops describing the contract. Everything downstream
 then consumes a stale artifact that looks authoritative.
 
-- [ ] **Step 1: Add the guard step**
+- [ ] **Step 1: Add the guard as its own job**
 
-In `.github/workflows/deploy.yml`, in the `quality` job, add this step
-immediately after the existing `Build dependencies` step:
+In `.github/workflows/deploy.yml`, add this job immediately after the `quality`
+job:
 
 ```yaml
+  # ============================================================================
+  # LESSON CONTRACT SCHEMA FRESHNESS
+  # ============================================================================
+  contract-schema:
+    name: Contract schema is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       # The committed schema artifacts are generated from the zod source. If
       # someone edits src/ without rebuilding, schema/*.json silently stops
       # describing the contract while still looking authoritative. Emission is
       # byte-deterministic, so rebuilding and finding a diff means exactly one
       # thing: the committed artifacts are stale.
-      - name: Lesson contract schema is current
+      - name: Rebuild and assert the committed schema matches
         run: |
           pnpm --filter @onlooker-community/lesson-contract build
           if ! git diff --exit-code -- packages/lesson-contract/schema/; then
@@ -236,7 +256,13 @@ immediately after the existing `Build dependencies` step:
           fi
 ```
 
-The `quality` job runs on both `push` and `pull_request`, so this guards PRs.
+**It is a standalone job, not a step inside `quality`.** `quality` is a matrix
+over `@onlooker/api` and `@onlooker/web`, so a step added there would run twice
+per PR and annotate twice on failure. A standalone job also runs in parallel
+rather than behind the matrix, and matches the shape Task 3 uses.
+
+The job has no `if:` guard, so it runs on both `push` and `pull_request` — this
+must gate PRs.
 
 - [ ] **Step 2: Verify the guard FAILS when it should — locally first**
 
