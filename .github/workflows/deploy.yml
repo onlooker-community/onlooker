@@ -104,6 +104,13 @@ jobs:
     needs: test
     # Merges to main only. Never publish from a pull request.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      # Trusted publishing: npm exchanges this OIDC token for short-lived
+      # publish rights, so no long-lived NPM_TOKEN is stored in the repo.
+      # Requires a trusted publisher configured on npmjs.com for this package,
+      # naming this repository and this workflow file.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +118,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          # Required for NODE_AUTH_TOKEN to reach the registry.
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install pnpm
@@ -143,32 +149,70 @@ jobs:
 
       - name: Publish if this exact version is not on the registry
         working-directory: packages/lesson-contract
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::error title=NPM_TOKEN is not configured::This repository has no NPM_TOKEN secret, so the package cannot be published. Add it as a repository secret scoped to publish only. Nothing else in this workflow depends on this job, so deploys are unaffected."
+          # Trusted publishing needs npm >= 11.5.1. Older npm ignores the OIDC
+          # token silently and falls back to looking for credentials it will not
+          # find, so assert rather than discover that at publish time.
+          npm_major_minor_patch="$(npm --version)"
+          if ! printf '%s\n%s\n' "11.5.1" "${npm_major_minor_patch}" | sort -V -C; then
+            echo "::error title=npm too old for trusted publishing::npm ${npm_major_minor_patch} does not support OIDC trusted publishing; 11.5.1 or newer is required. Bump NODE_VERSION or install a newer npm before this step."
+            exit 1
+          fi
+
+          # id-token: write on this job is what makes OIDC possible. If that
+          # permission is ever dropped, this variable disappears and npm would
+          # fall back to searching for a token that no longer exists - failing
+          # later and less legibly than this does.
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "::error title=OIDC token unavailable::This job has no id-token permission, so npm cannot exchange an OIDC token for publish rights. Restore 'permissions: id-token: write' on the publish-contract job."
             exit 1
           fi
 
           name="$(jq -r .name package.json)"
           version="$(jq -r .version package.json)"
 
-          # Queries the exact version rather than "latest". An unpublished
-          # version and an unpublished package both yield empty output, so the
-          # very first publish - where no latest exists to compare against -
-          # takes the same path as every later one.
-          published="$(npm view "${name}@${version}" version 2>/dev/null || true)"
-
-          if [ -n "${published}" ]; then
-            echo "${name}@${version} is already published; nothing to do"
+          # Fast path only. This asks whether the version is already on the
+          # registry so the common no-op merge skips without a pointless publish
+          # attempt - but it is NOT authoritative, and must not be treated as
+          # such. A newly published package can 404 here for minutes while the
+          # registry propagates: observed 2026-08-10, when 2.0.0 published at
+          # 21:56:59 and this query still returned nothing at 22:01:22, four and
+          # a half minutes later. Trusting it caused a republish attempt and a
+          # red build. See onlooker-1um.
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "${name}@${version} is already on the registry; nothing to do"
             exit 0
           fi
 
-          echo "publishing ${name}@${version}"
-          npm publish
+          echo "registry did not report ${name}@${version}; attempting publish"
+
+          # The registry is the authority, so interpret its answer rather than
+          # predicting it. A publish that fails *because the version exists* is
+          # the same outcome as the fast path above - benign, and not a build
+          # failure. Any other failure is real and must surface.
+          set +e
+          publish_out="$(npm publish 2>&1)"
+          publish_rc=$?
+          set -e
+
+          printf '%s\n' "${publish_out}"
+
+          if [ "${publish_rc}" -eq 0 ]; then
+            echo "published ${name}@${version}"
+            exit 0
+          fi
+
+          # Match the specific message, not the E403 code. E403 also covers
+          # "you do not have permission", which is emphatically not benign.
+          if printf '%s' "${publish_out}" | grep -q 'cannot publish over the previously published versions'; then
+            echo "::notice title=Already published::${name}@${version} was already on the registry; the pre-check missed it, most likely registry propagation lag. Treating as a no-op."
+            exit 0
+          fi
+
+          echo "::error title=Publish failed::${name}@${version} could not be published, and not because it already exists. See the npm output above."
+          exit "${publish_rc}"
 
   # ============================================================================
   # BUILD AND TEST
