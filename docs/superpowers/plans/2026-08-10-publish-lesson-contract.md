@@ -161,7 +161,7 @@ Expected file list does **not** contain `src/`, `scripts/`, `tsconfig*.json`, or
 This list is the actual contract with consumers. Read it rather than assuming
 `files` did what you meant.
 
-- [ ] **Step 5: Verify the subpath a consumer would import resolves**
+- [ ] **Step 5: Verify the emitted schema declares `schema_version` `const: 2`**
 
 ```bash
 cd packages/lesson-contract
@@ -177,7 +177,12 @@ console.log('schema_version const 2 - ok');
 
 Expected: `schema_version const 2 - ok`.
 
-This is the exact shape the ecosystem's check will rely on. If the `const`
+This reads the file by relative path, straight out of the working tree — it
+checks only that the emitted artifact declares `schema_version` `const: 2`. It
+passes whether or not `exports` is correct, whether or not `files` includes
+`schema`, and whether or not the package installs at all. The packaged,
+installed subpath a consumer would actually import is only exercised in
+Post-merge Step 2, which runs after the version is burned. If the `const` here
 is not 2, the version chosen in Step 2 is wrong and the plan needs revisiting
 rather than the assertion being changed.
 
@@ -453,7 +458,9 @@ Expected: clean tree, and the tamper commit is gone. Confirm with
 
 ```bash
 BASE=origin/main
-git diff --quiet "${BASE}...HEAD" -- packages/lesson-contract/schema/ && echo "unchanged - guard exits 0 (correct)"
+git diff --quiet "${BASE}...HEAD" -- packages/lesson-contract/schema/ \
+  && echo "unchanged - guard exits 0 (correct)" \
+  || echo "CHANGED - this step expected no change; the guard would proceed to the version check"
 ```
 
 Expected: `unchanged - guard exits 0 (correct)`.
@@ -638,7 +645,7 @@ would publish just as cleanly. Install it and read it.
 
 - [ ] **Step 3: Confirm the guards ran on the merge**
 
-Check that the `quality` job's schema step and the `contract-version` job both
+Check that the `test` job's schema step and the `contract-version` job both
 appear in the PR's checks, green. A guard that was never invoked is not a guard.
 
 ---

@@ -1,6 +1,6 @@
 # Publishing the Lesson Contract — Design
 
-**Status:** Approved — not yet implemented
+**Status:** Implemented
 **Date:** 2026-08-10
 **Bead:** `onlooker-1kg`
 
@@ -130,10 +130,28 @@ failure, relocated to our side of the line.
 CI fails when `packages/lesson-contract/schema/**` differs from the merge base
 while `packages/lesson-contract/package.json`'s `version` does not.
 
+### What these guards do not guarantee
+
+`main` has no branch protection. A red `contract-version` check does not block
+a merge, and a direct push to `main` skips that job entirely — it is PR-only by
+design (the comparison needs a base ref a push does not have). So neither guard
+can stop a bad change from landing on `main`.
+
+The compensating fact is real, though: `publish-contract` is gated by
+`needs: test`, and GitHub Actions enforces `needs` independently of branch
+protection. A stale schema or a failing test still blocks the publish. That
+narrows the exposure from the missing branch protection to a schema change that
+fails to publish — silence, not a bad publish.
+
 ## Publishing
 
-On merge to `main`: if `package.json`'s version differs from the registry's
-latest for that name, build, pack, and publish. Otherwise do nothing.
+On merge to `main`: if `package.json`'s exact `name@version` is not already on
+the registry, build, pack, and publish. Otherwise do nothing.
+
+This queries the exact version rather than the registry's `latest` dist-tag,
+which also makes the job idempotent: a run canceled mid-flight simply
+republishes on the next push, because the check asks "is this version on the
+registry" rather than "did the version change in this commit."
 
 No release-please, no changelog automation, no config enumerating which of the
 ten private packages and three apps to exclude. The version in `package.json` is
