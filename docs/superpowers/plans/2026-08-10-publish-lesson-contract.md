@@ -280,34 +280,48 @@ Expected: `exit=0`. This is the determinism the guard depends on.
 
 - [ ] **Step 5: Verify the guard FAILS when the artifact is stale**
 
+**Tamper the zod source, not the schema.** The guard's sequence is `pnpm build`
+*then* `git diff`. Editing `schema/*.json` directly proves nothing: the build
+regenerates that file from the unchanged source and repairs the edit before the
+diff ever runs, so the guard passes — correctly, because the committed schema
+really does still match the source.
+
+The failure the guard exists to catch is a source change whose regenerated
+schema was never committed. Reproduce that:
+
 ```bash
+cp packages/lesson-contract/src/lesson.ts /tmp/lesson.ts.bak
+
 python3 - <<'PYEOF'
-import json, pathlib
-p = pathlib.Path("packages/lesson-contract/schema/lesson.schema.json")
-d = json.loads(p.read_text())
-d["properties"]["claim"]["description"] = "TAMPERED - should be reverted"
-p.write_text(json.dumps(d, indent=2) + "\n")
+import pathlib
+p = pathlib.Path("packages/lesson-contract/src/lesson.ts")
+t = p.read_text()
+p.write_text(t.replace("claim: z.string().min(1),", "claim: z.string().min(2),", 1))
 PYEOF
 
 pnpm build
 git diff --exit-code -- packages/lesson-contract/schema ; echo "exit=$?"
 ```
 
-Expected: a diff is printed and `exit=1`.
+Expected: `exit=1`, and `git diff --stat -- packages/lesson-contract/schema`
+shows `lesson.schema.json` with one changed line — `minLength` moving from 1 to
+2. That is the guard catching a committed artifact that no longer matches what
+the source generates.
 
-`properties.claim` has no `description` key in the real schema, so the script
-adds one and the rebuild removes it again. The diff you see is that key being
-stripped — the guard correctly reporting that the committed artifact did not
-match what the source generates.
-
-- [ ] **Step 6: Restore**
+- [ ] **Step 6: Restore both the source and the schema**
 
 ```bash
-git checkout -- packages/lesson-contract/schema/
-git diff --exit-code -- packages/lesson-contract/schema ; echo "exit=$?"
+cp /tmp/lesson.ts.bak packages/lesson-contract/src/lesson.ts && rm /tmp/lesson.ts.bak
+pnpm build
+git status --short
 ```
 
-Expected: no output, `exit=0`.
+Expected: empty output. Rebuilding after restoring the source regenerates the
+original schema, so both files return to their committed state.
+
+Do not use `git checkout -- packages/lesson-contract/schema/` here: that would
+restore the schema while leaving the tampered source in place, which is the
+stale state the guard is designed to reject.
 
 - [ ] **Step 7: Commit**
 
@@ -485,8 +499,21 @@ In `.github/workflows/deploy.yml`, add this job after `contract-version`:
         run: pnpm install --frozen-lockfile
 
       # dist/ is gitignored, so the tarball has nothing to ship without this.
+      #
+      # The assertion is not paranoia. `pnpm --filter <name>` exits 0 when the
+      # filter matches nothing - it prints "No projects matched the filters" and
+      # succeeds. Verified against pnpm 11.0.9, and --fail-if-no-match does not
+      # change it. So a typo or a future rename would build nothing, exit clean,
+      # and publish a tarball with no dist/ in it. Check the artifact exists
+      # rather than trusting the build's exit code.
       - name: Build
-        run: pnpm --filter @onlooker-community/lesson-contract build
+        run: |
+          set -euo pipefail
+          pnpm --filter @onlooker-community/lesson-contract build
+          if [ ! -s packages/lesson-contract/dist/index.js ]; then
+            echo "::error title=Build produced no output::packages/lesson-contract/dist/index.js is missing or empty after the build. The --filter probably matched no project, which pnpm reports as success. Publishing now would ship a tarball without dist/."
+            exit 1
+          fi
 
       - name: Publish if this exact version is not on the registry
         working-directory: packages/lesson-contract
