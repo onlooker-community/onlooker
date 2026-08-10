@@ -1,6 +1,6 @@
 {
 	"name": "@onlooker-community/lesson-contract",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Shared lesson contract for the Onlooker ecosystem",
 	"license": "MIT",
 	"type": "module",
