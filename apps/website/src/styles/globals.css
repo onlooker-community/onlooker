@@ -15,9 +15,9 @@
 :root {
 	--bg: var(--ground);
 	--bg-2: var(--panel);
-	--bg-3: var(--panel);
+	--bg-3: color-mix(in srgb, var(--panel) 82%, var(--ink));
 	--border: var(--edge);
-	--border-2: var(--edge);
+	--border-2: color-mix(in srgb, var(--edge) 82%, var(--ink));
 	--accent: var(--teal);
 	--accent-dim: color-mix(in srgb, var(--teal) 15%, transparent);
 	--accent-glow: color-mix(in srgb, var(--teal) 6%, transparent);
@@ -25,7 +25,8 @@
 	--text-2: var(--ink);
 	--text-3: var(--ink-dim);
 	--mono: var(--font-data);
-	--sans: var(--font-display);
+	--sans: var(--font-body);
+	--display: var(--font-display);
 }
 
 html {

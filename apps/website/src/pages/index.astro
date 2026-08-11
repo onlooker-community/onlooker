@@ -133,7 +133,7 @@ export const prerender = true;
   }
 
   .headline {
-    font-family: var(--sans);
+    font-family: var(--display);
     font-size: clamp(42px, 7vw, 84px);
     font-weight: 800;
     line-height: 0.95;
@@ -206,7 +206,7 @@ export const prerender = true;
 
   .form button {
     padding: 14px 24px;
-    background: var(--accent);
+    background: var(--plate-teal);
     border: none;
     border-left: 1px solid var(--border-2);
     font-family: var(--mono);
@@ -214,7 +214,7 @@ export const prerender = true;
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #080c10;
+    color: var(--plate-ink);
     cursor: pointer;
     transition:
       background 0.15s,
@@ -224,7 +224,7 @@ export const prerender = true;
   }
 
   .form button:hover {
-    background: #00f0c0;
+    background: color-mix(in srgb, var(--plate-teal) 85%, white);
   }
 
   .form button:active {
@@ -259,8 +259,8 @@ export const prerender = true;
 
   .error {
     border: 1px solid rgba(255, 0, 0, 0.25);
-    background: rgba(255, 0, 0, 0.1);
-    color: #ff4d4d;
+    background: color-mix(in srgb, var(--red) 12%, transparent);
+    color: var(--red);
   }
 
   .success.visible,
