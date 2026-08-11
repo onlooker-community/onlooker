@@ -1,0 +1,51 @@
+/* Fonts and icon rendering. Import after tokens.css. */
+
+@font-face {
+	font-family: "Abaddon";
+	font-style: normal;
+	font-weight: 700;
+	src: url("./fonts/abaddon-bold.ttf") format("truetype");
+	/* block, not swap: a pixel face swapping in mid-read is far more jarring
+	 * than a normal webfont swap. */
+	font-display: block;
+}
+
+@font-face {
+	font-family: "Abaddon";
+	font-style: normal;
+	font-weight: 400;
+	src: url("./fonts/abaddon-light.ttf") format("truetype");
+	font-display: block;
+}
+
+:root {
+	/* Display and chrome only. Body copy keeps a readable face - pixel type is
+	 * measurably harder to read at length. */
+	--font-display: "Abaddon", ui-monospace, monospace;
+	--font-body:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--font-data: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+/* Sources are 16x16. Only integer multiples render cleanly; anything between
+ * turns the art to mush, so the size system offers exactly three steps. */
+.pixel-icon {
+	image-rendering: pixelated;
+	display: block;
+	/* In a column flex container the main axis is vertical, so a wrapping
+	 * caption below an icon will silently squash it. Do not remove. */
+	flex: none;
+}
+
+.pixel-icon--16 {
+	width: 16px;
+	height: 16px;
+}
+.pixel-icon--32 {
+	width: 32px;
+	height: 32px;
+}
+.pixel-icon--48 {
+	width: 48px;
+	height: 48px;
+}
