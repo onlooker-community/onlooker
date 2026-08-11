@@ -600,9 +600,22 @@ Create `packages/brand/assets.css`:
 ```bash
 pnpm --filter @onlooker/brand test
 pnpm --filter @onlooker/brand lint
+pnpm --filter @onlooker/brand typecheck
 ```
 
-Expected: all suites pass, lint exits 0.
+Expected: all three clean.
+
+**The code blocks above are likely to need rewrapping.** The repo's `lineWidth`
+is 80 (`packages/config-biome/base.json`) and several lines here exceed it.
+Reformat with the workspace binary rather than `npx`, which this environment
+blocks:
+
+```bash
+pnpm --filter @onlooker/brand exec biome check --write
+```
+
+Read the resulting diff before committing — it should be purely mechanical
+rewrapping with no logic change.
 
 - [ ] **Step 7: Prove the 16x16 guard can fail**
 
