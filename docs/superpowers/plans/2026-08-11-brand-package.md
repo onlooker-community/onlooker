@@ -64,6 +64,8 @@ uses it.
 
 **Files:**
 - Create: `packages/brand/package.json`
+- Create: `packages/brand/tsconfig.json`
+- Create: `packages/brand/biome.json`
 - Create: `packages/brand/tokens.css`
 - Create: `packages/brand/tokens.test.ts`
 - Create: `packages/brand/vitest.config.ts`
@@ -98,6 +100,7 @@ Create `packages/brand/package.json`:
 	"devDependencies": {
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
+		"@types/node": "^20.0.0",
 		"typescript": "^5.6.3",
 		"vitest": "^4.1.9"
 	}
@@ -106,6 +109,38 @@ Create `packages/brand/package.json`:
 
 `assets.css`, `icons/` and `fonts/` are declared here but created in Task 2.
 Declaring them now keeps the manifest in one commit.
+
+`@types/node` is required because the tests import `node:fs`. The shared
+`@onlooker/config-typescript` does not supply Node types, and no sibling package
+needed them until now.
+
+Create `packages/brand/tsconfig.json`. Sibling packages use
+`"include": ["src", …]`, but this package has no `src/` — its only TypeScript
+lives at the package root:
+
+```json
+{
+	"compilerOptions": {
+		"isolatedModules": true,
+		"noEmit": true,
+		"resolveJsonModule": true,
+		"strict": true,
+		"types": ["node"]
+	},
+	"exclude": ["node_modules"],
+	"extends": "@onlooker/config-typescript/node16.json",
+	"include": ["*.ts"]
+}
+```
+
+Create `packages/brand/biome.json`, matching every sibling exactly:
+
+```json
+{
+	"root": false,
+	"extends": ["@onlooker/config-biome/library.json"]
+}
+```
 
 - [ ] **Step 2: Write the failing test**
 
@@ -354,6 +389,7 @@ same for a banned value: add `--teal: #00755f;` to the day block, confirm the
 - [ ] **Step 7: Commit**
 
 Use the `/commit` skill with `packages/brand/package.json`,
+`packages/brand/tsconfig.json`, `packages/brand/biome.json`,
 `packages/brand/tokens.css`, `packages/brand/tokens.test.ts`,
 `packages/brand/vitest.config.ts` and `pnpm-lock.yaml`.
 
