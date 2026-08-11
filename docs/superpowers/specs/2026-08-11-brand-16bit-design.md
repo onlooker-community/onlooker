@@ -95,13 +95,40 @@ values failed and were replaced.
 - `#b8791a` as the day gold — 2.57 on ground, 1.88 on panel. Fails both.
 - `#00755f` as the day teal — 2.94 on panel.
 
-**State pills are filled plates with dark ink, not colored text on a transparent
-chip.** A filled plate is a stronger state signal and it makes contrast a property
-of the plate rather than of wherever the pill happens to sit. Dark ink `#221f38`
-scores 8.32 on teal, 12.02 on gold, 7.00 on the red plate.
+### Plates are constant; text accents are not
 
-`#db3a3a` may still be used as a non-text mark — a border, a fill, an icon tint —
-where text contrast rules do not apply. It must never carry small text.
+This is the rule the token set turns on, and getting it wrong produced a real
+regression during design — worth stating plainly so it is not rediscovered.
+
+An accent used as **text on the ground** and the same accent used as a **plate
+background** have opposite requirements. Day gold must be dark to be readable on
+a light ground; a gold button must stay bright with dark ink. One token cannot
+serve both. Making day gold dark while a button still assumed it was bright
+produced dark ink on a dark plate — **1.51**, unreadable — and only in day mode,
+which is why it survived the first review.
+
+So the palette has two families:
+
+| Family | Behavior | Tokens |
+|---|---|---|
+| **Plates** — filled backgrounds | Identical in both themes | `--plate-gold` `#ffdf40`, `--plate-teal` `#00d4aa`, `--plate-red` `#ff8a8a`, `--plate-ink` `#221f38` |
+| **Text accents** — ink on a ground | Shift per theme | `--gold` `--teal` `--red` |
+
+A gold button is gold at noon and at midnight. Game UI does not repaint its
+buttons when the sun moves, and holding plates constant means their contrast is a
+fixed property rather than something to re-verify per theme.
+
+Plates score identically in both: gold 12.02 AAA, teal 8.32 AAA, red 7.00 AAA.
+
+**Plate tokens must be defined once on `:root` and never redefined inside a theme
+block.** A theme override on a plate token reintroduces exactly the bug above.
+
+**State pills are filled plates, not colored text on a transparent chip.** A
+filled plate is a stronger state signal, and it makes contrast a property of the
+plate rather than of wherever the pill happens to sit.
+
+`#db3a3a` survives as `--mark`, for non-text use only — a border, a fill, an icon
+tint — where text contrast rules do not apply. It must never carry small text.
 
 ## Typography
 
