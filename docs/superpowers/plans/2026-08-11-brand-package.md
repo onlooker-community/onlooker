@@ -153,11 +153,16 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("./tokens.css", import.meta.url), "utf8");
 
-/** Pull one CSS block's body by its selector text. */
+/** Pull one CSS block's body by its selector text.
+ *
+ * The selector is anchored on its opening brace. A bare indexOf would let
+ * `:root` match inside `:root[data-theme="light"]`, silently validating the
+ * wrong block — the exact class of bug this file exists to catch. */
 function block(selector: string): string {
-	const i = css.indexOf(selector);
-	if (i === -1) throw new Error(`selector not found: ${selector}`);
-	const open = css.indexOf("{", i);
+	const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = new RegExp(`${escaped}\\s*\\{`).exec(css);
+	if (!match) throw new Error(`selector not found: ${selector}`);
+	const open = css.indexOf("{", match.index);
 	let depth = 0;
 	for (let j = open; j < css.length; j++) {
 		if (css[j] === "{") depth++;
@@ -252,7 +257,11 @@ describe("rejected values", () => {
 	});
 
 	it("allows #db3a3a only as --mark", () => {
-		for (const m of css.matchAll(/(--[a-z-]+)\s*:\s*#db3a3a/g)) {
+		// Collect first: asserting inside a matchAll loop passes vacuously if
+		// the regex ever stops matching.
+		const uses = [...css.matchAll(/(--[a-z-]+)\s*:\s*#db3a3a/g)];
+		expect(uses.length, "#db3a3a should be present as --mark").toBeGreaterThan(0);
+		for (const m of uses) {
 			expect(m[1], "#db3a3a is non-text only").toBe("--mark");
 		}
 	});
@@ -366,9 +375,16 @@ Create `packages/brand/tokens.css`:
 
 ```bash
 pnpm --filter @onlooker/brand test
+pnpm --filter @onlooker/brand lint
+pnpm --filter @onlooker/brand typecheck
 ```
 
-Expected: all tests pass.
+Expected: all three green. **Run all three, not just the test.** Root `lint` is
+`turbo run lint`, so a lint failure here breaks the whole repo's gate — and a
+task that only ever runs its own tests will not notice.
+
+Lines must stay within the repo's 80-character `lineWidth`, set in
+`packages/config-biome/base.json`.
 
 - [ ] **Step 6: Prove the plate guard can actually fail**
 
