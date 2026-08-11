@@ -82,7 +82,8 @@ describe("plate tokens", () => {
 describe("text accents", () => {
 	const themes: Array<[string, string]> = [
 		["night", ":root"],
-		["day", ':root[data-theme="light"]'],
+		["day (media)", "@media (prefers-color-scheme: light)"],
+		["day (attr)", ':root[data-theme="light"]'],
 	];
 
 	// Text lands on the ground AND on panels. Passing on one proves nothing

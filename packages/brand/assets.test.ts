@@ -19,6 +19,7 @@ describe("icons", () => {
 	// Non-integer scaling destroys pixel art. The whole size system depends on
 	// every source being exactly 16x16.
 	it("are every one exactly 16x16", () => {
+		expect(files).toHaveLength(80);
 		for (const f of files) {
 			const { w, h } = pngSize(new URL(f, iconDir));
 			expect({ f, w, h }).toEqual({ f, w: 16, h: 16 });

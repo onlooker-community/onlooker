@@ -158,6 +158,9 @@ importers:
       '@onlooker/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/auth-core:
     dependencies:

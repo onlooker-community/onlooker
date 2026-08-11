@@ -180,9 +180,9 @@ becomes structurally impossible rather than something to remember.
 ```
 packages/brand/
   tokens.css      custom properties, night + day
-  fonts/          abaddon-{bold,light}.woff2
+  fonts/          abaddon-{bold,light}.ttf
   icons/          80 png, 16x16, unmodified
-  index.ts        icon name union type
+  index.ts        icon name union type (deferred to the apps/web plan)
 ```
 
 Both `apps/website` (Astro) and `apps/web` (React) import it. Sharing CSS custom
