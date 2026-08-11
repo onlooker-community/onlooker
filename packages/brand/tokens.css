@@ -1,0 +1,75 @@
+/* Onlooker brand tokens. Derived by decoding the icon set: #464074 is the
+ * art's own outline color and appears ~3x more than anything else, so it is
+ * the panel and the icons sit on it natively.
+ *
+ * Two families, and the distinction is load-bearing:
+ *   PLATES  filled backgrounds. Identical in both themes. A gold button is
+ *           gold at noon and at midnight.
+ *   ACCENTS ink on a ground. These shift per theme to stay legible.
+ * Never redefine a --plate-* token inside a theme block. */
+
+:root {
+	/* plates: constant, never themed */
+	--plate-gold: #ffdf40;
+	--plate-teal: #00d4aa;
+	--plate-red: #ff8a8a;
+	--plate-ink: #221f38;
+
+	/* night, the default */
+	--ground: #221f38;
+	--panel: #464074;
+	--edge: #6b64a8;
+	--ink: #d7d7f2;
+	--ink-hi: #ffffff;
+	--ink-dim: #9c95c2;
+	--gold: #ffdf40;
+	--teal: #00d4aa;
+	--red: #ff8a8a;
+	--mark: #db3a3a;
+	--shadow: #141222;
+}
+
+/* Day is a daytime tileset, not an inversion. Same world, sun up. */
+@media (prefers-color-scheme: light) {
+	:root {
+		--ground: #d7d7f2;
+		--panel: #b8b8d9;
+		--edge: #6b64a8;
+		--ink: #2a2545;
+		--ink-hi: #141222;
+		--ink-dim: #5a5480;
+		--gold: #57390c;
+		--teal: #004d3e;
+		--red: #8c1b25;
+		--mark: #8c1b25;
+		--shadow: #9c95c2;
+	}
+}
+
+:root[data-theme="light"] {
+	--ground: #d7d7f2;
+	--panel: #b8b8d9;
+	--edge: #6b64a8;
+	--ink: #2a2545;
+	--ink-hi: #141222;
+	--ink-dim: #5a5480;
+	--gold: #57390c;
+	--teal: #004d3e;
+	--red: #8c1b25;
+	--mark: #8c1b25;
+	--shadow: #9c95c2;
+}
+
+:root[data-theme="dark"] {
+	--ground: #221f38;
+	--panel: #464074;
+	--edge: #6b64a8;
+	--ink: #d7d7f2;
+	--ink-hi: #ffffff;
+	--ink-dim: #9c95c2;
+	--gold: #ffdf40;
+	--teal: #00d4aa;
+	--red: #ff8a8a;
+	--mark: #db3a3a;
+	--shadow: #141222;
+}

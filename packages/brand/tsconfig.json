@@ -1,0 +1,12 @@
+{
+	"compilerOptions": {
+		"isolatedModules": true,
+		"noEmit": true,
+		"resolveJsonModule": true,
+		"strict": true,
+		"types": ["node"]
+	},
+	"exclude": ["node_modules"],
+	"extends": "@onlooker/config-typescript/node16.json",
+	"include": ["*.ts"]
+}
