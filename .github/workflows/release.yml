@@ -17,12 +17,17 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@latest
@@ -49,12 +54,17 @@ jobs:
     environment:
       name: ${{ inputs.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@latest

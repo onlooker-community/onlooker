@@ -29,12 +29,17 @@ jobs:
           - '@onlooker/api'
           - '@onlooker/web'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -62,7 +67,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       # Full history so the base ref is available to diff against.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -112,13 +117,18 @@ jobs:
       # naming this repository and this workflow file.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -223,12 +233,17 @@ jobs:
     needs: quality
     if: success()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -264,12 +279,17 @@ jobs:
       name: staging
       url: https://app-staging.onlooker.dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -306,7 +326,7 @@ jobs:
 
       - name: Notify Deployment
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const status = '${{ job.status }}';
@@ -332,12 +352,17 @@ jobs:
       name: production
       url: https://app.onlooker.dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # v5 auto-enables package-manager caching when package.json declares
+          # packageManager - ours says pnpm. Every workflow installs pnpm AFTER
+          # this step, so auto-caching would invoke a pnpm that does not exist
+          # yet. Off keeps v4's behavior exactly.
+          package-manager-cache: false
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -374,7 +399,7 @@ jobs:
 
       - name: Notify Deployment
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const status = '${{ job.status }}';
