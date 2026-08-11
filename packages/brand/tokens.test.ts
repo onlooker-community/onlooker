@@ -5,9 +5,10 @@ const css = readFileSync(new URL("./tokens.css", import.meta.url), "utf8");
 
 /** Pull one CSS block's body by its selector text. */
 function block(selector: string): string {
-	const i = css.indexOf(selector);
-	if (i === -1) throw new Error(`selector not found: ${selector}`);
-	const open = css.indexOf("{", i);
+	const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = new RegExp(`${escaped}\\s*\\{`).exec(css);
+	if (!match) throw new Error(`selector not found: ${selector}`);
+	const open = css.indexOf("{", match.index);
 	let depth = 0;
 	for (let j = open; j < css.length; j++) {
 		if (css[j] === "{") depth++;
@@ -28,8 +29,12 @@ function tokens(body: string): Record<string, string> {
 }
 
 function luminance(hex: string): number {
-	const c = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255);
-	const lin = c.map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+	const c = [1, 3, 5].map(
+		(i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255,
+	);
+	const lin = c.map((x) =>
+		x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4,
+	);
 	return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
@@ -48,7 +53,8 @@ const THEME_SELECTORS = [
 describe("plate tokens", () => {
 	it("are all defined on :root", () => {
 		const root = tokens(block(":root"));
-		for (const p of PLATES) expect(root[p], `${p} missing from :root`).toBeDefined();
+		for (const p of PLATES)
+			expect(root[p], `${p} missing from :root`).toBeDefined();
 	});
 
 	// This is the regression guard. Overriding a plate in a theme block is what
@@ -65,7 +71,10 @@ describe("plate tokens", () => {
 	it("carry plate-ink at AA or better", () => {
 		const t = tokens(block(":root"));
 		for (const p of ["--plate-gold", "--plate-teal", "--plate-red"]) {
-			expect(contrast(t[p], t["--plate-ink"]), `${p} vs --plate-ink`).toBeGreaterThanOrEqual(4.5);
+			expect(
+				contrast(t[p], t["--plate-ink"]),
+				`${p} vs --plate-ink`,
+			).toBeGreaterThanOrEqual(4.5);
 		}
 	});
 });
@@ -102,8 +111,12 @@ describe("rejected values", () => {
 	});
 
 	it("allows #db3a3a only as --mark", () => {
-		for (const m of css.matchAll(/(--[a-z-]+)\s*:\s*#db3a3a/g)) {
+		const uses = [...css.matchAll(/(--[a-z-]+)\s*:\s*#db3a3a/g)];
+		expect(
+			uses.length,
+			"#db3a3a should still be present as --mark",
+		).toBeGreaterThan(0);
+		for (const m of uses)
 			expect(m[1], "#db3a3a is non-text only").toBe("--mark");
-		}
 	});
 });
