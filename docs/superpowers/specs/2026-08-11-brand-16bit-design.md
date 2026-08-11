@@ -140,9 +140,14 @@ design size and integer multiples, and are measurably harder to read at length �
 materially so for low-vision and dyslexic readers. The plugin documentation is
 real documentation and must not become hostile to read.
 
-Self-host as `woff2`; do not link a CDN. Use `font-display: block` for display
-type so headings do not visibly reflow — a pixel face swapping in is far more
-jarring than a normal webfont swap.
+Self-host; do not link a CDN. Use `font-display: block` for display type so
+headings do not visibly reflow — a pixel face swapping in is far more jarring
+than a normal webfont swap.
+
+**Ship the `.ttf` files directly rather than converting to `woff2`.** No
+conversion tooling is installed here, and the two faces are 15KB and 23KB — the
+saving would be roughly 8KB total, which is noise beside the icon set. Adding a
+build dependency to reclaim it is not worth it. Revisit only if the font set grows.
 
 ## Icons
 
@@ -183,6 +188,13 @@ packages/brand/
 Both `apps/website` (Astro) and `apps/web` (React) import it. Sharing CSS custom
 properties works identically across both; icon *components* differ per framework
 and each app wraps the shared assets in its own thin component.
+
+**The two apps adopt it in separate passes, and they are not equivalent work.**
+`apps/website` has a token layer in `src/styles/globals.css` to replace — a
+contained swap. `apps/web` has no styling layer at all: 71 inline `style={{…}}`
+props across nine pages, no CSS files, no classNames. Pointing those at
+`var(--token)` keeps the layout identical and is still "skin only," but it is a
+different kind of job and gets its own plan.
 
 This is what actually closes `onlooker-pbh`. Redesigning the website in place and
 extracting later is how the current split arose.
