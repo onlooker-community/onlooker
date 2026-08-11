@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@astrojs/cloudflare": "^13.5.2",
 		"astro": "^6.3.3",
+		"@onlooker/brand": "workspace:*",
 		"@onlooker/cache": "workspace:*",
 		"@onlooker/logger": "workspace:*",
 		"@onlooker/types": "workspace:*",

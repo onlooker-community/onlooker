@@ -133,6 +133,9 @@ importers:
       '@astrojs/cloudflare':
         specifier: ^13.5.2
         version: 13.7.0(@types/node@25.9.3)(astro@6.4.8(@azure/storage-blob@12.32.0)(@types/node@25.9.3)(lightningcss@1.32.0)(rollup@4.62.0)(tsx@4.22.4)(yaml@2.9.0))(lightningcss@1.32.0)(tsx@4.22.4)(workerd@1.20260801.1)(wrangler@4.102.0(@cloudflare/workers-types@4.20260702.1))(yaml@2.9.0)
+      '@onlooker/brand':
+        specifier: workspace:*
+        version: link:../../packages/brand
       '@onlooker/cache':
         specifier: workspace:*
         version: link:../../packages/cache
