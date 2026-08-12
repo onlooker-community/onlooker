@@ -18,7 +18,6 @@ const PALETTE = {
 	plateInk: "var(--plate-ink)",
 	accent: "var(--teal)",
 	danger: "var(--red)",
-	success: "var(--teal)",
 	// Not var(--edge): TextField's --ground fill sits on --panel when
 	// nested in AuthCard (signup, forgot-password, reset-password) - the
 	// mirror of AuthCard's own case, same 1.70/1.37 fallback-free edge.

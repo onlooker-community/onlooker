@@ -117,7 +117,7 @@ function ProfileOverview({ user }: { user: AccountUser | null }) {
 function Row({ label, value }: { label: string; value: string }) {
 	return (
 		<div style={{ display: "flex", padding: "0.35rem 0" }}>
-			<dt style={{ width: "140px", color: "#666" }}>{label}</dt>
+			<dt style={{ width: "140px", color: "var(--ink-dim)" }}>{label}</dt>
 			<dd style={{ margin: 0 }}>{value}</dd>
 		</div>
 	);
@@ -141,7 +141,7 @@ function EmailVerificationNotice() {
 	return (
 		<section style={{ ...sectionStyle, borderColor: "#f5a623" }}>
 			<h2 style={{ marginTop: 0 }}>Verify your email</h2>
-			<p style={{ marginTop: 0, color: "#666" }}>
+			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Your email address hasn't been verified yet. Some features stay locked
 				until you confirm it.
 			</p>
@@ -163,7 +163,7 @@ function EmailVerificationNotice() {
 				</button>
 			)}
 			{state === "error" && (
-				<div style={{ color: "#d93025", marginTop: "0.5rem" }}>
+				<div style={{ color: "var(--red)", marginTop: "0.5rem" }}>
 					Could not send the email. Try again.
 				</div>
 			)}
@@ -391,8 +391,8 @@ function DeleteAccountSection({
 
 	return (
 		<section style={{ ...sectionStyle, borderColor: "#d93025" }}>
-			<h2 style={{ marginTop: 0, color: "#d93025" }}>Delete account</h2>
-			<p style={{ marginTop: 0, color: "#666" }}>
+			<h2 style={{ marginTop: 0, color: "var(--red)" }}>Delete account</h2>
+			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Permanently delete your account and all associated data. This cannot be
 				undone.
 			</p>

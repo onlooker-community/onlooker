@@ -390,7 +390,7 @@ const PALETTE = {
 	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
-	border: "var(--edge)",
+	border: "var(--ink-dim)",
 	borderError: "var(--red)",
 	muted: "var(--ink-dim)",
 	track: "var(--panel)",
@@ -407,6 +407,11 @@ const STRENGTH_COLORS = [
 	"var(--teal)",
 ] as const;
 ```
+
+*Shipped as `var(--ink-dim)`, not `var(--edge)`. `TextField`'s ground-filled
+input sits on `--panel` inside `AuthCard`, where edge is only 1.79/2.71; on
+`SettingsPage`, which has no `AuthCard`, it sits directly on `--ground` with
+no fallback fill either way. `--ink-dim` clears both.*
 
 **The ramp is three hues, not six.** `packages/brand` ships exactly `--red`,
 `--gold` and `--teal` as semantic accents — there is no `--amber`, despite one
@@ -466,11 +471,16 @@ Replace the `style` object in `AuthCard` (around line 58):
 		margin: "4rem auto",
 		padding: "2rem",
 		background: "var(--panel)",
-		border: "2px solid var(--edge)",
+		border: "2px solid var(--ink-dim)",
 		// Hard offset, no blur - the 16-bit look has no soft shadows.
 		boxShadow: "6px 6px 0 var(--shadow)",
 	};
 ```
+
+*Shipped as `var(--ink-dim)`, not `var(--edge)`. The card's `--panel` fill is
+only 1.70/1.37 against the page it sits on, so this border is the card's sole
+boundary marker; edge's best case (3.04 at night) is a threshold pass with no
+margin and nothing to fall back on if it slips.*
 
 And give the heading the display face — this is chrome, so pixel type belongs
 here. Replace the `<h1>` at line 43:
@@ -532,7 +542,9 @@ exactly as it already is** — Task 2's fix rounds put it on `PALETTE.plateRed` 
 				// card and keeps its edge; the old white-on-#ccc was 1.61.
 				background: isDisabled ? "var(--panel)" : plate,
 				color: isDisabled ? "var(--ink)" : "var(--plate-ink)",
-				border: "2px solid var(--edge)",
+				border: isDisabled
+					? "2px solid var(--ink-dim)"
+					: "2px solid var(--plate-ink)",
 				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
 				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
@@ -543,6 +555,11 @@ exactly as it already is** — Task 2's fix rounds put it on `PALETTE.plateRed` 
 			}}
 		>
 ```
+
+*Shipped with a conditional border, not a flat `var(--edge)`. Disabled sits
+on `--panel` (`var(--ink-dim)`, 3:1+ in both themes); enabled sits on the
+plate fill itself (`var(--plate-ink)`, 7.00-8.32). `--edge` fails outright
+against panel and is only a threshold pass against the plates.*
 
 - [ ] **Step 4: FormMessage becomes a filled plate**
 
@@ -571,7 +588,7 @@ Replace the `color` line and the `style` object (around line 217). `role` and
 			style={{
 				background: plate,
 				color: "var(--plate-ink)",
-				border: "2px solid var(--edge)",
+				border: "2px solid var(--plate-ink)",
 				borderRadius: 0,
 				padding: "0.75rem",
 				marginBottom: "1rem",
@@ -580,6 +597,10 @@ Replace the `color` line and the `style` object (around line 217). `role` and
 			}}
 		>
 ```
+
+*Shipped as `var(--plate-ink)`, not `var(--edge)`. The message is a filled
+plate, and edge goes flat (~1.0-1.5) against a day-mode plate; plate-ink
+carries the border from inside instead, holding 7.00-8.32 either way.*
 
 - [ ] **Step 5: Square off the strength meter**
 
@@ -666,14 +687,19 @@ In `apps/web/src/pages/LoginPage.tsx`, the form container (around line 34):
 
 ```tsx
 			style={{
-				maxWidth: "400px",
+				maxWidth: "420px",
 				margin: "4rem auto",
 				padding: "2rem",
 				background: "var(--panel)",
-				border: "2px solid var(--edge)",
+				border: "2px solid var(--ink-dim)",
 				boxShadow: "6px 6px 0 var(--shadow)",
 			}}
 ```
+
+*Shipped as `420px`, not `400px` — matched to `AuthCard`'s width; `400px` was
+this plan's own typo. Shipped as `var(--ink-dim)`, not `var(--edge)` — same
+reasoning as `AuthCard`'s own border above: the card's panel fill is only
+1.70/1.37 against the page, so this border is its sole boundary.*
 
 The error message (around line 39) currently uses `color: "red"`, which is
 `#ff0000` — **2.84 against the day ground, a failure.** Replace it:
@@ -714,11 +740,15 @@ ground. Give each the same style:
 						boxSizing: "border-box",
 						background: "var(--ground)",
 						color: "var(--ink)",
-						border: "2px solid var(--edge)",
+						border: "2px solid var(--ink-dim)",
 						borderRadius: 0,
 						fontFamily: "var(--font-body)",
 					}}
 ```
+
+*Shipped as `var(--ink-dim)`, not `var(--edge)` — same reasoning as the card
+border: edge's only passing side is a bare 3.04/3.71 with no true fallback if
+it slips.*
 
 - [ ] **Step 4: Put the button on the plate family**
 
@@ -731,7 +761,9 @@ on `#ccc` — **1.61, unreadable**:
 					padding: "0.75rem",
 					background: loading ? "var(--panel)" : "var(--plate-teal)",
 					color: loading ? "var(--ink)" : "var(--plate-ink)",
-					border: "2px solid var(--edge)",
+					border: loading
+						? "2px solid var(--ink-dim)"
+						: "2px solid var(--plate-ink)",
 					boxShadow: loading ? "none" : "4px 4px 0 var(--shadow)",
 					borderRadius: 0,
 					cursor: loading ? "not-allowed" : "pointer",
@@ -741,6 +773,10 @@ on `#ccc` — **1.61, unreadable**:
 					textTransform: "uppercase",
 				}}
 ```
+
+*Shipped with a conditional border, not a flat `var(--edge)` — same reasoning
+as `SubmitButton`: disabled sits on `--panel` (`var(--ink-dim)`), enabled sits
+on the plate fill itself (`var(--plate-ink)`).*
 
 - [ ] **Step 5: Clear the two stray literals**
 

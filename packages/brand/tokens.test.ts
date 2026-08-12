@@ -90,7 +90,7 @@ describe("text accents", () => {
 	// Every token here carries body-size text somewhere: --ink-dim on hints
 	// and captions, --red on inline field errors, --teal and --gold on labels
 	// and stat readouts. Small text needs AA, and --ground and --panel are the
-	// two surfaces this package defines, so both get checked - passing on one
+	// two themed surfaces this package defines, so both get checked - passing on one
 	// proves nothing about the other. That is not the full set of surfaces
 	// text lands on in practice: apps that derive their own surface from
 	// --panel (a color-mix, an alpha overlay) are not covered here and need
