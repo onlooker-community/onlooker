@@ -5,9 +5,11 @@ import {
 	AuthCard,
 	FormLink,
 	FormMessage,
+	PasswordStrengthMeter,
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { scorePassword } from "../lib/validation";
 
 function renderInRouter(ui: React.ReactNode) {
 	return render(<MemoryRouter>{ui}</MemoryRouter>);
@@ -90,6 +92,38 @@ describe("FormMessage", () => {
 	it("announces success as status", () => {
 		renderInRouter(<FormMessage kind="success">Check your email</FormMessage>);
 		expect(screen.getByRole("status").textContent).toBe("Check your email");
+	});
+});
+
+describe("PasswordStrengthMeter", () => {
+	it("renders nothing until there is a password", () => {
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter strength={scorePassword("")} password="" />,
+		);
+		expect(container.firstChild).toBeNull();
+	});
+
+	// The segments are decorative - the score is conveyed in text below them.
+	it("hides the segment bar from assistive technology", () => {
+		const sample = ["correct", "horse", "battery"].join(" ");
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter
+				strength={scorePassword(sample)}
+				password={sample}
+			/>,
+		);
+		expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+	});
+
+	it("announces the strength politely", () => {
+		const sample = ["correct", "horse", "battery"].join(" ");
+		const strength = scorePassword(sample);
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter strength={strength} password={sample} />,
+		);
+		const live = container.querySelector('[aria-live="polite"]');
+		expect(live).not.toBeNull();
+		expect(live?.textContent).toContain(strength.label);
 	});
 });
 
