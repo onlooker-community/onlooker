@@ -131,9 +131,13 @@ import {
 	AuthCard,
 	FormLink,
 	FormMessage,
+	PasswordStrengthMeter,
 	SubmitButton,
 	TextField,
 } from "../components/form";
+// A real helper, not a hand-built fixture - a literal PasswordStrength object
+// would drift silently if that type changed.
+import { scorePassword } from "../lib/validation";
 
 function renderInRouter(ui: React.ReactNode) {
 	return render(<MemoryRouter>{ui}</MemoryRouter>);
@@ -216,6 +220,39 @@ describe("FormMessage", () => {
 	it("announces success as status", () => {
 		renderInRouter(<FormMessage kind="success">Check your email</FormMessage>);
 		expect(screen.getByRole("status").textContent).toBe("Check your email");
+	});
+});
+
+describe("PasswordStrengthMeter", () => {
+	it("renders nothing until there is a password", () => {
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter strength={scorePassword("")} password="" />,
+		);
+		expect(container.firstChild).toBeNull();
+	});
+
+	// The segments are decorative - the score is conveyed in text below them.
+	it("hides the segment bar from assistive technology", () => {
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter
+				strength={scorePassword("correct horse battery")}
+				password="correct horse battery"
+			/>,
+		);
+		expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+	});
+
+	it("announces the strength politely", () => {
+		const strength = scorePassword("correct horse battery");
+		const { container } = renderInRouter(
+			<PasswordStrengthMeter
+				strength={strength}
+				password="correct horse battery"
+			/>,
+		);
+		const live = container.querySelector('[aria-live="polite"]');
+		expect(live).not.toBeNull();
+		expect(live?.textContent).toContain(strength.label);
 	});
 });
 
