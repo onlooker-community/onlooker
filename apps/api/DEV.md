@@ -6,6 +6,11 @@
 # Install dependencies
 pnpm install
 
+# Create the local database. Required once before the first run, and again
+# after any schema change in packages/db. Without it every authenticated route
+# fails - see "Local database" below.
+pnpm exec wrangler d1 migrations apply onlooker-db-local --local --env development
+
 # Start development server (Cloudflare Workers)
 pnpm dev
 
@@ -75,16 +80,38 @@ src/
 - `GET /api/users/me` - User profile with timestamps
 - `GET /api/dashboard` - Dashboard with stats and activity
 
+## Local database
+
+The API stores everything in D1, reached through the `DB` binding. `wrangler
+dev` is local-first, so that binding resolves to a SQLite file under
+`apps/api/.wrangler/` and never touches Cloudflare — but the file has to exist
+and carry the schema first:
+
+```bash
+pnpm exec wrangler d1 migrations apply onlooker-db-local --local --env development
+```
+
+Run it once before your first `pnpm dev`, and again whenever `packages/db`
+gains a migration. `packages/db` owns the schema; `wrangler.toml` points
+`migrations_dir` at it rather than keeping a second copy here.
+
+**If you skip it, the symptom does not mention the database.** Signup returns
+`500 Cannot read properties of undefined (reading 'prepare')` — `.prepare()` is
+a D1 method being called on a binding that isn't there.
+
+`pnpm dev` passes `--env development`, which is what supplies both the `DB`
+binding and the vars below. Plain `wrangler dev` reads `wrangler.toml`'s
+top-level block, which has neither, and fails the same way.
+
 ## Environment Variables
 
-### Development (wrangler.toml)
+### Development (wrangler.toml, under `[env.development.vars]`)
 ```
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=onlooker_dev
 JWT_SECRET=dev-secret-key-change-in-production
 TOKEN_EXPIRY_MINUTES=180
 REFRESH_TOKEN_EXPIRY_DAYS=30
+ENVIRONMENT=development
+CORS_ORIGIN=http://localhost:5173
 ```
 
 ### Production

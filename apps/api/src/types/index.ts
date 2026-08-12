@@ -11,18 +11,17 @@ export interface WorkerEnv {
 	// Environment
 	ENVIRONMENT?: string;
 
-	// Database connection (WS1 integration)
-	DB_HOST: string;
-	DB_PORT: string;
-	DB_NAME: string;
-
 	// JWT configuration
 	JWT_SECRET: string;
 	TOKEN_EXPIRY_MINUTES: string;
 	REFRESH_TOKEN_EXPIRY_DAYS: string;
 
-	// Optional: D1 database binding (future)
-	DB?: D1Database;
+	// Required, not optional. Every authenticated route reaches for this, and
+	// typing it optional bought nothing - the call sites asserted it away with
+	// `!`, so a missing binding surfaced as a runtime 500 reading
+	// "Cannot read properties of undefined (reading 'prepare')" instead of a
+	// compile error. Each environment in wrangler.toml must declare it.
+	DB: D1Database;
 
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
