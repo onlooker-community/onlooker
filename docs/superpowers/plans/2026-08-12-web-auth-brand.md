@@ -233,22 +233,21 @@ describe("PasswordStrengthMeter", () => {
 
 	// The segments are decorative - the score is conveyed in text below them.
 	it("hides the segment bar from assistive technology", () => {
+		const sample = "correct horse battery";
 		const { container } = renderInRouter(
 			<PasswordStrengthMeter
-				strength={scorePassword("correct horse battery")}
-				password="correct horse battery"
+				strength={scorePassword(sample)}
+				password={sample}
 			/>,
 		);
 		expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull();
 	});
 
 	it("announces the strength politely", () => {
-		const strength = scorePassword("correct horse battery");
+		const sample = "correct horse battery";
+		const strength = scorePassword(sample);
 		const { container } = renderInRouter(
-			<PasswordStrengthMeter
-				strength={strength}
-				password="correct horse battery"
-			/>,
+			<PasswordStrengthMeter strength={strength} password={sample} />,
 		);
 		const live = container.querySelector('[aria-live="polite"]');
 		expect(live).not.toBeNull();
