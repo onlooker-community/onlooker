@@ -513,12 +513,13 @@ signal against this aesthetic.
 
 - [ ] **Step 3: SubmitButton uses the plate family**
 
-Replace the whole `style` object and the `bg` line (around line 169):
+Replace the whole `style` object (around line 186). **Leave the `plate` line
+exactly as it already is** — Task 2's fix rounds put it on `PALETTE.plateRed` /
+`PALETTE.plateTeal`, and rewriting it as inline literals would undo that:
 
 ```tsx
 	const isDisabled = loading || disabled;
-	const plate =
-		variant === "danger" ? "var(--plate-red)" : "var(--plate-teal)";
+	const plate = variant === "danger" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<button
 			type="submit"
@@ -526,8 +527,9 @@ Replace the whole `style` object and the `bg` line (around line 169):
 			style={{
 				width: "100%",
 				padding: "0.75rem",
-				// Plates are constant across themes, so this pair is 8.32 in
-				// both. The old white-on-#ccc disabled state was 1.61.
+				// Plates are constant across themes, so plate-ink holds at 8.32
+				// on teal and 7.00 on red in both. Disabled recedes into the
+				// card and keeps its edge; the old white-on-#ccc was 1.61.
 				background: isDisabled ? "var(--panel)" : plate,
 				color: isDisabled ? "var(--ink)" : "var(--plate-ink)",
 				border: "2px solid var(--edge)",
@@ -542,22 +544,41 @@ Replace the whole `style` object and the `bg` line (around line 169):
 		>
 ```
 
-- [ ] **Step 4: FormMessage becomes a bordered plate**
+- [ ] **Step 4: FormMessage becomes a filled plate**
 
-Replace its `style` (around line 201). The old hardcoded `#fdecea` and `#e6f4ea`
-backgrounds cannot track a theme:
+The old hardcoded `#fdecea` and `#e6f4ea` backgrounds cannot track a theme.
+
+An earlier draft of this step kept the accent as text over a 12% tint of itself.
+That was measured and **fails AA in all four combinations** — night error 3.46,
+night success 4.08, day error 3.95, day success 4.31, against a 4.5 requirement
+for text this size. Tinting a background toward its own text color is
+self-defeating: it closes the gap from both sides. This is the banner that says
+"Invalid email or password," so it is the last text on the page that may fail.
+
+The spec already settles it: *"State pills are filled plates, not colored text
+on a transparent chip... it makes contrast a property of the plate rather than
+of wherever the pill happens to sit."* A filled plate is 7.00 on red and 8.32 on
+teal, identical in both themes, because both tokens are constant.
+
+Replace the `color` line and the `style` object (around line 217). `role` and
+`children` do not change:
 
 ```tsx
+	const plate = kind === "error" ? PALETTE.plateRed : PALETTE.plateTeal;
+	return (
+		<div
+			role={kind === "error" ? "alert" : "status"}
 			style={{
-				color,
-				border: `2px solid ${color}`,
-				background: `color-mix(in srgb, ${color} 12%, transparent)`,
+				background: plate,
+				color: "var(--plate-ink)",
+				border: "2px solid var(--edge)",
 				borderRadius: 0,
 				padding: "0.75rem",
 				marginBottom: "1rem",
 				fontSize: "0.9rem",
 				fontFamily: "var(--font-body)",
 			}}
+		>
 ```
 
 - [ ] **Step 5: Square off the strength meter**
