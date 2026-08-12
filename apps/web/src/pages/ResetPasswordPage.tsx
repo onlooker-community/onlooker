@@ -128,10 +128,14 @@ export default function ResetPasswordPage() {
 						padding: "0.75rem",
 						background: "var(--plate-teal)",
 						color: "var(--plate-ink)",
-						border: "none",
-						borderRadius: "4px",
+						border: "2px solid var(--plate-ink)",
+						boxShadow: "4px 4px 0 var(--shadow)",
+						borderRadius: 0,
 						cursor: "pointer",
-						fontSize: "1rem",
+						fontFamily: "var(--font-display)",
+						fontSize: "14px",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
 						marginTop: "1rem",
 					}}
 				>
