@@ -24,7 +24,7 @@ import {
 } from "../lib/validation";
 
 const sectionStyle: React.CSSProperties = {
-	border: "1px solid #e0e0e0",
+	border: "1px solid var(--panel)",
 	borderRadius: "8px",
 	padding: "1.5rem",
 	marginBottom: "1.5rem",
@@ -139,7 +139,7 @@ function EmailVerificationNotice() {
 	};
 
 	return (
-		<section style={{ ...sectionStyle, borderColor: "#f5a623" }}>
+		<section style={{ ...sectionStyle, borderColor: "var(--gold)" }}>
 			<h2 style={{ marginTop: 0 }}>Verify your email</h2>
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Your email address hasn't been verified yet. Some features stay locked
