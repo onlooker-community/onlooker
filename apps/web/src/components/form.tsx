@@ -10,7 +10,11 @@ import type { PasswordStrength } from "../lib/validation";
 // time - React inline styles pass var() through untouched. Plates are constant
 // across themes; the text accents shift. See the brand spec.
 const PALETTE = {
-	primary: "var(--plate-teal)",
+	// A plate is a filled background and is constant across themes; an accent
+	// is ink on a ground and shifts. One key cannot be both - using the plate
+	// as text put links at 1.35 contrast in day mode.
+	plate: "var(--plate-teal)",
+	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
 	border: "var(--edge)",
@@ -171,7 +175,12 @@ export function SubmitButton({
 	variant?: "primary" | "danger";
 }) {
 	const isDisabled = loading || disabled;
-	const bg = variant === "danger" ? PALETTE.danger : PALETTE.primary;
+	const bg = variant === "danger" ? PALETTE.danger : PALETTE.plate;
+	// The primary variant sits on its own plate, so its label needs plate-ink,
+	// not page ink, to stay legible. Danger still borrows an accent as a
+	// background (the wrong family) - Task 3 moves it onto --plate-red and can
+	// resolve its label color then.
+	const fg = variant === "danger" ? "white" : "var(--plate-ink)";
 	return (
 		<button
 			type="submit"
@@ -180,7 +189,7 @@ export function SubmitButton({
 				width: "100%",
 				padding: "0.75rem",
 				backgroundColor: isDisabled ? "#ccc" : bg,
-				color: "white",
+				color: fg,
 				border: "none",
 				borderRadius: "4px",
 				cursor: isDisabled ? "not-allowed" : "pointer",
@@ -271,7 +280,7 @@ export function FormLink({
 	children: ReactNode;
 }) {
 	return (
-		<Link to={to} style={{ color: PALETTE.primary }}>
+		<Link to={to} style={{ color: PALETTE.accent }}>
 			{children}
 		</Link>
 	);
