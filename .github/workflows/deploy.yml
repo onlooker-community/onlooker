@@ -397,6 +397,19 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # The marketing site has no staging counterpart: apps/website declares no
+      # environments, so there is one worker and one deploy. It sits in this job
+      # rather than its own so it is behind the same production approval gate as
+      # everything else user-facing.
+      #
+      # Until this step existed, merging a website change shipped nothing and
+      # the run still went green.
+      - name: Deploy Website to Production
+        run: pnpm deploy:website
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Notify Deployment
         if: always()
         uses: actions/github-script@v8
