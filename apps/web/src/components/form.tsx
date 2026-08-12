@@ -175,12 +175,11 @@ export function SubmitButton({
 	variant?: "primary" | "danger";
 }) {
 	const isDisabled = loading || disabled;
-	const bg = variant === "danger" ? PALETTE.danger : PALETTE.plate;
-	// The primary variant sits on its own plate, so its label needs plate-ink,
-	// not page ink, to stay legible. Danger still borrows an accent as a
-	// background (the wrong family) - Task 3 moves it onto --plate-red and can
-	// resolve its label color then.
-	const fg = variant === "danger" ? "white" : "var(--plate-ink)";
+	// Both variants are filled buttons, so both need a plate, not an accent -
+	// var(--red) shifts per theme, and no constant label color reads on a
+	// background that moves under it. plate-ink on either plate holds at
+	// ~7-8.3 contrast in both themes; no conditional needed.
+	const plate = variant === "danger" ? "var(--plate-red)" : "var(--plate-teal)";
 	return (
 		<button
 			type="submit"
@@ -188,8 +187,8 @@ export function SubmitButton({
 			style={{
 				width: "100%",
 				padding: "0.75rem",
-				backgroundColor: isDisabled ? "#ccc" : bg,
-				color: fg,
+				backgroundColor: isDisabled ? "#ccc" : plate,
+				color: "var(--plate-ink)",
 				border: "none",
 				borderRadius: "4px",
 				cursor: isDisabled ? "not-allowed" : "pointer",
