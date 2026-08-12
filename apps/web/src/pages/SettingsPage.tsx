@@ -390,7 +390,7 @@ function DeleteAccountSection({
 	};
 
 	return (
-		<section style={{ ...sectionStyle, borderColor: "#d93025" }}>
+		<section style={{ ...sectionStyle, borderColor: "var(--red)" }}>
 			<h2 style={{ marginTop: 0, color: "var(--red)" }}>Delete account</h2>
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Permanently delete your account and all associated data. This cannot be
