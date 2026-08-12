@@ -15,6 +15,7 @@ const PALETTE = {
 	// as text put links at 1.35 contrast in day mode.
 	plateTeal: "var(--plate-teal)",
 	plateRed: "var(--plate-red)",
+	plateInk: "var(--plate-ink)",
 	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
@@ -29,9 +30,14 @@ const PALETTE = {
 //
 // These are accents, not plates, and that's deliberate: a bar segment is a
 // bare graphical fill with no text on it, so it only needs to contrast the
-// track it sits on (WCAG 1.4.11), not carry a fixed label ink (1.4.3). A
-// plate would go near-invisible against the panel in day mode; the accent
-// shifting with the theme is what keeps it visible.
+// surface it sits on (WCAG 1.4.11), not carry a fixed label ink (1.4.3) - but
+// this same computed color is also used as literal text color for the
+// Weak/Fair/Good/Strong label below, so pointing the bar at a plate would
+// move the label too. That surface differs by page: inside AuthCard (signup,
+// reset-password) it's the card's own --panel plate; on the settings page,
+// which has no AuthCard wrapper, it's --ground. A plate would go
+// near-invisible against panel in day mode; the accent shifting with the
+// theme is what keeps it visible against either.
 const STRENGTH_COLORS = [
 	"var(--red)",
 	"var(--red)",
@@ -56,7 +62,17 @@ export function AuthCard({
 }) {
 	const inner = (
 		<>
-			<h1 style={{ marginBottom: subtitle ? "0.25rem" : "1rem" }}>{title}</h1>
+			<h1
+				style={{
+					marginBottom: subtitle ? "0.25rem" : "1rem",
+					fontFamily: "var(--font-display)",
+					color: "var(--ink-hi)",
+					fontSize: "24px",
+					letterSpacing: "0.5px",
+				}}
+			>
+				{title}
+			</h1>
 			{subtitle && (
 				<p
 					style={{ color: PALETTE.muted, marginTop: 0, marginBottom: "1.5rem" }}
@@ -73,8 +89,12 @@ export function AuthCard({
 
 	const style: CSSProperties = {
 		maxWidth: "420px",
-		margin: "0 auto",
+		margin: "4rem auto",
 		padding: "2rem",
+		background: "var(--panel)",
+		border: "2px solid var(--edge)",
+		// Hard offset, no blur - the 16-bit look has no soft shadows.
+		boxShadow: "6px 6px 0 var(--shadow)",
 	};
 
 	return onSubmit ? (
@@ -135,8 +155,11 @@ export function TextField({
 					width: "100%",
 					padding: "0.5rem",
 					boxSizing: "border-box",
-					border: `1px solid ${error ? PALETTE.borderError : PALETTE.border}`,
-					borderRadius: "4px",
+					background: "var(--ground)",
+					color: "var(--ink)",
+					border: `2px solid ${error ? PALETTE.borderError : PALETTE.border}`,
+					borderRadius: 0,
+					fontFamily: "var(--font-body)",
 				}}
 			/>
 			{hint && (
@@ -194,12 +217,19 @@ export function SubmitButton({
 			style={{
 				width: "100%",
 				padding: "0.75rem",
-				backgroundColor: isDisabled ? "#ccc" : plate,
-				color: "var(--plate-ink)",
-				border: "none",
-				borderRadius: "4px",
+				// Plates are constant across themes, so plate-ink holds at 8.32
+				// on teal and 7.00 on red in both. Disabled recedes into the
+				// card and keeps its edge; the old white-on-#ccc was 1.61.
+				background: isDisabled ? "var(--panel)" : plate,
+				color: isDisabled ? "var(--ink)" : PALETTE.plateInk,
+				border: "2px solid var(--edge)",
+				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
+				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
-				fontSize: "1rem",
+				fontFamily: "var(--font-display)",
+				fontSize: "14px",
+				letterSpacing: "1px",
+				textTransform: "uppercase",
 			}}
 		>
 			{loading ? (loadingLabel ?? "Working...") : children}
@@ -214,18 +244,19 @@ export function FormMessage({
 	kind: "error" | "success";
 	children: ReactNode;
 }) {
-	const color = kind === "error" ? PALETTE.danger : PALETTE.success;
+	const plate = kind === "error" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<div
 			role={kind === "error" ? "alert" : "status"}
 			style={{
-				color,
-				border: `1px solid ${color}`,
-				backgroundColor: kind === "error" ? "#fdecea" : "#e6f4ea",
-				borderRadius: "4px",
+				background: plate,
+				color: PALETTE.plateInk,
+				border: "2px solid var(--edge)",
+				borderRadius: 0,
 				padding: "0.75rem",
 				marginBottom: "1rem",
 				fontSize: "0.9rem",
+				fontFamily: "var(--font-body)",
 			}}
 		>
 			{children}
@@ -257,8 +288,8 @@ export function PasswordStrengthMeter({
 						key={i}
 						style={{
 							flex: 1,
-							height: "4px",
-							borderRadius: "2px",
+							height: "6px",
+							borderRadius: 0,
 							backgroundColor: i < filled ? color : PALETTE.track,
 							transition: "background-color 150ms ease",
 						}}
