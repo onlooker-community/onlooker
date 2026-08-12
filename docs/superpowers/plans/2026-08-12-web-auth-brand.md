@@ -265,7 +265,8 @@ pnpm test
 Expected: all green, and `pnpm test` still reports **15 tasks**, not 16.
 `apps/web` already has a `test` script, so adding a test file adds cases to an
 existing turbo task rather than a new one. What should change is the case count
-inside `@onlooker/web`, from 5 to 15.
+inside `@onlooker/web`: 7 files and 73 tests before this task, 8 files and 82
+after.
 
 - [ ] **Step 7: Commit**
 
