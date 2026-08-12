@@ -19,7 +19,13 @@ const PALETTE = {
 	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
-	border: "var(--edge)",
+	// Not var(--edge): TextField's --ground fill sits on --panel when
+	// nested in AuthCard (login, signup, etc.) - the mirror of AuthCard's
+	// own case, same 1.70/1.37 fallback-free edge. On the settings page,
+	// which has no AuthCard wrapper, it sits directly on the page's own
+	// --ground - fill and surrounding are identical there, so the border
+	// is the only boundary at all. ink-dim clears every one of these.
+	border: "var(--ink-dim)",
 	borderError: "var(--red)",
 	muted: "var(--ink-dim)",
 	track: "var(--panel)",
@@ -92,7 +98,13 @@ export function AuthCard({
 		margin: "4rem auto",
 		padding: "2rem",
 		background: "var(--panel)",
-		border: "2px solid var(--edge)",
+		// Not var(--edge): the card's panel fill is only 1.70/1.37 against
+		// the page it sits on, so this border is the only thing marking
+		// that edge at all - there's no fill-based fallback if it fails.
+		// It needs real margin, not a threshold pass. ink-dim clears both
+		// themes with room (3.04-3.71 was edge's best case, a 1.3% margin
+		// in day mode).
+		border: "2px solid var(--ink-dim)",
 		// Hard offset, no blur - the 16-bit look has no soft shadows.
 		boxShadow: "6px 6px 0 var(--shadow)",
 	};
