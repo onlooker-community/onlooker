@@ -93,6 +93,9 @@ importers:
       '@onlooker/auth-react':
         specifier: workspace:*
         version: link:../../packages/auth-react
+      '@onlooker/brand':
+        specifier: workspace:*
+        version: link:../../packages/brand
       react:
         specifier: ^18.3.1
         version: 18.3.1

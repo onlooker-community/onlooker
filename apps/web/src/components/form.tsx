@@ -6,23 +6,28 @@ import type { PasswordStrength } from "../lib/validation";
 // Styling intentionally mirrors the existing LoginPage inline-style look so the
 // pages feel consistent until a design system lands.
 
+// Values are CSS custom properties from @onlooker/brand, resolved at render
+// time - React inline styles pass var() through untouched. Plates are constant
+// across themes; the text accents shift. See the brand spec.
 const PALETTE = {
-	primary: "#007bff",
-	danger: "#d93025",
-	success: "#188038",
-	border: "#ccc",
-	borderError: "#d93025",
-	muted: "#666",
-	track: "#e6e6e6",
+	primary: "var(--plate-teal)",
+	danger: "var(--red)",
+	success: "var(--teal)",
+	border: "var(--edge)",
+	borderError: "var(--red)",
+	muted: "var(--ink-dim)",
+	track: "var(--panel)",
 } as const;
 
+// The meter ramps from failing to strong. It reuses the semantic tokens rather
+// than a private scale so it tracks the theme like everything else.
 const STRENGTH_COLORS = [
-	"#d93025",
-	"#d93025",
-	"#f5a623",
-	"#f5c518",
-	"#7cb342",
-	"#188038",
+	"var(--red)",
+	"var(--red)",
+	"var(--gold)",
+	"var(--gold)",
+	"var(--teal)",
+	"var(--teal)",
 ] as const;
 
 export function AuthCard({
