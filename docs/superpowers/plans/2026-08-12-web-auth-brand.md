@@ -5,8 +5,10 @@
 **Goal:** Bring `apps/web`'s auth pages onto the shared brand, starting with the
 shared form components that all five of them render.
 
-**Architecture:** `apps/web/src/components/form.tsx` exports the six primitives
-every auth page uses and holds its own `PALETTE` constant. Point that constant at
+**Architecture:** `apps/web/src/components/form.tsx` exports six primitives and
+holds its own `PALETTE` constant. **`LoginPage` does not use them** — it is
+hand-rolled and gets its own task. The pages that do import them are Signup,
+ForgotPassword, ResetPassword, VerifyEmail and Settings. Point that constant at
 the brand tokens, then apply the plate treatment. A rendering test comes first,
 because nothing currently tests this form and it is how people log in.
 
@@ -612,6 +614,157 @@ something this change introduced.
 
 ---
 
+## Task 4: Brand the login page in place
+
+**Files:**
+- Modify: `apps/web/src/pages/LoginPage.tsx`
+- Modify: `apps/web/src/pages/ForgotPasswordPage.tsx:62`
+- Modify: `apps/web/src/pages/ResetPasswordPage.tsx:129`
+
+**Interfaces:**
+- Consumes: the tokens wired in Task 2. No new imports are needed — the tokens
+  are global once `main.tsx` imports the stylesheets.
+
+**Why this task exists.** `LoginPage` does not import `form.tsx`. It is a
+hand-rolled form with its own inline styles, so Tasks 2 and 3 do not reach it,
+and `/login` would otherwise look like a different product from the `/signup`
+page it links to. Two other pages also carry stray literals alongside their
+shared components.
+
+**Do not rewire this page onto `AuthCard`.** That is a restructure. Change style
+values only.
+
+- [ ] **Step 1: Point the form container and error at tokens**
+
+In `apps/web/src/pages/LoginPage.tsx`, the form container (around line 34):
+
+```tsx
+			style={{
+				maxWidth: "400px",
+				margin: "4rem auto",
+				padding: "2rem",
+				background: "var(--panel)",
+				border: "2px solid var(--edge)",
+				boxShadow: "6px 6px 0 var(--shadow)",
+			}}
+```
+
+The error message (around line 39) currently uses `color: "red"`, which is
+`#ff0000` — **2.84 against the day ground, a failure.** Replace it:
+
+```tsx
+				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
+```
+
+That is 7.00 at night and 6.48 by day.
+
+- [ ] **Step 2: Give the heading the display face**
+
+Replace the bare `<h1>Login</h1>` (around line 36):
+
+```tsx
+			<h1
+				style={{
+					fontFamily: "var(--font-display)",
+					color: "var(--ink-hi)",
+					fontSize: "24px",
+					letterSpacing: "0.5px",
+				}}
+			>
+				Login
+			</h1>
+```
+
+- [ ] **Step 3: Style both inputs**
+
+Both inputs (around lines 53 and 66) currently set only width and padding, so
+they inherit the browser's white background — which will look wrong on the new
+ground. Give each the same style:
+
+```tsx
+					style={{
+						width: "100%",
+						padding: "0.5rem",
+						boxSizing: "border-box",
+						background: "var(--ground)",
+						color: "var(--ink)",
+						border: "2px solid var(--edge)",
+						borderRadius: 0,
+						fontFamily: "var(--font-body)",
+					}}
+```
+
+- [ ] **Step 4: Put the button on the plate family**
+
+Replace the button's style (around line 73). The current disabled state is white
+on `#ccc` — **1.61, unreadable**:
+
+```tsx
+				style={{
+					width: "100%",
+					padding: "0.75rem",
+					background: loading ? "var(--panel)" : "var(--plate-teal)",
+					color: loading ? "var(--ink)" : "var(--plate-ink)",
+					border: "2px solid var(--edge)",
+					boxShadow: loading ? "none" : "4px 4px 0 var(--shadow)",
+					borderRadius: 0,
+					cursor: loading ? "not-allowed" : "pointer",
+					fontFamily: "var(--font-display)",
+					fontSize: "14px",
+					letterSpacing: "1px",
+					textTransform: "uppercase",
+				}}
+```
+
+- [ ] **Step 5: Clear the two stray literals**
+
+`apps/web/src/pages/ForgotPasswordPage.tsx` line 62 — a link — change
+`color: "#007bff"` to `color: "var(--teal)"`.
+
+`apps/web/src/pages/ResetPasswordPage.tsx` line 129 — a button — change
+`backgroundColor: "#007bff"` to `background: "var(--plate-teal)"` and add
+`color: "var(--plate-ink)"` if that rule sets a text color.
+
+**If either line number does not carry that literal, stop and report** rather
+than searching for something to change.
+
+- [ ] **Step 6: Confirm no hardcoded colors remain in the auth pages**
+
+```bash
+grep -rnE '#[0-9a-fA-F]{3,6}|"red"|"white"' \
+  apps/web/src/pages/LoginPage.tsx \
+  apps/web/src/pages/SignupPage.tsx \
+  apps/web/src/pages/ForgotPasswordPage.tsx \
+  apps/web/src/pages/ResetPasswordPage.tsx \
+  apps/web/src/pages/VerifyEmailPage.tsx \
+  apps/web/src/components/form.tsx
+```
+
+Expected: no output. Any hit is a color that cannot follow the theme.
+
+- [ ] **Step 7: Verify and look at it**
+
+```bash
+pnpm --filter @onlooker/web test
+pnpm --filter @onlooker/web lint
+pnpm --filter @onlooker/web typecheck
+```
+
+Then run the dev server and open `/login` and `/signup` back to back. They
+should read as the same product. Toggle your OS theme and check both.
+
+- [ ] **Step 8: Commit**
+
+Use the `/commit` skill with the three page files.
+
+Suggested subject: `feat(web): brand the login page in place :art:`
+
+The body should note that `LoginPage` is hand-rolled rather than built from the
+shared components, which is why it needed its own pass, and that its disabled
+button was at 1.61 contrast beforehand.
+
+---
+
 ## Definition of Done
 
 - All five auth pages render in the brand: `/login`, `/signup`,
@@ -626,14 +779,18 @@ something this change introduced.
 
 ## Not in this plan
 
-**The other four pages.** `DashboardPage` (6 inline styles), `ProfilePage` (13),
-`SettingsPage` (20), `HomePage` (1) and `SessionExpiryBanner` (2). They are the
-signed-in surface, they share no component layer with the auth pages, and they
-want their own pass.
+**`DashboardPage`** (6 inline styles), **`ProfilePage`** (13), **`HomePage`** (1)
+and **`SessionExpiryBanner`** (2). They are the signed-in surface and want their
+own pass.
 
-**`LoginPage`'s own 7 inline styles.** They sit outside the shared components.
-Leave them; if the page looks wrong after Task 3, report it rather than
-widening scope mid-task.
+**`SettingsPage`'s own 20 inline styles.** Note it *does* import the shared form
+components, so Task 3's treatment reaches the parts of it built from them. Its
+own page-level styles are not in scope.
+
+**Rewiring `LoginPage` onto `AuthCard`.** That would remove real duplication and
+is probably right eventually, but it is a markup restructure — the one thing
+every task here is forbidden from doing — on a page people log in through.
+Task 4 brands it in place instead.
 
 **Icons.** No pixel icon is used here. `Eye` on the password field and `Locked`
 on the card are obvious later additions, but they are new elements, and this
