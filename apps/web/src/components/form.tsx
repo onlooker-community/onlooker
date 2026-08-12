@@ -6,23 +6,52 @@ import type { PasswordStrength } from "../lib/validation";
 // Styling intentionally mirrors the existing LoginPage inline-style look so the
 // pages feel consistent until a design system lands.
 
+// Values are CSS custom properties from @onlooker/brand, resolved at render
+// time - React inline styles pass var() through untouched. Plates are constant
+// across themes; the text accents shift. See the brand spec.
 const PALETTE = {
-	primary: "#007bff",
-	danger: "#d93025",
-	success: "#188038",
-	border: "#ccc",
-	borderError: "#d93025",
-	muted: "#666",
-	track: "#e6e6e6",
+	// A plate is a filled background and is constant across themes; an accent
+	// is ink on a ground and shifts. One key cannot be both - using the plate
+	// as text put links at 1.35 contrast in day mode.
+	plateTeal: "var(--plate-teal)",
+	plateRed: "var(--plate-red)",
+	plateInk: "var(--plate-ink)",
+	accent: "var(--teal)",
+	danger: "var(--red)",
+	// Not var(--edge): TextField's --ground fill sits on --panel when
+	// nested in AuthCard (signup, forgot-password, reset-password) - the
+	// mirror of AuthCard's own case, same 1.70/1.37 fallback-free edge.
+	// On the settings page, which has no AuthCard wrapper, it sits
+	// directly on the page's own --ground - fill and surrounding are
+	// identical there, so the border is the only boundary at all.
+	// ink-dim clears every one of these. (LoginPage is hand-rolled and
+	// doesn't use TextField at all - see Task 4.)
+	border: "var(--ink-dim)",
+	borderError: "var(--red)",
+	muted: "var(--ink-dim)",
+	track: "var(--panel)",
 } as const;
 
+// The meter ramps from failing to strong. It reuses the semantic tokens rather
+// than a private scale so it tracks the theme like everything else.
+//
+// These are accents, not plates, and that's deliberate: a bar segment is a
+// bare graphical fill with no text on it, so it only needs to contrast the
+// surface it sits on (WCAG 1.4.11), not carry a fixed label ink (1.4.3) - but
+// this same computed color is also used as literal text color for the
+// Weak/Fair/Good/Strong label below, so pointing the bar at a plate would
+// move the label too. That surface differs by page: inside AuthCard (signup,
+// reset-password) it's the card's own --panel plate; on the settings page,
+// which has no AuthCard wrapper, it's --ground. A plate would go
+// near-invisible against panel in day mode; the accent shifting with the
+// theme is what keeps it visible against either.
 const STRENGTH_COLORS = [
-	"#d93025",
-	"#d93025",
-	"#f5a623",
-	"#f5c518",
-	"#7cb342",
-	"#188038",
+	"var(--red)",
+	"var(--red)",
+	"var(--gold)",
+	"var(--gold)",
+	"var(--teal)",
+	"var(--teal)",
 ] as const;
 
 export function AuthCard({
@@ -40,7 +69,17 @@ export function AuthCard({
 }) {
 	const inner = (
 		<>
-			<h1 style={{ marginBottom: subtitle ? "0.25rem" : "1rem" }}>{title}</h1>
+			<h1
+				style={{
+					marginBottom: subtitle ? "0.25rem" : "1rem",
+					fontFamily: "var(--font-display)",
+					color: "var(--ink-hi)",
+					fontSize: "24px",
+					letterSpacing: "0.5px",
+				}}
+			>
+				{title}
+			</h1>
 			{subtitle && (
 				<p
 					style={{ color: PALETTE.muted, marginTop: 0, marginBottom: "1.5rem" }}
@@ -57,8 +96,18 @@ export function AuthCard({
 
 	const style: CSSProperties = {
 		maxWidth: "420px",
-		margin: "0 auto",
+		margin: "4rem auto",
 		padding: "2rem",
+		background: "var(--panel)",
+		// Not var(--edge): the card's panel fill is only 1.70/1.37 against
+		// the page it sits on, so this border is the only thing marking
+		// that edge at all - there's no fill-based fallback if it fails.
+		// It needs real margin, not a threshold pass. ink-dim clears both
+		// themes with room (3.04-3.71 was edge's best case, a 1.3% margin
+		// at night).
+		border: "2px solid var(--ink-dim)",
+		// Hard offset, no blur - the 16-bit look has no soft shadows.
+		boxShadow: "6px 6px 0 var(--shadow)",
 	};
 
 	return onSubmit ? (
@@ -119,8 +168,11 @@ export function TextField({
 					width: "100%",
 					padding: "0.5rem",
 					boxSizing: "border-box",
-					border: `1px solid ${error ? PALETTE.borderError : PALETTE.border}`,
-					borderRadius: "4px",
+					background: "var(--ground)",
+					color: "var(--ink)",
+					border: `2px solid ${error ? PALETTE.borderError : PALETTE.border}`,
+					borderRadius: 0,
+					fontFamily: "var(--font-body)",
 				}}
 			/>
 			{hint && (
@@ -166,7 +218,11 @@ export function SubmitButton({
 	variant?: "primary" | "danger";
 }) {
 	const isDisabled = loading || disabled;
-	const bg = variant === "danger" ? PALETTE.danger : PALETTE.primary;
+	// Both variants are filled buttons, so both need a plate, not an accent -
+	// var(--red) shifts per theme, and no constant label color reads on a
+	// background that moves under it. plate-ink on either plate holds at
+	// ~7-8.3 contrast in both themes; no conditional needed.
+	const plate = variant === "danger" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<button
 			type="submit"
@@ -174,12 +230,34 @@ export function SubmitButton({
 			style={{
 				width: "100%",
 				padding: "0.75rem",
-				backgroundColor: isDisabled ? "#ccc" : bg,
-				color: "white",
-				border: "none",
-				borderRadius: "4px",
+				// Plates are constant across themes, so plate-ink holds at 8.32
+				// on teal and 7.00 on red in both. Disabled recedes into the
+				// card and keeps its edge; the old white-on-#ccc was 1.61.
+				background: isDisabled ? "var(--panel)" : plate,
+				color: isDisabled ? "var(--ink)" : PALETTE.plateInk,
+				// var(--edge) as a border reads fine on the ground the card
+				// sits on, but the button's border sits on the card's own
+				// panel fill - edge is only ~1.8-2.7 against that. Disabled
+				// swaps to ink-dim, which clears the 3:1 non-text threshold
+				// against panel in both themes.
+				//
+				// Enabled swaps to plate-ink. In day mode the plate fills
+				// themselves go flat against the panel (~1.0-1.5) - that's
+				// exactly why plate-ink's own edge matters there, holding
+				// 8.25 against that same panel. At night plate-ink is a
+				// weaker 1.70 against the panel, so the edge is carried
+				// from inside instead: 7.00-8.32 against its own plate,
+				// true in both themes.
+				border: isDisabled
+					? "2px solid var(--ink-dim)"
+					: `2px solid ${PALETTE.plateInk}`,
+				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
+				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
-				fontSize: "1rem",
+				fontFamily: "var(--font-display)",
+				fontSize: "14px",
+				letterSpacing: "1px",
+				textTransform: "uppercase",
 			}}
 		>
 			{loading ? (loadingLabel ?? "Working...") : children}
@@ -194,18 +272,21 @@ export function FormMessage({
 	kind: "error" | "success";
 	children: ReactNode;
 }) {
-	const color = kind === "error" ? PALETTE.danger : PALETTE.success;
+	const plate = kind === "error" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<div
 			role={kind === "error" ? "alert" : "status"}
 			style={{
-				color,
-				border: `1px solid ${color}`,
-				backgroundColor: kind === "error" ? "#fdecea" : "#e6f4ea",
-				borderRadius: "4px",
+				background: plate,
+				color: PALETTE.plateInk,
+				// See SubmitButton: edge is flat against a day-mode plate,
+				// so plate-ink carries the border from inside instead.
+				border: `2px solid ${PALETTE.plateInk}`,
+				borderRadius: 0,
 				padding: "0.75rem",
 				marginBottom: "1rem",
 				fontSize: "0.9rem",
+				fontFamily: "var(--font-body)",
 			}}
 		>
 			{children}
@@ -229,7 +310,20 @@ export function PasswordStrengthMeter({
 	return (
 		<div style={{ marginTop: "-0.5rem", marginBottom: "1rem" }}>
 			<div
-				style={{ display: "flex", gap: "4px", marginBottom: "0.25rem" }}
+				style={{
+					display: "flex",
+					gap: "4px",
+					marginBottom: "0.25rem",
+					// The unfilled track is PALETTE.track, which is --panel -
+					// the same fill AuthCard uses, so unfilled segments are
+					// invisible against the card (1.00). An outline bounds
+					// the meter's full extent so "2 of 4" still reads as
+					// two filled slots inside four, not two filled slots
+					// alone. ink-dim clears 3:1 against panel in both
+					// themes; it can't be the segment fill itself, since
+					// it's near 1:1 against the filled accent colors too.
+					border: "2px solid var(--ink-dim)",
+				}}
 				aria-hidden="true"
 			>
 				{[0, 1, 2, 3].map((i) => (
@@ -237,8 +331,8 @@ export function PasswordStrengthMeter({
 						key={i}
 						style={{
 							flex: 1,
-							height: "4px",
-							borderRadius: "2px",
+							height: "6px",
+							borderRadius: 0,
 							backgroundColor: i < filled ? color : PALETTE.track,
 							transition: "background-color 150ms ease",
 						}}
@@ -266,7 +360,7 @@ export function FormLink({
 	children: ReactNode;
 }) {
 	return (
-		<Link to={to} style={{ color: PALETTE.primary }}>
+		<Link to={to} style={{ color: PALETTE.accent }}>
 			{children}
 		</Link>
 	);

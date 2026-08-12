@@ -36,7 +36,7 @@ export default function DashboardPage() {
 				<h2>Overview</h2>
 				{loading && <p>Loading your dashboard…</p>}
 				{error && !loading && (
-					<div style={{ color: "red" }}>
+					<div style={{ color: "var(--red)" }}>
 						<p>Could not load dashboard data: {error}</p>
 						<button
 							type="button"

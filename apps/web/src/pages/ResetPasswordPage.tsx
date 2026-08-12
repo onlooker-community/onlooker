@@ -92,7 +92,7 @@ export default function ResetPasswordPage() {
 	if (tokenState.status === "checking") {
 		return (
 			<AuthCard title="Reset your password">
-				<p style={{ color: "#666" }}>Verifying your reset link...</p>
+				<p style={{ color: "var(--ink-dim)" }}>Verifying your reset link...</p>
 			</AuthCard>
 		);
 	}
@@ -126,12 +126,16 @@ export default function ResetPasswordPage() {
 					style={{
 						width: "100%",
 						padding: "0.75rem",
-						backgroundColor: "#007bff",
-						color: "white",
-						border: "none",
-						borderRadius: "4px",
+						background: "var(--plate-teal)",
+						color: "var(--plate-ink)",
+						border: "2px solid var(--plate-ink)",
+						boxShadow: "4px 4px 0 var(--shadow)",
+						borderRadius: 0,
 						cursor: "pointer",
-						fontSize: "1rem",
+						fontFamily: "var(--font-display)",
+						fontSize: "14px",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
 						marginTop: "1rem",
 					}}
 				>

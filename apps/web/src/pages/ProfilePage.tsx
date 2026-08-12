@@ -22,7 +22,7 @@ export default function ProfilePage() {
 			{loading && <p>Loading your profile…</p>}
 
 			{error && !loading && (
-				<div style={{ color: "red", marginBottom: "1rem" }}>
+				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
 					<p>Could not load your profile: {error}</p>
 					<button
 						type="button"

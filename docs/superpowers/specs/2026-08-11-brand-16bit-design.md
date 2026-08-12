@@ -48,10 +48,10 @@ specific meaning: **active, observing, alive**.
 | `--edge` | `#6b64a8` | 2px borders, never hairlines |
 | `--ink` | `#d7d7f2` | body text |
 | `--ink-hi` | `#ffffff` | emphasis |
-| `--ink-dim` | `#9c95c2` | secondary |
+| `--ink-dim` | `#bab5d4` | secondary |
 | `--teal` | `#00d4aa` | active / observing |
 | `--gold` | `#ffdf40` | reward, the one number that matters |
-| `--red` | `#ff8a8a` | refuted, failed |
+| `--red` | `#ff9c9c` | refuted, failed |
 | `--shadow` | `#141222` | hard offset shadow, no blur |
 
 ### Day
@@ -67,7 +67,7 @@ breaking it.
 | `--edge` | `#6b64a8` |
 | `--ink` | `#2a2545` |
 | `--ink-hi` | `#141222` |
-| `--ink-dim` | `#5a5480` |
+| `--ink-dim` | `#484366` |
 | `--teal` | `#004d3e` |
 | `--gold` | `#57390c` |
 | `--red` | `#8c1b25` |
@@ -83,10 +83,38 @@ values failed and were replaced.
 |---|---|---|
 | night teal `#00d4aa` | 8.32 AAA | 4.90 AA |
 | night gold `#ffdf40` | 12.02 AAA | 7.07 AAA |
-| night red `#ff8a8a` | 7.00 AAA | 4.12 AA-large |
+| night red `#ff9c9c` | 7.94 AAA | 4.67 AA |
+| night ink-dim `#bab5d4` | 8.06 AAA | 4.74 AA |
 | day teal `#004d3e` | 6.99 AA | 5.11 AA |
 | day gold `#57390c` | 7.46 AAA | 5.46 AA |
 | day red `#8c1b25` | 6.48 AA | 4.74 AA |
+| day ink-dim `#484366` | 6.56 AA | 4.80 AA |
+
+Both `--red` and `--ink-dim` carry body-size text (inline field errors, hints,
+captions), so the bar is AA at normal text size — 4.5 — not AA-large. Night
+`--red` was `#ff8a8a` at 4.12 on the panel, below that bar; it moved to
+`#ff9c9c`. `--ink-dim` was never checked against the panel at all: night was
+`#9c95c2` at 3.34, day was `#5a5480` at 3.61. Both moved lighter (night) or
+darker (day) until they cleared 4.5 on the panel while staying a step dimmer
+than `--ink` — night 4.74 against `--ink`'s 6.63, day 4.80 against 7.52.
+
+**This compresses the visual hierarchy between `--ink` and `--ink-dim`, and
+that is forced, not a mistake.** Measured directly against each other rather
+than through the panel, night `--ink` vs `--ink-dim` went from 1.99 to 1.40,
+and day from 2.08 to 1.57 — roughly a 30% smaller gap. `--panel` is light
+enough (night) or dark enough (day) that any color clearing 4.5 against it is
+necessarily close to `--ink`, which also has to clear 4.5 against the same
+surface. Getting the old separation back would mean moving `--panel` itself,
+not `--ink-dim`. If a future pass wants `--ink-dim` to read as dimmer again,
+it needs to start there — walking `--ink-dim` back toward its old value
+reintroduces the panel failure this task fixed.
+
+**The plate family is unaffected.** `--plate-red` stays `#ff8a8a` — the same
+hex night `--red` used to be, before this fix. They are different tokens with
+different requirements: a plate is a filled background, constant across
+themes, and `--plate-ink` on it is 7.00; `--red` is text ink on a ground or
+panel, and shifts per theme. The two happening to share a value at night was
+coincidence, not a link between them.
 
 **Rejected during design, recorded so they are not reintroduced:**
 
@@ -94,6 +122,8 @@ values failed and were replaced.
   red as the Skull icon, which is why it was appealing, and it is unusable for text.
 - `#b8791a` as the day gold — 2.57 on ground, 1.88 on panel. Fails both.
 - `#00755f` as the day teal — 2.94 on panel.
+- `#ff8a8a` as the night red — 4.12 on the panel, below the 4.5 AA floor for
+  body-size text. It remains correct as `--plate-red`, a different token.
 
 ### Plates are constant; text accents are not
 

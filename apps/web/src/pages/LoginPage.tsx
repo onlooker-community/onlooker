@@ -31,18 +31,45 @@ export default function LoginPage() {
 	return (
 		<form
 			onSubmit={handleSubmit}
-			style={{ maxWidth: "400px", margin: "0 auto", padding: "2rem" }}
+			style={{
+				maxWidth: "420px",
+				margin: "4rem auto",
+				padding: "2rem",
+				background: "var(--panel)",
+				// var(--edge) against the page ground is only 3.04/3.71 - a
+				// threshold pass with no margin, and here the border is the
+				// card's only marker: --panel against --ground is 1.70/1.37,
+				// so nothing else would show the edge if the border color
+				// slipped. ink-dim holds 8.06/6.56 against ground instead.
+				border: "2px solid var(--ink-dim)",
+				boxShadow: "6px 6px 0 var(--shadow)",
+			}}
 		>
-			<h1>Login</h1>
+			<h1
+				style={{
+					marginBottom: "1rem",
+					fontFamily: "var(--font-display)",
+					color: "var(--ink-hi)",
+					fontSize: "24px",
+					letterSpacing: "0.5px",
+				}}
+			>
+				Login
+			</h1>
 
 			{(error || authError) && (
-				<div style={{ color: "red", marginBottom: "1rem" }}>
+				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
 					{error || authError}
 				</div>
 			)}
 
 			<div style={{ marginBottom: "1rem" }}>
-				<label htmlFor="email">Email:</label>
+				<label
+					htmlFor="email"
+					style={{ display: "block", marginBottom: "0.25rem" }}
+				>
+					Email:
+				</label>
 				<input
 					id="email"
 					type="email"
@@ -50,12 +77,32 @@ export default function LoginPage() {
 					onChange={(e) => setEmail(e.target.value)}
 					required
 					disabled={loading}
-					style={{ width: "100%", padding: "0.5rem" }}
+					style={{
+						width: "100%",
+						padding: "0.5rem",
+						boxSizing: "border-box",
+						background: "var(--ground)",
+						color: "var(--ink)",
+						// Same reasoning as the card border above: edge only
+						// scrapes past 3:1 against ground, with no margin and
+						// no fallback surface if it slips. ink-dim clears
+						// both ground (8.06/6.56) and panel (4.74/4.80), so
+						// it holds regardless of what the input ends up
+						// sitting against.
+						border: "2px solid var(--ink-dim)",
+						borderRadius: 0,
+						fontFamily: "var(--font-body)",
+					}}
 				/>
 			</div>
 
 			<div style={{ marginBottom: "1rem" }}>
-				<label htmlFor="password">Password:</label>
+				<label
+					htmlFor="password"
+					style={{ display: "block", marginBottom: "0.25rem" }}
+				>
+					Password:
+				</label>
 				<input
 					id="password"
 					type="password"
@@ -63,7 +110,16 @@ export default function LoginPage() {
 					onChange={(e) => setPassword(e.target.value)}
 					required
 					disabled={loading}
-					style={{ width: "100%", padding: "0.5rem" }}
+					style={{
+						width: "100%",
+						padding: "0.5rem",
+						boxSizing: "border-box",
+						background: "var(--ground)",
+						color: "var(--ink)",
+						border: "2px solid var(--ink-dim)",
+						borderRadius: 0,
+						fontFamily: "var(--font-body)",
+					}}
 				/>
 			</div>
 
@@ -73,11 +129,23 @@ export default function LoginPage() {
 				style={{
 					width: "100%",
 					padding: "0.75rem",
-					backgroundColor: loading ? "#ccc" : "#007bff",
-					color: "white",
-					border: "none",
-					borderRadius: "4px",
+					background: loading ? "var(--panel)" : "var(--plate-teal)",
+					color: loading ? "var(--ink)" : "var(--plate-ink)",
+					// Same reasoning as form.tsx's SubmitButton: the button sits
+					// on the card's panel fill, so var(--edge) fails there too.
+					// Disabled swaps to ink-dim (3:1+ against panel); enabled
+					// swaps to plate-ink, which holds 7-8.3 against either plate
+					// in both themes.
+					border: loading
+						? "2px solid var(--ink-dim)"
+						: "2px solid var(--plate-ink)",
+					boxShadow: loading ? "none" : "4px 4px 0 var(--shadow)",
+					borderRadius: 0,
 					cursor: loading ? "not-allowed" : "pointer",
+					fontFamily: "var(--font-display)",
+					fontSize: "14px",
+					letterSpacing: "1px",
+					textTransform: "uppercase",
 				}}
 			>
 				{loading ? "Logging in..." : "Login"}
