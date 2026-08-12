@@ -89,10 +89,13 @@ describe("text accents", () => {
 
 	// Every token here carries body-size text somewhere: --ink-dim on hints
 	// and captions, --red on inline field errors, --teal and --gold on labels
-	// and stat readouts. Small text needs AA, and it needs it on whichever
-	// surface it lands on - which is both, since a card is a panel sitting on
-	// the ground. The old threshold was AA-large, which passed --ink-dim at
-	// 3.34 on a panel and --red at 4.12. Non-text use has its own rule and
+	// and stat readouts. Small text needs AA, and --ground and --panel are the
+	// two surfaces this package defines, so both get checked - passing on one
+	// proves nothing about the other. That is not the full set of surfaces
+	// text lands on in practice: apps that derive their own surface from
+	// --panel (a color-mix, an alpha overlay) are not covered here and need
+	// their own check. The old threshold was AA-large, which passed --ink-dim
+	// at 3.34 on a panel and --red at 4.12. Non-text use has its own rule and
 	// its own 3.0 floor; this loop is about text.
 	for (const [name, sel] of themes) {
 		for (const surface of ["--ground", "--panel"]) {
@@ -106,6 +109,7 @@ describe("text accents", () => {
 			]) {
 				it(`${name}: ${ink} on ${surface} is at least AA`, () => {
 					const t = tokens(block(sel));
+					expect(t[ink], `${ink} missing from ${sel}`).toBeDefined();
 					expect(contrast(t[ink], t[surface])).toBeGreaterThanOrEqual(4.5);
 				});
 			}

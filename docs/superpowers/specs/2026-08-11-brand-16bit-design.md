@@ -98,6 +98,17 @@ captions), so the bar is AA at normal text size — 4.5 — not AA-large. Night
 darker (day) until they cleared 4.5 on the panel while staying a step dimmer
 than `--ink` — night 4.74 against `--ink`'s 6.63, day 4.80 against 7.52.
 
+**This compresses the visual hierarchy between `--ink` and `--ink-dim`, and
+that is forced, not a mistake.** Measured directly against each other rather
+than through the panel, night `--ink` vs `--ink-dim` went from 1.99 to 1.40,
+and day from 2.08 to 1.57 — roughly a 30% smaller gap. `--panel` is light
+enough (night) or dark enough (day) that any color clearing 4.5 against it is
+necessarily close to `--ink`, which also has to clear 4.5 against the same
+surface. Getting the old separation back would mean moving `--panel` itself,
+not `--ink-dim`. If a future pass wants `--ink-dim` to read as dimmer again,
+it needs to start there — walking `--ink-dim` back toward its old value
+reintroduces the panel failure this task fixed.
+
 **The plate family is unaffected.** `--plate-red` stays `#ff8a8a` — the same
 hex night `--red` used to be, before this fix. They are different tokens with
 different requirements: a plate is a filled background, constant across
