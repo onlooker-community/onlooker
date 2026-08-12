@@ -72,11 +72,13 @@ export default function LoginPage() {
 						boxSizing: "border-box",
 						background: "var(--ground)",
 						color: "var(--ink)",
-						// This input sits on the card's own --panel fill, not the
-						// page ground - var(--edge) is only ~1.8-2.7 against panel
-						// (see form.tsx SubmitButton). ink-dim clears 3:1 against
-						// panel in both themes.
-						border: "2px solid var(--ink-dim)",
+						// The input carries its own --ground fill, distinct from
+						// the card's --panel behind it. A border only needs 3:1
+						// against one of its two neighbors, and edge clears that
+						// against ground (3.04/3.71) - matches form.tsx's
+						// TextField, which borders the same way for the same
+						// reason.
+						border: "2px solid var(--edge)",
 						borderRadius: 0,
 						fontFamily: "var(--font-body)",
 					}}
@@ -98,7 +100,7 @@ export default function LoginPage() {
 						boxSizing: "border-box",
 						background: "var(--ground)",
 						color: "var(--ink)",
-						border: "2px solid var(--ink-dim)",
+						border: "2px solid var(--edge)",
 						borderRadius: 0,
 						fontFamily: "var(--font-body)",
 					}}

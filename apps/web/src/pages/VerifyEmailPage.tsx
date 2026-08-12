@@ -33,7 +33,7 @@ export default function VerifyEmailPage() {
 	if (state === "verifying") {
 		return (
 			<AuthCard title="Verifying your email">
-				<p style={{ color: "#666" }}>Just a moment...</p>
+				<p style={{ color: "var(--ink-dim)" }}>Just a moment...</p>
 			</AuthCard>
 		);
 	}

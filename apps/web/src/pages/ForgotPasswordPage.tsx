@@ -51,7 +51,7 @@ export default function ForgotPasswordPage() {
 					If an account exists for <strong>{email.trim()}</strong>, we've sent a
 					link to reset your password. The link expires in 1 hour.
 				</FormMessage>
-				<p style={{ color: "#666", fontSize: "0.9rem" }}>
+				<p style={{ color: "var(--ink-dim)", fontSize: "0.9rem" }}>
 					Didn't get it? Check your spam folder, or{" "}
 					<button
 						type="button"
