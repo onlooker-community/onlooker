@@ -222,7 +222,17 @@ export function SubmitButton({
 				// card and keeps its edge; the old white-on-#ccc was 1.61.
 				background: isDisabled ? "var(--panel)" : plate,
 				color: isDisabled ? "var(--ink)" : PALETTE.plateInk,
-				border: "2px solid var(--edge)",
+				// var(--edge) as a border reads fine on the ground the card
+				// sits on, but the button's border sits on the card's own
+				// panel fill - edge is only ~1.8-2.7 against that. Disabled
+				// swaps to ink-dim, which clears the 3:1 non-text threshold
+				// against panel in both themes. Enabled swaps to plate-ink,
+				// which is flat against the day-mode panel too (day plates
+				// are ~1.0-1.5 against panel) - plate-ink carries the edge
+				// from inside instead, at 7.00-8.32 against its own plate.
+				border: isDisabled
+					? "2px solid var(--ink-dim)"
+					: `2px solid ${PALETTE.plateInk}`,
 				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
 				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
@@ -251,7 +261,9 @@ export function FormMessage({
 			style={{
 				background: plate,
 				color: PALETTE.plateInk,
-				border: "2px solid var(--edge)",
+				// See SubmitButton: edge is flat against a day-mode plate,
+				// so plate-ink carries the border from inside instead.
+				border: `2px solid ${PALETTE.plateInk}`,
 				borderRadius: 0,
 				padding: "0.75rem",
 				marginBottom: "1rem",
@@ -280,7 +292,20 @@ export function PasswordStrengthMeter({
 	return (
 		<div style={{ marginTop: "-0.5rem", marginBottom: "1rem" }}>
 			<div
-				style={{ display: "flex", gap: "4px", marginBottom: "0.25rem" }}
+				style={{
+					display: "flex",
+					gap: "4px",
+					marginBottom: "0.25rem",
+					// The unfilled track is PALETTE.track, which is --panel -
+					// the same fill AuthCard uses, so unfilled segments are
+					// invisible against the card (1.00). An outline bounds
+					// the meter's full extent so "2 of 4" still reads as
+					// two filled slots inside four, not two filled slots
+					// alone. ink-dim clears 3:1 against panel in both
+					// themes; it can't be the segment fill itself, since
+					// it's near 1:1 against the filled accent colors too.
+					border: "2px solid var(--ink-dim)",
+				}}
 				aria-hidden="true"
 			>
 				{[0, 1, 2, 3].map((i) => (
