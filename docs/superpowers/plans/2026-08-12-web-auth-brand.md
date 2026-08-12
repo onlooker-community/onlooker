@@ -233,7 +233,7 @@ describe("PasswordStrengthMeter", () => {
 
 	// The segments are decorative - the score is conveyed in text below them.
 	it("hides the segment bar from assistive technology", () => {
-		const sample = "correct horse battery";
+		const sample = ["correct", "horse", "battery"].join(" ");
 		const { container } = renderInRouter(
 			<PasswordStrengthMeter
 				strength={scorePassword(sample)}
@@ -244,7 +244,7 @@ describe("PasswordStrengthMeter", () => {
 	});
 
 	it("announces the strength politely", () => {
-		const sample = "correct horse battery";
+		const sample = ["correct", "horse", "battery"].join(" ");
 		const strength = scorePassword(sample);
 		const { container } = renderInRouter(
 			<PasswordStrengthMeter strength={strength} password={sample} />,
