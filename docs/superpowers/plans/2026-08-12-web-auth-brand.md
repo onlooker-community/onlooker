@@ -382,7 +382,12 @@ In `apps/web/src/components/form.tsx`, replace lines 9-26 with:
 // time - React inline styles pass var() through untouched. Plates are constant
 // across themes; the text accents shift. See the brand spec.
 const PALETTE = {
-	primary: "var(--plate-teal)",
+	// A plate is a filled background and is constant across themes; an accent is
+	// ink on a ground and shifts with it. One key cannot serve both - a single
+	// "primary" used for the button fill AND the link color put links at 1.35
+	// contrast in day mode, because a plate cannot adapt when the ground flips.
+	plate: "var(--plate-teal)",
+	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
 	border: "var(--edge)",
