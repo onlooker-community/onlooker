@@ -13,12 +13,14 @@
 		"go": "astro dev --turbo",
 		"preview": "astro preview",
 		"astro": "astro",
+		"test": "vitest run",
 		"deploy": "astro build && wrangler deploy",
 		"generate-types": "wrangler types"
 	},
 	"dependencies": {
 		"@astrojs/cloudflare": "^13.5.2",
 		"astro": "^6.3.3",
+		"@onlooker/brand": "workspace:*",
 		"@onlooker/cache": "workspace:*",
 		"@onlooker/logger": "workspace:*",
 		"@onlooker/types": "workspace:*",
@@ -26,7 +28,8 @@
 	},
 	"devDependencies": {
 		"@onlooker/config-biome": "workspace:*",
-		"@onlooker/config-typescript": "workspace:*"
+		"@onlooker/config-typescript": "workspace:*",
+		"vitest": "^4.1.9"
 	},
 	"overrides": {
 		"vite": "^7"

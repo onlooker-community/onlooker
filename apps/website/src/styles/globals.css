@@ -1,3 +1,6 @@
+@import "@onlooker/brand/tokens.css";
+@import "@onlooker/brand/assets.css";
+
 *,
 *::before,
 *::after {
@@ -6,20 +9,24 @@
 	padding: 0;
 }
 
+/* The old names, pointed at the new tokens. Every existing rule in this file
+ * uses them, so this maps the whole stylesheet over in one place rather than
+ * touching ~200 lines of unrelated declarations. */
 :root {
-	--bg: #080c10;
-	--bg-2: #0d1520;
-	--bg-3: #111d2e;
-	--border: rgba(255, 255, 255, 0.07);
-	--border-2: rgba(255, 255, 255, 0.12);
-	--accent: #00d4aa;
-	--accent-dim: rgba(0, 212, 170, 0.15);
-	--accent-glow: rgba(0, 212, 170, 0.06);
-	--text-1: #e8edf2;
-	--text-2: #8a9ab0;
-	--text-3: #4a5a6e;
-	--mono: "DM Mono", monospace;
-	--sans: "Syne", sans-serif;
+	--bg: var(--ground);
+	--bg-2: var(--panel);
+	--bg-3: color-mix(in srgb, var(--panel) 82%, var(--ink));
+	--border: var(--edge);
+	--border-2: color-mix(in srgb, var(--edge) 82%, var(--ink));
+	--accent: var(--teal);
+	--accent-dim: color-mix(in srgb, var(--teal) 15%, transparent);
+	--accent-glow: color-mix(in srgb, var(--teal) 6%, transparent);
+	--text-1: var(--ink-hi);
+	--text-2: var(--ink);
+	--text-3: var(--ink-dim);
+	--mono: var(--font-data);
+	--sans: var(--font-body);
+	--display: var(--font-display);
 }
 
 html {
@@ -169,6 +176,16 @@ footer {
 
 .footer-links a:hover {
 	color: var(--text-2);
+}
+
+.credit {
+	font-family: var(--font-data);
+	font-size: 12px;
+	color: var(--ink-dim);
+}
+
+.credit a {
+	color: var(--teal);
 }
 
 @keyframes fade-up {
