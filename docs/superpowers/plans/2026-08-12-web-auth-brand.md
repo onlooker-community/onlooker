@@ -262,7 +262,10 @@ pnpm --filter @onlooker/web typecheck
 pnpm test
 ```
 
-Expected: all green. The root `test` should now show one more task than before.
+Expected: all green, and `pnpm test` still reports **15 tasks**, not 16.
+`apps/web` already has a `test` script, so adding a test file adds cases to an
+existing turbo task rather than a new one. What should change is the case count
+inside `@onlooker/web`, from 5 to 15.
 
 - [ ] **Step 7: Commit**
 
