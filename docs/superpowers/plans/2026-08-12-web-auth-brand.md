@@ -877,8 +877,8 @@ pnpm --filter @onlooker/brand test
 ```
 
 Expected: **FAIL**, and read the failures before fixing anything. There should
-be exactly four — `--ink-dim` on `--panel` in all three blocks that define it
-plus the new dark-attr block, and `--red` on `--panel` in the two night blocks.
+be exactly six — `--ink-dim` on `--panel` in all four blocks, and `--red` on
+`--panel` in the two night blocks.
 If a token you did not expect fails, stop and report it rather than adjusting
 its value to fit.
 
