@@ -59,7 +59,7 @@ export default function ForgotPasswordPage() {
 						style={{
 							background: "none",
 							border: "none",
-							color: "#007bff",
+							color: "var(--teal)",
 							cursor: "pointer",
 							padding: 0,
 							font: "inherit",

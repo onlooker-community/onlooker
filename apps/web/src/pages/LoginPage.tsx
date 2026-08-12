@@ -31,12 +31,28 @@ export default function LoginPage() {
 	return (
 		<form
 			onSubmit={handleSubmit}
-			style={{ maxWidth: "400px", margin: "0 auto", padding: "2rem" }}
+			style={{
+				maxWidth: "400px",
+				margin: "4rem auto",
+				padding: "2rem",
+				background: "var(--panel)",
+				border: "2px solid var(--edge)",
+				boxShadow: "6px 6px 0 var(--shadow)",
+			}}
 		>
-			<h1>Login</h1>
+			<h1
+				style={{
+					fontFamily: "var(--font-display)",
+					color: "var(--ink-hi)",
+					fontSize: "24px",
+					letterSpacing: "0.5px",
+				}}
+			>
+				Login
+			</h1>
 
 			{(error || authError) && (
-				<div style={{ color: "red", marginBottom: "1rem" }}>
+				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
 					{error || authError}
 				</div>
 			)}
@@ -50,7 +66,20 @@ export default function LoginPage() {
 					onChange={(e) => setEmail(e.target.value)}
 					required
 					disabled={loading}
-					style={{ width: "100%", padding: "0.5rem" }}
+					style={{
+						width: "100%",
+						padding: "0.5rem",
+						boxSizing: "border-box",
+						background: "var(--ground)",
+						color: "var(--ink)",
+						// This input sits on the card's own --panel fill, not the
+						// page ground - var(--edge) is only ~1.8-2.7 against panel
+						// (see form.tsx SubmitButton). ink-dim clears 3:1 against
+						// panel in both themes.
+						border: "2px solid var(--ink-dim)",
+						borderRadius: 0,
+						fontFamily: "var(--font-body)",
+					}}
 				/>
 			</div>
 
@@ -63,7 +92,16 @@ export default function LoginPage() {
 					onChange={(e) => setPassword(e.target.value)}
 					required
 					disabled={loading}
-					style={{ width: "100%", padding: "0.5rem" }}
+					style={{
+						width: "100%",
+						padding: "0.5rem",
+						boxSizing: "border-box",
+						background: "var(--ground)",
+						color: "var(--ink)",
+						border: "2px solid var(--ink-dim)",
+						borderRadius: 0,
+						fontFamily: "var(--font-body)",
+					}}
 				/>
 			</div>
 
@@ -73,11 +111,23 @@ export default function LoginPage() {
 				style={{
 					width: "100%",
 					padding: "0.75rem",
-					backgroundColor: loading ? "#ccc" : "#007bff",
-					color: "white",
-					border: "none",
-					borderRadius: "4px",
+					background: loading ? "var(--panel)" : "var(--plate-teal)",
+					color: loading ? "var(--ink)" : "var(--plate-ink)",
+					// Same reasoning as form.tsx's SubmitButton: the button sits
+					// on the card's panel fill, so var(--edge) fails there too.
+					// Disabled swaps to ink-dim (3:1+ against panel); enabled
+					// swaps to plate-ink, which holds 7-8.3 against either plate
+					// in both themes.
+					border: loading
+						? "2px solid var(--ink-dim)"
+						: "2px solid var(--plate-ink)",
+					boxShadow: loading ? "none" : "4px 4px 0 var(--shadow)",
+					borderRadius: 0,
 					cursor: loading ? "not-allowed" : "pointer",
+					fontFamily: "var(--font-display)",
+					fontSize: "14px",
+					letterSpacing: "1px",
+					textTransform: "uppercase",
 				}}
 			>
 				{loading ? "Logging in..." : "Login"}

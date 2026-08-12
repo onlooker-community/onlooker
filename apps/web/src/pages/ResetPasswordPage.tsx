@@ -126,8 +126,8 @@ export default function ResetPasswordPage() {
 					style={{
 						width: "100%",
 						padding: "0.75rem",
-						backgroundColor: "#007bff",
-						color: "white",
+						background: "var(--plate-teal)",
+						color: "var(--plate-ink)",
 						border: "none",
 						borderRadius: "4px",
 						cursor: "pointer",
