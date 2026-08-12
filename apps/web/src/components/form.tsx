@@ -13,7 +13,8 @@ const PALETTE = {
 	// A plate is a filled background and is constant across themes; an accent
 	// is ink on a ground and shifts. One key cannot be both - using the plate
 	// as text put links at 1.35 contrast in day mode.
-	plate: "var(--plate-teal)",
+	plateTeal: "var(--plate-teal)",
+	plateRed: "var(--plate-red)",
 	accent: "var(--teal)",
 	danger: "var(--red)",
 	success: "var(--teal)",
@@ -25,6 +26,12 @@ const PALETTE = {
 
 // The meter ramps from failing to strong. It reuses the semantic tokens rather
 // than a private scale so it tracks the theme like everything else.
+//
+// These are accents, not plates, and that's deliberate: a bar segment is a
+// bare graphical fill with no text on it, so it only needs to contrast the
+// track it sits on (WCAG 1.4.11), not carry a fixed label ink (1.4.3). A
+// plate would go near-invisible against the panel in day mode; the accent
+// shifting with the theme is what keeps it visible.
 const STRENGTH_COLORS = [
 	"var(--red)",
 	"var(--red)",
@@ -179,7 +186,7 @@ export function SubmitButton({
 	// var(--red) shifts per theme, and no constant label color reads on a
 	// background that moves under it. plate-ink on either plate holds at
 	// ~7-8.3 contrast in both themes; no conditional needed.
-	const plate = variant === "danger" ? "var(--plate-red)" : "var(--plate-teal)";
+	const plate = variant === "danger" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<button
 			type="submit"
