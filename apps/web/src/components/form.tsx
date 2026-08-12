@@ -226,10 +226,15 @@ export function SubmitButton({
 				// sits on, but the button's border sits on the card's own
 				// panel fill - edge is only ~1.8-2.7 against that. Disabled
 				// swaps to ink-dim, which clears the 3:1 non-text threshold
-				// against panel in both themes. Enabled swaps to plate-ink,
-				// which is flat against the day-mode panel too (day plates
-				// are ~1.0-1.5 against panel) - plate-ink carries the edge
-				// from inside instead, at 7.00-8.32 against its own plate.
+				// against panel in both themes.
+				//
+				// Enabled swaps to plate-ink. In day mode the plate fills
+				// themselves go flat against the panel (~1.0-1.5) - that's
+				// exactly why plate-ink's own edge matters there, holding
+				// 8.25 against that same panel. At night plate-ink is a
+				// weaker 1.70 against the panel, so the edge is carried
+				// from inside instead: 7.00-8.32 against its own plate,
+				// true in both themes.
 				border: isDisabled
 					? "2px solid var(--ink-dim)"
 					: `2px solid ${PALETTE.plateInk}`,
