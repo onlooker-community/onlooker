@@ -791,6 +791,154 @@ button was at 1.61 contrast beforehand.
 
 ---
 
+## Task 5: Close the contrast gap the test could not see
+
+**Files:**
+- Modify: `packages/brand/tokens.test.ts`
+- Modify: `packages/brand/tokens.css`
+- Modify: `docs/superpowers/specs/2026-08-11-brand-16bit-design.md`
+
+**Interfaces:**
+- Consumes: nothing. Produces: token values every app already reads.
+
+Task 3 put an `AuthCard` on `var(--panel)`, which moved the text inside it from
+reading against `--ground` to reading against `--panel`. Two tokens fail AA
+there, and the contrast test cannot see either one:
+
+| | on `--panel` | needs |
+|---|---|---|
+| `--ink-dim` night | 3.34 | 4.5 |
+| `--ink-dim` day | 3.61 | 4.5 |
+| `--red` night | 4.12 | 4.5 |
+
+**This is not a regression Task 3 introduced.** `apps/website` aliases
+`--text-3: var(--ink-dim)` and `--bg-2: var(--panel)`, uses the first in about
+nineteen places and the second as a section background in about fifteen, so
+onlooker.dev has been shipping it.
+
+The test has three holes, and the third is why the first two survived review:
+
+1. `--ink-dim` is absent from the token list, so it is checked on no surface.
+2. The threshold is `3` — AA-large — for tokens that carry 12-14px text. That
+   passes `--ink-dim` at 3.34 and `--red` at 4.12.
+3. The `themes` array omits `:root[data-theme="dark"]`, so the explicit dark
+   override block is never checked at all.
+
+- [ ] **Step 1: Widen the test first, and watch it fail**
+
+In `packages/brand/tokens.test.ts`, add the missing theme block to the `themes`
+array (around line 83):
+
+```ts
+	const themes: Array<[string, string]> = [
+		["night", ":root"],
+		["day (media)", "@media (prefers-color-scheme: light)"],
+		["day (attr)", ':root[data-theme="light"]'],
+		["night (attr)", ':root[data-theme="dark"]'],
+	];
+```
+
+Then replace the accent loop and the single `--ink on --ground` case that
+follows it (around lines 91-104) with:
+
+```ts
+	// Every token here carries body-size text somewhere: --ink-dim on hints
+	// and captions, --red on inline field errors, --teal and --gold on labels
+	// and stat readouts. Small text needs AA, and it needs it on whichever
+	// surface it lands on - which is both, since a card is a panel sitting on
+	// the ground. The old threshold was AA-large, which passed --ink-dim at
+	// 3.34 on a panel and --red at 4.12. Non-text use has its own rule and
+	// its own 3.0 floor; this loop is about text.
+	for (const [name, sel] of themes) {
+		for (const surface of ["--ground", "--panel"]) {
+			for (const ink of [
+				"--ink",
+				"--ink-hi",
+				"--ink-dim",
+				"--gold",
+				"--teal",
+				"--red",
+			]) {
+				it(`${name}: ${ink} on ${surface} is at least AA`, () => {
+					const t = tokens(block(sel));
+					expect(contrast(t[ink], t[surface])).toBeGreaterThanOrEqual(
+						4.5,
+					);
+				});
+			}
+		}
+	}
+```
+
+Run it:
+
+```bash
+pnpm --filter @onlooker/brand test
+```
+
+Expected: **FAIL**, and read the failures before fixing anything. There should
+be exactly four — `--ink-dim` on `--panel` in all three blocks that define it
+plus the new dark-attr block, and `--red` on `--panel` in the two night blocks.
+If a token you did not expect fails, stop and report it rather than adjusting
+its value to fit.
+
+- [ ] **Step 2: Move the two failing tokens**
+
+In `packages/brand/tokens.css`:
+
+- `--ink-dim: #9c95c2` → `--ink-dim: #bab5d4` (lines 24 and 69, the two night
+  blocks)
+- `--ink-dim: #5a5480` → `--ink-dim: #484366` (lines 40 and 55, the two day
+  blocks)
+- `--red: #ff8a8a` → `--red: #ff9c9c` (lines 27 and 72, the two night blocks)
+
+**Do not touch `--plate-red` on line 15.** It is also `#ff8a8a` and must stay
+that way: it is a plate, it is constant by design, and `--plate-ink` on it is
+7.00. The two tokens share a value at night and are not the same thing — that
+confusion is what this branch has spent three fix rounds on.
+
+Day `--red` (`#8c1b25`) does not move; it is already 4.74 on a panel.
+
+After the change the dim tokens are still clearly dimmer than `--ink`: night
+4.74 against `--ink`'s 6.63 on a panel, day 4.80 against 7.52.
+
+- [ ] **Step 3: Run the test again**
+
+```bash
+pnpm --filter @onlooker/brand test
+```
+
+Expected: PASS, all of them.
+
+- [ ] **Step 4: Correct the spec's contrast table**
+
+`docs/superpowers/specs/2026-08-11-brand-16bit-design.md` records the old
+figures and one of them is now wrong in a way that matters — it lists
+`night red #ff8a8a` as `7.00 / 4.12 AA-large` on the panel, which is the value
+this task just rejected. Update the night red row to `#ff9c9c`, `7.94` on
+ground and `4.67` on panel, and add the two `--ink-dim` rows the table never
+had. Note beneath the table that the plate family keeps `#ff8a8a` and that
+these are separate tokens.
+
+- [ ] **Step 5: Confirm nothing downstream depended on the old values**
+
+```bash
+pnpm build && pnpm test && pnpm lint
+```
+
+Expected: green across all packages, including `apps/website`, which consumes
+these tokens through its own aliases.
+
+- [ ] **Step 6: Commit**
+
+Use the `/commit` skill with `packages/brand/tokens.css`,
+`packages/brand/tokens.test.ts` and the spec file.
+
+The body should say that the token values are the smaller half of this change:
+the test could not have caught them, and now it can.
+
+---
+
 ## Definition of Done
 
 - All five auth pages render in the brand: `/login`, `/signup`,
