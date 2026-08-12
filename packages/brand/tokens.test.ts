@@ -84,23 +84,32 @@ describe("text accents", () => {
 		["night", ":root"],
 		["day (media)", "@media (prefers-color-scheme: light)"],
 		["day (attr)", ':root[data-theme="light"]'],
+		["night (attr)", ':root[data-theme="dark"]'],
 	];
 
-	// Text lands on the ground AND on panels. Passing on one proves nothing
-	// about the other, which is how three bad values reached the first review.
+	// Every token here carries body-size text somewhere: --ink-dim on hints
+	// and captions, --red on inline field errors, --teal and --gold on labels
+	// and stat readouts. Small text needs AA, and it needs it on whichever
+	// surface it lands on - which is both, since a card is a panel sitting on
+	// the ground. The old threshold was AA-large, which passed --ink-dim at
+	// 3.34 on a panel and --red at 4.12. Non-text use has its own rule and
+	// its own 3.0 floor; this loop is about text.
 	for (const [name, sel] of themes) {
 		for (const surface of ["--ground", "--panel"]) {
-			for (const accent of ["--ink", "--gold", "--teal", "--red"]) {
-				it(`${name}: ${accent} on ${surface} is at least AA-large`, () => {
+			for (const ink of [
+				"--ink",
+				"--ink-hi",
+				"--ink-dim",
+				"--gold",
+				"--teal",
+				"--red",
+			]) {
+				it(`${name}: ${ink} on ${surface} is at least AA`, () => {
 					const t = tokens(block(sel));
-					expect(contrast(t[accent], t[surface])).toBeGreaterThanOrEqual(3);
+					expect(contrast(t[ink], t[surface])).toBeGreaterThanOrEqual(4.5);
 				});
 			}
 		}
-		it(`${name}: --ink on --ground is at least AA`, () => {
-			const t = tokens(block(sel));
-			expect(contrast(t["--ink"], t["--ground"])).toBeGreaterThanOrEqual(4.5);
-		});
 	}
 });
 
