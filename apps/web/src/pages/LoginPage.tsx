@@ -36,7 +36,12 @@ export default function LoginPage() {
 				margin: "4rem auto",
 				padding: "2rem",
 				background: "var(--panel)",
-				border: "2px solid var(--edge)",
+				// var(--edge) against the page ground is only 3.04/3.71 - a
+				// threshold pass with no margin, and here the border is the
+				// card's only marker: --panel against --ground is 1.70/1.37,
+				// so nothing else would show the edge if the border color
+				// slipped. ink-dim holds 8.06/6.56 against ground instead.
+				border: "2px solid var(--ink-dim)",
 				boxShadow: "6px 6px 0 var(--shadow)",
 			}}
 		>
@@ -72,13 +77,13 @@ export default function LoginPage() {
 						boxSizing: "border-box",
 						background: "var(--ground)",
 						color: "var(--ink)",
-						// The input carries its own --ground fill, distinct from
-						// the card's --panel behind it. A border only needs 3:1
-						// against one of its two neighbors, and edge clears that
-						// against ground (3.04/3.71) - matches form.tsx's
-						// TextField, which borders the same way for the same
-						// reason.
-						border: "2px solid var(--edge)",
+						// Same reasoning as the card border above: edge only
+						// scrapes past 3:1 against ground, with no margin and
+						// no fallback surface if it slips. ink-dim clears
+						// both ground (8.06/6.56) and panel (4.74/4.80), so
+						// it holds regardless of what the input ends up
+						// sitting against.
+						border: "2px solid var(--ink-dim)",
 						borderRadius: 0,
 						fontFamily: "var(--font-body)",
 					}}
@@ -100,7 +105,7 @@ export default function LoginPage() {
 						boxSizing: "border-box",
 						background: "var(--ground)",
 						color: "var(--ink)",
-						border: "2px solid var(--edge)",
+						border: "2px solid var(--ink-dim)",
 						borderRadius: 0,
 						fontFamily: "var(--font-body)",
 					}}
