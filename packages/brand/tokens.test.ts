@@ -79,6 +79,53 @@ describe("plate tokens", () => {
 	});
 });
 
+// Each palette is written out twice: once for the OS preference and once for
+// the explicit toggle. Nothing made the copies agree, and the per-block
+// contrast checks cannot notice, because each block is only ever measured
+// against itself. Setting --teal to the day red in the media query alone left
+// the whole suite green - both values clear AA independently - while a reader
+// on OS-light saw "active / observing" render red and a reader who had pressed
+// the toggle saw teal.
+//
+// Plates are excluded from both sides. :root carries them and theme blocks
+// must never redefine them, but that is a separate rule with its own guard
+// above. Excluding only :root's copy made a plate leaking into a theme block
+// report here as "absent in :root", which is false and points away from the
+// actual problem.
+describe("duplicated theme blocks", () => {
+	const TWINS: Array<[string, string, string]> = [
+		["night", ":root", ':root[data-theme="dark"]'],
+		[
+			"day",
+			"@media (prefers-color-scheme: light)",
+			':root[data-theme="light"]',
+		],
+	];
+
+	for (const [name, a, b] of TWINS) {
+		it(`${name}: ${b} matches ${a}`, () => {
+			const left = tokens(block(a));
+			const right = tokens(block(b));
+			for (const p of PLATES) {
+				delete left[p];
+				delete right[p];
+			}
+
+			for (const key of new Set([
+				...Object.keys(left),
+				...Object.keys(right),
+			])) {
+				expect(
+					right[key],
+					`${key} is ${left[key] ?? "absent"} in ${a} but ${
+						right[key] ?? "absent"
+					} in ${b} - the two must stay in step`,
+				).toBe(left[key]);
+			}
+		});
+	}
+});
+
 describe("text accents", () => {
 	const themes: Array<[string, string]> = [
 		["night", ":root"],
