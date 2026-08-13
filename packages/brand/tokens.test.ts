@@ -168,6 +168,29 @@ describe("constant tokens", () => {
 	}
 });
 
+// color-scheme is not a custom property, so the twins check above cannot see
+// it - that one compares --token values. Nothing else would notice a block
+// losing this, and the symptom would not look like a CSS problem: the browser
+// would go back to assuming light and repainting autofilled fields over the
+// dark ground.
+//
+// The value has to agree with the palette in the same block, so this pins the
+// pairing rather than merely the presence.
+describe("color-scheme", () => {
+	const DECLARED: Array<[string, string]> = [
+		[":root", "dark"],
+		["@media (prefers-color-scheme: light)", "light"],
+		[':root[data-theme="light"]', "light"],
+		[':root[data-theme="dark"]', "dark"],
+	];
+
+	for (const [sel, scheme] of DECLARED) {
+		it(`${sel} declares color-scheme: ${scheme}`, () => {
+			expect(block(sel)).toMatch(new RegExp(`color-scheme:\\s*${scheme}\\s*;`));
+		});
+	}
+});
+
 describe("text accents", () => {
 	const themes: Array<[string, string]> = [
 		["night", ":root"],
