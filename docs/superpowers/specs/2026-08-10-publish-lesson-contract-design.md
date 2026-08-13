@@ -115,11 +115,19 @@ changed:
 
 ```bash
 pnpm --filter @onlooker-community/lesson-contract build
-git diff --exit-code packages/lesson-contract/schema/
+if [ -n "$(git status --porcelain -- packages/lesson-contract/schema)" ]; then
+  exit 1
+fi
 ```
 
-A non-empty diff fails the job. This guard is independent of publishing and
-worth having regardless.
+**Not `git diff --exit-code`.** That was the first form of this guard and it
+could not fail in the case that mattered: `git diff` compares tracked files, so
+a schema the build newly emits is untracked and invisible to it. Adding a
+schema and forgetting to commit it left a step named "Verify generated schemas
+are committed" green. `git status --porcelain` sees untracked files, which is
+the whole point.
+
+This guard is independent of publishing and worth having regardless.
 
 ### Guard 2 — schema changed without a version bump
 

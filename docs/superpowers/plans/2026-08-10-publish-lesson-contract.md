@@ -223,6 +223,15 @@ starts at `2.0.0` rather than continuing from `0.0.1`.
 freshness guard this plan originally proposed adding, and it already runs on
 pull requests. **Do not add a second one.**
 
+> **Later correction — do not copy the command below.** Every `git diff
+> --exit-code` in this task is the form that shipped at the time, kept here so
+> the record matches what was actually run. It was replaced afterwards, because
+> `git diff` only compares tracked files: a schema the build newly emitted was
+> untracked and therefore invisible to it, so a step named "Verify generated
+> schemas are committed" passed while the schema was uncommitted. The workflow
+> now uses `git status --porcelain`, which sees untracked files. The design spec
+> carries the current form.
+
 What Task 1 broke: that step's error message tells the reader to run
 `pnpm --filter @onlooker/lesson-contract build`. The package is now
 `@onlooker-community/lesson-contract`, so following that instruction fails with
