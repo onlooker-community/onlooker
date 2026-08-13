@@ -208,6 +208,13 @@ export const prerender = true;
     padding: 14px 24px;
     background: var(--plate-teal);
     border: none;
+    /* This border-left is load-bearing, not trim. Plates are constant across
+       themes while surfaces are not, so the fill only marks this button's edge
+       at night: plate-teal is 4.90 against the form's --panel fill there, and
+       1.01 by day. --border-2 mixes --edge with --ink, so it does shift, and it
+       covers exactly the gap - 3.28 against the plate in day mode, where the
+       fill carries nothing. Removing it leaves the button with no boundary in
+       one theme. See the border note in the brand spec. */
     border-left: 1px solid var(--border-2);
     font-family: var(--mono);
     font-size: 12px;

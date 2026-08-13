@@ -150,6 +150,45 @@ every block, so a 3:1 check on it could not fail without that one failing
 first — a test incapable of failing on its own is worse than no test, because
 it reads as coverage.
 
+### A plate's own boundary
+
+The contrast table above checks each plate against `--plate-ink`, the text that
+sits **on** it. Nothing there says whether the plate is distinguishable **from
+what surrounds it**, and those are different questions with different answers.
+
+Plates are constant; surfaces are not. So a plate that separates cleanly at
+night can go flat by day, and every plate does:
+
+| plate vs surface | night ground | night panel | day ground | day panel |
+|---|---|---|---|---|
+| `--plate-teal` | 8.32 | 4.90 | **1.35** | **1.01** |
+| `--plate-gold` | 12.02 | 7.07 | **1.07** | **1.46** |
+| `--plate-red` | 7.00 | 4.12 | **1.61** | **1.18** |
+
+In day mode a plate is told apart from its surroundings by hue and saturation
+alone. That is legible to most sighted readers and invisible to a grayscale,
+low-vision or color-blind one.
+
+**So a filled plate needs a second boundary mechanism that works in the theme
+where the fill does not.** Two are in use, and both are fine:
+
+- **An outline that shifts, or that contrasts the plate from inside.**
+  `apps/web`'s auth buttons and message plates use `2px solid var(--plate-ink)`
+  — 8.25 against the day panel from outside, 7.00–8.32 against the plate itself
+  at night.
+- **An adjacent separator that shifts.** `apps/website`'s one plate element,
+  the landing-page form button, has no outline but sits against a
+  `1px var(--border-2)` edge. `--border-2` mixes `--edge` with `--ink`, so it
+  moves with the theme: 3.28 against the plate by day, exactly where the fill
+  is 1.01. At night the fill carries it at 4.90 and the separator does not
+  matter.
+
+This cannot be asserted in `tokens.test.ts`. Whether a plate has a working
+boundary depends on what it is placed next to, which the package cannot see —
+and an assertion that plates clear 3:1 against the surfaces would fail on
+every one of them by design. It is a rule for consumers, checked where the
+plate is used.
+
 **Rejected during design, recorded so they are not reintroduced:**
 
 - `#db3a3a` as the night red — 2.08 on the panel. Fails outright. It is the same
