@@ -45,7 +45,7 @@ specific meaning: **active, observing, alive**.
 |---|---|---|
 | `--ground` | `#221f38` | page ground — the icons' indigo, darkened |
 | `--panel` | `#464074` | raised surface — the icons' own outline color |
-| `--edge` | `#6b64a8` | 2px borders, never hairlines |
+| `--edge` | `#6b64a8` | decorative dividers and the grid lattice — see below |
 | `--ink` | `#d7d7f2` | body text |
 | `--ink-hi` | `#ffffff` | emphasis |
 | `--ink-dim` | `#bab5d4` | secondary |
@@ -115,6 +115,40 @@ different requirements: a plate is a filled background, constant across
 themes, and `--plate-ink` on it is 7.00; `--red` is text ink on a ground or
 panel, and shifts per theme. The two happening to share a value at night was
 coincidence, not a link between them.
+
+### Borders: `--ink-dim`, not `--edge`
+
+An earlier draft called `--edge` the 2px border token. It cannot be one, and
+the reason is arithmetic rather than a poorly chosen value.
+
+A border marking a UI boundary wants 3:1 against what it touches (WCAG 1.4.11).
+`--edge` is constant, so one value has to clear that against all four surfaces.
+Against the night panel a border needs relative luminance of at least 0.287;
+against the day panel, at most 0.132. **No color satisfies both.** A constant
+border token that works on both surfaces in both themes does not exist.
+
+Measured, `--edge` `#6b64a8` gives 3.04 night / 3.71 day against `--ground`
+and 1.79 / 2.71 against `--panel`. Even the passing side is a 1.3% margin at
+night, and it has no fallback: a card is a `--panel` fill on the `--ground`
+page, and those two are only 1.70 / 1.37 apart, so if the border does not read
+there is no boundary at all.
+
+**So UI boundaries use `--ink-dim`** — 8.06 / 6.56 against the ground, 4.74 /
+4.80 against the panel. It shifts per theme, which is exactly what lets it
+clear both surfaces.
+
+**`--edge` remains, reclassified as decoration:** hairline dividers and the
+website's grid lattice. Those are not boundaries of interactive components, so
+1.4.11 does not bind them, and a divider that sits quietly is the intent
+rather than a defect. It stays constant across themes; `tokens.test.ts` pins
+that, since nothing else would notice the night and day copies drifting apart
+and the dividers changing weight with the theme.
+
+There is deliberately no separate 3:1 assertion for the border token.
+`--ink-dim` is already held to the stricter 4.5 text floor on both surfaces in
+every block, so a 3:1 check on it could not fail without that one failing
+first — a test incapable of failing on its own is worse than no test, because
+it reads as coverage.
 
 **Rejected during design, recorded so they are not reintroduced:**
 
