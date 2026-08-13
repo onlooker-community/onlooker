@@ -402,11 +402,20 @@ function DeleteAccountSection({
 					onClick={() => setConfirming(true)}
 					style={{
 						padding: "0.5rem 1rem",
-						color: "#d93025",
-						border: "1px solid #d93025",
-						borderRadius: "4px",
-						background: "white",
+						// Ghost, not a plate: this only opens the confirmation, and a
+						// filled danger button here would outrank the actual confirm
+						// below it. --red sits on the page ground at 7.94/6.48 as
+						// text and clears 3:1 as a border, and it matches the section
+						// heading, which the white fill had split away from.
+						color: "var(--red)",
+						border: "2px solid var(--red)",
+						borderRadius: 0,
+						background: "transparent",
 						cursor: "pointer",
+						fontFamily: "var(--font-display)",
+						fontSize: "14px",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
 					}}
 				>
 					Delete my account
@@ -440,10 +449,19 @@ function DeleteAccountSection({
 							disabled={loading}
 							style={{
 								padding: "0.75rem 1.5rem",
-								border: "1px solid #ccc",
-								borderRadius: "4px",
-								background: "white",
+								// Ghost neutral, so it reads as the lesser of the two
+								// actions beside the filled SubmitButton it sits next
+								// to. --ink is 11.27/10.28 on the page ground and
+								// --ink-dim clears 3:1 as its border at 8.06/6.56.
+								color: "var(--ink)",
+								border: "2px solid var(--ink-dim)",
+								borderRadius: 0,
+								background: "transparent",
 								cursor: "pointer",
+								fontFamily: "var(--font-display)",
+								fontSize: "14px",
+								letterSpacing: "1px",
+								textTransform: "uppercase",
 							}}
 						>
 							Cancel
