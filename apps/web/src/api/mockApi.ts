@@ -588,24 +588,50 @@ function errorResponse(error: unknown): Response {
 	throw new Error(message);
 }
 
+/**
+ * Reduce whatever the client built to the path the handlers match on.
+ *
+ * Every handler compares bare paths - `path === "/auth/signup"` - but the URL
+ * arriving here is absolute whenever VITE_API_BASE_URL is set. Without this the
+ * mock silently worked only with an empty base, which happened to be the
+ * default, so the failure surfaced as "Mock endpoint not found" naming a URL
+ * rather than anything about the base.
+ *
+ * The search string is kept because handlers read it: the reset-link check
+ * pulls its token straight out of this string.
+ */
+function toHandlerPath(url: string): string {
+	try {
+		// The base only matters for relative inputs; absolute URLs ignore it.
+		const parsed = new URL(url, "http://mock.invalid");
+		return parsed.pathname + parsed.search;
+	} catch {
+		return url;
+	}
+}
+
 export function createMockFetch() {
 	return async (url: string, options: RequestInit = {}) => {
-		if (url.includes("/auth/")) {
+		const path = toHandlerPath(url);
+
+		if (path.startsWith("/auth/")) {
 			try {
-				return await mockAuthApi(url, options);
+				return await mockAuthApi(path, options);
 			} catch (error) {
 				return errorResponse(error);
 			}
 		}
 
-		if (url.includes("/api/")) {
+		if (path.startsWith("/api/")) {
 			try {
-				return await mockDataApi(url, options);
+				return await mockDataApi(path, options);
 			} catch (error) {
 				return errorResponse(error);
 			}
 		}
 
+		// Anything the mock does not own goes to the network as it was given,
+		// not as the normalized path.
 		return fetch(url, options);
 	};
 }
