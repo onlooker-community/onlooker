@@ -152,10 +152,17 @@ jobs:
             echo "::error title=Build produced no output::packages/lesson-contract/dist/index.js is missing or empty after the build. The --filter probably matched no project, which pnpm reports as success. Publishing now would ship a tarball without dist/."
             exit 1
           fi
-          if [ ! -s packages/lesson-contract/schema/lesson.schema.json ]; then
-            echo "::error title=Schema missing from the publish tree::packages/lesson-contract/schema/lesson.schema.json is missing or empty. That file is the reason this package is published; shipping without it would produce a tarball no consumer can use."
-            exit 1
-          fi
+          # Every schema the package ships, not just the headline one.
+          # counter-observation.schema.json went unchecked for exactly as long
+          # as this was a single hardcoded if, so add to this list when a schema
+          # is added - `files: ["dist", "schema"]` means anything here ships.
+          for schema in lesson counter-observation; do
+            path="packages/lesson-contract/schema/${schema}.schema.json"
+            if [ ! -s "$path" ]; then
+              echo "::error title=Schema missing from the publish tree::${path} is missing or empty. These files are the reason this package is published; shipping without one produces a tarball that resolves for consumers and then fails them at validation."
+              exit 1
+            fi
+          done
 
       - name: Publish if this exact version is not on the registry
         working-directory: packages/lesson-contract
