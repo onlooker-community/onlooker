@@ -11,22 +11,31 @@ routes = [
 # ============================================================================
 # DEVELOPMENT ENVIRONMENT
 # ============================================================================
+# `pnpm dev` passes --env development, so everything below is what the local
+# worker actually gets. It is not decoration: without it there is no DB binding
+# and no JWT_SECRET, and every authenticated route fails with
+# "Cannot read properties of undefined (reading 'prepare')".
 [env.development.vars]
-DB_HOST = "localhost"
-DB_PORT = "5432"
-DB_NAME = "onlooker_dev"
 JWT_SECRET = "dev-secret-key-change-in-production"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
 
-# Development: Use local D1 database (if available)
-# Uncomment to test with local D1
-# [[env.development.d1_databases]]
-# binding = "DB"
-# database_name = "onlooker_dev"
-# database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# `wrangler dev` is local-first, so this resolves to a SQLite file under
+# apps/api/.wrangler/ and never touches Cloudflare. database_id is required by
+# the config schema but unused locally, hence the obviously-fake value - if a
+# command ever tries to reach a real database with it, it should fail loudly
+# rather than quietly hitting staging.
+#
+# Apply migrations before first use, and after any schema change:
+#   pnpm --filter @onlooker/api exec wrangler d1 migrations apply onlooker-db-local --local --env development
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "onlooker-db-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+# packages/db owns the schema and generates these; see the note under staging.
+migrations_dir = "../../packages/db/migrations"
 
 # ============================================================================
 # STAGING ENVIRONMENT

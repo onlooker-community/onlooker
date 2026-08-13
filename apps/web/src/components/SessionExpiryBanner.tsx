@@ -40,10 +40,21 @@ export default function SessionExpiryBanner() {
 			style={{
 				marginBottom: "1rem",
 				padding: "0.75rem 1rem",
-				borderRadius: "6px",
-				border: "1px solid #f0c36d",
-				backgroundColor: "#fdf6e3",
-				color: "#7a5c00",
+				borderRadius: 0,
+				// A filled plate, like FormMessage - this is the same class of
+				// thing, a role="alert" notice, and it should read as one. Gold is
+				// the brand's attention color and plate-ink on it is 12.02 in both
+				// themes, because plates do not shift.
+				//
+				// The outline is not trim. A plate is constant while the page under
+				// it is not, so the fill only marks the banner's edge at night
+				// (12.02 against the ground, where plate-ink would be 1.00). By day
+				// the fill is 1.07 and the outline carries it at 11.27. Each covers
+				// exactly where the other fails; dropping either leaves the banner
+				// with no boundary in one theme.
+				border: "2px solid var(--plate-ink)",
+				backgroundColor: "var(--plate-gold)",
+				color: "var(--plate-ink)",
 				display: "flex",
 				alignItems: "center",
 				justifyContent: "space-between",
@@ -61,10 +72,17 @@ export default function SessionExpiryBanner() {
 				style={{
 					padding: "0.4rem 0.9rem",
 					cursor: "pointer",
-					border: "1px solid #7a5c00",
-					borderRadius: "4px",
+					// Sits on the gold plate, so it takes the plate's own ink for
+					// both label and border - 12.02 against that fill, constant in
+					// both themes. Nothing here reads against the page.
+					border: "2px solid var(--plate-ink)",
+					borderRadius: 0,
 					backgroundColor: "transparent",
-					color: "#7a5c00",
+					color: "var(--plate-ink)",
+					fontFamily: "var(--font-display)",
+					fontSize: "12px",
+					letterSpacing: "1px",
+					textTransform: "uppercase",
 				}}
 			>
 				Stay signed in

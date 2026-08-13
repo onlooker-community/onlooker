@@ -49,6 +49,13 @@ const THEME_SELECTORS = [
 	':root[data-theme="light"]',
 	':root[data-theme="dark"]',
 ];
+const ALL_BLOCKS = [":root", ...THEME_SELECTORS];
+
+// Redeclared in every block with the same value, unlike the plates, which are
+// declared once on :root. --edge is a decorative divider and lattice color and
+// is meant to sit quietly against whatever it crosses, so it does not shift
+// with the theme the way an ink token does.
+const CONSTANT_ACROSS_THEMES = ["--edge"];
 
 describe("plate tokens", () => {
 	it("are all defined on :root", () => {
@@ -77,6 +84,88 @@ describe("plate tokens", () => {
 			).toBeGreaterThanOrEqual(4.5);
 		}
 	});
+});
+
+// Each palette is written out twice: once for the OS preference and once for
+// the explicit toggle. Nothing made the copies agree, and the per-block
+// contrast checks cannot notice, because each block is only ever measured
+// against itself. Setting --teal to the day red in the media query alone left
+// the whole suite green - both values clear AA independently - while a reader
+// on OS-light saw "active / observing" render red and a reader who had pressed
+// the toggle saw teal.
+//
+// Plates are excluded from both sides. :root carries them and theme blocks
+// must never redefine them, but that is a separate rule with its own guard
+// above. Excluding only :root's copy made a plate leaking into a theme block
+// report here as "absent in :root", which is false and points away from the
+// actual problem.
+describe("duplicated theme blocks", () => {
+	const TWINS: Array<[string, string, string]> = [
+		["night", ":root", ':root[data-theme="dark"]'],
+		[
+			"day",
+			"@media (prefers-color-scheme: light)",
+			':root[data-theme="light"]',
+		],
+	];
+
+	for (const [name, a, b] of TWINS) {
+		it(`${name}: ${b} matches ${a}`, () => {
+			const left = tokens(block(a));
+			const right = tokens(block(b));
+			for (const p of PLATES) {
+				delete left[p];
+				delete right[p];
+			}
+
+			for (const key of new Set([
+				...Object.keys(left),
+				...Object.keys(right),
+			])) {
+				expect(
+					right[key],
+					`${key} is ${left[key] ?? "absent"} in ${a} but ${
+						right[key] ?? "absent"
+					} in ${b} - the two must stay in step`,
+				).toBe(left[key]);
+			}
+		});
+	}
+});
+
+// --edge is decorative: hairline dividers and the website's grid lattice. It is
+// deliberately NOT held to the 3:1 that WCAG 1.4.11 asks of a boundary, because
+// no constant value could meet it - a border clearing 3.0 against the night
+// panel needs luminance >= 0.287, and one clearing it against the day panel
+// needs <= 0.132. There is no such color. UI boundaries use --ink-dim instead,
+// which shifts per theme and clears 4.74 to 8.06 on both surfaces.
+//
+// There is deliberately no separate 3.0 assertion for the border token here.
+// --ink-dim is already held to the stricter 4.5 text floor on both surfaces in
+// every block, so a 3.0 check on it could not fail without that one failing
+// first - it would be a test incapable of failing on its own.
+//
+// What is worth pinning is that --edge stays constant. The twins check compares
+// blocks within a theme, so nothing else notices if the night and day copies
+// drift apart and the dividers start changing weight with the theme.
+describe("constant tokens", () => {
+	for (const token of CONSTANT_ACROSS_THEMES) {
+		it(`${token} is the same in every block that declares it`, () => {
+			const seen = ALL_BLOCKS.map(
+				(sel) => [sel, tokens(block(sel))[token]] as const,
+			).filter(([, value]) => value !== undefined);
+
+			expect(seen.length, `${token} is declared in no block`).toBeGreaterThan(
+				0,
+			);
+			for (const [sel, value] of seen) {
+				expect(
+					value,
+					`${token} is ${value} in ${sel} but ${seen[0][1]} in ${seen[0][0]} - it is a constant, so every block must agree`,
+				).toBe(seen[0][1]);
+			}
+		});
+	}
 });
 
 describe("text accents", () => {

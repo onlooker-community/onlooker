@@ -43,7 +43,7 @@ export async function handleSignup(
 		);
 	}
 
-	const existing = await getUserByEmail(env.DB!, body.email);
+	const existing = await getUserByEmail(env.DB, body.email);
 	if (existing) {
 		throw new ApiError(
 			409,
@@ -53,7 +53,7 @@ export async function handleSignup(
 	}
 
 	const passwordHash = await hashPassword(body.password);
-	const user = await createUser(env.DB!, body.email, passwordHash, body.name);
+	const user = await createUser(env.DB, body.email, passwordHash, body.name);
 
 	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES, 10);
 	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS, 10);
@@ -72,7 +72,7 @@ export async function handleSignup(
 	const refreshExpiresAt = new Date();
 	refreshExpiresAt.setDate(refreshExpiresAt.getDate() + refreshExpiresInDays);
 
-	await storeRefreshToken(env.DB!, user.id, refreshToken, refreshExpiresAt);
+	await storeRefreshToken(env.DB, user.id, refreshToken, refreshExpiresAt);
 
 	return new Response(
 		JSON.stringify({
@@ -105,7 +105,7 @@ export async function handleLogin(
 		throw new ApiError(400, "invalid_input", "Email and password are required");
 	}
 
-	const user = await getUserByEmail(env.DB!, body.email);
+	const user = await getUserByEmail(env.DB, body.email);
 	if (!user) {
 		throw new ApiError(401, "invalid_credentials", "Invalid email or password");
 	}
@@ -132,7 +132,7 @@ export async function handleLogin(
 	const refreshExpiresAt = new Date();
 	refreshExpiresAt.setDate(refreshExpiresAt.getDate() + refreshExpiresInDays);
 
-	await storeRefreshToken(env.DB!, user.id, refreshToken, refreshExpiresAt);
+	await storeRefreshToken(env.DB, user.id, refreshToken, refreshExpiresAt);
 
 	return new Response(
 		JSON.stringify({
@@ -164,7 +164,7 @@ export async function handleRefresh(
 		throw new ApiError(400, "invalid_input", "Refresh token is required");
 	}
 
-	const stored = await getRefreshToken(env.DB!, body.refreshToken);
+	const stored = await getRefreshToken(env.DB, body.refreshToken);
 	if (!stored) {
 		throw new ApiError(
 			401,
@@ -173,7 +173,7 @@ export async function handleRefresh(
 		);
 	}
 
-	const user = await getUserById(env.DB!, stored.user_id);
+	const user = await getUserById(env.DB, stored.user_id);
 	if (!user) {
 		throw new ApiError(401, "invalid_token", "User not found");
 	}
@@ -191,13 +191,13 @@ export async function handleRefresh(
 		expiresInMinutes,
 	);
 
-	await revokeRefreshToken(env.DB!, body.refreshToken);
+	await revokeRefreshToken(env.DB, body.refreshToken);
 
 	const newRefreshToken = generateRefreshToken();
 	const refreshExpiresAt = new Date();
 	refreshExpiresAt.setDate(refreshExpiresAt.getDate() + refreshExpiresInDays);
 
-	await storeRefreshToken(env.DB!, user.id, newRefreshToken, refreshExpiresAt);
+	await storeRefreshToken(env.DB, user.id, newRefreshToken, refreshExpiresAt);
 
 	return new Response(
 		JSON.stringify({
@@ -221,7 +221,7 @@ export async function handleMe(
 ): Promise<Response> {
 	const auth = await requireAuth(request, env);
 
-	const user = await getUserById(env.DB!, auth.userId);
+	const user = await getUserById(env.DB, auth.userId);
 	if (!user) {
 		throw new ApiError(404, "not_found", "User not found");
 	}
