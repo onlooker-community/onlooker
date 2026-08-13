@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
+import {
+	AuthCard,
+	FormLink,
+	FormMessage,
+	SubmitButton,
+	TextField,
+} from "../components/form";
 
 export default function LoginPage() {
 	const { login, error: authError, loading } = auth.useAuth();
@@ -9,6 +16,10 @@ export default function LoginPage() {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [fieldErrors, setFieldErrors] = useState<{
+		email?: string | null;
+		password?: string | null;
+	}>({});
 
 	// RequireAuth stashes the page the user was blocked from in `state.from`;
 	// send them back there after login, falling back to the dashboard.
@@ -20,6 +31,19 @@ export default function LoginPage() {
 		e.preventDefault();
 		setError(null);
 
+		// AuthCard's form carries noValidate, so `required` no longer holds an
+		// empty submit back on its own. Checked here instead - and deliberately
+		// only for emptiness. Running the signup validators would turn away
+		// accounts whose passwords predate the current strength rules, and
+		// rejecting an address the server would have accepted is worse on the
+		// way in than on the way up.
+		const errors = {
+			email: email.trim() ? null : "Enter your email.",
+			password: password ? null : "Enter your password.",
+		};
+		setFieldErrors(errors);
+		if (errors.email || errors.password) return;
+
 		try {
 			await login(email, password);
 			navigate(returnTo, { replace: true });
@@ -28,128 +52,50 @@ export default function LoginPage() {
 		}
 	};
 
+	const message = error || authError;
+
 	return (
-		<form
+		<AuthCard
+			title="Login"
 			onSubmit={handleSubmit}
-			style={{
-				maxWidth: "420px",
-				margin: "4rem auto",
-				padding: "2rem",
-				background: "var(--panel)",
-				// var(--edge) against the page ground is only 3.04/3.71 - a
-				// threshold pass with no margin, and here the border is the
-				// card's only marker: --panel against --ground is 1.70/1.37,
-				// so nothing else would show the edge if the border color
-				// slipped. ink-dim holds 8.06/6.56 against ground instead.
-				border: "2px solid var(--ink-dim)",
-				boxShadow: "6px 6px 0 var(--shadow)",
-			}}
+			footer={
+				<>
+					<FormLink to="/forgot-password">Forgot your password?</FormLink>
+					<div style={{ marginTop: "0.5rem" }}>
+						No account yet? <FormLink to="/signup">Sign up</FormLink>
+					</div>
+				</>
+			}
 		>
-			<h1
-				style={{
-					marginBottom: "1rem",
-					fontFamily: "var(--font-display)",
-					color: "var(--ink-hi)",
-					fontSize: "24px",
-					letterSpacing: "0.5px",
-				}}
-			>
-				Login
-			</h1>
+			{message && <FormMessage kind="error">{message}</FormMessage>}
 
-			{(error || authError) && (
-				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
-					{error || authError}
-				</div>
-			)}
-
-			<div style={{ marginBottom: "1rem" }}>
-				<label
-					htmlFor="email"
-					style={{ display: "block", marginBottom: "0.25rem" }}
-				>
-					Email:
-				</label>
-				<input
-					id="email"
-					type="email"
-					value={email}
-					onChange={(e) => setEmail(e.target.value)}
-					required
-					disabled={loading}
-					style={{
-						width: "100%",
-						padding: "0.5rem",
-						boxSizing: "border-box",
-						background: "var(--ground)",
-						color: "var(--ink)",
-						// Same reasoning as the card border above: edge only
-						// scrapes past 3:1 against ground, with no margin and
-						// no fallback surface if it slips. ink-dim clears
-						// both ground (8.06/6.56) and panel (4.74/4.80), so
-						// it holds regardless of what the input ends up
-						// sitting against.
-						border: "2px solid var(--ink-dim)",
-						borderRadius: 0,
-						fontFamily: "var(--font-body)",
-					}}
-				/>
-			</div>
-
-			<div style={{ marginBottom: "1rem" }}>
-				<label
-					htmlFor="password"
-					style={{ display: "block", marginBottom: "0.25rem" }}
-				>
-					Password:
-				</label>
-				<input
-					id="password"
-					type="password"
-					value={password}
-					onChange={(e) => setPassword(e.target.value)}
-					required
-					disabled={loading}
-					style={{
-						width: "100%",
-						padding: "0.5rem",
-						boxSizing: "border-box",
-						background: "var(--ground)",
-						color: "var(--ink)",
-						border: "2px solid var(--ink-dim)",
-						borderRadius: 0,
-						fontFamily: "var(--font-body)",
-					}}
-				/>
-			</div>
-
-			<button
-				type="submit"
+			<TextField
+				id="email"
+				label="Email"
+				type="email"
+				value={email}
+				onChange={setEmail}
+				error={fieldErrors.email}
+				required
 				disabled={loading}
-				style={{
-					width: "100%",
-					padding: "0.75rem",
-					background: loading ? "var(--panel)" : "var(--plate-teal)",
-					color: loading ? "var(--ink)" : "var(--plate-ink)",
-					// Same reasoning as form.tsx's SubmitButton: the button sits
-					// on the card's panel fill, so var(--edge) fails there too.
-					// Disabled swaps to ink-dim (3:1+ against panel); enabled
-					// swaps to plate-ink, which holds 7-8.3 against either plate
-					// in both themes.
-					border: loading
-						? "2px solid var(--ink-dim)"
-						: "2px solid var(--plate-ink)",
-					boxShadow: loading ? "none" : "4px 4px 0 var(--shadow)",
-					borderRadius: 0,
-					cursor: loading ? "not-allowed" : "pointer",
-					fontFamily: "var(--font-display)",
-					fontSize: "14px",
-					letterSpacing: "1px",
-					textTransform: "uppercase",
-				}}
-			>
-				{loading ? "Logging in..." : "Login"}
-			</button>
-		</form>
+				autoComplete="email"
+			/>
+
+			<TextField
+				id="password"
+				label="Password"
+				type="password"
+				value={password}
+				onChange={setPassword}
+				error={fieldErrors.password}
+				required
+				disabled={loading}
+				autoComplete="current-password"
+			/>
+
+			<SubmitButton loading={loading} loadingLabel="Logging in...">
+				Login
+			</SubmitButton>
+		</AuthCard>
 	);
 }
