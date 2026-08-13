@@ -63,6 +63,15 @@ backup/
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 
+# JSONL exports. Dolt is the store and refs/dolt/data on the git remote is the
+# sync channel; these are regenerable snapshots, so tracking them duplicated the
+# real thing and produced the merge conflicts, blocked checkouts and
+# carrying-nothing commits that came with it. Regenerate on demand with
+# `bd export -o .beads/issues.jsonl`.
+issues.jsonl
+interactions.jsonl
+events.jsonl
+
 # Legacy files (from pre-Dolt versions)
 *.db
 *.db?*

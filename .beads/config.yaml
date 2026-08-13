@@ -65,15 +65,22 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
-export.auto: true
-
-# Stage .beads/issues.jsonl as soon as a bd command exports it.
-# Without this the pre-commit hook still refreshes the export, but only after
-# git has snapshotted the index, so a manually staged copy commits stale and
-# silently drops issues. The cost is that beads changes stage themselves into
-# whatever commit is in progress; issues.jsonl is a passive mirror of the Dolt
-# DB, so tracking it is the desired state anyway.
-export.git-add: true
+# JSONL export is off, and the export is no longer tracked by git.
+#
+# Both of these used to be on, and the reasoning for git-add cited a pre-commit
+# hook that was never actually installed in .git/hooks. So the repo was
+# force-staging a passive export to compensate for machinery that was not
+# running, and the export - which bd's own defaults describe as optional, "for
+# viewers, interchange, and issue-level migration" - became the thing everyone
+# fought with. It wrote conflict markers into itself during a pull autostash,
+# blocked a branch switch, and accounted for several commits carrying nothing
+# else.
+#
+# Sync is Dolt over refs/dolt/data on the git remote, which is what the hooks
+# now do automatically on push, merge and checkout. Run `bd export -o
+# .beads/issues.jsonl` when something genuinely needs a JSONL snapshot.
+export.auto: false
+export.git-add: false
 
 sync:
     remote: "git+ssh://git@github.com/onlooker-community/onlooker.git"
