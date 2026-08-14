@@ -287,4 +287,6 @@ Before committing changes to the API client, verify the integration locally. Her
 - [Vite Environment Variables](https://vitejs.dev/guide/env-and-mode)
 - [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
 - [JWT Best Practices](https://datatracker.ietf.org/doc/html/rfc8725)
-- [@onlooker/auth-react Documentation](../../packages/auth-react/README.md)
+- [@onlooker/auth-react source](../../packages/auth-react/src) — the package has
+  no README, and pointing at one that has never existed is worse than pointing
+  at the code that does
