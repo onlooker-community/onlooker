@@ -9,6 +9,17 @@
  * Never redefine a --plate-* token inside a theme block. */
 
 :root {
+	/* Tells the browser which way this page leans, which is not decoration:
+	 * the UA paints its own chrome from it. Undeclared, a browser assumes light
+	 * and renders autofilled fields on the pale blue it uses for that - so the
+	 * login email and password, the two fields every returning user autofills,
+	 * came back repainted over the dark ground. Placeholder text, scrollbars
+	 * and native form controls follow the same signal.
+	 *
+	 * Declared per block rather than once as `dark light`, so it always agrees
+	 * with the palette actually in effect. */
+	color-scheme: dark;
+
 	/* plates: constant, never themed */
 	--plate-gold: #ffdf40;
 	--plate-teal: #00d4aa;
@@ -32,6 +43,8 @@
 /* Day is a daytime tileset, not an inversion. Same world, sun up. */
 @media (prefers-color-scheme: light) {
 	:root {
+		color-scheme: light;
+
 		--ground: #d7d7f2;
 		--panel: #b8b8d9;
 		--edge: #6b64a8;
@@ -47,6 +60,8 @@
 }
 
 :root[data-theme="light"] {
+	color-scheme: light;
+
 	--ground: #d7d7f2;
 	--panel: #b8b8d9;
 	--edge: #6b64a8;
@@ -61,6 +76,8 @@
 }
 
 :root[data-theme="dark"] {
+	color-scheme: dark;
+
 	--ground: #221f38;
 	--panel: #464074;
 	--edge: #6b64a8;
