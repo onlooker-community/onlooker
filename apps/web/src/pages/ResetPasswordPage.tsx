@@ -9,6 +9,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { describeError } from "../lib/apiErrors";
 import {
 	scorePassword,
 	validatePassword,
@@ -80,9 +81,10 @@ export default function ResetPasswordPage() {
 			setDone(true);
 		} catch (err) {
 			setSubmitError(
-				err instanceof Error
-					? err.message
-					: "Could not reset your password. The link may have expired.",
+				describeError(
+					err,
+					"Could not reset your password. The link may have expired.",
+				),
 			);
 		} finally {
 			setLoading(false);

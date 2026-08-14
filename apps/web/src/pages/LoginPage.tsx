@@ -59,11 +59,14 @@ export default function LoginPage() {
 			title="Login"
 			onSubmit={handleSubmit}
 			footer={
+				// No "Forgot your password?" link, deliberately. /auth/forgot-password
+				// is a 501 stub in apps/api - the flow is fully built in the mock and
+				// does not exist in production - so linking it would walk people into
+				// a wall. The page and its route stay, so the journey is still
+				// reachable and testable against the mock; it just is not advertised
+				// until the API can honor it. Tracked in the account-API epic.
 				<>
-					<FormLink to="/forgot-password">Forgot your password?</FormLink>
-					<div style={{ marginTop: "0.5rem" }}>
-						No account yet? <FormLink to="/signup">Sign up</FormLink>
-					</div>
+					No account yet? <FormLink to="/signup">Sign up</FormLink>
 				</>
 			}
 		>
