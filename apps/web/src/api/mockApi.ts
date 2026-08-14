@@ -459,7 +459,9 @@ export async function mockAuthApi(
 			refreshToken,
 			user: publicUser(newUser),
 		};
-		return new Response(JSON.stringify(response), { status: 200 });
+		// 201, matching apps/api. This answered 200 and nothing noticed, because
+		// nothing compares the two - see api-contract.test.ts.
+		return new Response(JSON.stringify(response), { status: 201 });
 	}
 
 	if (path === AUTH_ENDPOINTS.refresh && options.method === "POST") {

@@ -40,7 +40,9 @@ describe("mockAuthApi", () => {
 			}),
 		});
 
-		expect(response.status).toBe(200);
+		// 201, matching apps/api. This asserted 200 and passed for as long as it
+		// existed, because it only ever described the mock to itself.
+		expect(response.status).toBe(201);
 		const data = (await response.json()) as any;
 		expect(data.user.email).toBe("newuser@example.com");
 	});
