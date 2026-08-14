@@ -7,6 +7,31 @@
 		"directory": "./dist",
 		"binding": "ASSETS"
 	},
+
+	// onlooker.dev was attached in the Cloudflare dashboard and lived nowhere
+	// else, so nothing in version control said how the marketing domain was
+	// wired. Recorded here from the live configuration, not invented: one
+	// custom domain, zone onlooker.dev.
+	//
+	// custom_domain rather than a plain pattern because that is what exists,
+	// and the difference is not cosmetic - a custom domain has Cloudflare
+	// create and manage the DNS record, while a plain route does not create
+	// DNS at all. Getting that backwards is what left api-staging.onlooker.dev
+	// unresolvable for days with a deployed worker, an existing route, and no
+	// error anywhere.
+	"routes": [{ "pattern": "onlooker.dev", "custom_domain": true }],
+
+	// Both of these are currently ON, and they are declared because adding
+	// `routes` above would otherwise turn them off. Wrangler infers
+	// workers_dev as false whenever routes are present and workers_dev is not
+	// set, and preview_urls defaults to matching workers_dev - so recording
+	// the route without these would have silently removed
+	// onlooker-community-website.<subdomain>.workers.dev and the preview URLs
+	// on the next deploy, as a side effect of a change meant only to write
+	// down what already existed.
+	"workers_dev": true,
+	"preview_urls": true,
+
 	"observability": {
 		"enabled": true
 	}
