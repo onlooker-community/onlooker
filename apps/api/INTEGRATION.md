@@ -253,19 +253,31 @@ Then run `pnpm dev` in both `apps/api` and `apps/web` to test integration.
 All environment variables are typed in `WorkerEnv` interface (`src/types/index.ts`):
 
 ```typescript
-DB_HOST: string;
-DB_PORT: string;
-DB_NAME: string;
+ENVIRONMENT?: string;
 JWT_SECRET: string;
 TOKEN_EXPIRY_MINUTES: string;
 REFRESH_TOKEN_EXPIRY_DAYS: string;
-DB?: D1Database;
+DB: D1Database;
 TOKEN_REVOCATION?: KVNamespace;
 ```
 
 Configure these in:
-- `wrangler.toml` - for development
-- Cloudflare dashboard - for production
+- `wrangler.toml` - `[env.<name>.vars]` for non-secrets, `[[env.<name>.d1_databases]]`
+  for the `DB` binding
+- `wrangler secret put` - for `JWT_SECRET` outside development
+
+Two entries here are worth knowing about rather than trusting:
+
+- **`CORS_ORIGIN`** is declared in every block of `wrangler.toml` and read by
+  nothing. The worker hardcodes `Access-Control-Allow-Origin: *`, so the config
+  describes a policy that is not enforced.
+- **`TOKEN_REVOCATION`** is typed but bound nowhere and read nowhere. It is the
+  mechanism that would let logout end an access token before it expires, which
+  today it does not.
+
+This list previously carried `DB_HOST`, `DB_PORT` and `DB_NAME`, left from a
+Postgres design the app does not have. They were removed from `wrangler.toml`
+and from `WorkerEnv`; D1 arrives through the `DB` binding instead.
 
 ## Error Handling
 

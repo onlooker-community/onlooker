@@ -15,6 +15,14 @@ routes = [
 # worker actually gets. It is not decoration: without it there is no DB binding
 # and no JWT_SECRET, and every authenticated route fails with
 # "Cannot read properties of undefined (reading 'prepare')".
+
+# CORS_ORIGIN is declared in every block below and read by nothing. The worker
+# hardcodes Access-Control-Allow-Origin: * (src/index.ts), so these values
+# describe a policy that is not enforced - production says app.onlooker.dev and
+# the deployed API accepts any origin. Left in place rather than deleted because
+# the intent is right and the code is what should change; tracked separately,
+# since honoring it alters live behavior on a deployed API and wants its own
+# deploy.
 [env.development.vars]
 JWT_SECRET = "dev-secret-key-change-in-production"
 TOKEN_EXPIRY_MINUTES = "180"
@@ -49,9 +57,6 @@ routes = [
 ]
 
 [env.staging.vars]
-DB_HOST = "staging-db.onlooker.dev"
-DB_PORT = "5432"
-DB_NAME = "onlooker_staging"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "staging"
@@ -76,9 +81,6 @@ routes = [
 ]
 
 [env.production.vars]
-DB_HOST = "prod-db.onlooker.dev"
-DB_PORT = "5432"
-DB_NAME = "onlooker_prod"
 TOKEN_EXPIRY_MINUTES = "180"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "production"
