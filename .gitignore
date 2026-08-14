@@ -50,3 +50,7 @@ pnpm-debug.log*
 *.db
 .beads-credential-key
 .beads/proxieddb/
+# Runtime lock bd writes at the repo root. .beads/.gitignore already covers
+# *.lock, but only inside .beads/ - this one lands outside its scope, so it
+# showed up in every git status and was one `git add -A` away from a commit.
+.beads.gate.lock
