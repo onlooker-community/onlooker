@@ -1,24 +1,33 @@
 name = "onlooker-web"
 compatibility_date = "2024-12-16"
 
-# Assets directory for Pages
+# There is no `main`, so this is a static-assets-only Worker: dist/ is served
+# and no code of ours runs on request.
+#
+# That is why this file declares no vars. Each environment used to set
+# VITE_API_URL - localhost:8787, api-staging, api - and it was read by nothing,
+# twice over. The app reads VITE_API_BASE_URL (src/api/config.ts), not
+# VITE_API_URL; and with no worker script there is no runtime here to read a var
+# under any name. Vite inlines VITE_* at build time regardless, so which API a
+# bundle calls is settled by `vite build` and cannot be changed by a deploy.
+#
+# The cost of that fiction was real: this config stated per-environment API
+# routing convincingly enough that nobody checked, while one shared dist/ built
+# against api.onlooker.dev shipped to both hostnames. app-staging.onlooker.dev
+# was reading and writing the production database. Per-environment API targets
+# now live in .env.staging and .env.production, and `pnpm build:staging` fails
+# if the bundle it produced calls the wrong one.
 [assets]
 directory = "dist"
 
-# Development environment variables
-[env.development]
-vars = { VITE_API_URL = "http://localhost:8787" }
-
 # Staging environment
 [env.staging]
-vars = { VITE_API_URL = "https://api-staging.onlooker.dev" }
 routes = [
   { pattern = "app-staging.onlooker.dev/*", zone_name = "onlooker.dev" }
 ]
 
 # Production environment
 [env.production]
-vars = { VITE_API_URL = "https://api.onlooker.dev" }
 routes = [
   { pattern = "app.onlooker.dev/*", zone_name = "onlooker.dev" }
 ]

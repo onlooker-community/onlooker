@@ -6,7 +6,7 @@ Complete reference of all environment variables used across the Onlooker platfor
 
 | Variable | Service | Type | Purpose | Example |
 |----------|---------|------|---------|---------|
-| `VITE_API_URL` | Web | Build | API endpoint for Vite | `https://api.onlooker.dev` |
+| `VITE_API_BASE_URL` | Web | Build | API the bundle calls | `https://api.onlooker.dev` |
 | `JWT_SECRET` | API | Secret | JWT signing key | `openssl rand -hex 32` |
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
 | `CORS_ORIGIN` | API | Vars | Allowed origin for CORS | `https://app.onlooker.dev` |
@@ -22,47 +22,56 @@ Complete reference of all environment variables used across the Onlooker platfor
 
 These are baked into the build and available at runtime as `import.meta.env.VITE_*`.
 
-#### Development
+**They belong in `.env.<mode>` files, never in `apps/web/wrangler.toml`.** Vite
+inlines `VITE_*` at build time, so which API a bundle calls is decided by
+`vite build` and is fixed from then on — a deploy cannot redirect it. `apps/web`
+is a static-assets Worker with no `main` besides, so it has no runtime that
+could read a var at all.
 
-**File:** `.env.development.local`
+This document previously said the opposite, and the cost was real: it described
+per-environment `VITE_API_URL` values living in `wrangler.toml`, which nothing
+read under a name nothing used, while one shared `dist/` built against
+`api.onlooker.dev` shipped to both hostnames. `app-staging.onlooker.dev` was
+reading and writing the production database.
+
+Each environment gets its own build mode and its own file:
+
+| Environment | Build command | File |
+|-------------|---------------|------|
+| development | `pnpm --filter @onlooker/web dev` | `apps/web/.env.development` |
+| staging | `pnpm --filter @onlooker/web build:staging` | `apps/web/.env.staging` |
+| production | `pnpm --filter @onlooker/web build` | `apps/web/.env.production` |
 
 ```env
-VITE_API_URL=http://localhost:8787
+# apps/web/.env.staging
+VITE_API_BASE_URL=https://api-staging.onlooker.dev
+VITE_USE_MOCK_API=false
+VITE_API_LOG_REQUESTS=false
 ```
 
-**Also in:** `apps/web/wrangler.toml`
+Both build commands end by asserting that the bundle they produced calls the API
+that build mode is named for (`apps/web/scripts/verify-api-target.mjs`). It
+reads the emitted assets rather than the config, because the config is what was
+wrong last time. It also fails when the bundle names *no* API: with
+`--mode staging` and no `.env.staging`, `VITE_API_BASE_URL` is unset and the app
+silently falls back to its in-memory mock, which looks perfectly healthy while
+serving invented data.
 
-```toml
-[env.development.vars]
-VITE_API_URL = "http://localhost:8787"
-```
-
-#### Staging
-
-**File:** `apps/web/wrangler.toml`
-
-```toml
-[env.staging.vars]
-VITE_API_URL = "https://api-staging.onlooker.dev"
-```
-
-#### Production
-
-**File:** `apps/web/wrangler.toml`
-
-```toml
-[env.production.vars]
-VITE_API_URL = "https://api.onlooker.dev"
-```
+Override anything locally with `apps/web/.env.local`, which is git-ignored. See
+`apps/web/.env.example` for the full list of variables.
 
 ### Usage in Code
 
+Read config through `resolveApiConfig()` in `src/api/config.ts` rather than
+touching `import.meta.env` directly — it centralizes the fallbacks:
+
 ```typescript
-// src/api/client.ts
-const API_URL = import.meta.env.VITE_API_URL;
+import { resolveApiConfig } from "./config";
+
+const { baseUrl } = resolveApiConfig();
 
 export async function fetchUser(token: string) {
-  const response = await fetch(`${API_URL}/api/users/me`, {
+  const response = await fetch(`${baseUrl}/api/users/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return response.json();
@@ -223,8 +232,8 @@ preview_id = "wwwwwwww"
 ### Development
 
 ```env
-# Web app (.env.local)
-VITE_API_URL=http://localhost:8787
+# Web app (apps/web/.env.development)
+VITE_API_BASE_URL=http://localhost:8787
 
 # API (wrangler.toml [env.development])
 ENVIRONMENT=development
@@ -239,8 +248,8 @@ JWT_SECRET=<dev-key>
 ### Staging
 
 ```env
-# Web app (wrangler.toml [env.staging])
-VITE_API_URL=https://api-staging.onlooker.dev
+# Web app (apps/web/.env.staging)
+VITE_API_BASE_URL=https://api-staging.onlooker.dev
 
 # API (wrangler.toml [env.staging])
 ENVIRONMENT=staging
@@ -256,8 +265,8 @@ DATABASE_PASSWORD=<staging-password>
 ### Production
 
 ```env
-# Web app (wrangler.toml [env.production])
-VITE_API_URL=https://api.onlooker.dev
+# Web app (apps/web/.env.production)
+VITE_API_BASE_URL=https://api.onlooker.dev
 
 # API (wrangler.toml [env.production])
 ENVIRONMENT=production
@@ -318,9 +327,10 @@ pnpm wrangler secret put ENCRYPTION_KEY --env production
 ### Type: `Build-Time`
 
 - Compiled into the artifact during build
-- Cannot change without rebuilding
-- Vite: prefixed with `VITE_`
-- Example: `VITE_API_URL`
+- Cannot change without rebuilding — so a `wrangler.toml` var can never supply
+  one, and each target environment needs its own build
+- Vite: prefixed with `VITE_`, read from `.env.<mode>`
+- Example: `VITE_API_BASE_URL`
 
 ### Type: `Runtime Variables`
 
@@ -457,10 +467,10 @@ pnpm --filter @onlooker/api build
    pnpm wrangler secret put JWT_SECRET --env staging
    ```
 
-2. Update `VITE_API_URL` in `wrangler.toml`:
-   ```toml
-   [env.staging.vars]
-   VITE_API_URL = "https://api-staging.onlooker.dev"
+2. Confirm the staging build targets the staging API:
+   ```env
+   # apps/web/.env.staging
+   VITE_API_BASE_URL=https://api-staging.onlooker.dev
    ```
 
 3. Deploy:
@@ -527,10 +537,10 @@ CORS_ORIGIN = "https://app.onlooker.dev"  # Match exactly
 **Solution:**
 ```typescript
 // Correct: prefixed with VITE_
-const API_URL = import.meta.env.VITE_API_URL;
+const baseUrl = import.meta.env.VITE_API_BASE_URL;
 
 // Wrong: no prefix (won't be available at build time)
-const API_URL = import.meta.env.API_URL;
+const baseUrl = import.meta.env.API_BASE_URL;
 ```
 
 ---

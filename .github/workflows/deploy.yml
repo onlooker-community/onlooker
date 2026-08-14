@@ -325,6 +325,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Rebuilds the bundle rather than shipping the one "Build" produced. That
+      # step runs `vite build` with no mode, which resolves .env.production and
+      # bakes in api.onlooker.dev - and since the production job below ships the
+      # same dist/, staging spent its life calling the production API against
+      # the production database. VITE_* is inlined at build time, so a staging
+      # bundle is the only way to aim staging anywhere else. The build fails if
+      # what it produced does not call api-staging.onlooker.dev.
       - name: Deploy Web to Staging
         run: pnpm deploy:web:staging
         env:
@@ -398,6 +405,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Also rebuilds, for the mirror-image reason: now that a staging build
+      # exists and writes to the same dist/, whoever ran last would otherwise
+      # decide what production ships. Each web deploy builds the bundle it
+      # deploys, and asserts the bundle calls the API that deploy is named for.
       - name: Deploy Web to Production
         run: pnpm deploy:web:prod
         env:

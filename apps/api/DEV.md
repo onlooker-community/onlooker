@@ -127,9 +127,11 @@ Set via Cloudflare Workers dashboard or `wrangler secret put KEY`
    ```
 
 2. **Point web app to local API:**
+
+   `apps/web/.env.development` already does this, so `pnpm dev` needs no setup.
+   To override, use `apps/web/.env.local` (git-ignored):
    ```bash
-   # In apps/web/.env.local or via import config:
-   VITE_API_URL=http://localhost:8787
+   VITE_API_BASE_URL=http://localhost:8787
    ```
 
 3. **Start web app:**
