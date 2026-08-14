@@ -15,7 +15,29 @@
 :root {
 	--bg: var(--ground);
 	--bg-2: var(--panel);
-	--bg-3: color-mix(in srgb, var(--panel) 82%, var(--ink));
+	/* Mixed toward --ground, not --ink. This is the hover surface for plugin
+	 * cards, step lists and table rows, so it carries the same text those
+	 * elements carry at rest - and mixing a surface toward the ink is mixing it
+	 * toward its own text. At 82% panel / 18% ink it resolved to #605b8b at
+	 * night, where --ink-dim was 3.16 and --red 3.12, both under the 4.5 that
+	 * body text needs. No ratio in that direction fixes it: every step toward
+	 * --ink closes the gap further, and the only passing value is one with
+	 * essentially no ink in it, which is not a hover at all.
+	 *
+	 * Toward --ground the two goals stop competing - the surface moves away
+	 * from the text and away from --panel at the same time, so the ratio was
+	 * chosen to hold the hover as visible as it used to be rather than to
+	 * settle for readable. At 30/70 it reads 1.47 against --panel at night
+	 * where the old value read 1.50, and 1.25 by day against 1.35. Worst text
+	 * is 6.87 and 5.93.
+	 *
+	 * Day needs more ground than night to shift the same amount, because day's
+	 * --panel and --ground are closer in luminance than night's are. One ratio
+	 * serves both, so it is set by whichever theme needs more.
+	 *
+	 * It now darkens on hover at night instead of lightening. Lightening is
+	 * what broke it. */
+	--bg-3: color-mix(in srgb, var(--panel) 30%, var(--ground));
 	--border: var(--edge);
 	--border-2: color-mix(in srgb, var(--edge) 82%, var(--ink));
 	--accent: var(--teal);
