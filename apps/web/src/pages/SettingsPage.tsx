@@ -16,6 +16,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { describeError } from "../lib/apiErrors";
 import {
 	scorePassword,
 	validateEmail,
@@ -221,7 +222,7 @@ function UpdateProfileSection({
 		} catch (err) {
 			setMessage({
 				kind: "error",
-				text: err instanceof Error ? err.message : "Could not update profile.",
+				text: describeError(err, "Could not update profile."),
 			});
 		} finally {
 			setLoading(false);
@@ -306,7 +307,7 @@ function ChangePasswordSection() {
 		} catch (err) {
 			setMessage({
 				kind: "error",
-				text: err instanceof Error ? err.message : "Could not change password.",
+				text: describeError(err, "Could not change password."),
 			});
 		} finally {
 			setLoading(false);
@@ -382,9 +383,7 @@ function DeleteAccountSection({
 			await deleteAccount();
 			await onDeleted();
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Could not delete account.",
-			);
+			setError(describeError(err, "Could not delete account."));
 			setLoading(false);
 		}
 	};

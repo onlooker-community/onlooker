@@ -7,6 +7,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { describeError } from "../lib/apiErrors";
 import { validateEmail } from "../lib/validation";
 
 export default function ForgotPasswordPage() {
@@ -32,9 +33,7 @@ export default function ForgotPasswordPage() {
 			setSubmitted(true);
 		} catch (err) {
 			setSubmitError(
-				err instanceof Error
-					? err.message
-					: "Could not send the reset email. Try again.",
+				describeError(err, "Could not send the reset email. Try again."),
 			);
 		} finally {
 			setLoading(false);
