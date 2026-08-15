@@ -19,37 +19,43 @@ The Pages app is configured via `wrangler.toml`:
 
 ```toml
 name = "onlooker-web"
-type = "javascript"
 compatibility_date = "2024-12-16"
 
-# Build settings
-[build]
-command = "pnpm build"
-cwd = "."
-output_dir = "dist"
+[assets]
+directory = "dist"
 
-# Environment-specific settings
-[env.development.vars]
-VITE_API_URL = "http://localhost:8787"
+[env.staging]
+routes = [
+  { pattern = "app-staging.onlooker.dev/*", zone_name = "onlooker.dev" }
+]
 
-[env.production.vars]
-VITE_API_URL = "https://api.onlooker.dev"
+[env.production]
+routes = [
+  { pattern = "app.onlooker.dev/*", zone_name = "onlooker.dev" }
+]
 ```
+
+Routes and the assets directory, and nothing else. There is no `main`, so this
+is a static-assets Worker with no code of ours running on request.
 
 ### Environment Variables
 
-Build-time variables are prefixed with `VITE_`:
+Build-time variables are prefixed with `VITE_` and live in `.env.<mode>` files,
+**not** in `wrangler.toml`. Vite inlines them at build time, so a var declared
+here would be read by nothing — this app has no runtime to read it, and the
+value is already baked into the bundle by then either way.
 
-```toml
-[env.production.vars]
-VITE_API_URL = "https://api.onlooker.dev"
+That distinction is not pedantic. `wrangler.toml` used to declare a
+per-environment `VITE_API_URL`, which looked like per-environment API routing
+and was not: one bundle built against `api.onlooker.dev` shipped to both
+hostnames, so `app-staging.onlooker.dev` read and wrote the production database.
+
+```env
+# apps/web/.env.production
+VITE_API_BASE_URL=https://api.onlooker.dev
 ```
 
-Access in code:
-
-```typescript
-const API_URL = import.meta.env.VITE_API_URL;
-```
+Access in code via `resolveApiConfig()` in `src/api/config.ts`.
 
 ### Build Configuration
 
@@ -111,28 +117,35 @@ pnpm --filter @onlooker/web dev
 3. Create/Connect project
 4. Set build command: `pnpm build`
 5. Set output directory: `dist`
-6. Add environment variables (VITE_API_URL)
+6. Set build-time variables (`VITE_API_BASE_URL`) — they must be present at
+   build time, not added as runtime vars afterward
 7. Deploy
 
 ## API Integration
 
 ### Configuring API URL
 
-The API URL changes per environment:
+The API URL changes per environment, which means the *build* changes per
+environment — the URL is inlined and cannot be redirected afterward:
 
-```toml
-# Development (local)
-[env.development.vars]
-VITE_API_URL = "http://localhost:8787"
+```bash
+# Development (local): apps/web/.env.development -> http://localhost:8787
+pnpm --filter @onlooker/web dev
 
-# Staging
-[env.staging.vars]
-VITE_API_URL = "https://api-staging.onlooker.dev"
+# Staging: apps/web/.env.staging -> https://api-staging.onlooker.dev
+pnpm --filter @onlooker/web build:staging
 
-# Production
-[env.production.vars]
-VITE_API_URL = "https://api.onlooker.dev"
+# Production: apps/web/.env.production -> https://api.onlooker.dev
+pnpm --filter @onlooker/web build
 ```
+
+Each build command ends by reading its own output and failing if the bundle
+calls anything other than the API that mode is named for
+(`scripts/verify-api-target.mjs`). It also fails when the bundle names no API at
+all — an unset `VITE_API_BASE_URL` drops the app onto its in-memory mock, which
+looks healthy while serving invented data. `pnpm deploy:web:staging` and
+`pnpm deploy:web:prod` each run their own build, so neither can ship a bundle
+another deploy left in `dist/`.
 
 ### Using API URL in Code
 
@@ -140,10 +153,12 @@ Create a API client:
 
 ```typescript
 // src/api/client.ts
-const API_URL = import.meta.env.VITE_API_URL;
+import { resolveApiConfig } from "./config";
+
+const { baseUrl } = resolveApiConfig();
 
 export async function loginUser(email: string, password: string) {
-  const response = await fetch(`${API_URL}/auth/login`, {
+  const response = await fetch(`${baseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -158,7 +173,7 @@ export async function loginUser(email: string, password: string) {
 }
 
 export async function fetchUser(token: string) {
-  const response = await fetch(`${API_URL}/api/users/me`, {
+  const response = await fetch(`${baseUrl}/api/users/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   
@@ -257,14 +272,16 @@ dist/
 
 ## Troubleshooting
 
-### Build Fails with "VITE_API_URL undefined"
+### Build fails with "the bundle calls no API at all"
 
-**Cause:** Variable not in `wrangler.toml`
+**Cause:** `VITE_API_BASE_URL` was unset for the mode being built, usually a
+missing `.env.<mode>` file. Left unchecked this does not fail — the app quietly
+falls back to its in-memory mock and serves invented data.
 
-**Solution:**
-```toml
-[env.production.vars]
-VITE_API_URL = "https://api.onlooker.dev"
+**Solution:** set it in the `.env` file for that mode.
+```env
+# apps/web/.env.production
+VITE_API_BASE_URL=https://api.onlooker.dev
 ```
 
 ### App loads but API calls fail (CORS error)
@@ -279,11 +296,11 @@ VITE_API_URL = "https://api.onlooker.dev"
    CORS_ORIGIN = "https://app.onlooker.dev"
    ```
 
-2. Check VITE_API_URL is correct:
-   ```toml
-   # apps/web/wrangler.toml
-   [env.production.vars]
-   VITE_API_URL = "https://api.onlooker.dev"
+2. Check what the deployed bundle actually calls, not what config says:
+   ```bash
+   curl -s https://app.onlooker.dev/ | grep -o '/assets/index-[^"]*\.js'
+   curl -s https://app.onlooker.dev/assets/index-XXXX.js \
+     | grep -o 'https://api[a-z-]*\.onlooker\.dev' | sort -u
    ```
 
 3. Test preflight:
@@ -369,12 +386,11 @@ pnpm --filter @onlooker/web deploy --env production
 ### Build for Staging
 
 ```bash
-# Build with staging variables
-VITE_API_URL=https://api-staging.onlooker.dev \
-pnpm --filter @onlooker/web build
+# Reads apps/web/.env.staging and verifies the result
+pnpm --filter @onlooker/web build:staging
 
-# Or use wrangler environment
-pnpm --filter @onlooker/web deploy --env staging
+# Build and deploy in one step
+pnpm deploy:web:staging
 ```
 
 ## Testing
@@ -392,8 +408,7 @@ pnpm --filter @onlooker/web preview
 ### Test Against Live API
 
 ```bash
-# Build with production API URL
-VITE_API_URL=https://api.onlooker.dev \
+# The default build already targets the production API
 pnpm --filter @onlooker/web build
 
 # Preview locally
@@ -401,6 +416,10 @@ pnpm --filter @onlooker/web preview
 
 # App talks to production API at http://localhost:5173
 ```
+
+Note that this is a real client of production: anything you sign up or change
+here lands in the production database. Prefer `build:staging` unless you
+specifically need production.
 
 ## Related Docs
 
