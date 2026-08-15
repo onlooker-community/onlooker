@@ -46,7 +46,7 @@ export default defineConfig(async () => {
 					bindings: {
 						TEST_MIGRATIONS: migrations,
 						JWT_SECRET: "test-secret-not-used-anywhere-real",
-						TOKEN_EXPIRY_MINUTES: "180",
+						TOKEN_EXPIRY_MINUTES: "15",
 						REFRESH_TOKEN_EXPIRY_DAYS: "30",
 						ENVIRONMENT: "test",
 						CORS_ORIGIN: "http://localhost:5173",

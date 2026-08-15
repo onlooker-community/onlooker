@@ -192,9 +192,13 @@ CREATE TABLE reset_tokens (
 }
 ```
 
-- **Signature:** RS256 (asymmetric) for production
-- **TTL:** 3 minutes (configurable via `TOKEN_EXPIRY_MINUTES`)
-- **Secret:** Use `env.JWT_SECRET` (will be private key in production)
+- **Signature:** HS256, symmetric, via `jose` — not RS256, which this document
+  claimed and no code has ever done
+- **TTL:** 15 minutes (`TOKEN_EXPIRY_MINUTES`). This document said 3 minutes and
+  the deployed value was 180; it is short deliberately, because logout cannot
+  withdraw an access token and this is the window that bounds one. See
+  `SESSION_LIFECYCLE` in `packages/api-contract`.
+- **Secret:** `env.JWT_SECRET`
 
 ### Refresh Token Payload
 ```json

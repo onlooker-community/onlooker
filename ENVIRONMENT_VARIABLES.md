@@ -11,7 +11,7 @@ Complete reference of all environment variables used across the Onlooker platfor
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
 | `CORS_ORIGIN` | API | Vars | Allowed origin for CORS | `https://app.onlooker.dev` |
 | `DB_HOST` | API | Vars | D1 database host | Cloudflare D1 (auto) |
-| `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `180` |
+| `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
 
 ---
@@ -92,7 +92,7 @@ These are environment variables that can be checked into version control.
 | `CORS_ORIGIN` | Origins allowed to call the API from a browser, comma-separated. Matched exactly — scheme included, no trailing slash. Unset means none | Origin of the web app |
 | `DB_HOST` | Database host | Auto-managed by D1 |
 | `DB_NAME` | Database name | `onlooker_dev`, `onlooker_staging`, `onlooker_prod` |
-| `TOKEN_EXPIRY_MINUTES` | Access token lifetime | `180` (3 hours) |
+| `TOKEN_EXPIRY_MINUTES` | Access token lifetime, and the window a logged-out token stays usable | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `30` (30 days) |
 
 #### Development
@@ -103,7 +103,7 @@ These are environment variables that can be checked into version control.
 [env.development.vars]
 ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```
 
@@ -115,7 +115,7 @@ REFRESH_TOKEN_EXPIRY_DAYS = "30"
 [env.staging.vars]
 ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```
 
@@ -127,7 +127,7 @@ REFRESH_TOKEN_EXPIRY_DAYS = "30"
 [env.production.vars]
 ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ```
 
@@ -247,7 +247,7 @@ VITE_API_BASE_URL=http://localhost:8787
 # API (wrangler.toml [env.development])
 ENVIRONMENT=development
 CORS_ORIGIN=http://localhost:5173
-TOKEN_EXPIRY_MINUTES=180
+TOKEN_EXPIRY_MINUTES=15
 REFRESH_TOKEN_EXPIRY_DAYS=30
 
 # Secrets (via wrangler secret put)
@@ -263,7 +263,7 @@ VITE_API_BASE_URL=https://api-staging.onlooker.dev
 # API (wrangler.toml [env.staging])
 ENVIRONMENT=staging
 CORS_ORIGIN=https://app-staging.onlooker.dev
-TOKEN_EXPIRY_MINUTES=180
+TOKEN_EXPIRY_MINUTES=15
 REFRESH_TOKEN_EXPIRY_DAYS=30
 
 # Secrets (via wrangler secret put)
@@ -280,7 +280,7 @@ VITE_API_BASE_URL=https://api.onlooker.dev
 # API (wrangler.toml [env.production])
 ENVIRONMENT=production
 CORS_ORIGIN=https://app.onlooker.dev
-TOKEN_EXPIRY_MINUTES=180
+TOKEN_EXPIRY_MINUTES=15
 REFRESH_TOKEN_EXPIRY_DAYS=30
 
 # Secrets (via wrangler secret put)

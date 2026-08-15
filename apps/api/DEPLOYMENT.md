@@ -42,7 +42,7 @@ Each environment has its own configuration:
 [env.production.vars]
 ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 
 [env.production.d1_databases]
