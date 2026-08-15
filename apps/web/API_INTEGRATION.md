@@ -111,7 +111,7 @@ All endpoints are documented in `src/api/types.ts`. Here's a quick reference:
 | POST | `/auth/signup` | Register new account → JWT tokens |
 | POST | `/auth/refresh` | Exchange refresh token for new access token |
 | GET | `/auth/me` | Get current user profile (requires auth) |
-| POST | `/auth/logout` | Invalidate session (requires auth) |
+| POST | `/auth/logout` | End this session — send `{ refreshToken }` (requires auth) |
 
 ### Account Management Endpoints (requires auth)
 
@@ -247,9 +247,20 @@ Before committing changes to the API client, verify the integration locally. Her
 
 **Cause:** Logout endpoint hitting itself or refresh endpoint hitting itself.
 
-**Solution:** The client is designed to prevent this — logout never hits the network, and refresh-on-401 is exempt from refresh-on-401 to prevent recursion. If this happens, check:
+**Solution:** The client is designed to prevent this. There are two logout paths
+and only one of them is allowed on the network:
+
+- **Deliberate logout** (the user clicked it) POSTs `/auth/logout` with its
+  refresh token, so the server can end that session. Without the body the server
+  has nothing to revoke.
+- **Reactive logout** (refresh failed, cross-tab signal) clears local state only
+  and never calls the endpoint. That call would 401, re-enter this same path,
+  and loop — which is the failure being described here.
+
+If it happens anyway, check:
 1. Verify `REFRESH_EXEMPT_PATHS` includes `/auth/refresh`
-2. Verify logout handler clears tokens locally without calling `/auth/logout`
+2. Verify the *reactive* handler clears tokens locally without calling
+   `/auth/logout` — the deliberate one is supposed to call it
 
 ## File Reference
 

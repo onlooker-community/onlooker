@@ -51,8 +51,17 @@ The API is a Cloudflare Workers service with a complete route structure and type
 
 #### `handleLogout` - POST /auth/logout
 **Operations:**
-- Revoke current access token
-- Invalidate all sessions for user
+- Revoke the refresh token named in the request body, ending that session
+- Leave every other session alone
+- Leave the access token alone — it is a stateless JWT with no server-side
+  record, so it stays valid for the rest of its lifetime
+
+This entry used to read "revoke current access token / invalidate all sessions
+for user". Neither was true, and neither was reachable: the handler revoked
+nothing at all, so a logged-out session could refresh itself indefinitely. The
+decision behind the current behavior is recorded as `SESSION_LIFECYCLE` in
+`packages/api-contract`, and both this API and apps/web's mock are tested
+against it.
 
 ### 2. Account Management (`src/routes/account.ts`)
 
@@ -266,14 +275,18 @@ Configure these in:
   for the `DB` binding
 - `wrangler secret put` - for `JWT_SECRET` outside development
 
-Two entries here are worth knowing about rather than trusting:
+One entry here is worth knowing about rather than trusting:
 
-- **`CORS_ORIGIN`** is declared in every block of `wrangler.toml` and read by
-  nothing. The worker hardcodes `Access-Control-Allow-Origin: *`, so the config
-  describes a policy that is not enforced.
-- **`TOKEN_REVOCATION`** is typed but bound nowhere and read nowhere. It is the
-  mechanism that would let logout end an access token before it expires, which
-  today it does not.
+- **`TOKEN_REVOCATION`** is typed but bound nowhere and read nowhere. It is
+  where an access-token denylist would live — the mechanism that would let
+  logout end an access token before it expires, which today it deliberately
+  does not. Closing that window costs a lookup on every authenticated request,
+  forever; shortening the token lifetime buys nearly the same protection for
+  nothing. See `SESSION_LIFECYCLE` in `packages/api-contract`.
+
+`CORS_ORIGIN` used to be listed here as declared-but-unread, with the worker
+hardcoding `Access-Control-Allow-Origin: *`. It is enforced now —
+`middleware/cors.ts` echoes an origin only when `CORS_ORIGIN` names it.
 
 This list previously carried `DB_HOST`, `DB_PORT` and `DB_NAME`, left from a
 Postgres design the app does not have. They were removed from `wrangler.toml`

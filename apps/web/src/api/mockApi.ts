@@ -125,19 +125,18 @@ function issueTokens(email: string): { token: string; refreshToken: string } {
 		tokenCounter,
 	);
 
-	// Rotation: retire and revoke any tokens previously issued for this user so a
-	// superseded (but still unexpired) token can't be replayed.
-	const priorAccess = ACCESS_TOKENS.get(email);
-	if (priorAccess) {
-		ACCESS_TOKEN_OWNER.delete(priorAccess);
-		REVOKED_TOKENS.add(priorAccess);
-	}
-	const priorRefresh = REFRESH_TOKENS.get(email);
-	if (priorRefresh) {
-		REFRESH_TOKEN_OWNER.delete(priorRefresh);
-		REVOKED_TOKENS.add(priorRefresh);
-	}
-
+	// Issuing a pair no longer retires the user's previous one. It used to, on
+	// the reasoning that a superseded token should not be replayable - but
+	// apps/api has no such rule, so the effect was that signing in on a second
+	// device silently ended the first everywhere except production. Sessions are
+	// concurrent (SESSION_LIFECYCLE in @onlooker/api-contract).
+	//
+	// Refresh still rotates, because there the caller hands over the exact token
+	// being replaced; that revocation lives in the /auth/refresh branch, which is
+	// the only place that knows which session is being renewed.
+	//
+	// These two maps still track the most recent pair per user, which is what
+	// invalidateSessions() reaches for when a password changes.
 	ACCESS_TOKENS.set(email, token);
 	ACCESS_TOKEN_OWNER.set(token, email);
 	REFRESH_TOKENS.set(email, refreshToken);
@@ -476,6 +475,15 @@ export async function mockAuthApi(
 			);
 		}
 
+		// Rotation, and the only place it belongs: the caller has named the exact
+		// token it is replacing, so retiring that one ends no other session.
+		// apps/api does the same - handleRefresh revokes the presented refresh
+		// token before storing its replacement.
+		if (refreshToken) {
+			REVOKED_TOKENS.add(refreshToken);
+			REFRESH_TOKEN_OWNER.delete(refreshToken);
+		}
+
 		const rotated = issueTokens(email);
 		const response: RefreshResponse = {
 			token: rotated.token,
@@ -500,16 +508,21 @@ export async function mockAuthApi(
 	}
 
 	if (path === AUTH_ENDPOINTS.logout && options.method === "POST") {
-		const token = bearerToken(options);
-		// Resolve the owner even if the token has aged out, so logging out an
-		// expired session still tears it down. Then revoke the presented token.
-		const email =
-			(token ? ACCESS_TOKEN_OWNER.get(token) : undefined) ??
-			(token
-				? (decodeJwtPayload(token)?.sub as string | undefined)
-				: undefined);
-		if (token) REVOKED_TOKENS.add(token);
-		if (email) invalidateSessions(email);
+		// Revokes the refresh token in the body and nothing else, matching
+		// apps/api. See SESSION_LIFECYCLE in @onlooker/api-contract for why the
+		// access token is left alone: it is a stateless JWT there, so no amount of
+		// bookkeeping on this side could withdraw one, and a mock that pretends
+		// otherwise teaches the app a guarantee production does not offer.
+		//
+		// This used to revoke the presented access token and call
+		// invalidateSessions(), which ended every session that user had. Both were
+		// fictions - one about a token the real server cannot reach, the other
+		// about devices it was never told to sign out.
+		const { refreshToken } = readBody<{ refreshToken?: string }>(options);
+		if (refreshToken) {
+			REVOKED_TOKENS.add(refreshToken);
+			REFRESH_TOKEN_OWNER.delete(refreshToken);
+		}
 		return new Response(JSON.stringify({ success: true }), { status: 200 });
 	}
 

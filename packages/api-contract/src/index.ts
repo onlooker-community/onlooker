@@ -85,17 +85,13 @@ const NO_SECRETS = ["password_hash", "passwordHash"];
 /**
  * Cases needing no authentication, in the order a new user meets them.
  *
- * Deliberately absent, because the two sides genuinely disagree and pinning
- * either answer would invent a decision that belongs to a human:
- *   - forgot-password: 501 from apps/api, 200 from the mock, which implements
- *     the whole reset flow (onlooker-bde).
- *   - anything after logout: the mock revokes the access token, apps/api leaves
- *     it valid until expiry (onlooker-nmb).
- *   - a second login: the mock rotates, revoking the first session's token;
- *     apps/api leaves it valid, so both sessions live (onlooker-06u). This one
- *     constrains the runners - it is why they take their authenticated token
- *     after these cases have run, since "login, correct credentials" below
- *     would otherwise revoke a token acquired earlier.
+ * Deliberately absent: forgot-password, which answers 501 from apps/api and 200
+ * from the mock, since the mock implements a reset flow the API does not have
+ * yet (onlooker-bde). Pinning either answer would invent that feature's design.
+ *
+ * The other two exclusions are gone. Session lifecycle used to be unpinnable
+ * because the two sides disagreed; SESSION_LIFECYCLE below now records the
+ * decision and both implementations answer to it.
  */
 export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 	return [
@@ -156,6 +152,51 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 		},
 	];
 }
+
+/**
+ * What a session survives, and what ends it.
+ *
+ * This is a decision, recorded, not a description of an accident. The two
+ * implementations disagreed three ways and the disagreement traced to one
+ * question: can an access token be withdrawn before it expires? A stateless JWT
+ * cannot be - verification is a signature check with no lookup - so any answer
+ * that claims otherwise is either a lie or a per-request database read.
+ *
+ * The answer taken:
+ *
+ *   Logout revokes the refresh token for the session that asked, and nothing
+ *   else. The access token stays valid for the rest of its short life. Before
+ *   this, apps/api revoked NOTHING on logout - measured, not assumed - so a
+ *   logged-out session could refresh itself forever, each refresh minting a new
+ *   30-day window. That was the actual exposure, and it was unbounded.
+ *
+ *   Sessions are concurrent and independently terminable. A second login does
+ *   not disturb the first, and logging out one device does not sign out the
+ *   others. The mock used to rotate on every issue, ending the prior session;
+ *   that made a laptop and a phone mutually exclusive in development and not in
+ *   production.
+ *
+ *   The residual window is the access-token lifetime, deliberately. An access
+ *   token denylist would close it completely at the cost of a KV read on every
+ *   authenticated request, forever; shortening the lifetime buys nearly the same
+ *   protection for nothing. TOKEN_REVOCATION in WorkerEnv is where a denylist
+ *   would go if that trade ever changes.
+ *
+ * Both runners drive these as an ordered flow rather than single requests, since
+ * each step depends on the last. The numbers live here so the decision has one
+ * home; the mechanics differ per side because the mock and SELF are reached
+ * differently.
+ */
+export const SESSION_LIFECYCLE = {
+	/** The access token still works right after logout - it cannot be withdrawn. */
+	accessTokenAfterLogout: 200,
+	/** The refresh token is gone, so the session cannot renew itself. */
+	refreshAfterLogout: 401,
+	/** Logging in again leaves the earlier session untouched. */
+	firstSessionAfterSecondLogin: 200,
+	/** And the earlier session can still be ended on its own. */
+	refreshAfterLoggingOutTheFirstSession: 401,
+} as const;
 
 /**
  * Cases running with a valid access token, which the runner attaches.

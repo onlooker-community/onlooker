@@ -66,7 +66,17 @@ export const auth = createReactAuth<User, AppAuthState>({
 	},
 	logout: async () => {
 		try {
-			await apiClient.post(AUTH_ENDPOINTS.logout, {});
+			// The refresh token is the whole payload of a logout. It names the
+			// session being ended, and it is the only half of the pair the server
+			// can revoke - the access token is a stateless JWT it holds no record
+			// of. Sending an empty body, which is what this did, told the server
+			// who was leaving but not which session to close, so it closed none:
+			// a logged-out session could refresh itself indefinitely.
+			//
+			// Read before the request, because the `finally` below clears it.
+			await apiClient.post(AUTH_ENDPOINTS.logout, {
+				refreshToken: tokenStore.getRefreshToken() ?? undefined,
+			});
 		} finally {
 			// Always clear local tokens even if the server call fails.
 			tokenStore.clear();

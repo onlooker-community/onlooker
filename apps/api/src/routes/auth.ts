@@ -234,20 +234,57 @@ export async function handleMe(
 
 /**
  * POST /auth/logout
- * Invalidate the current session.
+ * End the session this device holds.
+ *
+ * Revokes the refresh token in the body and nothing else. What that buys is the
+ * difference between a bounded session and an unbounded one: this handler used
+ * to revoke nothing at all, so a logged-out session could call /auth/refresh
+ * indefinitely, each call minting a fresh token pair with a new 30-day window.
+ * "Logged out" meant only that one browser had forgotten its tokens.
+ *
+ * The access token is deliberately left alone. It is a stateless JWT - there is
+ * no record of it to delete, and verification never looks anything up - so the
+ * only way to withdraw one early is to check every request against a denylist.
+ * That is a read per authenticated request forever, to close a window the token
+ * lifetime already bounds. See SESSION_LIFECYCLE in packages/api-contract, and
+ * TOKEN_REVOCATION in WorkerEnv if that trade is ever revisited.
+ *
+ * Only the session that asked is ended. Other devices keep theirs.
  */
 export async function handleLogout(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	// Logout doesn't fail if token is invalid - client will clear localStorage
+	// Never fails on a bad token. The client is discarding its state either way,
+	// and a 401 here would strand whoever most needs to log out.
 	await optionalAuth(request, env);
 
-	// If we had valid auth, we could revoke tokens in a production system
-	// For now, just return success - client clears localStorage
+	const refreshToken = await refreshTokenFromBody(request);
+	if (refreshToken) {
+		await revokeRefreshToken(env.DB, refreshToken);
+	}
 
 	return new Response(JSON.stringify({ success: true }), {
 		status: 200,
 		headers: { "Content-Type": "application/json" },
 	});
+}
+
+/**
+ * The refresh token a logout request is asking to revoke, if it sent one.
+ *
+ * Absent, empty and malformed bodies are all the same answer - nothing to
+ * revoke - because logout must not fail. A client that sends no refresh token
+ * ends up where it was before this handler did anything: its tokens work until
+ * they expire.
+ */
+async function refreshTokenFromBody(
+	request: Request,
+): Promise<string | undefined> {
+	try {
+		const body = (await request.json()) as RefreshTokenRequest | null;
+		return body?.refreshToken || undefined;
+	} catch {
+		return undefined;
+	}
 }

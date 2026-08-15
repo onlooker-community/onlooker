@@ -51,6 +51,31 @@ function authHeaderOf(init: RequestInit | undefined): string | null {
 	);
 }
 
+/**
+ * An access token the mock will reject as aged out.
+ *
+ * Needed because logout no longer ends access. It revokes the refresh token and
+ * leaves the access token working until it expires, which is what apps/api does
+ * and what the mock now matches - so a test that wants the client to attempt a
+ * refresh has to age the access token out itself.
+ */
+function expiredAccessToken(): string {
+	const iat = Math.floor(Date.now() / 1000) - 300;
+	const payload = btoa(
+		JSON.stringify({
+			sub: "test@example.com",
+			type: "access",
+			iat,
+			exp: iat + 60,
+			jti: 1,
+		}),
+	)
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/, "");
+	return `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${payload}.mock-signature`;
+}
+
 let store: TokenStore;
 
 beforeEach(() => {
@@ -259,11 +284,25 @@ describe("createApiClient — token refresh", () => {
 			refreshToken: loginData.refreshToken,
 		});
 
-		// Invalidate the refresh token to make refresh fail
-		await authenticatedFetch("/auth/logout", { method: "POST" });
+		// Revoke the refresh token. Logout has to be told which session to end -
+		// it takes the refresh token in the body, and a body-less logout (what
+		// this used to send) now revokes nothing at all. See SESSION_LIFECYCLE in
+		// @onlooker/api-contract.
+		await authenticatedFetch("/auth/logout", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: loginData.refreshToken }),
+		});
 
-		// Now make a request that will 401 and try to refresh
-		// The refresh will fail (refresh token is revoked), so we get a terminal 401
+		// Expire the access token by hand. Logout deliberately leaves it working,
+		// so without this the client would never reach the refresh path this test
+		// is about.
+		store.setTokens({
+			accessToken: expiredAccessToken(),
+			refreshToken: loginData.refreshToken,
+		});
+
+		// Now the request 401s, the client tries to refresh, and the refresh fails
+		// because the token was revoked - a terminal 401.
 		response = await authenticatedFetch("/auth/me", { method: "GET" });
 		expect(response.status).toBe(401);
 
@@ -341,7 +380,16 @@ describe("createApiClient — token refresh", () => {
 		expect(response.status).toBe(200);
 	});
 
-	it("rejects revoked tokens (logout / rotation / session invalidation)", async () => {
+	// Was "rejects revoked tokens (logout / rotation / session invalidation)",
+	// which asserted that /auth/me 401s straight after logout. That is the
+	// behavior the session-lifecycle decision reverses: logout revokes the
+	// refresh token and leaves the access token alone, because apps/api cannot
+	// withdraw a stateless JWT and the mock should not pretend it can.
+	//
+	// The client behavior underneath is unchanged and still worth pinning - a
+	// revoked session must not be able to renew itself - so the assertion moved
+	// to the refresh call, which is the thing logout actually kills.
+	it("cannot renew a session after logout, though the access token outlives it", async () => {
 		const { authenticatedFetch } = createApiClient({
 			config: testConfig({ useMockApi: true }),
 			tokenStore: store,
@@ -369,12 +417,23 @@ describe("createApiClient — token refresh", () => {
 		response = await authenticatedFetch("/auth/me", { method: "GET" });
 		expect(response.status).toBe(200);
 
-		// Logout invalidates sessions (revokes the token)
-		response = await authenticatedFetch("/auth/logout", { method: "POST" });
+		// Logout ends the session by revoking the refresh token it is given.
+		response = await authenticatedFetch("/auth/logout", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: loginData.refreshToken }),
+		});
 		expect(response.status).toBe(200);
 
-		// Now the revoked token should be rejected
+		// The access token keeps working for the rest of its life. This is the
+		// deliberate residual window, not an oversight - see SESSION_LIFECYCLE.
 		response = await authenticatedFetch("/auth/me", { method: "GET" });
+		expect(response.status).toBe(200);
+
+		// But the session cannot renew itself, which is what bounds that window.
+		response = await authenticatedFetch("/auth/refresh", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: loginData.refreshToken }),
+		});
 		expect(response.status).toBe(401);
 	});
 });
