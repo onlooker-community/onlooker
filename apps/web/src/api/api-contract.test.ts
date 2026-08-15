@@ -3,6 +3,7 @@ import {
 	authenticatedCases,
 	type ContractCase,
 	forbiddenPresent,
+	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -64,11 +65,12 @@ describe("the mock serves the contract", () => {
 		});
 	}
 
-	// Nested so this login happens after the anonymous cases above, not before.
-	// The mock revokes a user's earlier access token whenever it issues a new one
-	// (onlooker-06u), so "login, correct credentials" above would kill a token
-	// taken any sooner - which is how that divergence was found: these three
-	// cases 401'd against a token the mock had quietly retired.
+	// Nested purely to group these and give them their own login. The ordering
+	// used to be load-bearing - the mock retired a user's earlier token whenever
+	// it issued a new one, so "login, correct credentials" above would kill a
+	// token taken any sooner, which is how that divergence was found. Sessions
+	// are concurrent now, so any order works; the grouping stays because it reads
+	// better and mirrors the apps/api runner.
 	describe("with a valid token", () => {
 		beforeAll(async () => {
 			const login = await createMockFetch()("/auth/login", {
@@ -107,5 +109,99 @@ describe("the mock serves the contract", () => {
 				}
 			});
 		}
+	});
+});
+
+// The same flow apps/api runs in its own contract suite. Driven step by step
+// rather than as independent cases, because each step depends on the last, and
+// each test signs up its own account so the sequences cannot collide.
+//
+// Both of the behaviors pinned here were mock inventions until now: it revoked
+// the presented access token on logout, which the real server cannot do, and it
+// retired a user's previous tokens whenever it issued new ones, which the real
+// server does not do. Anything built against the old mock believed logging out
+// ended access immediately and that a second device signed the first one out.
+describe("the mock's session lifecycle", () => {
+	let seq = 0;
+
+	async function signUp(): Promise<{ access: string; refresh: string }> {
+		seq += 1;
+		const res = await createMockFetch()("/auth/signup", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: `mock-lifecycle-${seq}@example.com`,
+				password: "correct-horse-battery",
+			}),
+		});
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		const body = JSON.parse(raw) as { token: string; refreshToken: string };
+		return { access: body.token, refresh: body.refreshToken };
+	}
+
+	const me = (token: string) =>
+		createMockFetch()("/auth/me", {
+			method: "GET",
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+	const refresh = (token: string) =>
+		createMockFetch()("/auth/refresh", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ refreshToken: token }),
+		});
+
+	const logout = (session: { access: string; refresh: string }) =>
+		createMockFetch()("/auth/logout", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${session.access}`,
+			},
+			body: JSON.stringify({ refreshToken: session.refresh }),
+		});
+
+	it("logout leaves the access token alone and kills the refresh token", async () => {
+		const session = await signUp();
+		expect((await me(session.access)).status).toBe(200);
+
+		expect((await logout(session)).status).toBe(200);
+
+		expect((await me(session.access)).status).toBe(
+			SESSION_LIFECYCLE.accessTokenAfterLogout,
+		);
+		expect((await refresh(session.refresh)).status).toBe(
+			SESSION_LIFECYCLE.refreshAfterLogout,
+		);
+	});
+
+	it("a second login leaves the first session usable, and separately closable", async () => {
+		const first = await signUp();
+		const second = await createMockFetch()("/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: `mock-lifecycle-${seq}@example.com`,
+				password: "correct-horse-battery",
+			}),
+		});
+		expect(second.status).toBe(200);
+		const secondSession = (await second.json()) as {
+			token: string;
+			refreshToken: string;
+		};
+
+		expect((await me(first.access)).status).toBe(
+			SESSION_LIFECYCLE.firstSessionAfterSecondLogin,
+		);
+
+		// Closing the first must not take the second down with it.
+		expect((await logout(first)).status).toBe(200);
+		expect((await refresh(first.refresh)).status).toBe(
+			SESSION_LIFECYCLE.refreshAfterLoggingOutTheFirstSession,
+		);
+		expect((await refresh(secondSession.refreshToken)).status).toBe(200);
 	});
 });

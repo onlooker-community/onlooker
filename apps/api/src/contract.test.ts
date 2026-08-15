@@ -4,6 +4,7 @@ import {
 	authenticatedCases,
 	type ContractCase,
 	forbiddenPresent,
+	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -89,13 +90,10 @@ describe("apps/api serves the contract", () => {
 		});
 	}
 
-	// Nested so this login happens after the anonymous cases above, not before.
-	// The mock revokes a user's earlier access token whenever it issues a new one
-	// (onlooker-06u), so a token taken before "login, correct credentials" runs
-	// would be dead by the time these cases use it. apps/api does not rotate that
-	// way and would pass either ordering - the structure matches the mock runner
-	// so the two stay comparable, and so this side keeps working if that
-	// difference is ever resolved in the mock's favor.
+	// Nested purely to group these and give them their own login. This ordering
+	// once mattered on the mock side, which retired earlier tokens on every
+	// issue; sessions are concurrent on both sides now, so it no longer does. The
+	// structure stays so the two runners keep mirroring each other.
 	describe("with a valid token", () => {
 		beforeAll(async () => {
 			const login = await SELF.fetch(`${BASE}/auth/login`, {
@@ -129,5 +127,92 @@ describe("apps/api serves the contract", () => {
 				}
 			});
 		}
+	});
+});
+
+// Driven as a flow rather than independent cases, because every step depends on
+// the one before it. Each test owns a throwaway account so the sequences cannot
+// interfere with each other or with the cases above.
+describe("apps/api session lifecycle", () => {
+	let seq = 0;
+
+	async function signUp(): Promise<{ access: string; refresh: string }> {
+		seq += 1;
+		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: `lifecycle-${seq}@example.com`,
+				password: PASSWORD,
+			}),
+		});
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		const body = JSON.parse(raw) as { token: string; refreshToken: string };
+		return { access: body.token, refresh: body.refreshToken };
+	}
+
+	const me = (token: string) =>
+		SELF.fetch(`${BASE}/auth/me`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+	const refresh = (token: string) =>
+		SELF.fetch(`${BASE}/auth/refresh`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ refreshToken: token }),
+		});
+
+	const logout = (session: { access: string; refresh: string }) =>
+		SELF.fetch(`${BASE}/auth/logout`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${session.access}`,
+			},
+			body: JSON.stringify({ refreshToken: session.refresh }),
+		});
+
+	it("logout leaves the access token alone and kills the refresh token", async () => {
+		const session = await signUp();
+		expect((await me(session.access)).status).toBe(200);
+
+		expect((await logout(session)).status).toBe(200);
+
+		expect((await me(session.access)).status).toBe(
+			SESSION_LIFECYCLE.accessTokenAfterLogout,
+		);
+		expect((await refresh(session.refresh)).status).toBe(
+			SESSION_LIFECYCLE.refreshAfterLogout,
+		);
+	});
+
+	it("a second login leaves the first session usable, and separately closable", async () => {
+		const first = await signUp();
+		const second = await SELF.fetch(`${BASE}/auth/login`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: `lifecycle-${seq}@example.com`,
+				password: PASSWORD,
+			}),
+		});
+		expect(second.status).toBe(200);
+		const secondSession = (await second.json()) as {
+			token: string;
+			refreshToken: string;
+		};
+
+		expect((await me(first.access)).status).toBe(
+			SESSION_LIFECYCLE.firstSessionAfterSecondLogin,
+		);
+
+		// Closing the first must not take the second down with it.
+		expect((await logout(first)).status).toBe(200);
+		expect((await refresh(first.refresh)).status).toBe(
+			SESSION_LIFECYCLE.refreshAfterLoggingOutTheFirstSession,
+		);
+		expect((await refresh(secondSession.refreshToken)).status).toBe(200);
 	});
 });
