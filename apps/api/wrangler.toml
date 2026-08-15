@@ -3,10 +3,20 @@ main = "src/index.ts"
 compatibility_date = "2024-12-16"
 compatibility_flags = ["nodejs_compat"]
 
-# Routes configuration
-routes = [
-  { pattern = "api.onlooker.dev/*", zone_name = "onlooker.dev" }
-]
+# No routes at this level, deliberately. api.onlooker.dev is declared under
+# [env.production] and nowhere else.
+#
+# It used to be declared here too, and `routes` is an inheritable key - so
+# `wrangler deploy` with no --env deployed a worker named onlooker-api (not
+# onlooker-api-production) and handed it the production hostname. That worker
+# inherits this block and nothing below it: no DB binding, no JWT_SECRET. Every
+# authenticated route would 500 and production would stay down until someone
+# redeployed with --env production. The only reason it never happened is that
+# nobody ran the un-suffixed script; the Cloudflare account has never held a
+# bare onlooker-api worker.
+#
+# Each environment declares the hostname it actually serves. An environment-less
+# deploy can no longer claim one.
 
 # ============================================================================
 # DEVELOPMENT ENVIRONMENT
