@@ -1,4 +1,5 @@
 import {
+	ACCOUNT_CONTRACT,
 	anonymousCases,
 	authenticatedCases,
 	type ContractCase,
@@ -203,5 +204,181 @@ describe("the mock's session lifecycle", () => {
 			SESSION_LIFECYCLE.refreshAfterLoggingOutTheFirstSession,
 		);
 		expect((await refresh(secondSession.refreshToken)).status).toBe(200);
+	});
+});
+
+// The same account flows apps/api runs. These four endpoints were 501 stubs
+// there while the mock implemented all of them, so the mock set this contract
+// by default and the API has now caught up to it - except for password change
+// ending other sessions, where the mock was the one that moved.
+describe("the mock's account management", () => {
+	let seq = 0;
+
+	async function account(): Promise<{
+		email: string;
+		access: string;
+		refresh: string;
+	}> {
+		seq += 1;
+		const email = `mock-account-${seq}@example.com`;
+		const res = await createMockFetch()("/auth/signup", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email, password: "correct-horse-battery" }),
+		});
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		const body = JSON.parse(raw) as { token: string; refreshToken: string };
+		return { email, access: body.token, refresh: body.refreshToken };
+	}
+
+	const profile = (token: string) =>
+		createMockFetch()("/auth/profile", {
+			method: "GET",
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+	const patch = (token: string, changes: Record<string, string>) =>
+		createMockFetch()("/auth/profile", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify(changes),
+		});
+
+	const login = (email: string, password: string) =>
+		createMockFetch()("/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email, password }),
+		});
+
+	const refresh = (token: string) =>
+		createMockFetch()("/auth/refresh", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ refreshToken: token }),
+		});
+
+	it("serves a profile carrying what the settings page reads", async () => {
+		const me = await account();
+
+		const body = (await (await profile(me.access)).json()) as {
+			user: Record<string, unknown>;
+		};
+
+		expect(body.user.email).toBe(me.email);
+		expect(body.user.createdAt).toEqual(expect.any(String));
+		expect(body.user.emailVerified).toBe(false);
+		expect(JSON.stringify(body)).not.toContain("password");
+	});
+
+	it("renames without touching the address", async () => {
+		const me = await account();
+
+		const body = (await (await patch(me.access, { name: "Ada" })).json()) as {
+			user: Record<string, unknown>;
+		};
+
+		expect(body.user.name).toBe("Ada");
+		expect(body.user.email).toBe(me.email);
+	});
+
+	it("refuses an address another account holds", async () => {
+		const first = await account();
+		const second = await account();
+
+		expect((await patch(second.access, { email: first.email })).status).toBe(
+			ACCOUNT_CONTRACT.emailTaken,
+		);
+	});
+
+	it("accepts an unchanged address as a no-op", async () => {
+		const me = await account();
+
+		expect((await patch(me.access, { email: me.email })).status).toBe(200);
+	});
+
+	it("clears verification when the address changes", async () => {
+		const me = await account();
+		seq += 1;
+
+		const body = (await (
+			await patch(me.access, { email: `mock-moved-${seq}@example.com` })
+		).json()) as { user: Record<string, unknown> };
+
+		expect(body.user.emailVerified).toBe(
+			ACCOUNT_CONTRACT.emailChangeClearsVerification,
+		);
+	});
+
+	it("rejects a password change without the current password", async () => {
+		const me = await account();
+
+		const res = await createMockFetch()("/auth/change-password", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${me.access}`,
+			},
+			body: JSON.stringify({
+				current_password: "not-it",
+				new_password: "brand-new-password",
+			}),
+		});
+
+		expect(res.status).toBe(ACCOUNT_CONTRACT.wrongCurrentPassword);
+	});
+
+	it("changes the password, ends other sessions, keeps its own", async () => {
+		const me = await account();
+		const elsewhere = (await (
+			await login(me.email, "correct-horse-battery")
+		).json()) as { refreshToken: string };
+
+		const res = await createMockFetch()("/auth/change-password", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${me.access}`,
+			},
+			body: JSON.stringify({
+				current_password: "correct-horse-battery",
+				new_password: "brand-new-password",
+				refreshToken: me.refresh,
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		expect((await login(me.email, "correct-horse-battery")).status).toBe(
+			ACCOUNT_CONTRACT.loginWithOldPasswordAfterChange,
+		);
+		expect((await login(me.email, "brand-new-password")).status).toBe(
+			ACCOUNT_CONTRACT.loginWithNewPasswordAfterChange,
+		);
+
+		expect((await refresh(elsewhere.refreshToken)).status).toBe(
+			ACCOUNT_CONTRACT.otherSessionsAfterPasswordChange,
+		);
+		expect((await refresh(me.refresh)).status).toBe(200);
+	});
+
+	it("deletes the account, its sessions and its address", async () => {
+		const me = await account();
+
+		const res = await createMockFetch()("/auth/account", {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${me.access}` },
+		});
+		expect(res.status).toBe(200);
+
+		expect((await refresh(me.refresh)).status).toBe(
+			ACCOUNT_CONTRACT.refreshAfterAccountDeleted,
+		);
+		expect((await login(me.email, "correct-horse-battery")).status).toBe(
+			ACCOUNT_CONTRACT.loginAfterAccountDeleted,
+		);
 	});
 });

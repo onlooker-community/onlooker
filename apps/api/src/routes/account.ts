@@ -9,12 +9,47 @@
  * - Account deletion with cascading deletes
  */
 
-import { ApiError, requireAuth } from "../middleware";
+import {
+	deleteUser,
+	getPasswordHash,
+	getUserByEmail,
+	getUserById,
+	revokeAllSessionsForUserExcept,
+	setEmailVerified,
+	updatePassword,
+	updateProfile,
+} from "../db/queries";
+import { ApiError, jsonResponse, requireAuth } from "../middleware";
 import type {
 	ChangePasswordRequest,
 	UpdateProfileRequest,
 	WorkerEnv,
 } from "../types";
+import { hashPassword, verifyPassword } from "../utils/crypto";
+
+/**
+ * The profile shape the settings page reads.
+ *
+ * Renames the storage columns to the names apps/web already uses - createdAt,
+ * emailVerified - and turns the verification timestamp into the boolean the UI
+ * wants. The date itself is not exposed because nothing asks for it, and a
+ * field nobody reads is a field that drifts.
+ */
+function accountUser(user: {
+	id: string;
+	email: string;
+	name?: string;
+	email_verified: string | null;
+	created_at: string;
+}) {
+	return {
+		id: user.id,
+		email: user.email,
+		name: user.name,
+		createdAt: user.created_at,
+		emailVerified: user.email_verified != null,
+	};
+}
 
 /**
  * GET /auth/profile
@@ -29,16 +64,17 @@ export async function handleGetProfile(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	await requireAuth(request, env);
+	const auth = await requireAuth(request, env);
 
-	// TODO: WS1 will implement
-	// const user = await db.getAccountProfile(auth.userId)
+	const user = await getUserById(env.DB, auth.userId);
+	if (!user) {
+		// A valid token for a user who no longer exists - deleted from another
+		// device, most likely. The token stays signature-valid until it expires,
+		// so this is reachable and 404 is the honest answer.
+		throw new ApiError(404, "not_found", "User not found");
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Get profile not yet implemented - awaiting WS1 database integration",
-	);
+	return jsonResponse({ user: accountUser(user) });
 }
 
 /**
@@ -55,7 +91,7 @@ export async function handleUpdateProfile(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	await requireAuth(request, env);
+	const auth = await requireAuth(request, env);
 	const body = (await request.json()) as UpdateProfileRequest;
 
 	// Validate input
@@ -71,18 +107,44 @@ export async function handleUpdateProfile(
 		throw new ApiError(400, "invalid_email", "Invalid email format");
 	}
 
-	// TODO: WS1 will implement
-	// 1. Check if new email is taken: const existing = await db.findByEmail(body.email)
-	// 2. Update profile: const user = await db.updateProfile(auth.userId, body)
-	// 3. If email changed, reset verification: await db.setEmailVerified(auth.userId, false)
-	// 4. If email changed, create verification token: await verificationStore.createVerificationToken(auth.userId, body.email)
-	// 5. Queue verification email (future)
+	const current = await getUserById(env.DB, auth.userId);
+	if (!current) {
+		throw new ApiError(404, "not_found", "User not found");
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Update profile not yet implemented - awaiting WS1 database integration",
-	);
+	const name = body.name?.trim();
+	const email = body.email?.trim();
+	// Comparing against the stored address rather than the token's email claim,
+	// which is stale for anyone who already changed it this session.
+	const emailIsChanging = Boolean(email) && email !== current.email;
+
+	if (emailIsChanging) {
+		const holder = await getUserByEmail(env.DB, email as string);
+		// Guarding on id, not on existence: re-submitting your own address in a
+		// form that posts every field is ordinary, and should not be a conflict.
+		if (holder && holder.id !== auth.userId) {
+			throw new ApiError(409, "email_taken", "That email is already in use");
+		}
+	}
+
+	await updateProfile(env.DB, auth.userId, {
+		...(name ? { name } : {}),
+		...(emailIsChanging ? { email } : {}),
+	});
+
+	if (emailIsChanging) {
+		// The new address has proven nothing. Carrying the old verification
+		// across would make the flag a lie, and it is the flag that decides
+		// whether we trust the address enough to send anything to it.
+		await setEmailVerified(env.DB, auth.userId, false);
+	}
+
+	const updated = await getUserById(env.DB, auth.userId);
+	if (!updated) {
+		throw new ApiError(404, "not_found", "User not found");
+	}
+
+	return jsonResponse({ user: accountUser(updated) });
 }
 
 /**
@@ -99,7 +161,7 @@ export async function handleChangePassword(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	await requireAuth(request, env);
+	const auth = await requireAuth(request, env);
 	const body = (await request.json()) as ChangePasswordRequest;
 
 	// Validate input
@@ -119,18 +181,36 @@ export async function handleChangePassword(
 		);
 	}
 
-	// TODO: WS1 will implement
-	// 1. Fetch user with password hash: const user = await db.findById(auth.userId)
-	// 2. Verify current password: const validPassword = await bcrypt.compare(body.current_password, user.password_hash)
-	// 3. Hash new password: const newHash = await bcrypt.hash(body.new_password, 10)
-	// 4. Update password: await db.changePassword(auth.userId, newHash)
-	// 5. Revoke all active tokens: await tokenStore.revokeAllForUser(auth.userId)
+	const currentHash = await getPasswordHash(env.DB, auth.userId);
+	if (!currentHash) {
+		throw new ApiError(404, "not_found", "User not found");
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Change password not yet implemented - awaiting WS1 database integration",
+	if (!(await verifyPassword(body.current_password, currentHash))) {
+		throw new ApiError(
+			401,
+			"invalid_password",
+			"Current password is incorrect",
+		);
+	}
+
+	await updatePassword(
+		env.DB,
+		auth.userId,
+		await hashPassword(body.new_password),
 	);
+
+	// Every other session goes. Someone changing a password is usually acting on
+	// the belief that the old one is loose, and leaving the other sessions live
+	// defeats the act. The session that made the change is spared - it just
+	// proved it knows both passwords, and signing it out is pure noise.
+	//
+	// Their access tokens survive for the rest of their short lifetime, because
+	// nothing can withdraw a stateless JWT; that residual window is why
+	// TOKEN_EXPIRY_MINUTES is 15. See SESSION_LIFECYCLE in packages/api-contract.
+	await revokeAllSessionsForUserExcept(env.DB, auth.userId, body.refreshToken);
+
+	return jsonResponse({ success: true });
 }
 
 /**
@@ -146,19 +226,18 @@ export async function handleDeleteAccount(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	await requireAuth(request, env);
+	const auth = await requireAuth(request, env);
 
-	// TODO: WS1 will implement
-	// 1. Delete user and all associated data: await db.deleteAccount(auth.userId)
-	// 2. Revoke all tokens: await tokenStore.revokeAllForUser(auth.userId)
-	// 3. Delete verification tokens: await verificationStore.deleteAllForUser(auth.userId)
-	// 4. Delete reset tokens: await resetStore.deleteAllForUser(auth.userId)
+	// Sessions and verification tokens both cascade from users, so this takes
+	// them with it - queries.test asserts that rather than trusting it, because
+	// the day the constraint changes is the day a deleted account keeps a
+	// working session.
+	//
+	// Deliberately unconditional: deleting an already-deleted account is not an
+	// error worth reporting to someone whose intent was "make it gone".
+	await deleteUser(env.DB, auth.userId);
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Delete account not yet implemented - awaiting WS1 database integration",
-	);
+	return jsonResponse({ success: true });
 }
 
 /**

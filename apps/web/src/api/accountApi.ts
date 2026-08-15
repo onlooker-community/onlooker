@@ -1,5 +1,5 @@
 import type { User } from "../auth";
-import { apiClient } from "./client";
+import { apiClient, tokenStore } from "./client";
 
 // Account-management API calls that live outside the core auth factory
 // (which only owns login/signup/logout/session). All requests reuse the shared
@@ -84,6 +84,11 @@ export function changePassword(
 		{
 			current_password: input.currentPassword,
 			new_password: input.newPassword,
+			// Changing a password ends the user's other sessions, and this names
+			// the one to spare. Without it the server cannot tell which session is
+			// asking, and signs this browser out along with the rest - moments
+			// after the user proved they know both passwords.
+			refreshToken: tokenStore.getRefreshToken() ?? undefined,
 		},
 	);
 }

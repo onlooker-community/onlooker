@@ -2,11 +2,19 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	createUser,
+	deleteUser,
+	getPasswordHash,
 	getRefreshToken,
 	getUserByEmail,
 	getUserById,
+	isEmailVerified,
+	revokeAllSessionsForUser,
+	revokeAllSessionsForUserExcept,
 	revokeRefreshToken,
+	setEmailVerified,
 	storeRefreshToken,
+	updatePassword,
+	updateProfile,
 } from "./queries.js";
 
 // These pin the CONTRACT of each function - what callers observe - not the
@@ -144,5 +152,226 @@ describe("refresh tokens", () => {
 
 		expect(await getRefreshToken(db(), "alice-token")).toBeNull();
 		expect(await getRefreshToken(db(), "bob-token")).not.toBeNull();
+	});
+});
+
+// Everything below backs the account endpoints, which were nine 501 stubs. Same
+// rule as above: these pin what a caller observes, not how a column stores it.
+
+describe("updateProfile", () => {
+	it("changes the name and leaves everything else alone", async () => {
+		const { id } = await createUser(db(), "p1@example.com", "hash", "Ada");
+
+		await updateProfile(db(), id, { name: "Ada Lovelace" });
+		const user = await getUserById(db(), id);
+
+		expect(user?.name).toBe("Ada Lovelace");
+		expect(user?.email).toBe("p1@example.com");
+	});
+
+	it("changes the email", async () => {
+		const { id } = await createUser(db(), "p2@example.com", "hash");
+
+		await updateProfile(db(), id, { email: "moved@example.com" });
+
+		expect((await getUserById(db(), id))?.email).toBe("moved@example.com");
+	});
+
+	// An update with nothing in it is a no-op, not an error and not a wipe. The
+	// handler already rejects malformed input; this guards the case where a
+	// caller sends {} and a naive implementation would null both columns.
+	it("leaves the row untouched when given nothing to change", async () => {
+		const { id } = await createUser(db(), "p3@example.com", "hash", "Grace");
+
+		await updateProfile(db(), id, {});
+		const user = await getUserById(db(), id);
+
+		expect(user?.name).toBe("Grace");
+		expect(user?.email).toBe("p3@example.com");
+	});
+
+	it("moves updated_at forward", async () => {
+		const { id } = await createUser(db(), "p4@example.com", "hash");
+		const before = (await getUserById(db(), id))?.updated_at as string;
+
+		await updateProfile(db(), id, { name: "Later" });
+		const after = (await getUserById(db(), id))?.updated_at as string;
+
+		expect(new Date(after).getTime()).toBeGreaterThanOrEqual(
+			new Date(before).getTime(),
+		);
+	});
+});
+
+describe("setEmailVerified", () => {
+	it("starts unverified", async () => {
+		const { id } = await createUser(db(), "v1@example.com", "hash");
+
+		expect(await isEmailVerified(db(), id)).toBe(false);
+	});
+
+	it("marks verified, and back again", async () => {
+		const { id } = await createUser(db(), "v2@example.com", "hash");
+
+		await setEmailVerified(db(), id, true);
+		expect(await isEmailVerified(db(), id)).toBe(true);
+
+		// Changing an address has to undo this, which is the only reason the
+		// false direction exists.
+		await setEmailVerified(db(), id, false);
+		expect(await isEmailVerified(db(), id)).toBe(false);
+	});
+});
+
+describe("updatePassword", () => {
+	it("replaces the stored hash", async () => {
+		const { id } = await createUser(db(), "w1@example.com", "old-hash");
+
+		await updatePassword(db(), id, "new-hash");
+
+		expect((await getUserByEmail(db(), "w1@example.com"))?.password_hash).toBe(
+			"new-hash",
+		);
+	});
+
+	it("touches only the user it was given", async () => {
+		const { id } = await createUser(db(), "w2@example.com", "mine");
+		await createUser(db(), "w3@example.com", "theirs");
+
+		await updatePassword(db(), id, "changed");
+
+		expect((await getUserByEmail(db(), "w3@example.com"))?.password_hash).toBe(
+			"theirs",
+		);
+	});
+});
+
+describe("revokeAllSessionsForUser", () => {
+	it("removes every session that user holds", async () => {
+		const { id } = await createUser(db(), "s1@example.com", "hash");
+		const future = new Date(Date.now() + 86_400_000);
+		await storeRefreshToken(db(), id, "laptop", future);
+		await storeRefreshToken(db(), id, "phone", future);
+
+		await revokeAllSessionsForUser(db(), id);
+
+		expect(await getRefreshToken(db(), "laptop")).toBeNull();
+		expect(await getRefreshToken(db(), "phone")).toBeNull();
+	});
+
+	// Without a where clause this would sign out the entire product, and every
+	// assertion above would still pass.
+	it("leaves other users signed in", async () => {
+		const mine = await createUser(db(), "s2@example.com", "hash");
+		const theirs = await createUser(db(), "s3@example.com", "hash");
+		const future = new Date(Date.now() + 86_400_000);
+		await storeRefreshToken(db(), mine.id, "mine", future);
+		await storeRefreshToken(db(), theirs.id, "theirs", future);
+
+		await revokeAllSessionsForUser(db(), mine.id);
+
+		expect(await getRefreshToken(db(), "theirs")).not.toBeNull();
+	});
+});
+
+describe("deleteUser", () => {
+	it("removes the user", async () => {
+		const { id } = await createUser(db(), "d1@example.com", "hash");
+
+		await deleteUser(db(), id);
+
+		expect(await getUserById(db(), id)).toBeNull();
+		expect(await getUserByEmail(db(), "d1@example.com")).toBeNull();
+	});
+
+	// The schema cascades sessions from users. Asserted because it is the whole
+	// reason deletion does not need to sweep them itself - if the foreign key
+	// ever loses ON DELETE CASCADE, a deleted account keeps working sessions.
+	it("takes the user's sessions with it", async () => {
+		const { id } = await createUser(db(), "d2@example.com", "hash");
+		await storeRefreshToken(
+			db(),
+			id,
+			"doomed",
+			new Date(Date.now() + 86_400_000),
+		);
+
+		await deleteUser(db(), id);
+
+		expect(await getRefreshToken(db(), "doomed")).toBeNull();
+	});
+
+	it("frees the email address for reuse", async () => {
+		const { id } = await createUser(db(), "d3@example.com", "hash");
+		await deleteUser(db(), id);
+
+		const replacement = await createUser(db(), "d3@example.com", "hash2");
+
+		expect(replacement.id).not.toBe(id);
+	});
+});
+
+describe("getPasswordHash", () => {
+	// By id, not by email. The access token carries an email claim that goes
+	// stale the moment someone edits their address, and change-password is
+	// reachable with such a token - looking the user up by that claim would
+	// 404 exactly the person who just changed their email.
+	it("returns the hash for a user id", async () => {
+		const { id } = await createUser(db(), "h1@example.com", "secret-hash");
+
+		expect(await getPasswordHash(db(), id)).toBe("secret-hash");
+	});
+
+	it("returns null for an unknown id", async () => {
+		expect(await getPasswordHash(db(), crypto.randomUUID())).toBeNull();
+	});
+
+	it("still finds the user after their email changes", async () => {
+		const { id } = await createUser(db(), "h2@example.com", "kept");
+		await updateProfile(db(), id, { email: "h2-new@example.com" });
+
+		expect(await getPasswordHash(db(), id)).toBe("kept");
+	});
+});
+
+describe("revokeAllSessionsForUserExcept", () => {
+	it("ends the other sessions and spares the one named", async () => {
+		const { id } = await createUser(db(), "k1@example.com", "hash");
+		const future = new Date(Date.now() + 86_400_000);
+		await storeRefreshToken(db(), id, "this-device", future);
+		await storeRefreshToken(db(), id, "other-device", future);
+
+		await revokeAllSessionsForUserExcept(db(), id, "this-device");
+
+		expect(await getRefreshToken(db(), "this-device")).not.toBeNull();
+		expect(await getRefreshToken(db(), "other-device")).toBeNull();
+	});
+
+	it("leaves other users alone", async () => {
+		const mine = await createUser(db(), "k2@example.com", "hash");
+		const theirs = await createUser(db(), "k3@example.com", "hash");
+		const future = new Date(Date.now() + 86_400_000);
+		await storeRefreshToken(db(), mine.id, "mine", future);
+		await storeRefreshToken(db(), theirs.id, "theirs", future);
+
+		await revokeAllSessionsForUserExcept(db(), mine.id, "mine");
+
+		expect(await getRefreshToken(db(), "theirs")).not.toBeNull();
+	});
+
+	// A caller that sends no token to spare wants everything gone, and must not
+	// accidentally get "spare the session whose token is undefined".
+	it("ends everything when nothing is spared", async () => {
+		const { id } = await createUser(db(), "k4@example.com", "hash");
+		await storeRefreshToken(
+			db(),
+			id,
+			"only",
+			new Date(Date.now() + 86_400_000),
+		);
+
+		await revokeAllSessionsForUserExcept(db(), id, undefined);
+
+		expect(await getRefreshToken(db(), "only")).toBeNull();
 	});
 });

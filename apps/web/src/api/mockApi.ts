@@ -23,12 +23,27 @@ const MOCK_USERS: Record<string, MockUser> = {
 	},
 };
 
-// email -> currently valid access token, and access token -> email (reverse).
-const ACCESS_TOKENS = new Map<string, string>();
+// email -> every live token for that user, and token -> email (reverse).
+//
+// Sets rather than single values, because sessions are concurrent. These held
+// one token each back when issuing a new pair retired the old one, so "the
+// user's token" was unambiguous. It no longer is - a laptop and a phone are
+// both live - and anything that has to reach ALL of a user's sessions, like a
+// password change, could otherwise only find the most recent one.
+const ACCESS_TOKENS = new Map<string, Set<string>>();
 const ACCESS_TOKEN_OWNER = new Map<string, string>();
-// email -> currently valid refresh token, and refresh token -> email (reverse).
-const REFRESH_TOKENS = new Map<string, string>();
+const REFRESH_TOKENS = new Map<string, Set<string>>();
 const REFRESH_TOKEN_OWNER = new Map<string, string>();
+
+function trackToken(
+	index: Map<string, Set<string>>,
+	email: string,
+	token: string,
+): void {
+	const existing = index.get(email);
+	if (existing) existing.add(token);
+	else index.set(email, new Set([token]));
+}
 // email -> ISO timestamp of the user's most recent login (WS4 profile/dashboard).
 const LAST_LOGIN = new Map<string, string>();
 // Tokens explicitly killed (logout / rotation / session invalidation) so a
@@ -137,9 +152,9 @@ function issueTokens(email: string): { token: string; refreshToken: string } {
 	//
 	// These two maps still track the most recent pair per user, which is what
 	// invalidateSessions() reaches for when a password changes.
-	ACCESS_TOKENS.set(email, token);
+	trackToken(ACCESS_TOKENS, email, token);
 	ACCESS_TOKEN_OWNER.set(token, email);
-	REFRESH_TOKENS.set(email, refreshToken);
+	trackToken(REFRESH_TOKENS, email, refreshToken);
 	REFRESH_TOKEN_OWNER.set(refreshToken, email);
 
 	return { token, refreshToken };
@@ -220,19 +235,32 @@ function accountUser(user: MockUser) {
 	};
 }
 
-function invalidateSessions(email: string): void {
-	const access = ACCESS_TOKENS.get(email);
-	if (access) {
-		ACCESS_TOKEN_OWNER.delete(access);
-		REVOKED_TOKENS.add(access);
-	}
-	const refresh = REFRESH_TOKENS.get(email);
-	if (refresh) {
-		REFRESH_TOKEN_OWNER.delete(refresh);
-		REVOKED_TOKENS.add(refresh);
+/**
+ * End every session this user holds, optionally sparing one refresh token.
+ *
+ * `spareRefreshToken` is how a password change keeps the session that made it
+ * while ending the others - the caller has just proved it knows both passwords,
+ * so signing it out is noise. apps/api does the same thing in
+ * revokeAllSessionsForUserExcept.
+ */
+function invalidateSessions(email: string, spareRefreshToken?: string): void {
+	for (const token of ACCESS_TOKENS.get(email) ?? []) {
+		ACCESS_TOKEN_OWNER.delete(token);
+		REVOKED_TOKENS.add(token);
 	}
 	ACCESS_TOKENS.delete(email);
-	REFRESH_TOKENS.delete(email);
+
+	const spared = new Set<string>();
+	for (const token of REFRESH_TOKENS.get(email) ?? []) {
+		if (token === spareRefreshToken) {
+			spared.add(token);
+			continue;
+		}
+		REFRESH_TOKEN_OWNER.delete(token);
+		REVOKED_TOKENS.add(token);
+	}
+	if (spared.size > 0) REFRESH_TOKENS.set(email, spared);
+	else REFRESH_TOKENS.delete(email);
 }
 
 // Move a user (and its live tokens + meta) to a new email key. The existing
@@ -247,13 +275,13 @@ function renameUserEmail(oldEmail: string, newEmail: string): void {
 	const access = ACCESS_TOKENS.get(oldEmail);
 	if (access) {
 		ACCESS_TOKENS.set(newEmail, access);
-		ACCESS_TOKEN_OWNER.set(access, newEmail);
+		for (const token of access) ACCESS_TOKEN_OWNER.set(token, newEmail);
 		ACCESS_TOKENS.delete(oldEmail);
 	}
 	const refresh = REFRESH_TOKENS.get(oldEmail);
 	if (refresh) {
 		REFRESH_TOKENS.set(newEmail, refresh);
-		REFRESH_TOKEN_OWNER.set(refresh, newEmail);
+		for (const token of refresh) REFRESH_TOKEN_OWNER.set(token, newEmail);
 		REFRESH_TOKENS.delete(oldEmail);
 	}
 	const meta = ACCOUNT_META.get(oldEmail);
@@ -346,10 +374,11 @@ async function mockAccountApi(
 
 	// POST /auth/change-password — verify current password, then rotate it.
 	if (path === "/auth/change-password" && options.method === "POST") {
-		const { user } = requireAuth(options);
-		const { current_password, new_password } = readBody<{
+		const { email, user } = requireAuth(options);
+		const { current_password, new_password, refreshToken } = readBody<{
 			current_password: string;
 			new_password: string;
+			refreshToken?: string;
 		}>(options);
 		if (user.password !== current_password) {
 			throw new AuthApiError(
@@ -359,6 +388,14 @@ async function mockAccountApi(
 			);
 		}
 		user.password = new_password;
+
+		// Every other session goes. This used to change the password and leave
+		// all sessions alone, which was the one place the two implementations
+		// disagreed on substance rather than one simply being unbuilt - and the
+		// mock disagreed with itself too, since its reset flow already
+		// invalidated everything. Someone changing a password is usually acting
+		// on the belief the old one is loose.
+		invalidateSessions(email, refreshToken);
 		return json({ success: true });
 	}
 
