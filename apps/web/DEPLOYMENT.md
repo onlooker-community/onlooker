@@ -246,7 +246,7 @@ Vite automatically adds hashes to filenames:
 
 For live debugging (coming soon):
 ```bash
-pnpm wrangler tail --env production
+pnpm --filter @onlooker/api exec wrangler tail --env production
 ```
 
 ## Build Artifacts
@@ -439,9 +439,9 @@ pnpm preview                       # Preview build locally
 pnpm typecheck                     # Type-check
 pnpm lint                          # Lint code
 
-# Deployment
-pnpm deploy                        # Deploy to production
-pnpm deploy --env staging          # Deploy to staging
+# Deployment (from the repository root; each builds the bundle it ships)
+pnpm deploy:web:prod               # Deploy to production
+pnpm deploy:web:staging            # Deploy to staging
 
 # Testing
 pnpm test                          # Run tests

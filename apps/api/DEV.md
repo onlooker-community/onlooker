@@ -23,8 +23,9 @@ pnpm lint:fix
 # Build for deployment
 pnpm build
 
-# Deploy to Cloudflare Workers
-pnpm deploy
+# Deploy to Cloudflare Workers (from the repository root)
+pnpm deploy:api:staging
+pnpm deploy:api:prod
 ```
 
 ## Project Structure

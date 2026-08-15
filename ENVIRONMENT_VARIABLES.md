@@ -133,7 +133,16 @@ REFRESH_TOKEN_EXPIRY_DAYS = "30"
 
 ### Secrets (Must not be committed)
 
-These are sensitive values managed via `pnpm wrangler secret put`.
+These are sensitive values managed via `pnpm --filter @onlooker/api exec wrangler secret put`.
+
+> **Why every wrangler command here carries `--filter @onlooker/api`, and why
+> shortening it back to `pnpm wrangler` breaks it.** The repository root has no
+> `wrangler.*` file and no root `wrangler` dependency — the binary only resolves
+> through hoisting. Run from there, wrangler has no configuration, so `--env
+> production` names an environment it has never heard of and the command dies
+> with `Required Worker name missing`. Every command in this document used to be
+> written that way and none of them could have worked. The filter runs wrangler
+> in `apps/api`, where the config lives.
 
 | Secret | Description | Generation |
 |--------|-------------|-----------|
@@ -146,25 +155,25 @@ These are sensitive values managed via `pnpm wrangler secret put`.
 
 ```bash
 # Production
-pnpm wrangler secret put JWT_SECRET --env production
-pnpm wrangler secret put DATABASE_PASSWORD --env production
-pnpm wrangler secret put ENCRYPTION_KEY --env production
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
+pnpm --filter @onlooker/api exec wrangler secret put DATABASE_PASSWORD --env production
+pnpm --filter @onlooker/api exec wrangler secret put ENCRYPTION_KEY --env production
 
 # Staging
-pnpm wrangler secret put JWT_SECRET --env staging
-pnpm wrangler secret put DATABASE_PASSWORD --env staging
-pnpm wrangler secret put ENCRYPTION_KEY --env staging
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env staging
+pnpm --filter @onlooker/api exec wrangler secret put DATABASE_PASSWORD --env staging
+pnpm --filter @onlooker/api exec wrangler secret put ENCRYPTION_KEY --env staging
 
 # Development (optional)
-pnpm wrangler secret put JWT_SECRET --env development
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env development
 ```
 
 #### List Secrets
 
 ```bash
 # View configured secrets (names only, no values)
-pnpm wrangler secret list --env production
-pnpm wrangler secret list --env staging
+pnpm --filter @onlooker/api exec wrangler secret list --env production
+pnpm --filter @onlooker/api exec wrangler secret list --env staging
 ```
 
 #### Use Secrets in Code
@@ -294,7 +303,7 @@ openssl rand -hex 32
 # a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f
 
 # Use this value with:
-pnpm wrangler secret put JWT_SECRET --env production
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
 ```
 
 ### Database Password
@@ -307,7 +316,7 @@ openssl rand -base64 32
 # Zx4bY9kL2mN8pQ1wR5sT7uV0xA3cD6eF9gH2jI1lM4nO7qP0rS3uV6wX9yZ2aB5cD
 
 # Use this value with:
-pnpm wrangler secret put DATABASE_PASSWORD --env production
+pnpm --filter @onlooker/api exec wrangler secret put DATABASE_PASSWORD --env production
 ```
 
 ### Encryption Key
@@ -317,7 +326,7 @@ pnpm wrangler secret put DATABASE_PASSWORD --env production
 openssl rand -hex 32
 
 # Use this value with:
-pnpm wrangler secret put ENCRYPTION_KEY --env production
+pnpm --filter @onlooker/api exec wrangler secret put ENCRYPTION_KEY --env production
 ```
 
 ---
@@ -406,9 +415,9 @@ pnpm --filter @onlooker/api deploy --env production
 
 ```bash
 # Delete from all environments
-pnpm wrangler secret delete SECRET_NAME --env production
-pnpm wrangler secret delete SECRET_NAME --env staging
-pnpm wrangler secret delete SECRET_NAME --env development
+pnpm --filter @onlooker/api exec wrangler secret delete SECRET_NAME --env production
+pnpm --filter @onlooker/api exec wrangler secret delete SECRET_NAME --env staging
+pnpm --filter @onlooker/api exec wrangler secret delete SECRET_NAME --env development
 ```
 
 ---
@@ -432,7 +441,7 @@ export default {
 
 ```bash
 # List all variables for an environment
-pnpm wrangler env list --env production
+pnpm --filter @onlooker/api exec wrangler env list --env production
 
 # Check specific variable (read from wrangler.toml)
 grep -A 5 "\[env.production.vars\]" apps/api/wrangler.toml
@@ -461,10 +470,10 @@ pnpm --filter @onlooker/api build
 1. Copy secrets from local to staging:
    ```bash
    # Get local secret
-   pnpm wrangler secret list --env development
+   pnpm --filter @onlooker/api exec wrangler secret list --env development
    
    # Put in staging
-   pnpm wrangler secret put JWT_SECRET --env staging
+   pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env staging
    ```
 
 2. Confirm the staging build targets the staging API:
@@ -482,14 +491,14 @@ pnpm --filter @onlooker/api build
 
 1. Ensure all production secrets are set:
    ```bash
-   pnpm wrangler secret list --env production
+   pnpm --filter @onlooker/api exec wrangler secret list --env production
    ```
 
 2. Verify production config in `wrangler.toml`
 
 3. Backup database:
    ```bash
-   pnpm wrangler d1 export onlooker-db > backup_$(date +%s).sql
+   pnpm --filter @onlooker/api exec wrangler d1 export DB --env production --remote --output ../../backup_$(date +%s).sql
    ```
 
 4. Deploy:
@@ -516,7 +525,7 @@ pnpm --filter @onlooker/api build
 
 **Solution:**
 ```bash
-pnpm wrangler secret put SECRET_NAME --env production
+pnpm --filter @onlooker/api exec wrangler secret put SECRET_NAME --env production
 # Enter value when prompted
 ```
 
@@ -549,4 +558,4 @@ const baseUrl = import.meta.env.API_BASE_URL;
 
 1. Review [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment steps
 2. Check [DEPLOYMENT.md](./DEPLOYMENT.md) for how the pipeline applies them
-3. Set up secrets: `pnpm wrangler secret put JWT_SECRET --env production`
+3. Set up secrets: `pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production`

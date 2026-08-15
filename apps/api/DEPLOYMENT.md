@@ -56,8 +56,8 @@ database_id = "YOUR-DATABASE-ID"
 Sensitive values managed via CLI:
 
 ```bash
-pnpm wrangler secret put JWT_SECRET --env production
-pnpm wrangler secret put DATABASE_PASSWORD --env production
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
+pnpm --filter @onlooker/api exec wrangler secret put DATABASE_PASSWORD --env production
 ```
 
 ## Deployment
@@ -99,7 +99,7 @@ pnpm --filter @onlooker/api dev
 
 ```bash
 # Production
-pnpm wrangler d1 create onlooker-db
+pnpm --filter @onlooker/api exec wrangler d1 create onlooker-db
 
 # Copy database ID and add to wrangler.toml
 ```
@@ -128,10 +128,10 @@ pnpm migrate:prod
 
 ```bash
 # Local
-pnpm wrangler d1 execute onlooker-db --local "SELECT * FROM users"
+pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db --local "SELECT * FROM users"
 
 # Production
-pnpm wrangler d1 execute onlooker-db --remote "SELECT * FROM users"
+pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db --remote "SELECT * FROM users"
 ```
 
 ## Monitoring
@@ -140,13 +140,13 @@ pnpm wrangler d1 execute onlooker-db --remote "SELECT * FROM users"
 
 ```bash
 # Real-time logs
-pnpm wrangler tail --env production
+pnpm --filter @onlooker/api exec wrangler tail --env production
 
 # With filters
-pnpm wrangler tail --env production --status ok
+pnpm --filter @onlooker/api exec wrangler tail --env production --status ok
 
 # Pretty format
-pnpm wrangler tail --env production --format pretty
+pnpm --filter @onlooker/api exec wrangler tail --env production --format pretty
 ```
 
 ### Metrics
@@ -275,13 +275,13 @@ if (remaining <= 0) {
 ### View Deployments
 
 ```bash
-pnpm wrangler deployments list --name onlooker-api
+pnpm --filter @onlooker/api exec wrangler deployments list --name onlooker-api
 ```
 
 ### Rollback to Previous Version
 
 ```bash
-pnpm wrangler deployments rollback --id <deployment-id>
+pnpm --filter @onlooker/api exec wrangler deployments rollback --id <deployment-id>
 ```
 
 ## Troubleshooting
@@ -293,7 +293,7 @@ pnpm wrangler deployments rollback --id <deployment-id>
 grep -A 3 "d1_databases" wrangler.toml
 
 # Check database ID is correct
-pnpm wrangler d1 list
+pnpm --filter @onlooker/api exec wrangler d1 list
 ```
 
 ### CORS Errors
@@ -312,23 +312,23 @@ curl -i -X OPTIONS http://localhost:8787/auth/login \
 
 ```bash
 # Check logs for errors
-pnpm wrangler tail --env production
+pnpm --filter @onlooker/api exec wrangler tail --env production
 
 # Add logging to slow endpoints
 log('info', 'Slow query', { duration: Date.now() - start });
 
 # Check D1 query performance
-pnpm wrangler d1 execute onlooker-db --remote "EXPLAIN QUERY PLAN SELECT ..."
+pnpm --filter @onlooker/api exec wrangler d1 execute onlooker-db --remote "EXPLAIN QUERY PLAN SELECT ..."
 ```
 
 ### Secret Not Available
 
 ```bash
 # List secrets
-pnpm wrangler secret list --env production
+pnpm --filter @onlooker/api exec wrangler secret list --env production
 
 # Add missing secret
-pnpm wrangler secret put JWT_SECRET --env production
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
 ```
 
 ## Related Docs
@@ -344,18 +344,19 @@ pnpm wrangler secret put JWT_SECRET --env production
 # Development
 pnpm dev                           # Start local server
 pnpm build                         # Build and validate
-pnpm deploy                        # Deploy to production
-pnpm deploy --env staging          # Deploy to staging
+pnpm deploy:prod                   # Deploy API and web to production
+pnpm deploy:staging                # Deploy API and web to staging
 
 # Monitoring
 pnpm tail:api                      # View logs
 pnpm tail:api:staging              # View staging logs
 
 # Database
-pnpm db:migrate                    # Apply migrations
-pnpm db:backup                     # Backup database
+pnpm migrate:prod                  # Apply migrations to production
+pnpm migrate:staging               # Apply migrations to staging
+pnpm db:backup                     # Export production D1 to backup_<epoch>.sql
 
 # Secrets
-pnpm wrangler secret list --env production
-pnpm wrangler secret put JWT_SECRET --env production
+pnpm --filter @onlooker/api exec wrangler secret list --env production
+pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
 ```
