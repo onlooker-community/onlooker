@@ -16,6 +16,12 @@ export default defineConfig(async () => {
 	return {
 		plugins: [
 			cloudflareTest({
+				// Points the pool at the real worker entry, which is what makes
+				// `SELF` from "cloudflare:test" dispatch to our default export.
+				// Without it the D1-level tests still run, but nothing can exercise
+				// the worker over HTTP - which left routing, status codes and
+				// response shapes untested at the only layer apps/web actually sees.
+				main: "src/index.ts",
 				singleWorker: true,
 				miniflare: {
 					// Must match wrangler.toml, and must be pinned. Left unset, the
@@ -27,7 +33,24 @@ export default defineConfig(async () => {
 					// date as the deployed worker, rather than a newer one.
 					compatibilityDate: "2024-12-16",
 					d1Databases: ["DB"],
-					bindings: { TEST_MIGRATIONS: migrations },
+					// The vars every handler reads. The D1-level tests never needed
+					// them because they call queries directly, but anything going
+					// through the worker does: without TOKEN_EXPIRY_MINUTES, signup
+					// answers 500 "Invalid time period format", because parseInt of
+					// undefined is NaN and jose rejects it.
+					//
+					// Values mirror [env.development] in wrangler.toml. They are
+					// repeated here rather than read from it because the pool is
+					// configured directly, and a test secret should be obviously a
+					// test secret at the point it is declared.
+					bindings: {
+						TEST_MIGRATIONS: migrations,
+						JWT_SECRET: "test-secret-not-used-anywhere-real",
+						TOKEN_EXPIRY_MINUTES: "180",
+						REFRESH_TOKEN_EXPIRY_DAYS: "30",
+						ENVIRONMENT: "test",
+						CORS_ORIGIN: "http://localhost:5173",
+					},
 				},
 			}),
 		],

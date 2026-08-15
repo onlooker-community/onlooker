@@ -1,0 +1,11 @@
+{
+	"compilerOptions": {
+		"composite": true,
+		"lib": ["ES2021", "DOM"],
+		"outDir": "./dist",
+		"rootDir": "./"
+	},
+	"exclude": ["dist", "build", "node_modules"],
+	"extends": "@onlooker/config-typescript/node16.json",
+	"include": ["."]
+}
