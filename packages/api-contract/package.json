@@ -1,0 +1,21 @@
+{
+	"name": "@onlooker/api-contract",
+	"private": true,
+	"description": "The HTTP contract apps/api serves and apps/web's mock must match, asserted against both",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"typecheck": "tsc --noEmit",
+		"clean": "rimraf node_modules .turbo"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"typescript": "^5.6.3"
+	}
+}
