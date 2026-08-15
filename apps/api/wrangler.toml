@@ -32,9 +32,18 @@ compatibility_flags = ["nodejs_compat"]
 # today. Getting a value wrong here stops that environment's web app from
 # reaching this API from a browser, so it must match the front end's real origin
 # exactly - scheme included, no trailing slash.
+#
+# TOKEN_EXPIRY_MINUTES is 15, and that number is load-bearing rather than taste.
+# Logout revokes the refresh token and leaves the access token alive, because a
+# stateless JWT cannot be withdrawn without checking a denylist on every
+# authenticated request. This value IS the residual window - how long a
+# logged-out or stolen access token keeps working - so it is the thing standing
+# in for that denylist. It was 180, which made the window three hours.
+# Lengthening it re-opens that window; see SESSION_LIFECYCLE in
+# packages/api-contract before changing it.
 [env.development.vars]
 JWT_SECRET = "dev-secret-key-change-in-production"
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
@@ -66,7 +75,7 @@ routes = [
 ]
 
 [env.staging.vars]
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
@@ -90,7 +99,7 @@ routes = [
 ]
 
 [env.production.vars]
-TOKEN_EXPIRY_MINUTES = "180"
+TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"

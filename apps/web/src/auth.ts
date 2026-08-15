@@ -33,9 +33,33 @@ export {
 	tokenStore,
 } from "./api/client";
 
+/** How long before expiry the client silently renews the access token. */
+export const AUTO_REFRESH_LEAD_MS = 3 * 60_000;
+/**
+ * How long before expiry the user is warned — deliberately shorter than
+ * AUTO_REFRESH_LEAD_MS, so the warning means the silent renewal did not work.
+ */
+export const EXPIRY_WARNING_LEAD_MS = 2 * 60_000;
+
 export const auth = createReactAuth<User, AppAuthState>({
 	tokenStorage: tokenStore,
 	initialState: {},
+	// Set explicitly, and in this order - refresh lead ABOVE warning lead - so
+	// the app tries to fix the problem before mentioning it. SessionExpiryBanner
+	// is a role="alert" plate with a countdown, and it should mean "something
+	// went wrong", not "time is passing".
+	//
+	// The defaults are the other way round (refresh at 1 min, warn at 5), which
+	// made the banner appear on every single token and then vanish when the
+	// automatic refresh silently succeeded. At the old 180-minute lifetime that
+	// was four minutes of banner every three hours and nobody noticed. At 15
+	// minutes it would be four minutes out of every fifteen - over a quarter of
+	// the session, forever, re-announced to screen readers each time.
+	//
+	// Both are fractions of TOKEN_EXPIRY_MINUTES in apps/api/wrangler.toml, and
+	// session-leads.test.ts fails if that value moves without these.
+	autoRefreshLeadMs: AUTO_REFRESH_LEAD_MS,
+	expiryWarningLeadMs: EXPIRY_WARNING_LEAD_MS,
 	loadSession: async (): Promise<AuthSession<User, AppAuthState>> => {
 		// Throws on failure (e.g. unrecoverable 401); createReactAuth resets state.
 		const response = await apiClient.get<MeResponse>(AUTH_ENDPOINTS.me);

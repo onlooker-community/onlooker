@@ -109,7 +109,7 @@ top-level block, which has neither, and fails the same way.
 ### Development (wrangler.toml, under `[env.development.vars]`)
 ```
 JWT_SECRET=dev-secret-key-change-in-production
-TOKEN_EXPIRY_MINUTES=180
+TOKEN_EXPIRY_MINUTES=15
 REFRESH_TOKEN_EXPIRY_DAYS=30
 ENVIRONMENT=development
 CORS_ORIGIN=http://localhost:5173
