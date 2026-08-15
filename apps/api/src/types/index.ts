@@ -23,6 +23,15 @@ export interface WorkerEnv {
 	// compile error. Each environment in wrangler.toml must declare it.
 	DB: D1Database;
 
+	// Origins allowed to call this API from a browser, comma-separated. Required
+	// for the same reason DB is: every environment in wrangler.toml declares one,
+	// and this being optional is close to how it went unread for so long.
+	//
+	// TypeScript cannot police a wrangler.toml var, so the runtime still treats a
+	// missing value as "allow nothing" rather than trusting this type. See
+	// middleware/cors.ts for why that direction is the safe one.
+	CORS_ORIGIN: string;
+
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
 }

@@ -16,13 +16,12 @@ routes = [
 # and no JWT_SECRET, and every authenticated route fails with
 # "Cannot read properties of undefined (reading 'prepare')".
 
-# CORS_ORIGIN is declared in every block below and read by nothing. The worker
-# hardcodes Access-Control-Allow-Origin: * (src/index.ts), so these values
-# describe a policy that is not enforced - production says app.onlooker.dev and
-# the deployed API accepts any origin. Left in place rather than deleted because
-# the intent is right and the code is what should change; tracked separately,
-# since honoring it alters live behavior on a deployed API and wants its own
-# deploy.
+# CORS_ORIGIN below is enforced: middleware/cors.ts echoes a request's Origin
+# only when it appears here, and sends no allow-origin header at all otherwise.
+# It accepts a comma-separated list, though each environment needs only one
+# today. Getting a value wrong here stops that environment's web app from
+# reaching this API from a browser, so it must match the front end's real origin
+# exactly - scheme included, no trailing slash.
 [env.development.vars]
 JWT_SECRET = "dev-secret-key-change-in-production"
 TOKEN_EXPIRY_MINUTES = "180"

@@ -89,7 +89,7 @@ These are environment variables that can be checked into version control.
 | Variable | Description | Values |
 |----------|-------------|--------|
 | `ENVIRONMENT` | Deployment environment | `development`, `staging`, `production` |
-| `CORS_ORIGIN` | Allowed origin for CORS | Domain of web app |
+| `CORS_ORIGIN` | Origins allowed to call the API from a browser, comma-separated. Matched exactly — scheme included, no trailing slash. Unset means none | Origin of the web app |
 | `DB_HOST` | Database host | Auto-managed by D1 |
 | `DB_NAME` | Database name | `onlooker_dev`, `onlooker_staging`, `onlooker_prod` |
 | `TOKEN_EXPIRY_MINUTES` | Access token lifetime | `180` (3 hours) |
