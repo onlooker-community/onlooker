@@ -179,9 +179,24 @@ Common error codes:
 
 ## CORS Headers
 
-CORS is enabled for development:
-- `Access-Control-Allow-Origin: *`
+Every environment is restricted to the origins its `CORS_ORIGIN` names — no
+environment is open, development included. A request whose `Origin` is on the
+list gets it echoed back:
+
+- `Access-Control-Allow-Origin: http://localhost:5173` (whatever `CORS_ORIGIN`
+  says for the environment you are running)
 - `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`
 - `Access-Control-Allow-Headers: Content-Type, Authorization`
+- `Vary: Origin` on every response, allowed or not
 
-For production, restrict to known origins.
+Anything else gets no allow-origin header at all, including when `CORS_ORIGIN`
+is unset — a misconfigured environment refuses browsers rather than admitting
+everyone. `CORS_ORIGIN` accepts a comma-separated list if you need a second
+origin, such as `127.0.0.1` alongside `localhost`.
+
+None of this affects curl or anything server-to-server: CORS is a browser
+mechanism, and a request with no `Origin` header is answered normally.
+
+**If the browser starts reporting CORS errors in dev,** check that the address
+bar matches `CORS_ORIGIN` exactly — `http://127.0.0.1:5173` is a different
+origin from `http://localhost:5173`, and the API is right to refuse it.

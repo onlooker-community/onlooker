@@ -11,6 +11,7 @@
  */
 
 import type { ExecutionContext } from "@cloudflare/workers-types";
+import { preflightResponse, withCors } from "./middleware";
 import { dispatch, listRoutes } from "./router";
 import type { WorkerEnv } from "./types";
 
@@ -23,33 +24,14 @@ async function handleRequest(
 	env: WorkerEnv,
 	_ctx: ExecutionContext,
 ): Promise<Response> {
-	// Enable CORS for development
 	if (request.method === "OPTIONS") {
-		return new Response(null, {
-			headers: {
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-				"Access-Control-Allow-Headers": "Content-Type, Authorization",
-				"Access-Control-Max-Age": "86400",
-			},
-		});
+		return preflightResponse(request, env);
 	}
 
 	// Route the request
 	const response = await dispatch(request, env);
 
-	// Add CORS headers
-	response.headers.set("Access-Control-Allow-Origin", "*");
-	response.headers.set(
-		"Access-Control-Allow-Methods",
-		"GET, POST, PATCH, DELETE, OPTIONS",
-	);
-	response.headers.set(
-		"Access-Control-Allow-Headers",
-		"Content-Type, Authorization",
-	);
-
-	return response;
+	return withCors(response, request, env);
 }
 
 /**
@@ -84,9 +66,11 @@ export default {
 	): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Root endpoint
+		// Root endpoint. Goes through the same origin policy as everything else -
+		// it used to skip CORS entirely, which made it the one response whose
+		// rules were decided somewhere other than middleware/cors.ts.
 		if (url.pathname === "/" && request.method === "GET") {
-			return handleRoot(env);
+			return withCors(handleRoot(env), request, env);
 		}
 
 		// Route all other requests
