@@ -212,8 +212,11 @@ The website runs on Astro with Cloudflare Workers as the adapter.
 cd apps/website
 pnpm dev        # Dev server at http://localhost:4321
 pnpm build      # Build for Cloudflare
-pnpm deploy     # Build + wrangler deploy
 pnpm preview    # Preview the built site locally
+
+# From the repository root — the website has one worker and no environments,
+# which is why this deploy alone carries no environment name.
+pnpm deploy:website
 ```
 
 To generate Cloudflare bindings types after updating `wrangler.toml`:

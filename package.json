@@ -31,11 +31,10 @@
 		"deploy:website": "pnpm --filter @onlooker/website exec wrangler deploy",
 		"migrate:staging": "pnpm --filter @onlooker/api exec wrangler d1 migrations apply DB --env staging --remote",
 		"migrate:prod": "pnpm --filter @onlooker/api exec wrangler d1 migrations apply DB --env production --remote",
-		"tail:api": "pnpm wrangler tail --env production",
-		"tail:api:staging": "pnpm wrangler tail --env staging",
-		"db:backup": "pnpm wrangler d1 export onlooker-db > backup_$(date +%s).sql",
-		"db:migrate": "pnpm wrangler d1 migrations apply onlooker-db --remote",
-		"cloudflare:login": "pnpm wrangler login"
+		"tail:api": "pnpm --filter @onlooker/api exec wrangler tail --env production",
+		"tail:api:staging": "pnpm --filter @onlooker/api exec wrangler tail --env staging",
+		"db:backup": "pnpm --filter @onlooker/api exec wrangler d1 export DB --env production --remote --output ../../backup_$(date +%s).sql",
+		"cloudflare:login": "pnpm --filter @onlooker/api exec wrangler login"
 	},
 	"devDependencies": {
 		"@azure/playwright": "1.1.6",
