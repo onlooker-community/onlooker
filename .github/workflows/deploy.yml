@@ -338,6 +338,18 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # The same assertions the cron heartbeat makes, run against what was just
+      # deployed. Nothing between "wrangler deploy succeeded" and "a human
+      # clicks something" used to look at the deployed site at all - the Verify
+      # steps above are schema checks - which is how a production outage where
+      # every route except / returned 404 survived several deploys.
+      #
+      # One script, two triggers. Here it fails the run while the change is
+      # still in front of whoever made it; on the cron it catches drift
+      # afterwards.
+      - name: Smoke test Staging
+        run: ./scripts/heartbeat.sh staging
+
       - name: Notify Deployment
         if: always()
         uses: actions/github-script@v8
@@ -427,6 +439,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Runs after the website deploy as well as the app and API, so it is the
+      # last word on a production release. A failure here means production is
+      # already serving the bad build - the gate is the alarm, not the
+      # prevention - but the alarm rings in the run that caused it rather than
+      # up to 31 minutes later on the cron, and next to the commit responsible.
+      - name: Smoke test Production
+        run: ./scripts/heartbeat.sh production
 
       - name: Notify Deployment
         if: always()
