@@ -85,13 +85,10 @@ const NO_SECRETS = ["password_hash", "passwordHash"];
 /**
  * Cases needing no authentication, in the order a new user meets them.
  *
- * Deliberately absent: forgot-password, which answers 501 from apps/api and 200
- * from the mock, since the mock implements a reset flow the API does not have
- * yet (onlooker-bde). Pinning either answer would invent that feature's design.
- *
- * The other two exclusions are gone. Session lifecycle used to be unpinnable
- * because the two sides disagreed; SESSION_LIFECYCLE below now records the
- * decision and both implementations answer to it.
+ * Nothing is excluded any more. This list once carried three entries where the
+ * two sides disagreed and pinning either answer would have invented a decision:
+ * session lifecycle, second logins, and forgot-password. The first two became
+ * SESSION_LIFECYCLE; the last became real when the API grew a reset flow.
  */
 export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 	return [
@@ -242,6 +239,35 @@ export const ACCOUNT_CONTRACT = {
 	refreshAfterAccountDeleted: 401,
 	/** And the account is really gone, not just flagged. */
 	loginAfterAccountDeleted: 401,
+} as const;
+
+/**
+ * Email verification and password reset.
+ *
+ * The uniform forgot-password response is the load-bearing part. Anything that
+ * varies with whether an address is registered - status, body, or noticeably,
+ * timing - turns this endpoint into a way to ask who has an account here, which
+ * is exactly what someone assembling a credential-stuffing list wants to know.
+ *
+ * Both implementations answer 200 with the same body either way.
+ */
+export const EMAIL_FLOW_CONTRACT = {
+	/** Asking to reset a registered address. */
+	forgotPasswordKnownAddress: 200,
+	/** And an unregistered one. Identical, deliberately. */
+	forgotPasswordUnknownAddress: 200,
+	/** Checking a live reset link is a read, so the link still works afterward. */
+	verifyResetTokenStillSpendable: true,
+	/** Checking any link answers 200 - "not valid" is an answer, not an error. */
+	verifyResetTokenStatus: 200,
+	/** A reset link works exactly once. */
+	resetPasswordReplayed: 400,
+	/** A reset ends every session, since the old credentials are suspect. */
+	sessionsAfterReset: 401,
+	/** A verification link cannot be spent as a password reset. */
+	crossFlowTokenUse: 400,
+	/** An unknown or expired verification token. */
+	verifyEmailInvalidToken: 400,
 } as const;
 
 /**

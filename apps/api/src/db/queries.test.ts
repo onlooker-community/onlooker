@@ -18,6 +18,7 @@ import {
 	storeRefreshToken,
 	updatePassword,
 	updateProfile,
+	verificationTokenTarget,
 } from "./queries.js";
 
 // These pin the CONTRACT of each function - what callers observe - not the
@@ -477,5 +478,47 @@ describe("verification tokens", () => {
 		const b = await createVerificationToken(db(), id, "reset", soon());
 
 		expect(a).not.toBe(b);
+	});
+});
+
+// Checking a reset link before showing the form is a read, not a spend. The
+// user has not chosen a new password yet, and burning the token here would mean
+// opening the page consumed the only link they were sent.
+describe("verificationTokenTarget", () => {
+	const soon = () => new Date(Date.now() + 3_600_000);
+
+	it("reports the address a valid token belongs to, without spending it", async () => {
+		const { id } = await createUser(db(), "pk1@example.com", "hash");
+		const token = await createVerificationToken(db(), id, "reset", soon());
+
+		expect(await verificationTokenTarget(db(), token, "reset")).toEqual({
+			userId: id,
+			email: "pk1@example.com",
+		});
+		// Still spendable, which is the whole point.
+		expect(await consumeVerificationToken(db(), token, "reset")).toBe(id);
+	});
+
+	it("reports nothing for an expired token", async () => {
+		const { id } = await createUser(db(), "pk2@example.com", "hash");
+		const token = await createVerificationToken(
+			db(),
+			id,
+			"reset",
+			new Date(Date.now() - 1_000),
+		);
+
+		expect(await verificationTokenTarget(db(), token, "reset")).toBeNull();
+	});
+
+	it("reports nothing for the wrong flow", async () => {
+		const { id } = await createUser(db(), "pk3@example.com", "hash");
+		const verify = await createVerificationToken(db(), id, "verify", soon());
+
+		expect(await verificationTokenTarget(db(), verify, "reset")).toBeNull();
+	});
+
+	it("reports nothing for a token nobody issued", async () => {
+		expect(await verificationTokenTarget(db(), "invented", "reset")).toBeNull();
 	});
 });

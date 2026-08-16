@@ -1,14 +1,16 @@
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import {
 	ACCOUNT_CONTRACT,
 	anonymousCases,
 	authenticatedCases,
 	type ContractCase,
+	EMAIL_FLOW_CONTRACT,
 	forbiddenPresent,
 	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
 import { beforeAll, describe, expect, it } from "vitest";
+import { createVerificationToken, getUserByEmail } from "./db/queries";
 
 // The half of the contract that did not exist. apps/web pinned its mock to
 // figures captured by hand from a running worker; nothing checked the worker
@@ -393,5 +395,232 @@ describe("apps/api account management", () => {
 		expect((await login(me.email, PASSWORD)).status).toBe(
 			ACCOUNT_CONTRACT.loginAfterAccountDeleted,
 		);
+	});
+});
+
+// Email verification and password reset.
+//
+// Split deliberately. The shared expectations below are the ones both
+// implementations can answer without holding a token - uniform responses,
+// invalid links, who may call what - because a token only exists inside an
+// email and neither side can read its own mail.
+//
+// The round trip that needs a real token is further down and is apps/api only,
+// minting one through the query layer. The equivalent behavior in the mock is
+// covered by its own suite; single use, expiry and cross-flow refusal are
+// pinned at the query level in queries.test.ts for this side.
+describe("apps/api email flows", () => {
+	let seq = 0;
+
+	const post = (path: string, body: unknown, token?: string) =>
+		SELF.fetch(`${BASE}${path}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+			},
+			body: JSON.stringify(body),
+		});
+
+	async function account(): Promise<{ email: string; access: string }> {
+		seq += 1;
+		const email = `flow-${seq}@example.com`;
+		const res = await post("/auth/signup", { email, password: PASSWORD });
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		return { email, access: (JSON.parse(raw) as { token: string }).token };
+	}
+
+	it("answers forgot-password identically for known and unknown addresses", async () => {
+		const me = await account();
+
+		const known = await post("/auth/forgot-password", { email: me.email });
+		const unknown = await post("/auth/forgot-password", {
+			email: "nobody-here@example.com",
+		});
+
+		expect(known.status).toBe(EMAIL_FLOW_CONTRACT.forgotPasswordKnownAddress);
+		expect(unknown.status).toBe(
+			EMAIL_FLOW_CONTRACT.forgotPasswordUnknownAddress,
+		);
+		// Bodies too. A difference here leaks precisely what matching statuses hide.
+		expect(await known.text()).toBe(await unknown.text());
+	});
+
+	it("reports an unknown reset token as not valid, without erroring", async () => {
+		const res = await SELF.fetch(
+			`${BASE}/auth/reset-password/verify?token=invented`,
+		);
+
+		expect(res.status).toBe(EMAIL_FLOW_CONTRACT.verifyResetTokenStatus);
+		expect(((await res.json()) as { valid: boolean }).valid).toBe(false);
+	});
+
+	it("rejects a reset with an unknown token", async () => {
+		const res = await post("/auth/reset-password", {
+			token: "invented",
+			password: "brand-new-password",
+		});
+
+		expect(res.status).toBe(EMAIL_FLOW_CONTRACT.resetPasswordReplayed);
+	});
+
+	it("rejects email verification with an unknown token", async () => {
+		expect(
+			(await post("/auth/verify-email", { token: "invented" })).status,
+		).toBe(EMAIL_FLOW_CONTRACT.verifyEmailInvalidToken);
+	});
+
+	it("issues a verification link to an authenticated caller", async () => {
+		const me = await account();
+
+		expect(
+			(await post("/auth/resend-verification", {}, me.access)).status,
+		).toBe(200);
+	});
+
+	it("refuses to resend for an unauthenticated caller", async () => {
+		expect((await post("/auth/resend-verification", {})).status).toBe(401);
+	});
+});
+
+// The half of the reset flow that needs a token in hand.
+//
+// apps/api only, and minting through the query layer rather than through
+// forgot-password, because the token leaves the system inside an email that
+// nothing here can read. What this buys over the query-level tests is the
+// endpoints: that /auth/reset-password really spends the token, really writes
+// the password, and really ends the sessions - as opposed to the store being
+// capable of it.
+describe("apps/api reset round trip", () => {
+	let seq = 0;
+
+	const post = (path: string, body: unknown) =>
+		SELF.fetch(`${BASE}${path}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+
+	async function accountWithResetToken(): Promise<{
+		email: string;
+		refresh: string;
+		token: string;
+	}> {
+		seq += 1;
+		const email = `roundtrip-${seq}@example.com`;
+		const signup = await post("/auth/signup", { email, password: PASSWORD });
+		const raw = await signup.text();
+		expect(signup.ok, `fixture signup failed (${signup.status}): ${raw}`).toBe(
+			true,
+		);
+		const { refreshToken } = JSON.parse(raw) as { refreshToken: string };
+
+		const { id } = (await getUserByEmail(env.DB, email)) as { id: string };
+		const token = await createVerificationToken(
+			env.DB,
+			id,
+			"reset",
+			new Date(Date.now() + 3_600_000),
+		);
+		return { email, refresh: refreshToken, token };
+	}
+
+	it("checks a link without spending it, then resets with it", async () => {
+		const me = await accountWithResetToken();
+
+		const check = await SELF.fetch(
+			`${BASE}/auth/reset-password/verify?token=${me.token}`,
+		);
+		expect((await check.json()) as { valid: boolean; email: string }).toEqual({
+			valid: true,
+			email: me.email,
+		});
+
+		// Still spendable after the check - the page rendering must not burn it.
+		expect(EMAIL_FLOW_CONTRACT.verifyResetTokenStillSpendable).toBe(true);
+		const reset = await post("/auth/reset-password", {
+			token: me.token,
+			password: "brand-new-password",
+		});
+		expect(reset.status).toBe(200);
+
+		expect(
+			(
+				await post("/auth/login", {
+					email: me.email,
+					password: "brand-new-password",
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(await post("/auth/login", { email: me.email, password: PASSWORD }))
+				.status,
+		).toBe(401);
+	});
+
+	it("refuses the same link twice", async () => {
+		const me = await accountWithResetToken();
+
+		expect(
+			(
+				await post("/auth/reset-password", {
+					token: me.token,
+					password: "brand-new-password",
+				})
+			).status,
+		).toBe(200);
+
+		expect(
+			(
+				await post("/auth/reset-password", {
+					token: me.token,
+					password: "another-password",
+				})
+			).status,
+		).toBe(EMAIL_FLOW_CONTRACT.resetPasswordReplayed);
+	});
+
+	it("ends every session, sparing none", async () => {
+		const me = await accountWithResetToken();
+
+		await post("/auth/reset-password", {
+			token: me.token,
+			password: "brand-new-password",
+		});
+
+		expect(
+			(await post("/auth/refresh", { refreshToken: me.refresh })).status,
+		).toBe(EMAIL_FLOW_CONTRACT.sessionsAfterReset);
+	});
+
+	// A verification link is mailed to an address that has not yet proven it
+	// belongs to anyone. If it could be spent as a password reset, sending one
+	// would be handing over the account.
+	it("will not spend a verification link as a password reset", async () => {
+		seq += 1;
+		const email = `crossflow-${seq}@example.com`;
+		await post("/auth/signup", { email, password: PASSWORD });
+		const { id } = (await getUserByEmail(env.DB, email)) as { id: string };
+		const verifyToken = await createVerificationToken(
+			env.DB,
+			id,
+			"verify",
+			new Date(Date.now() + 3_600_000),
+		);
+
+		expect(
+			(
+				await post("/auth/reset-password", {
+					token: verifyToken,
+					password: "brand-new-password",
+				})
+			).status,
+		).toBe(EMAIL_FLOW_CONTRACT.crossFlowTokenUse);
+
+		// And the refusal left it usable for what it actually is.
+		expect(
+			(await post("/auth/verify-email", { token: verifyToken })).status,
+		).toBe(200);
 	});
 });

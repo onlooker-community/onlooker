@@ -3,6 +3,7 @@ import {
 	anonymousCases,
 	authenticatedCases,
 	type ContractCase,
+	EMAIL_FLOW_CONTRACT,
 	forbiddenPresent,
 	SESSION_LIFECYCLE,
 	shapeFailures,
@@ -380,5 +381,89 @@ describe("the mock's account management", () => {
 		expect((await login(me.email, "correct-horse-battery")).status).toBe(
 			ACCOUNT_CONTRACT.loginAfterAccountDeleted,
 		);
+	});
+});
+
+// The shared half of the email flows - what both implementations answer without
+// holding a token, since a token only exists inside an email neither side can
+// read. The mock's token-dependent behavior lives in its own suite; apps/api
+// pins the equivalent at the query level and in its round-trip suite.
+describe("the mock's email flows", () => {
+	let seq = 0;
+
+	const post = (path: string, body: unknown, token?: string) =>
+		createMockFetch()(path, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+			},
+			body: JSON.stringify(body),
+		});
+
+	async function account(): Promise<{ email: string; access: string }> {
+		seq += 1;
+		const email = `mock-flow-${seq}@example.com`;
+		const res = await post("/auth/signup", {
+			email,
+			password: "correct-horse-battery",
+		});
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		return { email, access: (JSON.parse(raw) as { token: string }).token };
+	}
+
+	it("answers forgot-password identically for known and unknown addresses", async () => {
+		const me = await account();
+
+		const known = await post("/auth/forgot-password", { email: me.email });
+		const unknown = await post("/auth/forgot-password", {
+			email: "nobody-here@example.com",
+		});
+
+		expect(known.status).toBe(EMAIL_FLOW_CONTRACT.forgotPasswordKnownAddress);
+		expect(unknown.status).toBe(
+			EMAIL_FLOW_CONTRACT.forgotPasswordUnknownAddress,
+		);
+		expect(await known.text()).toBe(await unknown.text());
+	});
+
+	it("reports an unknown reset token as not valid, without erroring", async () => {
+		const res = await createMockFetch()(
+			"/auth/reset-password/verify?token=invented",
+			{ method: "GET" },
+		);
+
+		expect(res.status).toBe(EMAIL_FLOW_CONTRACT.verifyResetTokenStatus);
+		expect(((await res.json()) as { valid: boolean }).valid).toBe(false);
+	});
+
+	it("rejects a reset with an unknown token", async () => {
+		expect(
+			(
+				await post("/auth/reset-password", {
+					token: "invented",
+					password: "brand-new-password",
+				})
+			).status,
+		).toBe(EMAIL_FLOW_CONTRACT.resetPasswordReplayed);
+	});
+
+	it("rejects email verification with an unknown token", async () => {
+		expect(
+			(await post("/auth/verify-email", { token: "invented" })).status,
+		).toBe(EMAIL_FLOW_CONTRACT.verifyEmailInvalidToken);
+	});
+
+	it("issues a verification link to an authenticated caller", async () => {
+		const me = await account();
+
+		expect(
+			(await post("/auth/resend-verification", {}, me.access)).status,
+		).toBe(200);
+	});
+
+	it("refuses to resend for an unauthenticated caller", async () => {
+		expect((await post("/auth/resend-verification", {})).status).toBe(401);
 	});
 });
