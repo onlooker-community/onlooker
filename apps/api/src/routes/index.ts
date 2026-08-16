@@ -23,3 +23,4 @@ export {
 } from "./auth";
 
 export { handleGetDashboard, handleGetUserProfile } from "./data";
+export { handleClientError } from "./telemetry";

@@ -624,3 +624,49 @@ describe("apps/api reset round trip", () => {
 		).toBe(200);
 	});
 });
+
+// The endpoint the browser reports to. Unauthenticated on purpose - the
+// failures most worth hearing about happen to people who are not signed in, or
+// whose session just broke - which makes its bounds the interesting part.
+describe("apps/api client error reporting", () => {
+	const post = (body: string, token?: string) =>
+		SELF.fetch(`${BASE}/api/client-errors`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+			},
+			body,
+		});
+
+	it("accepts a report from a caller with no session", async () => {
+		const res = await post(
+			JSON.stringify({
+				kind: "render",
+				message: "Cannot read properties of undefined",
+				url: "https://app.onlooker.dev/dashboard",
+			}),
+		);
+
+		expect(res.status).toBe(204);
+	});
+
+	// Always 204. A client reporting an error has no use for a second error, and
+	// apps/web ignores the response entirely - so a status that varied would be
+	// information nobody reads, and a 4xx would look like an outage in the very
+	// logs this feeds.
+	it("answers 204 to a malformed report rather than complaining", async () => {
+		expect((await post("this is not json")).status).toBe(204);
+		expect((await post(JSON.stringify({ kind: "nonsense" }))).status).toBe(204);
+		expect((await post(JSON.stringify({}))).status).toBe(204);
+	});
+
+	it("refuses an oversized report without erroring", async () => {
+		const huge = JSON.stringify({
+			kind: "render",
+			message: "m".repeat(20_000),
+		});
+
+		expect((await post(huge)).status).toBe(204);
+	});
+});

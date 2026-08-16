@@ -6,6 +6,7 @@
 import { errorHandler } from "./middleware";
 import {
 	handleChangePassword,
+	handleClientError,
 	handleDeleteAccount,
 	handleForgotPassword,
 	handleGetDashboard,
@@ -122,6 +123,15 @@ const ROUTES: Route[] = [
 		method: "GET",
 		path: "/api/dashboard",
 		handler: handleGetDashboard,
+	},
+
+	// =========================================================================
+	// Telemetry - where the browser reports what only it can see
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/api/client-errors",
+		handler: handleClientError,
 	},
 ];
 
