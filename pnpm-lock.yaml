@@ -93,6 +93,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@onlooker/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
       '@onlooker/auth-react':
         specifier: workspace:*
         version: link:../../packages/auth-react
@@ -109,9 +112,6 @@ importers:
         specifier: ^6.28.0
         version: 6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
-      '@onlooker/api-contract':
-        specifier: workspace:*
-        version: link:../../packages/api-contract
       '@onlooker/config-biome':
         specifier: workspace:*
         version: link:../../packages/config-biome

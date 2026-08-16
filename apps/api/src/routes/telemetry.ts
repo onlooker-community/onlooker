@@ -11,6 +11,8 @@
  * reportError, not a change everywhere errors are raised.
  */
 
+import { redactSecrets } from "@onlooker/api-contract";
+
 import type { WorkerEnv } from "../types";
 
 /** Fields longer than this are truncated rather than rejected. */
@@ -30,9 +32,22 @@ interface ClientErrorReport {
 	userAgent?: unknown;
 }
 
+/**
+ * Take one field from a report: bounded, and scrubbed again on arrival.
+ *
+ * apps/web redacts before sending, and this redacts on receipt, because the two
+ * are doing different jobs. The client's is "do not put a secret on the
+ * network". This one's is "never write anything secret-shaped to a log,
+ * whoever sent it" - and this endpoint is unauthenticated, so whoever sent it
+ * is genuinely anyone with curl. It does not take an attacker either: a cached
+ * bundle from before the scrubbing existed produces exactly the same result.
+ *
+ * The comment here used to say the fields arrived already redacted and that
+ * nothing should assume so - while the code assumed precisely that.
+ */
 function field(value: unknown): string | undefined {
 	if (typeof value !== "string" || value.length === 0) return undefined;
-	return value.slice(0, MAX_FIELD);
+	return redactSecrets(value).slice(0, MAX_FIELD);
 }
 
 /**
@@ -76,9 +91,8 @@ export async function handleClientError(
 			: "unknown";
 	const message = field(report.message) ?? "(no message)";
 
-	// One line, structured enough to filter on and read at a glance. The fields
-	// are already redacted by apps/web before they are sent; nothing here can
-	// un-redact them, and nothing here should assume they were.
+	// One line, structured enough to filter on and read at a glance. Every field
+	// goes through `field`, which bounds and scrubs it.
 	console.error(
 		JSON.stringify({
 			event: "client_error",

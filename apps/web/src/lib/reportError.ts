@@ -14,7 +14,13 @@
  * tracing together), this is the file that changes.
  */
 
+import { redactSecrets } from "@onlooker/api-contract";
 import { resolveApiConfig } from "../api/config";
+
+// Re-exported so this module stays the one place apps/web reaches for when it
+// needs scrubbing. The implementation is shared with apps/api, which redacts
+// again on receipt - see packages/api-contract/src/redact.ts for why both.
+export { redactSecrets };
 
 export type ClientErrorKind = "render" | "unhandled-rejection" | "uncaught";
 
@@ -30,49 +36,6 @@ export interface ClientErrorInput {
 
 /** Longest any single field may be once it reaches the wire. */
 const MAX_FIELD = 2_000;
-
-/**
- * Tokens issued by this system: 32 random bytes, hex encoded.
- *
- * Matched by shape rather than by location, because the route list below is not
- * a guarantee - a future route carrying a token would not be on it, and a stack
- * trace can carry one anywhere. 32+ hex characters is long enough that ordinary
- * text does not collide with it.
- */
-const TOKEN_SHAPED = /\b[0-9a-f]{32,}\b/gi;
-
-/** A JWT, which is what an Authorization header carries. */
-const JWT_SHAPED = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
-
-/** Routes that put a single-use credential in the path. */
-const SECRET_PATH = /\/(reset-password|verify-email)\/[^/?#\s]+/gi;
-
-/** Query parameters worth removing wherever they appear. */
-const SECRET_PARAM = /([?&](?:token|password|secret|key)=)[^&\s]+/gi;
-
-/**
- * Remove anything credential-shaped from a string.
- *
- * Four passes rather than one, because the failure modes differ: known routes
- * catch the common case legibly, the token and JWT shapes catch it wherever
- * else it surfaces, and query parameters catch the reset-verify call.
- *
- * Over-redaction has a cost too. A report with nothing identifiable left in it
- * is not worth sending, which is why this targets shapes rather than, say,
- * dropping every path segment.
- */
-export function redactSecrets(value: string): string;
-export function redactSecrets(value: undefined): undefined;
-export function redactSecrets(value: string | undefined): string | undefined;
-export function redactSecrets(value: string | undefined): string | undefined {
-	if (!value) return value;
-
-	return value
-		.replace(SECRET_PATH, (_m, route) => `/${route}/[redacted]`)
-		.replace(SECRET_PARAM, "$1[redacted]")
-		.replace(JWT_SHAPED, "[redacted]")
-		.replace(TOKEN_SHAPED, "[redacted]");
-}
 
 function clamp(value: string | undefined): string | undefined {
 	if (value === undefined) return undefined;
