@@ -435,3 +435,39 @@ export async function deleteVerificationTokens(
 			),
 		);
 }
+
+/**
+ * Who a token belongs to, without spending it.
+ *
+ * For the check that runs before a reset form is shown. The user has not chosen
+ * a new password yet, so consuming here would mean opening the page burned the
+ * only link they were sent - and links get opened twice routinely, by mail
+ * scanners and by people who clicked before they were ready.
+ *
+ * Returns the address as well as the id because the page shows whose account is
+ * being reset, which is how someone notices a link meant for a different
+ * account of theirs.
+ */
+export async function verificationTokenTarget(
+	db: D1Database,
+	token: string,
+	type: VerificationTokenType,
+): Promise<{ userId: string; email: string } | null> {
+	const [row] = await client(db)
+		.select({
+			user_id: verification_tokens.user_id,
+			type: verification_tokens.type,
+			expires_at: verification_tokens.expires_at,
+			email: users.email,
+		})
+		.from(verification_tokens)
+		.innerJoin(users, eq(users.id, verification_tokens.user_id))
+		.where(eq(verification_tokens.token_hash, await hashToken(token)))
+		.limit(1);
+
+	if (!row) return null;
+	if (row.type !== type) return null;
+	if (new Date(row.expires_at) < new Date()) return null;
+
+	return { userId: row.user_id, email: row.email };
+}

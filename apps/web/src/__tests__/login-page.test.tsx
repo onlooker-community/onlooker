@@ -113,14 +113,13 @@ describe("LoginPage", () => {
 		expect(mocks.login).not.toHaveBeenCalled();
 	});
 
-	// Deliberately absent, not forgotten. /auth/forgot-password is a 501 stub in
-	// apps/api - the whole reset journey is built in the mock and does not exist
-	// in production - so the link would walk people into a wall. Remove this test
-	// when the API implements it, and put the link back in the same change.
-	it("does not offer password reset, which the API cannot serve", () => {
+	// This used to assert the opposite - that no reset link was offered - while
+	// /auth/forgot-password was a 501 stub, with a note to reverse it in the same
+	// change that implemented the API. This is that change.
+	it("offers password reset, which the API now serves", () => {
 		renderLogin();
 
-		expect(screen.queryByRole("link", { name: /forgot/i })).toBeNull();
+		expect(screen.getByRole("link", { name: /forgot/i })).toBeDefined();
 		expect(screen.getByRole("link", { name: /sign up/i })).toBeDefined();
 	});
 

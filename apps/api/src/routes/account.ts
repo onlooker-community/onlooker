@@ -10,15 +10,27 @@
  */
 
 import {
+	consumeVerificationToken,
+	createVerificationToken,
 	deleteUser,
+	deleteVerificationTokens,
 	getPasswordHash,
 	getUserByEmail,
 	getUserById,
+	revokeAllSessionsForUser,
 	revokeAllSessionsForUserExcept,
 	setEmailVerified,
 	updatePassword,
 	updateProfile,
+	verificationTokenTarget,
 } from "../db/queries";
+import { sendEmail } from "../email";
+import {
+	passwordResetEmail,
+	RESET_TOKEN_TTL_MS,
+	VERIFY_TOKEN_TTL_MS,
+	verifyEmailEmail,
+} from "../email/templates";
 import { ApiError, jsonResponse, requireAuth } from "../middleware";
 import type {
 	ChangePasswordRequest,
@@ -252,7 +264,7 @@ export async function handleDeleteAccount(
  */
 export async function handleVerifyEmail(
 	request: Request,
-	_env: WorkerEnv,
+	env: WorkerEnv,
 ): Promise<Response> {
 	const body = (await request.json()) as { token: string };
 
@@ -260,17 +272,21 @@ export async function handleVerifyEmail(
 		throw new ApiError(400, "invalid_input", "Verification token is required");
 	}
 
-	// TODO: WS1 will implement
-	// 1. Get email from token: const email = await verificationStore.getVerificationEmail(body.token)
-	// 2. Find user: const user = await db.findByEmail(email)
-	// 3. Mark verified: await db.setEmailVerified(user.id, true)
-	// 4. Consume token: await verificationStore.consumeVerificationToken(body.token)
+	const userId = await consumeVerificationToken(env.DB, body.token, "verify");
+	if (!userId) {
+		// One answer for unknown, expired, already-used and wrong-flow. The
+		// distinction helps nobody holding a real link and guides anybody
+		// guessing at one.
+		throw new ApiError(
+			400,
+			"invalid_verification_token",
+			"Verification link is invalid or has expired",
+		);
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Verify email not yet implemented - awaiting WS1 database integration",
-	);
+	await setEmailVerified(env.DB, userId, true);
+
+	return jsonResponse({ success: true });
 }
 
 /**
@@ -286,18 +302,32 @@ export async function handleResendVerification(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
-	await requireAuth(request, env);
+	const auth = await requireAuth(request, env);
 
-	// TODO: WS1 will implement
-	// 1. Get user: const user = await db.findById(auth.userId)
-	// 2. Create verification token: const token = await verificationStore.createVerificationToken(auth.userId, user.email)
-	// 3. Queue email: send verification email (future)
+	const user = await getUserById(env.DB, auth.userId);
+	if (!user) {
+		throw new ApiError(404, "not_found", "User not found");
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Resend verification not yet implemented - awaiting WS1 database integration",
+	// Retire any outstanding link first, so asking again does not leave a trail
+	// of live confirmations in an inbox someone else may later read.
+	await deleteVerificationTokens(env.DB, auth.userId, "verify");
+	const token = await createVerificationToken(
+		env.DB,
+		auth.userId,
+		"verify",
+		new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
 	);
+
+	await sendEmail(
+		env,
+		verifyEmailEmail(user.email, `${env.APP_BASE_URL}/verify-email/${token}`),
+	);
+
+	// Answering success even when the send failed, because the caller is already
+	// authenticated - there is nothing to leak - and the useful recovery is to
+	// ask again rather than to read a delivery error. The failure is logged.
+	return jsonResponse({ success: true });
 }
 
 /**
@@ -313,7 +343,7 @@ export async function handleResendVerification(
  */
 export async function handleForgotPassword(
 	request: Request,
-	_env: WorkerEnv,
+	env: WorkerEnv,
 ): Promise<Response> {
 	const body = (await request.json()) as { email: string };
 
@@ -321,17 +351,30 @@ export async function handleForgotPassword(
 		throw new ApiError(400, "invalid_input", "Email is required");
 	}
 
-	// TODO: WS1 will implement
-	// 1. Check if user exists: const user = await db.findByEmail(body.email)
-	// 2. If exists, create reset token: const token = await resetStore.createResetToken(body.email)
-	// 3. If exists, queue email: send reset link (future)
-	// Note: Always return success to prevent email enumeration
+	const user = await getUserByEmail(env.DB, body.email);
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Forgot password not yet implemented - awaiting WS1 database integration",
-	);
+	// Everything below is conditional; the response is not. An unregistered
+	// address must be indistinguishable from a registered one, or this endpoint
+	// becomes a way to ask whether somebody has an account here.
+	if (user) {
+		await deleteVerificationTokens(env.DB, user.id, "reset");
+		const token = await createVerificationToken(
+			env.DB,
+			user.id,
+			"reset",
+			new Date(Date.now() + RESET_TOKEN_TTL_MS),
+		);
+
+		await sendEmail(
+			env,
+			passwordResetEmail(
+				user.email,
+				`${env.APP_BASE_URL}/reset-password/${token}`,
+			),
+		);
+	}
+
+	return jsonResponse({ success: true });
 }
 
 /**
@@ -345,7 +388,7 @@ export async function handleForgotPassword(
  */
 export async function handleVerifyResetToken(
 	request: Request,
-	_env: WorkerEnv,
+	env: WorkerEnv,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const token = url.searchParams.get("token");
@@ -354,15 +397,17 @@ export async function handleVerifyResetToken(
 		throw new ApiError(400, "invalid_input", "Reset token is required");
 	}
 
-	// TODO: WS1 will implement
-	// 1. Check token: const email = await resetStore.getResetEmail(token)
-	// 2. Return validity
+	// A read, not a spend. The user has not chosen a password yet, and links get
+	// opened more than once - by mail scanners, and by people who clicked before
+	// they were ready.
+	const target = await verificationTokenTarget(env.DB, token, "reset");
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Verify reset token not yet implemented - awaiting WS1 database integration",
-	);
+	// Always 200. This endpoint exists to tell a page whether to render a form,
+	// and its answer is not an error either way.
+	return jsonResponse({
+		valid: target !== null,
+		email: target?.email,
+	});
 }
 
 /**
@@ -377,7 +422,7 @@ export async function handleVerifyResetToken(
  */
 export async function handleResetPassword(
 	request: Request,
-	_env: WorkerEnv,
+	env: WorkerEnv,
 ): Promise<Response> {
 	const body = (await request.json()) as { token: string; password: string };
 
@@ -393,16 +438,21 @@ export async function handleResetPassword(
 		);
 	}
 
-	// TODO: WS1 will implement
-	// 1. Get email from token: const email = await resetStore.getResetEmail(body.token)
-	// 2. Hash password: const passwordHash = await bcrypt.hash(body.password, 10)
-	// 3. Update password: await db.findByEmail(email).then(user => db.changePassword(user.id, passwordHash))
-	// 4. Revoke all tokens: await tokenStore.revokeAllForUser(user.id)
-	// 5. Consume token: await resetStore.consumeResetToken(body.token)
+	const userId = await consumeVerificationToken(env.DB, body.token, "reset");
+	if (!userId) {
+		throw new ApiError(
+			400,
+			"invalid_reset_token",
+			"Reset link is invalid or has expired",
+		);
+	}
 
-	throw new ApiError(
-		501,
-		"not_implemented",
-		"Reset password not yet implemented - awaiting WS1 database integration",
-	);
+	await updatePassword(env.DB, userId, await hashPassword(body.password));
+
+	// Every session, with none spared. A reset is the case where the old
+	// credentials must be assumed compromised, and unlike a password change
+	// there is no authenticated caller here whose session we could trust.
+	await revokeAllSessionsForUser(env.DB, userId);
+
+	return jsonResponse({ success: true });
 }
