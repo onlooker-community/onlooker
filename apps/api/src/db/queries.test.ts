@@ -1,8 +1,11 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	consumeVerificationToken,
 	createUser,
+	createVerificationToken,
 	deleteUser,
+	deleteVerificationTokens,
 	getPasswordHash,
 	getRefreshToken,
 	getUserByEmail,
@@ -373,5 +376,106 @@ describe("revokeAllSessionsForUserExcept", () => {
 		await revokeAllSessionsForUserExcept(db(), id, undefined);
 
 		expect(await getRefreshToken(db(), "only")).toBeNull();
+	});
+});
+
+// Verification and reset tokens. Both flows share one table with a `type`
+// discriminator, so most of these exist to prove the two cannot be confused for
+// one another - a verification token that works as a password reset is an
+// account takeover, not a bug report.
+
+describe("verification tokens", () => {
+	const soon = () => new Date(Date.now() + 3_600_000);
+
+	it("issues a token that can be consumed once", async () => {
+		const { id } = await createUser(db(), "t1@example.com", "hash");
+
+		const token = await createVerificationToken(db(), id, "verify", soon());
+		expect(token).toEqual(expect.any(String));
+
+		expect(await consumeVerificationToken(db(), token, "verify")).toBe(id);
+		// Single use. The second attempt is a replay, whoever is making it.
+		expect(await consumeVerificationToken(db(), token, "verify")).toBeNull();
+	});
+
+	// The raw token must not be recoverable from the table. Stored plaintext, a
+	// read of this table is a working reset link for every pending request.
+	it("stores only a hash, never the token", async () => {
+		const { id } = await createUser(db(), "t2@example.com", "hash");
+		const token = await createVerificationToken(db(), id, "reset", soon());
+
+		const { results } = await db()
+			.prepare("SELECT * FROM verification_tokens")
+			.all();
+
+		expect(JSON.stringify(results)).not.toContain(token);
+	});
+
+	it("refuses a token of the wrong type", async () => {
+		const { id } = await createUser(db(), "t3@example.com", "hash");
+		const verify = await createVerificationToken(db(), id, "verify", soon());
+
+		// A verification link must not double as a password reset.
+		expect(await consumeVerificationToken(db(), verify, "reset")).toBeNull();
+		// And it still works as what it is - the failed attempt consumed nothing.
+		expect(await consumeVerificationToken(db(), verify, "verify")).toBe(id);
+	});
+
+	it("refuses an expired token", async () => {
+		const { id } = await createUser(db(), "t4@example.com", "hash");
+		const expired = await createVerificationToken(
+			db(),
+			id,
+			"reset",
+			new Date(Date.now() - 1_000),
+		);
+
+		expect(await consumeVerificationToken(db(), expired, "reset")).toBeNull();
+	});
+
+	it("refuses a token nobody issued", async () => {
+		expect(
+			await consumeVerificationToken(db(), "invented", "reset"),
+		).toBeNull();
+	});
+
+	// Requesting a new link should retire the old one, or every reset email ever
+	// sent stays live until it expires.
+	it("drops a user's earlier tokens of the same type", async () => {
+		const { id } = await createUser(db(), "t5@example.com", "hash");
+		const first = await createVerificationToken(db(), id, "reset", soon());
+
+		await deleteVerificationTokens(db(), id, "reset");
+		const second = await createVerificationToken(db(), id, "reset", soon());
+
+		expect(await consumeVerificationToken(db(), first, "reset")).toBeNull();
+		expect(await consumeVerificationToken(db(), second, "reset")).toBe(id);
+	});
+
+	it("leaves the other flow's tokens alone when clearing one", async () => {
+		const { id } = await createUser(db(), "t6@example.com", "hash");
+		const verify = await createVerificationToken(db(), id, "verify", soon());
+
+		await deleteVerificationTokens(db(), id, "reset");
+
+		expect(await consumeVerificationToken(db(), verify, "verify")).toBe(id);
+	});
+
+	it("goes with the user when the account is deleted", async () => {
+		const { id } = await createUser(db(), "t7@example.com", "hash");
+		const token = await createVerificationToken(db(), id, "verify", soon());
+
+		await deleteUser(db(), id);
+
+		expect(await consumeVerificationToken(db(), token, "verify")).toBeNull();
+	});
+
+	it("issues a different token every time", async () => {
+		const { id } = await createUser(db(), "t8@example.com", "hash");
+
+		const a = await createVerificationToken(db(), id, "reset", soon());
+		const b = await createVerificationToken(db(), id, "reset", soon());
+
+		expect(a).not.toBe(b);
 	});
 });

@@ -68,13 +68,23 @@ describe("verification_tokens", () => {
 			"created_at",
 			"expires_at",
 			"id",
-			"token",
+			"token_hash",
 			"type",
 			"user_id",
 		]);
 		expect(indexNames(verification_tokens)).toContain(
 			"verification_tokens_type_idx",
 		);
+	});
+
+	// Named token_hash, not token, and the name is the guarantee. A reset token
+	// is a bearer credential - whoever holds one can take an account over without
+	// knowing the password - so reading this table must not hand out working
+	// links. sessions already stores only a hash; this now matches, and a column
+	// called `token` would invite the next person to put the real thing in it.
+	it("stores a hash rather than the token itself", () => {
+		expect(columnNames(verification_tokens)).not.toContain("token");
+		expect(columnNames(verification_tokens)).toContain("token_hash");
 	});
 });
 

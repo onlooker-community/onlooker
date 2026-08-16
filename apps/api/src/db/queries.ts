@@ -1,5 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { sessions, users } from "@onlooker/db";
+import { sessions, users, verification_tokens } from "@onlooker/db";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
@@ -313,6 +313,125 @@ export async function revokeAllSessionsForUserExcept(
 			and(
 				eq(sessions.user_id, userId),
 				ne(sessions.token_hash, await hashToken(keepToken)),
+			),
+		);
+}
+
+/** Which flow a verification token belongs to. */
+export type VerificationTokenType = "verify" | "reset";
+
+/**
+ * Issue a token for one of the email flows, returning the raw value.
+ *
+ * The raw token is returned once, here, and never stored - the table keeps only
+ * its SHA-256, the same way sessions do. A password-reset token is a bearer
+ * credential: whoever holds one can take an account over without knowing the
+ * password, so a read of this table must not produce working links.
+ *
+ * 32 bytes of crypto random, hex encoded. It ends up in a URL, so it has to
+ * survive copy-paste out of a mail client, and it has to be unguessable at the
+ * rate someone can try links.
+ */
+export async function createVerificationToken(
+	db: D1Database,
+	userId: string,
+	type: VerificationTokenType,
+	expiresAt: Date,
+): Promise<string> {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	const token = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+	await client(db)
+		.insert(verification_tokens)
+		.values({
+			id: crypto.randomUUID(),
+			user_id: userId,
+			token_hash: await hashToken(token),
+			type,
+			expires_at: expiresAt.toISOString(),
+			created_at: new Date().toISOString(),
+		});
+
+	return token;
+}
+
+/**
+ * Spend a token, returning the user it belonged to, or null if it will not do.
+ *
+ * Null covers every way a token can fail - unknown, wrong flow, expired,
+ * already used - deliberately, because the caller has nothing useful to do with
+ * the distinction and an error message that explains which one is a hint to
+ * whoever is guessing.
+ *
+ * `type` is checked rather than trusted. Both flows share this table, and a
+ * verification link that could be spent as a password reset would be an account
+ * takeover: verification links get mailed to addresses that have not yet proven
+ * they belong to anyone.
+ *
+ * Deletion happens whether or not the token was still valid, so a replay of an
+ * expired token cannot keep the row alive.
+ */
+export async function consumeVerificationToken(
+	db: D1Database,
+	token: string,
+	type: VerificationTokenType,
+): Promise<string | null> {
+	const hash = await hashToken(token);
+
+	const [row] = await client(db)
+		.select({
+			user_id: verification_tokens.user_id,
+			type: verification_tokens.type,
+			expires_at: verification_tokens.expires_at,
+		})
+		.from(verification_tokens)
+		.where(eq(verification_tokens.token_hash, hash))
+		.limit(1);
+
+	if (!row) return null;
+
+	// A wrong-type presentation is refused WITHOUT spending the token. It says
+	// nothing about whether the token is good for its own flow, and the only
+	// realistic way to reach it is a bug on our side - endpoints choose the type,
+	// users never type it. Burning here would turn one routing mistake of ours
+	// into a reset link destroyed under someone who was trying to use it. An
+	// attacker gains nothing from the leniency either: holding the token, they
+	// could simply present it to the right endpoint.
+	if (row.type !== type) return null;
+
+	// Everything past this point spends it, valid or not, so an expired token
+	// cannot be replayed to keep its row alive.
+	await client(db)
+		.delete(verification_tokens)
+		.where(eq(verification_tokens.token_hash, hash));
+
+	// Same reasoning as getRefreshToken: expires_at is an ISO string, so a SQL
+	// comparison would be lexicographic.
+	if (new Date(row.expires_at) < new Date()) return null;
+
+	return row.user_id;
+}
+
+/**
+ * Drop a user's outstanding tokens for one flow.
+ *
+ * Called before issuing a replacement, so asking for a second reset link
+ * retires the first. Without it every link ever sent stays live until it
+ * expires, which turns a mailbox someone else can read into a standing key.
+ *
+ * Scoped by type: clearing reset links must not un-verify a pending address.
+ */
+export async function deleteVerificationTokens(
+	db: D1Database,
+	userId: string,
+	type: VerificationTokenType,
+): Promise<void> {
+	await client(db)
+		.delete(verification_tokens)
+		.where(
+			and(
+				eq(verification_tokens.user_id, userId),
+				eq(verification_tokens.type, type),
 			),
 		);
 }

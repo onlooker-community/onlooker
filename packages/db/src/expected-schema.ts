@@ -120,7 +120,7 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
-				name: "token",
+				name: "token_hash",
 				type: "TEXT",
 				notnull: 1,
 				pk: 0,
