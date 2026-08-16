@@ -40,6 +40,32 @@ as precise.
 
 ---
 
+## How to build one
+
+Cloudflare dashboard → **Analytics** → **Custom Dashboards**. Blank, or from a
+template — "Account takeover" is close to Dashboard 4's intent.
+
+Each chart takes four things: a **dataset**, a **metric** with its aggregation,
+**dimensions** to break it down by, and **filters**. Chart types available are
+Timeseries, Bar, Donut, Map, Stat, Percentage and Top N, which is why the
+descriptions below name a shape — they are choosing from that list.
+
+There is also a natural-language builder. Describing the chart is usually the
+fastest way to find the exact field name for something, since the dimension
+names are not guessable and are not visible until you are already in the right
+dataset. Check what it produces against the filter reference below rather than
+trusting it; a wrong filter here renders a plausible chart, not an error.
+
+Two shapes worth knowing:
+
+- **Percentage** is the right type for anything expressed as a rate — a 404
+  *rate* rather than a 404 *count*, because a count also rises with legitimate
+  traffic and a rate does not.
+- **Top N** is the right type for "which client IPs" and similar. Note the
+  underlying data is sampled, so at this project's volume the tail is noise.
+
+Standard accounts get up to 25 dashboards.
+
 ## Filter reference
 
 ### Hostnames — zone `onlooker.dev`
@@ -92,16 +118,28 @@ the cleanest signal on any of these dashboards (see D1 chart 1).
 Derived from the delivered cadence, not the requested one. Treat as a **ceiling**
 and expect irregular spacing — GitHub's scheduler is not punctual.
 
+Measured by counting the checks the script makes (`grep '^check ' scripts/heartbeat.sh`,
+four per environment) against the observed run cadence of ~31 minutes.
+
 | | per day |
 |---|---|
 | heartbeat runs | ~46 |
-| `onlooker-api-production` invocations | ~93 |
-| `onlooker-web-production` invocations | ~46 |
+| `onlooker-api-production` invocations | ~92 |
+| `onlooker-web-production` invocations | ~92 |
 | D1 queries per database | ~46 |
-| total requests, all four hosts | ~277 |
+| total requests, all four hosts | ~368 |
+
+The web figures **doubled** when the heartbeat gained a deep-link check: it used
+to request only `/`, which is a file on disk and therefore could not detect the
+outage where every other route 404'd. Two requests per environment now.
+
+Deploys add a burst on top — the same script runs as a post-deploy smoke test,
+so each deploy contributes 4 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
-consecutive hours" — over any absolute count.
+consecutive hours" — over any absolute count. Every figure here has been wrong
+once: the original set assumed the configured 5-minute cron rather than the
+~31-minute delivered one, and was out by roughly 6x.
 
 ---
 
@@ -236,12 +274,19 @@ Web hosts serve no auth routes and only inflate the baseline.
 Worth building once there are real users; its value comes from separating human
 traffic from a known floor, and there is little human traffic yet.
 
-**401s over time against a known constant.** The heartbeat contributes exactly
-4 per run — two `/auth/me` and two `/auth/refresh` across both environments.
-Anything above that line is someone probing your auth endpoints. A
-credential-stuffing detector obtained for free, purely from knowing your own
-floor. That constant assumes exactly these two hostnames; adding a third
-invalidates it.
+**401s over time, with the heartbeat filtered out.** Every request the heartbeat
+makes carries `User-Agent: onlooker-heartbeat/1`, so exclude that and the
+remaining 401s are, by construction, somebody else probing your auth endpoints.
+A credential-stuffing detector for the cost of one filter.
+
+This used to be phrased as a constant to subtract by eye — the script produces
+exactly 4 401s per run, two per environment. That worked but was fragile in
+three ways: the number lived in a human's head, adding a hostname or a check
+invalidated it, and Cloudflare charts cannot draw a reference line at it anyway.
+The label replaces arithmetic with a filter.
+
+Do not reach for `User-Agent not like curl/*` instead. It would exclude anyone
+probing with curl, which is precisely the traffic this chart exists to show.
 
 **Requests by country** on a map, and **top client IPs** as a table. With one
 real user the shape of legitimate traffic is nearly a single point, so anything
