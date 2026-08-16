@@ -271,8 +271,14 @@ it at 100%.
 Zone-scoped, filtered to `api.onlooker.dev` and `api-staging.onlooker.dev` only.
 Web hosts serve no auth routes and only inflate the baseline.
 
-Worth building once there are real users; its value comes from separating human
-traffic from a known floor, and there is little human traffic yet.
+Built 2026-08-16, later than the other three, which were built 2026-08-09. Its
+value comes from separating human traffic from a known floor, and until the
+heartbeat labelled itself there was no reliable way to draw that line.
+
+Expect it to look empty. At ~368 requests a day, nearly all of them synthetic,
+these charts are a baseline being established rather than a signal being read.
+That is the point of having built it now: the shape of normal accumulates before
+there is anything abnormal to compare against.
 
 **401s over time, with the heartbeat filtered out.** Every request the heartbeat
 makes carries `User-Agent: onlooker-heartbeat/1`, so exclude that and the
