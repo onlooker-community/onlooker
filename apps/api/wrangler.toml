@@ -120,5 +120,40 @@ database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
 # ============================================================================
 # OBSERVABILITY & MONITORING
 # ============================================================================
+# Declared per environment as well as at the top level, deliberately. Wrangler
+# documents which keys named environments inherit and does not say where
+# `observability` falls; the Workers Logs guide shows it being set under
+# [env.NAME] without saying whether that is required or merely possible. The
+# failure mode if it is NOT inherited is silent - no telemetry from the
+# environments anyone actually looks at, while the config reads as though it is
+# on - so this states it everywhere rather than resolving the ambiguity.
+#
+# Worth checking once in the dashboard whether onlooker-api-production had logs
+# enabled before this: `wrangler tail` streams live regardless of the setting,
+# so the tailing done during this work proves nothing either way.
+#
+# `traces` has to be explicit. Cloudflare's docs are direct about it: while
+# automatic tracing is in beta, `enabled = true` turns on logs ONLY. That is
+# also why this is configuration and not an instrumentation project - fetches,
+# binding calls and handler invocations are traced with no code changes.
+#
+# No head_sampling_rate anywhere: it defaults to 1, meaning everything is
+# traced. At ~368 requests a day that is the right answer and sampling would
+# only make a thin dataset thinner. Revisit when there is real traffic.
 [observability]
+enabled = true
+
+[observability.traces]
+enabled = true
+
+[env.staging.observability]
+enabled = true
+
+[env.staging.observability.traces]
+enabled = true
+
+[env.production.observability]
+enabled = true
+
+[env.production.observability.traces]
 enabled = true

@@ -32,7 +32,13 @@
 	"workers_dev": true,
 	"preview_urls": true,
 
+	// traces must be named explicitly: while automatic tracing is in beta,
+	// "enabled" turns on logs only. No head_sampling_rate, so it defaults to
+	// tracing everything - correct at this volume.
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"traces": {
+			"enabled": true
+		}
 	}
 }
