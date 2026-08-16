@@ -32,6 +32,26 @@ export interface WorkerEnv {
 	// middleware/cors.ts for why that direction is the safe one.
 	CORS_ORIGIN: string;
 
+	// Resend API key, set with `wrangler secret put RESEND_API_KEY --env <env>`.
+	// A secret rather than a var: it is a bearer credential for sending mail as
+	// this domain.
+	//
+	// Optional because local development has no reason to hold one - sendEmail
+	// logs the message instead, so the flows stay exercisable. In a deployed
+	// environment its absence is a misconfiguration that shows up as a warning
+	// per send, not an exception, since a 500 there would tell an attacker which
+	// addresses are registered.
+	RESEND_API_KEY?: string;
+
+	// The From address. A var, not a secret - it is printed on every message we
+	// send - and it must belong to a domain verified with the provider, or every
+	// send is rejected.
+	EMAIL_FROM: string;
+
+	// Where links in those emails point. The API and the web app are different
+	// hostnames, so this cannot be derived from the request.
+	APP_BASE_URL: string;
+
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
 }

@@ -60,6 +60,14 @@ export const sessions = sqliteTable(
  * One table with a type discriminator rather than two tables, because the two
  * flows have identical shapes. email_change_tokens will be its own table when
  * that feature lands, since it carries a new_email column these do not.
+ *
+ * The column holds a SHA-256 of the token, never the token itself, which is why
+ * it is named token_hash and matches sessions. A password-reset token is a
+ * bearer credential: whoever holds one can take an account over without knowing
+ * the password, so a database read should not hand out working reset links.
+ * This was `token` in plaintext until the flows were built; nothing had ever
+ * written to the table, so the rename cost nothing and the alternative was
+ * storing a hash in a column that said otherwise.
  */
 export const verification_tokens = sqliteTable(
 	"verification_tokens",
@@ -68,13 +76,13 @@ export const verification_tokens = sqliteTable(
 		user_id: text("user_id")
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
-		token: text("token").notNull(),
+		token_hash: text("token_hash").notNull(),
 		type: text("type").notNull(),
 		expires_at: text("expires_at").notNull(),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => ({
-		tokenIdx: uniqueIndex("verification_tokens_token_idx").on(table.token),
+		tokenIdx: uniqueIndex("verification_tokens_token_idx").on(table.token_hash),
 		userIdIdx: index("verification_tokens_user_id_idx").on(table.user_id),
 		typeIdx: index("verification_tokens_type_idx").on(table.type),
 		expiresAtIdx: index("verification_tokens_expires_at_idx").on(

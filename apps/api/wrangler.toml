@@ -47,6 +47,8 @@ TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
+EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
+APP_BASE_URL = "http://localhost:5173"
 
 # `wrangler dev` is local-first, so this resolves to a SQLite file under
 # apps/api/.wrangler/ and never touches Cloudflare. database_id is required by
@@ -79,6 +81,8 @@ TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
+EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
+APP_BASE_URL = "https://app-staging.onlooker.dev"
 
 # Staging: Use staging D1 database
 [[env.staging.d1_databases]]
@@ -103,6 +107,8 @@ TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
 ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
+EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
+APP_BASE_URL = "https://app.onlooker.dev"
 
 # Production: Use production D1 database
 [[env.production.d1_databases]]

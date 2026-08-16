@@ -50,6 +50,11 @@ export default defineConfig(async () => {
 						REFRESH_TOKEN_EXPIRY_DAYS: "30",
 						ENVIRONMENT: "test",
 						CORS_ORIGIN: "http://localhost:5173",
+						// No RESEND_API_KEY on purpose: the suite must never be one
+						// misconfiguration away from mailing a real address. sendEmail
+						// logs instead, and its own tests stub fetch to cover sending.
+						EMAIL_FROM: "Onlooker <noreply@onlooker.dev>",
+						APP_BASE_URL: "http://localhost:5173",
 					},
 				},
 			}),
