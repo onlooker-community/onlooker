@@ -83,6 +83,32 @@ describe("redactSecrets", () => {
 		);
 	});
 
+	// Both of these were found in a production log line, not in review. The
+	// redaction was correct - every secret was gone - and it had also eaten a
+	// real endpoint path and a closing bracket, which is the over-redaction cost
+	// this module's own comment warns about, arriving in the one place someone
+	// reads carefully during an incident.
+	it("keeps a real path segment that only looks like a token's position", () => {
+		// /auth/reset-password/verify is an endpoint. `verify` is not a secret.
+		const out = redactSecrets(
+			`https://api.onlooker.dev/auth/reset-password/verify?token=${TOKEN}`,
+		);
+
+		expect(out).toContain("/reset-password/verify");
+		expect(out).not.toContain(TOKEN);
+	});
+
+	it("stops at punctuation instead of swallowing it", () => {
+		const out = redactSecrets(
+			`at fetch (https://api.onlooker.dev/x?token=${TOKEN}) with Bearer y`,
+		);
+
+		// The frame has to stay readable - a stack that loses its brackets is
+		// harder to parse than one that never had them.
+		expect(out).toContain(")");
+		expect(out).not.toContain(TOKEN);
+	});
+
 	it("survives an empty or absent value", () => {
 		expect(redactSecrets("")).toBe("");
 		expect(redactSecrets(undefined)).toBeUndefined();
