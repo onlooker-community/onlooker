@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import {
+	ACCOUNT_CONTRACT,
 	anonymousCases,
 	authenticatedCases,
 	type ContractCase,
@@ -214,5 +215,183 @@ describe("apps/api session lifecycle", () => {
 			SESSION_LIFECYCLE.refreshAfterLoggingOutTheFirstSession,
 		);
 		expect((await refresh(secondSession.refreshToken)).status).toBe(200);
+	});
+});
+
+// The account surface: nine 501 stubs until now, four of which needed only
+// queries. Flows rather than single cases - editing, changing a password and
+// deleting are all stateful, and two of them are destructive.
+describe("apps/api account management", () => {
+	let seq = 0;
+
+	async function account(): Promise<{
+		email: string;
+		access: string;
+		refresh: string;
+	}> {
+		seq += 1;
+		const email = `account-${seq}@example.com`;
+		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email, password: PASSWORD }),
+		});
+		const raw = await res.text();
+		expect(res.ok, `fixture signup failed (${res.status}): ${raw}`).toBe(true);
+		const body = JSON.parse(raw) as { token: string; refreshToken: string };
+		return { email, access: body.token, refresh: body.refreshToken };
+	}
+
+	const profile = (token: string) =>
+		SELF.fetch(`${BASE}/auth/profile`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+	const patch = (token: string, changes: Record<string, string>) =>
+		SELF.fetch(`${BASE}/auth/profile`, {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify(changes),
+		});
+
+	const login = (email: string, password: string) =>
+		SELF.fetch(`${BASE}/auth/login`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email, password }),
+		});
+
+	it("serves a profile carrying what the settings page reads", async () => {
+		const me = await account();
+
+		const body = (await (await profile(me.access)).json()) as {
+			user: Record<string, unknown>;
+		};
+
+		expect(body.user.email).toBe(me.email);
+		expect(body.user.createdAt).toEqual(expect.any(String));
+		expect(body.user.emailVerified).toBe(false);
+		expect(JSON.stringify(body)).not.toContain("password");
+	});
+
+	it("renames without touching the address", async () => {
+		const me = await account();
+
+		const body = (await (await patch(me.access, { name: "Ada" })).json()) as {
+			user: Record<string, unknown>;
+		};
+
+		expect(body.user.name).toBe("Ada");
+		expect(body.user.email).toBe(me.email);
+	});
+
+	it("refuses an address another account holds", async () => {
+		const first = await account();
+		const second = await account();
+
+		const res = await patch(second.access, { email: first.email });
+
+		expect(res.status).toBe(ACCOUNT_CONTRACT.emailTaken);
+	});
+
+	// Submitting a form that posts every field, unchanged, is ordinary.
+	it("accepts an unchanged address as a no-op", async () => {
+		const me = await account();
+
+		expect((await patch(me.access, { email: me.email })).status).toBe(200);
+	});
+
+	it("clears verification when the address changes", async () => {
+		const me = await account();
+		seq += 1;
+
+		const body = (await (
+			await patch(me.access, { email: `moved-${seq}@example.com` })
+		).json()) as { user: Record<string, unknown> };
+
+		expect(body.user.emailVerified).toBe(
+			ACCOUNT_CONTRACT.emailChangeClearsVerification,
+		);
+	});
+
+	it("rejects a password change without the current password", async () => {
+		const me = await account();
+
+		const res = await SELF.fetch(`${BASE}/auth/change-password`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${me.access}`,
+			},
+			body: JSON.stringify({
+				current_password: "not-it",
+				new_password: "brand-new-password",
+			}),
+		});
+
+		expect(res.status).toBe(ACCOUNT_CONTRACT.wrongCurrentPassword);
+	});
+
+	it("changes the password, ends other sessions, keeps its own", async () => {
+		const me = await account();
+		const elsewhere = (await (await login(me.email, PASSWORD)).json()) as {
+			refreshToken: string;
+		};
+
+		const res = await SELF.fetch(`${BASE}/auth/change-password`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${me.access}`,
+			},
+			body: JSON.stringify({
+				current_password: PASSWORD,
+				new_password: "brand-new-password",
+				refreshToken: me.refresh,
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		expect((await login(me.email, PASSWORD)).status).toBe(
+			ACCOUNT_CONTRACT.loginWithOldPasswordAfterChange,
+		);
+		expect((await login(me.email, "brand-new-password")).status).toBe(
+			ACCOUNT_CONTRACT.loginWithNewPasswordAfterChange,
+		);
+
+		const refresh = (token: string) =>
+			SELF.fetch(`${BASE}/auth/refresh`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ refreshToken: token }),
+			});
+
+		expect((await refresh(elsewhere.refreshToken)).status).toBe(
+			ACCOUNT_CONTRACT.otherSessionsAfterPasswordChange,
+		);
+		expect((await refresh(me.refresh)).status).toBe(200);
+	});
+
+	it("deletes the account, its sessions and its address", async () => {
+		const me = await account();
+
+		const res = await SELF.fetch(`${BASE}/auth/account`, {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${me.access}` },
+		});
+		expect(res.status).toBe(200);
+
+		const refreshed = await SELF.fetch(`${BASE}/auth/refresh`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ refreshToken: me.refresh }),
+		});
+		expect(refreshed.status).toBe(ACCOUNT_CONTRACT.refreshAfterAccountDeleted);
+		expect((await login(me.email, PASSWORD)).status).toBe(
+			ACCOUNT_CONTRACT.loginAfterAccountDeleted,
+		);
 	});
 });

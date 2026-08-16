@@ -199,6 +199,52 @@ export const SESSION_LIFECYCLE = {
 } as const;
 
 /**
+ * The account-management surface: reading a profile, editing it, changing a
+ * password, deleting an account.
+ *
+ * These were 501 stubs in apps/api while apps/web's mock implemented all of
+ * them, so the settings page worked in development and did not exist in
+ * production. The mock therefore set the contract by default, and this records
+ * what it had already decided rather than inventing anything.
+ *
+ * Driven as flows, because each step depends on the last and two of them are
+ * destructive.
+ */
+export const ACCOUNT_CONTRACT = {
+	/** Editing to an address another account holds. */
+	emailTaken: 409,
+	/**
+	 * Changing an address clears its verified mark. The new address has proven
+	 * nothing, and carrying the old proof across would make the flag a lie.
+	 */
+	emailChangeClearsVerification: false,
+	/** Changing a password without the current one right. */
+	wrongCurrentPassword: 401,
+	/** The old password stops working immediately. */
+	loginWithOldPasswordAfterChange: 401,
+	/** And the new one starts. */
+	loginWithNewPasswordAfterChange: 200,
+	/**
+	 * A password change ends every other session.
+	 *
+	 * This is the one place the two implementations genuinely disagreed rather
+	 * than one being unimplemented: the mock changed the password and left every
+	 * session alone. That is the wrong answer. Someone changing a password is
+	 * usually acting on the belief that the old one is compromised, and leaving
+	 * the attacker's session live defeats the act. apps/web's own reset flow
+	 * already invalidated sessions, so the mock was inconsistent with itself.
+	 *
+	 * The session that made the change keeps working - being asked to sign in
+	 * again immediately after proving you know both passwords is noise.
+	 */
+	otherSessionsAfterPasswordChange: 401,
+	/** Deleting an account takes its sessions with it. */
+	refreshAfterAccountDeleted: 401,
+	/** And the account is really gone, not just flagged. */
+	loginAfterAccountDeleted: 401,
+} as const;
+
+/**
  * Cases running with a valid access token, which the runner attaches.
  *
  * `body` is the point of this group rather than `status`. All three answered 200
@@ -210,6 +256,16 @@ export const SESSION_LIFECYCLE = {
  */
 export function authenticatedCases(): ContractCase[] {
 	return [
+		{
+			name: "profile, valid token",
+			path: "/auth/profile",
+			init: { method: "GET" },
+			status: 200,
+			// The settings page reads createdAt and emailVerified off this and
+			// nothing else provides them - /auth/me returns the slimmer user.
+			body: { user: expectObject },
+			forbidden: NO_SECRETS,
+		},
 		{
 			name: "me, valid token",
 			path: "/auth/me",

@@ -1,6 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { sessions, users } from "@onlooker/db";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 export interface User {
@@ -161,4 +161,158 @@ async function hashToken(token: string): Promise<string> {
 	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
 	const hashArray = Array.from(new Uint8Array(hashBuffer));
 	return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Apply a partial profile update.
+ *
+ * A field absent from `changes` is left alone rather than nulled, which is why
+ * this builds the update object instead of spreading `changes` straight in: a
+ * PATCH that sends only a name must not erase the address.
+ *
+ * An empty update still touches nothing and does not error. Callers reach here
+ * having already validated shape; "the user changed nothing" is a legitimate
+ * request, not a failure.
+ */
+export async function updateProfile(
+	db: D1Database,
+	userId: string,
+	changes: { name?: string; email?: string },
+): Promise<void> {
+	const update: Record<string, string> = {};
+	if (changes.name !== undefined) update.name = changes.name;
+	if (changes.email !== undefined) update.email = changes.email;
+	if (Object.keys(update).length === 0) return;
+
+	update.updated_at = new Date().toISOString();
+
+	await client(db).update(users).set(update).where(eq(users.id, userId));
+}
+
+/**
+ * Mark an address verified, or un-verify it.
+ *
+ * Stored as a timestamp rather than a flag, so "verified" is the presence of a
+ * date and un-verifying is clearing it. The false direction exists because
+ * changing an address has to invalidate whatever proof the old one had.
+ */
+export async function setEmailVerified(
+	db: D1Database,
+	userId: string,
+	verified: boolean,
+): Promise<void> {
+	await client(db)
+		.update(users)
+		.set({
+			email_verified: verified ? new Date().toISOString() : null,
+			updated_at: new Date().toISOString(),
+		})
+		.where(eq(users.id, userId));
+}
+
+/** Whether this account's address has been verified. */
+export async function isEmailVerified(
+	db: D1Database,
+	userId: string,
+): Promise<boolean> {
+	const user = await getUserById(db, userId);
+	return user?.email_verified != null;
+}
+
+/** Replace the stored password hash. Hashing is the caller's job. */
+export async function updatePassword(
+	db: D1Database,
+	userId: string,
+	passwordHash: string,
+): Promise<void> {
+	await client(db)
+		.update(users)
+		.set({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+		.where(eq(users.id, userId));
+}
+
+/**
+ * End every session this user holds, on every device.
+ *
+ * Deletes refresh tokens, which is all a session is here. Access tokens already
+ * issued keep working until they expire - see SESSION_LIFECYCLE in
+ * packages/api-contract - so this bounds the other devices at the access-token
+ * lifetime rather than cutting them off instantly.
+ */
+export async function revokeAllSessionsForUser(
+	db: D1Database,
+	userId: string,
+): Promise<void> {
+	await client(db).delete(sessions).where(eq(sessions.user_id, userId));
+}
+
+/**
+ * Delete an account.
+ *
+ * Sessions and verification tokens both declare ON DELETE CASCADE against
+ * users, so they go with it and this does not sweep them by hand. queries.test
+ * asserts that, because the day the constraint changes is the day a deleted
+ * account keeps a working session.
+ */
+export async function deleteUser(
+	db: D1Database,
+	userId: string,
+): Promise<void> {
+	await client(db).delete(users).where(eq(users.id, userId));
+}
+
+/**
+ * The stored password hash for a user, by id.
+ *
+ * By id and not by email on purpose. An access token carries an email claim
+ * that goes stale the moment its owner edits their address, and
+ * change-password is reachable with exactly such a token - looking up by that
+ * claim would fail for the one person who most recently used this feature.
+ *
+ * Separate from getUserById because that one deliberately never selects the
+ * hash; this is the single place allowed to, and its return type says so.
+ */
+export async function getPasswordHash(
+	db: D1Database,
+	userId: string,
+): Promise<string | null> {
+	const [row] = await client(db)
+		.select({ password_hash: users.password_hash })
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1);
+
+	return row?.password_hash ?? null;
+}
+
+/**
+ * End every session this user holds except the one presenting `keepToken`.
+ *
+ * For password changes. The point of changing a password is usually that
+ * somebody else may know the old one, so the other sessions have to go - but
+ * signing out the person who just proved they know both passwords is noise, so
+ * theirs is spared.
+ *
+ * With no token to spare this is exactly revokeAllSessionsForUser. Passing
+ * undefined must not be read as "spare the session whose hash is undefined",
+ * which is why the two cases are branches rather than one clever query.
+ */
+export async function revokeAllSessionsForUserExcept(
+	db: D1Database,
+	userId: string,
+	keepToken: string | undefined,
+): Promise<void> {
+	if (!keepToken) {
+		await revokeAllSessionsForUser(db, userId);
+		return;
+	}
+
+	await client(db)
+		.delete(sessions)
+		.where(
+			and(
+				eq(sessions.user_id, userId),
+				ne(sessions.token_hash, await hashToken(keepToken)),
+			),
+		);
 }
