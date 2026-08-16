@@ -1,3 +1,5 @@
+export { redactSecrets } from "./redact";
+
 /**
  * The HTTP contract apps/api serves, asserted against both implementations.
  *

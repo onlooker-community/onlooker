@@ -9,7 +9,7 @@ import {
 	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createVerificationToken, getUserByEmail } from "./db/queries";
 
 // The half of the contract that did not exist. apps/web pinned its mock to
@@ -659,6 +659,33 @@ describe("apps/api client error reporting", () => {
 		expect((await post("this is not json")).status).toBe(204);
 		expect((await post(JSON.stringify({ kind: "nonsense" }))).status).toBe(204);
 		expect((await post(JSON.stringify({}))).status).toBe(204);
+	});
+
+	// The client scrubs before sending. This asserts the server does not rely on
+	// that, because the endpoint is unauthenticated - anyone with curl can post a
+	// raw token, and a cached bundle from before the scrubbing existed does the
+	// same thing without any attacker involved.
+	it("scrubs a credential the caller failed to scrub", async () => {
+		const token = "c".repeat(64);
+		const logged: string[] = [];
+		const spy = vi
+			.spyOn(console, "error")
+			.mockImplementation((line) => logged.push(String(line)));
+
+		await post(
+			JSON.stringify({
+				kind: "render",
+				message: `boom at /reset-password/${token}`,
+				url: `https://app.onlooker.dev/reset-password/${token}`,
+				stack: `at fetch (https://api.onlooker.dev/auth/reset-password/verify?token=${token})`,
+			}),
+		);
+		spy.mockRestore();
+
+		expect(logged.join("\n")).not.toContain(token);
+		// Still worth reading afterwards - redaction that empties the report
+		// would be its own kind of failure.
+		expect(logged.join("\n")).toContain("reset-password");
 	});
 
 	it("refuses an oversized report without erroring", async () => {
