@@ -30,11 +30,26 @@ const TOKEN_SHAPED = /\b[0-9a-f]{32,}\b/gi;
 /** A JWT, which is what an Authorization header carries. */
 const JWT_SHAPED = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
 
-/** Routes that put a single-use credential in the path. */
-const SECRET_PATH = /\/(reset-password|verify-email)\/[^/?#\s]+/gi;
+/**
+ * Routes that put a single-use credential in the path.
+ *
+ * The segment must be at least 16 characters, which is what keeps this from
+ * eating ordinary path segments. `/auth/reset-password/verify` is a real
+ * endpoint and `verify` is not a secret - redacting it made a production log
+ * line say less than it could while protecting nothing. Tokens here are 64
+ * characters, so the floor costs nothing.
+ */
+const SECRET_PATH = /\/(reset-password|verify-email)\/[^/?#\s]{16,}/gi;
 
-/** Query parameters worth emptying wherever they appear. */
-const SECRET_PARAM = /([?&](?:token|password|secret|key)=)[^&\s]+/gi;
+/**
+ * Query parameters worth emptying wherever they appear.
+ *
+ * Stops at punctuation as well as at `&` and whitespace. These strings are
+ * usually quoted inside a stack frame - `at fetch (…?token=abc)` - and a
+ * greedy match swallows the closing bracket along with the token, leaving a
+ * malformed frame in the one place someone is reading carefully.
+ */
+const SECRET_PARAM = /([?&](?:token|password|secret|key)=)[^&\s)\]}"'>]+/gi;
 
 /**
  * Strip anything credential-shaped out of a string.
