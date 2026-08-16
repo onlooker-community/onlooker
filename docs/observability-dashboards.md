@@ -30,9 +30,20 @@ minutes of any range under six hours read low. It is not a traffic drop. On
 dashboards whose premise is "deviation from a constant means trouble," that
 artifact sits exactly where the eye lands first. Worth a pinned text note.
 
-**Bucket hourly, not by five minutes.** The heartbeat runs about every 31
-minutes, not the 5 it requests. A five-minute bucket is mostly empty, so the
-floor reads as sparse spikes rather than a constant line.
+**Bucket hourly, and mean it.** The heartbeat does not run every 5 minutes as
+configured, and it does not run every 31 either — that figure came from a
+three-run sample. Counted across 100 consecutive scheduled runs spanning 44.7 h
+(2026-08-16), the delivery is a broad distribution rather than a throttle:
+
+| min | p25 | median | mean | p75 | max |
+|---|---|---|---|---|---|
+| 12 | 19 | 24 | 27.1 | 31 | **112** |
+
+Any bucket narrower than the delivered interval is empty whenever no run lands in
+it, so the floor reads as sparse spikes rather than a constant line. This is not
+hypothetical: at the ~15-minute bucketing Dashboard 1 shipped with, two of the
+four hosts read zero at 18:00 on 2026-08-16 while production was fully healthy.
+An hourly bucket gets ~4.4 requests per host and is reliably non-empty.
 
 **Standard datasets are sampled.** The heartbeat's volume is what makes sampling
 behave at all, and it delivers less than designed. Do not read low-count charts
@@ -119,15 +130,19 @@ Derived from the delivered cadence, not the requested one. Treat as a **ceiling*
 and expect irregular spacing — GitHub's scheduler is not punctual.
 
 Measured by counting the checks the script makes (`grep '^check ' scripts/heartbeat.sh`,
-four per environment) against the observed run cadence of ~31 minutes.
+four per environment) against the delivered run rate of 2.22 runs/hour — 100 scheduled
+runs over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
+
+Counted, not derived from the median gap. The distribution's long tail makes the
+median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
 
 | | per day |
 |---|---|
-| heartbeat runs | ~46 |
-| `onlooker-api-production` invocations | ~92 |
-| `onlooker-web-production` invocations | ~92 |
-| D1 queries per database | ~46 |
-| total requests, all four hosts | ~368 |
+| heartbeat runs | ~53 |
+| `onlooker-api-production` invocations | ~106 |
+| `onlooker-web-production` invocations | ~106 |
+| D1 queries per database | ~53 |
+| total requests, all four hosts | ~424 |
 
 The web figures **doubled** when the heartbeat gained a deep-link check: it used
 to request only `/`, which is a file on disk and therefore could not detect the
@@ -137,9 +152,18 @@ Deploys add a burst on top — the same script runs as a post-deploy smoke test,
 so each deploy contributes 4 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
-consecutive hours" — over any absolute count. Every figure here has been wrong
-once: the original set assumed the configured 5-minute cron rather than the
-~31-minute delivered one, and was out by roughly 6x.
+consecutive hours" — over any absolute count, but note how little headroom that
+rule has. The largest observed gap is 112 minutes, or 93% of a two-hour window, so
+a single empty hourly bucket is normal cadence on a healthy system and only the
+second one carries information.
+
+That tail also sets the detection latency, which is worse than the cadence suggests:
+two consecutive missed runs at the observed maximum is ~3.7 h before anything is
+noticed. Write any alerting SLO against the tail, not the median.
+
+Every figure here has been wrong twice. The original set assumed the configured
+5-minute cron and was out by roughly 6x. The set that replaced it inferred a steady
+31-minute delivery from three runs, and read ~13% low once 100 were counted.
 
 ---
 
@@ -275,7 +299,7 @@ Built 2026-08-16, later than the other three, which were built 2026-08-09. Its
 value comes from separating human traffic from a known floor, and until the
 heartbeat labelled itself there was no reliable way to draw that line.
 
-Expect it to look empty. At ~368 requests a day, nearly all of them synthetic,
+Expect it to look empty. At ~424 requests a day, nearly all of them synthetic,
 these charts are a baseline being established rather than a signal being read.
 That is the point of having built it now: the shape of normal accumulates before
 there is anything abnormal to compare against.
