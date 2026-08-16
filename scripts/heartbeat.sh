@@ -28,6 +28,20 @@ case "${ENVIRONMENT}" in
 		;;
 esac
 
+# Every request this script makes is labelled, so analytics can separate
+# synthetic traffic from real traffic by filtering rather than by arithmetic.
+#
+# The auth dashboard wants "401s that are not us". Without a label the only way
+# to get there is to know the floor - this script produces exactly 4 401s per
+# run, two per environment - and subtract it by eye. That number is held in a
+# human's head, is invalidated by adding a hostname or a check, and cannot be
+# drawn on a Cloudflare chart anyway. Excluding `curl/*` instead would also
+# exclude anyone probing with curl, which is the traffic the chart exists to
+# show.
+#
+# Versioned so the filter can be narrowed later without becoming ambiguous.
+readonly USER_AGENT="onlooker-heartbeat/1"
+
 failures=0
 # Counted rather than written down. The summary below said "3 checks" while a
 # fourth was being added, which is the kind of small lie that makes a passing
@@ -53,7 +67,8 @@ check() {
 	#
 	# A DNS or connection failure therefore yields 000, which will not equal
 	# the expected code - exactly the api-staging failure mode.
-	actual="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@" || true)"
+	actual="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+		-A "${USER_AGENT}" "$@" || true)"
 
 	if [[ "${actual}" == "${expected}" ]]; then
 		echo "  ok    ${label} -> ${actual}"
