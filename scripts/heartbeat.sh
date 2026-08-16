@@ -29,12 +29,18 @@ case "${ENVIRONMENT}" in
 esac
 
 failures=0
+# Counted rather than written down. The summary below said "3 checks" while a
+# fourth was being added, which is the kind of small lie that makes a passing
+# run harder to trust than a failing one.
+checks=0
 
 # check <label> <expected-status> <curl-args...>
 check() {
 	local label="$1"
 	local expected="$2"
 	shift 2
+
+	checks=$((checks + 1))
 
 	local actual
 	# curl must not abort the script on a network failure, so its exit status
@@ -61,6 +67,20 @@ echo "heartbeat: ${ENVIRONMENT}"
 
 check "web app" 200 "${APP_URL}/"
 
+# A route that exists only in the client router, so it is not a file in the
+# assets bundle and can only answer 200 if the SPA fallback is configured.
+#
+# The check above cannot fail for that reason: / IS a file, served by the CDN
+# whether or not the application routes. That is not hypothetical. Every route
+# except / returned 404 in production - no bookmark, refresh, shared link or
+# emailed link worked - and this heartbeat passed all three checks every 31
+# minutes in both environments throughout, because it was watching the one path
+# the bug could not reach (onlooker-hu8).
+#
+# /login rather than a deeper path on purpose: it takes no parameters, needs no
+# session, and is the first page a locked-out person is sent to.
+check "web app deep link" 200 "${APP_URL}/login"
+
 check "api worker" 401 "${API_URL}/auth/me"
 
 check "api d1 read" 401 \
@@ -69,8 +89,8 @@ check "api d1 read" 401 \
 	-d '{"refreshToken":"heartbeat"}'
 
 if (( failures > 0 )); then
-	echo "heartbeat: ${ENVIRONMENT} — ${failures} of 3 checks failed"
+	echo "heartbeat: ${ENVIRONMENT} — ${failures} of ${checks} checks failed"
 	exit 1
 fi
 
-echo "heartbeat: ${ENVIRONMENT} — all 3 checks passed"
+echo "heartbeat: ${ENVIRONMENT} — all ${checks} checks passed"
