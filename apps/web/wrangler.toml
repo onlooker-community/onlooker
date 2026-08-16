@@ -20,6 +20,23 @@ compatibility_date = "2024-12-16"
 [assets]
 directory = "dist"
 
+# Without this, every path that is not a file on disk returns 404 and React
+# Router never runs, because the document never loads. Only "/" worked - no
+# bookmark, no refresh, no shared link, no emailed link. It was live in
+# production that way and went unnoticed because loading "/" and navigating
+# from there, which is what anyone developing this does, is the one path that
+# does not touch it.
+#
+# Cloudflare requires it to be explicit. Pages used to infer SPA behavior from
+# finding an index.html; Workers static assets deliberately does not, and the
+# Pages migration guide lists it as a manual step. This app was migrated and the
+# step was missed.
+#
+# Found by clicking a real password-reset link out of a real inbox. Everything
+# beneath it was right - token minted, hashed, mailed, delivered - and the front
+# door 404'd.
+not_found_handling = "single-page-application"
+
 # Staging environment
 [env.staging]
 routes = [
