@@ -775,6 +775,25 @@ Cloudflare charts cannot draw a reference line at it anyway. The label replaces
 arithmetic with a filter, and did not need updating when the number changed.
 ```
 
+- [ ] **Step 3b: Correct Dashboard 4's volume claim**
+
+Still in the Dashboard 4 section, a few paragraphs above the `401` text, the introduction cites the old all-hosts total. Replace:
+
+```markdown
+Expect it to look empty. At ~424 requests a day, nearly all of them synthetic,
+these charts are a baseline being established rather than a signal being read.
+```
+
+with:
+
+```markdown
+Expect it to look empty. At ~636 requests a day across the two API hosts this
+dashboard watches, nearly all of them synthetic, these charts are a baseline
+being established rather than a signal being read.
+```
+
+Note the figure is **not** the ~848 in the volumes table. This dashboard is filtered to `api.onlooker.dev` and `api-staging.onlooker.dev`, so it sees the API subset — ~318 per host per day. The old ~424 was the all-hosts total used loosely; naming the subset is both current and more accurate than what it replaces.
+
 - [ ] **Step 4: Point the old spec at the new one**
 
 In `docs/superpowers/specs/2026-08-09-heartbeat-design.md`, replace the `**Status:**` line:
