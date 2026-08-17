@@ -106,6 +106,41 @@ the account.
 The password is sent via `--data @-` and a heredoc rather than `-d` on the
 command line, keeping it out of the process arguments.
 
+### The account address is not routable
+
+`heartbeat@onlooker.dev` in production, `heartbeat-staging@onlooker.dev` in
+staging, and **no Email Routing rule for either**. Distinct per environment so a
+leaked staging credential is useless against production, and so the rows
+describe themselves to whoever finds them in the `users` table later.
+
+No obscure naming. The repository is public and the runbook names the address;
+obscurity would buy nothing and cost legibility.
+
+Nothing about provisioning or monitoring needs mail to arrive: `/auth/signup`
+sends no email, and `handleLogin` never reads `email_verified`. The usual
+argument for a routable address — recovery — does not apply either, because the
+account owns nothing and `/auth/signup` is public, so recovering it means
+creating another one and updating the secret.
+
+What a routable address would cost is a live, unauthenticated path into a
+mailbox. The repository is public, `/auth/forgot-password` is public, so anyone
+could fire resets at it indefinitely; and because Email Routing forwards to a
+verified personal destination, whoever can read that inbox could complete a
+reset and take the account. Unroutable makes password reset impossible by
+construction rather than by policy.
+
+The decision is reversible in one direction only, which is why it goes this way
+first. Adding a routing rule later changes neither the database row nor the
+secret. Removing one later does not un-publish an address that has already been
+harvested.
+
+**This account will therefore never verify its email, deliberately.** It is
+fine today because nothing in the login path consults `email_verified`. If
+verification ever gates login, this heartbeat starts failing — and that is
+correct signal, since such a change would also lock out every unverified real
+user. It is only *useful* signal if the next person finds this decision written
+down instead of a mystery. The runbook repeats it for that reason.
+
 ### What this exposes
 
 The script is public, so assume the existence of a monitoring account is known
@@ -175,7 +210,8 @@ password hash is produced by the same code path that will later verify it. No
 hand-written SQL and no hand-generated bcrypt hash.
 
 Documented in a new runbook, `docs/runbooks/2026-08-17-heartbeat-account.md`,
-covering creation, rotation, and the rule that the account owns nothing.
+covering creation, rotation, the rule that the account owns nothing, and that it
+is permanently unverified by design.
 
 ## Out of scope
 
@@ -190,3 +226,9 @@ covering creation, rotation, and the rule that the account owns nothing.
   traffic containing no successful requests would evaluate the wrong thing.
 - **Rate limiting and abuse protection on the auth routes.** Unimplemented
   (WS5), unchanged by this.
+- **Monitoring whether password-reset mail is delivered.** A real gap —
+  `onlooker-9qf` records no DMARC policy and no root SPF on the domain that
+  sends resets — and a routable heartbeat address is where you would naturally
+  assert it. Not a reason to make this address routable now; that is a design
+  question for whoever works `onlooker-9qf`, and adding a routing rule then
+  changes nothing here.
