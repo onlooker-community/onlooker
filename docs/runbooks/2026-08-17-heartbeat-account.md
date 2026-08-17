@@ -52,15 +52,20 @@ Create the account (production shown; for staging use
 
 ```bash
 read -rs HEARTBEAT_PW    # paste the generated password, it will not echo
+export HEARTBEAT_PW
 jq -n --arg email 'heartbeat@onlooker.dev' \
-      --arg password "${HEARTBEAT_PW}" \
-      '{email: $email, password: $password, name: "Heartbeat"}' |
+      '{email: $email, password: env.HEARTBEAT_PW, name: "Heartbeat"}' |
   curl -s -X POST https://api.onlooker.dev/auth/signup \
     -H 'Content-Type: application/json' --data @-
 ```
 
-Expect `201` or `200` with a `token` and `refreshToken` in the body. A `409`
-with `user_exists` means the account is already there — do not create a second.
+The password goes to `jq` through the environment rather than `--arg`, for the
+same reason `scripts/heartbeat.sh` does it that way: `/proc/PID/cmdline` is
+world-readable on Linux and `/proc/PID/environ` is not. A runbook that tells you
+to do the thing the code was fixed not to do is worse than no runbook.
+
+Expect `201` with a `token` and `refreshToken` in the body. A `409` with
+`user_exists` means the account is already there — do not create a second.
 
 Then set the secrets under **Settings → Secrets and variables → Actions**:
 `HEARTBEAT_EMAIL_PRODUCTION`, `HEARTBEAT_PASSWORD_PRODUCTION`,
