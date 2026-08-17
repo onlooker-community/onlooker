@@ -213,12 +213,18 @@ check "api d1 read" 401 \
 # This is also where the script stops being read-only: check 5 writes a session
 # row and check 7 revokes it. That is the cost of verifying that writing works.
 if auth_preflight; then
-	# jq builds the body so the password is escaped by a JSON encoder, and the
-	# pipe keeps it out of this process's arguments.
+	# jq builds the body so the password is escaped by a JSON encoder rather
+	# than by hand, and the pipe below keeps it out of curl's arguments.
+	#
+	# The password reaches jq through the environment rather than --arg,
+	# because a command line is not private: /proc/PID/cmdline is world-readable
+	# on Linux, while /proc/PID/environ is readable only by the owner. Exported
+	# here for that reason - `export` after `readonly` is permitted, and the
+	# value is unchanged.
+	export HEARTBEAT_PASSWORD
 	login_payload="$(jq -n \
 		--arg email "${HEARTBEAT_EMAIL}" \
-		--arg password "${HEARTBEAT_PASSWORD}" \
-		'{email: $email, password: $password}')"
+		'{email: $email, password: env.HEARTBEAT_PASSWORD}')"
 
 	login_response="$(printf '%s' "${login_payload}" |
 		api_request POST /auth/login \
@@ -233,8 +239,12 @@ if auth_preflight; then
 	if [[ "${login_status}" != "200" ]]; then
 		record "auth login" fail "${login_status} (expected 200)"
 	else
-		access_token="$(printf '%s' "${login_body}" | jq -r '.token // empty')"
-		refresh_token="$(printf '%s' "${login_body}" | jq -r '.refreshToken // empty')"
+		# jq exits 5 on a body it cannot parse, and under `set -euo pipefail`
+		# that would abort this script mid-run rather than report a failure.
+		# A 200 carrying HTML is unlikely but not impossible, and the whole
+		# point of this script is to survive the API misbehaving.
+		access_token="$(printf '%s' "${login_body}" | jq -r '.token // empty' 2>/dev/null || true)"
+		refresh_token="$(printf '%s' "${login_body}" | jq -r '.refreshToken // empty' 2>/dev/null || true)"
 
 		if [[ -z "${access_token}" || -z "${refresh_token}" ]]; then
 			# A 200 with no tokens in it is a success the client cannot use.
@@ -245,25 +255,37 @@ if auth_preflight; then
 	fi
 
 	if [[ -n "${access_token}" ]]; then
-		# The access token goes in argv, unlike the password. It expires in
-		# TOKEN_EXPIRY_MINUTES (15), belongs to an account that owns nothing,
-		# and the runner is destroyed after the job. The password is the
-		# durable secret and it is the one worth the extra handling.
+		# Both tokens go in argv, unlike the password. They belong to an
+		# account that owns nothing, and the runner is destroyed after the
+		# job. The access token expires in TOKEN_EXPIRY_MINUTES (15). The
+		# refresh token carries 30 days, which is the weaker case - it is
+		# revoked seconds later by check 7, but only if check 7 runs. The
+		# password is the durable secret and the one worth the extra handling.
 		me_response="$(api_request GET /auth/me \
 			-H "Authorization: Bearer ${access_token}")"
 		me_status="${me_response##*$'\n'}"
 		me_body="${me_response%$'\n'*}"
-		me_email="$(printf '%s' "${me_body}" | jq -r '.user.email // empty')"
 
 		if [[ "${me_status}" != "200" ]]; then
 			record "auth me" fail "${me_status} (expected 200)"
-		elif [[ "${me_email}" != "${HEARTBEAT_EMAIL}" ]]; then
-			# Never print either address. That this failed is the whole
-			# message; the values belong in a private log, and this one is
-			# public.
-			record "auth me" fail "200 for a different account than expected"
 		else
-			record "auth me -> 200" ok
+			# Parsed only once the status is known good, and never fatally.
+			# Cloudflare's edge errors - 502, 520-524, the 1101 Worker
+			# exception page - are HTML, so parsing before checking the status
+			# would abort this script on exactly the outage it exists to
+			# catch: no failure line, no summary, and checks 7 and 8 skipped,
+			# leaving the session this run created unrevoked for 30 days.
+			me_email="$(printf '%s' "${me_body}" | jq -r '.user.email // empty' 2>/dev/null || true)"
+
+			if [[ "${me_email}" != "${HEARTBEAT_EMAIL}" ]]; then
+				# Never print either address. That this failed is the whole
+				# message; the values belong in a private log, and this one is
+				# public. A 200 whose body will not parse lands here too, which
+				# is the honest answer - it is not the account we asked for.
+				record "auth me" fail "200 for a different account than expected"
+			else
+				record "auth me -> 200" ok
+			fi
 		fi
 	fi
 
