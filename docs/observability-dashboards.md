@@ -177,10 +177,10 @@ median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
 | D1 queries per database | ~318 |
 | total requests, all four hosts | ~848 |
 
-The API and D1 figures roughly tripled on 2026-08-17 when the heartbeat gained
-four authenticated checks — login, an authenticated read, logout, and a
-revoked-token refresh. Six API requests per environment per run rather than
-two, and six D1 operations rather than one.
+The API figures roughly tripled on 2026-08-17, and the D1 figures rose sixfold,
+when the heartbeat gained four authenticated checks — login, an authenticated
+read, logout, and a revoked-token refresh. Six API requests per environment per
+run rather than two, and six D1 operations rather than one.
 
 **These two are derived, not measured.** They come from counting the calls each
 handler makes, against the same ~53 runs/day. Every other figure in this table
