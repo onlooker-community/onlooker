@@ -751,10 +751,10 @@ In `docs/observability-dashboards.md`, replace the table under `### Expected vol
 The section's own rule is that every figure records how it was measured. Immediately after the table, add:
 
 ```markdown
-The API and D1 figures roughly tripled on 2026-08-17 when the heartbeat gained
-four authenticated checks — login, an authenticated read, logout, and a
-revoked-token refresh. Six API requests per environment per run rather than
-two, and six D1 operations rather than one.
+The API figures roughly tripled on 2026-08-17, and the D1 figures rose sixfold,
+when the heartbeat gained four authenticated checks — login, an authenticated
+read, logout, and a revoked-token refresh. Six API requests per environment per
+run rather than two, and six D1 operations rather than one.
 
 **These two are derived, not measured.** They come from counting the calls each
 handler makes, against the same ~53 runs/day. Every other figure in this table
