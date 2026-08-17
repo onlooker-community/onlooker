@@ -49,6 +49,39 @@ An hourly bucket gets ~4.4 requests per host and is reliably non-empty.
 behave at all, and it delivers less than designed. Do not read low-count charts
 as precise.
 
+**`404` is the largest status bucket on `api`, and it is noise.** Measured
+2026-08-16: 145 `404`s in 24 h on `api.onlooker.dev` against 8 `200`s, making it
+the biggest bar on Dashboard 1's status chart and the first thing the eye lands
+on. Grouping those same `404`s by path shows **no path above 2 requests in 24
+hours**. It is internet background scanning — `.php` webshell names (`god.php`,
+`mini.php`, `wp-tem.php`), WordPress paths, `/.git/config`,
+`/.well-known/security.txt`. One burst of ~50 arrived 7 ms apart from a single
+Azure IP (AS8075) over plain HTTP carrying **no `User-Agent` header at all**,
+which is a cleaner tell than any path pattern.
+
+The test that separates this from a real bug is concentration, not volume. A
+client calling a route that does not exist repeats *one* path, so it sorts to the
+top of a count-ordered list; scanning is flat. Check that before concluding
+anything from a `404` spike, and do not try to read it off the status chart,
+which cannot show a path.
+
+**Checking a `404` spike.** Log Explorer is the obvious tool and is **not
+available** — it is a paid add-on this account has not purchased, and the sidebar
+entry leads to a purchase page rather than a query. Use Workers Logs, which is
+free and already on (`[observability]` in `apps/api/wrangler.toml`):
+
+Workers & Pages → `onlooker-api-production` → Observability → Visualizations
+
+| | |
+|---|---|
+| Filter | `$workers.event.response.status` = `404` |
+| Group by | `$workers.event.path` |
+| Order by | `count`, descending |
+| Range | 24 hours |
+
+A top count of 1–2 is scanning and needs no action. Any path reaching double
+digits is one of ours, and the path names the bug.
+
 ---
 
 ## How to build one
@@ -323,6 +356,9 @@ real user the shape of legitimate traffic is nearly a single point, so anything
 else stands out without anomaly detection.
 
 **404 rate** — what vulnerability scanners generate before they find anything.
+They are generating it now: ~145 a day, measured 2026-08-16. That is the
+baseline, not an incident — see the `404` note under "Read this before trusting
+any chart" for how to tell the two apart.
 
 ---
 
