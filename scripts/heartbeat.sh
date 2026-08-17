@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Synthetic heartbeat: proves each deployed host is reachable and that the
-# database read path works, without writing anything.
+# Synthetic heartbeat: proves each deployed host is reachable, that the
+# database read path works, and that a real session can be created, used and
+# revoked.
+#
+# Checks 1-4 write nothing. Checks 5-8 deliberately do: they log in, which
+# writes a session row, and log out, which revokes it. A check that cannot
+# write cannot verify that writing works, and "the API correctly says no" is a
+# different claim from "the API works" - only the first was ever monitored.
 #
 # Usage: scripts/heartbeat.sh production|staging
 #
@@ -114,6 +120,22 @@ auth_preflight() {
 	return 1
 }
 
+# api_request <method> <path> [extra curl args...]
+#
+# Prints the response body, then a final line holding the status code. Callers
+# split on the last newline. The existing `check` discards bodies with
+# -o /dev/null; these checks need them, because a 200 carrying the wrong user
+# is a worse failure than a 500 and a status code cannot see it.
+api_request() {
+	local method="$1" path="$2"
+	shift 2
+
+	curl -s --max-time 10 -A "${USER_AGENT}" \
+		-w $'\n%{http_code}' \
+		-X "${method}" "${API_URL}${path}" \
+		"$@" || true
+}
+
 # check <label> <expected-status> <curl-args...>
 check() {
 	local label="$1"
@@ -180,6 +202,102 @@ check "api d1 read" 401 \
 	-X POST "${API_URL}/auth/refresh" \
 	-H 'Content-Type: application/json' \
 	-d '{"refreshToken":"heartbeat"}'
+
+# --- Authenticated checks -------------------------------------------------
+#
+# Everything above proves the API correctly says no. An outage confined to the
+# authenticated path - a rotated JWT secret, a bad users migration, a
+# requireAuth regression - passes every one of them. These prove it can say
+# yes, which is a different claim.
+#
+# This is also where the script stops being read-only: check 5 writes a session
+# row and check 7 revokes it. That is the cost of verifying that writing works.
+if auth_preflight; then
+	# jq builds the body so the password is escaped by a JSON encoder, and the
+	# pipe keeps it out of this process's arguments.
+	login_payload="$(jq -n \
+		--arg email "${HEARTBEAT_EMAIL}" \
+		--arg password "${HEARTBEAT_PASSWORD}" \
+		'{email: $email, password: $password}')"
+
+	login_response="$(printf '%s' "${login_payload}" |
+		api_request POST /auth/login \
+			-H 'Content-Type: application/json' \
+			--data @-)"
+	login_status="${login_response##*$'\n'}"
+	login_body="${login_response%$'\n'*}"
+
+	access_token=""
+	refresh_token=""
+
+	if [[ "${login_status}" != "200" ]]; then
+		record "auth login" fail "${login_status} (expected 200)"
+	else
+		access_token="$(printf '%s' "${login_body}" | jq -r '.token // empty')"
+		refresh_token="$(printf '%s' "${login_body}" | jq -r '.refreshToken // empty')"
+
+		if [[ -z "${access_token}" || -z "${refresh_token}" ]]; then
+			# A 200 with no tokens in it is a success the client cannot use.
+			record "auth login" fail "200 without token and refreshToken"
+		else
+			record "auth login -> 200" ok
+		fi
+	fi
+
+	if [[ -n "${access_token}" ]]; then
+		# The access token goes in argv, unlike the password. It expires in
+		# TOKEN_EXPIRY_MINUTES (15), belongs to an account that owns nothing,
+		# and the runner is destroyed after the job. The password is the
+		# durable secret and it is the one worth the extra handling.
+		me_response="$(api_request GET /auth/me \
+			-H "Authorization: Bearer ${access_token}")"
+		me_status="${me_response##*$'\n'}"
+		me_body="${me_response%$'\n'*}"
+		me_email="$(printf '%s' "${me_body}" | jq -r '.user.email // empty')"
+
+		if [[ "${me_status}" != "200" ]]; then
+			record "auth me" fail "${me_status} (expected 200)"
+		elif [[ "${me_email}" != "${HEARTBEAT_EMAIL}" ]]; then
+			# Never print either address. That this failed is the whole
+			# message; the values belong in a private log, and this one is
+			# public.
+			record "auth me" fail "200 for a different account than expected"
+		else
+			record "auth me -> 200" ok
+		fi
+	fi
+
+	if [[ -n "${refresh_token}" ]]; then
+		logout_payload="$(jq -n --arg token "${refresh_token}" '{refreshToken: $token}')"
+		logout_response="$(printf '%s' "${logout_payload}" |
+			api_request POST /auth/logout \
+				-H 'Content-Type: application/json' \
+				--data @-)"
+		logout_status="${logout_response##*$'\n'}"
+
+		if [[ "${logout_status}" == "200" ]]; then
+			record "auth logout -> 200" ok
+		else
+			record "auth logout" fail "${logout_status} (expected 200)"
+		fi
+
+		# Logout once revoked nothing at all, so a logged-out session could
+		# call /auth/refresh indefinitely, each call minting a fresh 30-day
+		# window. That shipped. This is the assertion that would have caught
+		# it, and it costs one request.
+		revoked_response="$(printf '%s' "${logout_payload}" |
+			api_request POST /auth/refresh \
+				-H 'Content-Type: application/json' \
+				--data @-)"
+		revoked_status="${revoked_response##*$'\n'}"
+
+		if [[ "${revoked_status}" == "401" ]]; then
+			record "auth revoked refresh -> 401" ok
+		else
+			record "auth revoked refresh" fail "${revoked_status} (expected 401)"
+		fi
+	fi
+fi
 
 if (( failures > 0 )); then
 	echo "heartbeat: ${ENVIRONMENT} — ${failures} of ${checks} checks failed"
