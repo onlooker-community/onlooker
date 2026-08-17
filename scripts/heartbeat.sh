@@ -42,19 +42,83 @@ esac
 # Versioned so the filter can be narrowed later without becoming ambiguous.
 readonly USER_AGENT="onlooker-heartbeat/1"
 
+# Credentials for the authenticated checks. Absent, those checks are skipped:
+# somebody running this by hand has no reason to hold production credentials,
+# and the read-only checks above are still worth having.
+#
+# Skipping is also how a check rots into a no-op that passes forever, so CI
+# sets HEARTBEAT_REQUIRE_AUTH and absent credentials become a failure there. A
+# secret that is deleted or renamed breaks the build rather than quietly
+# returning this script to what it was before it could log in.
+readonly HEARTBEAT_EMAIL="${HEARTBEAT_EMAIL:-}"
+readonly HEARTBEAT_PASSWORD="${HEARTBEAT_PASSWORD:-}"
+readonly HEARTBEAT_REQUIRE_AUTH="${HEARTBEAT_REQUIRE_AUTH:-}"
+
 failures=0
 # Counted rather than written down. The summary below said "3 checks" while a
 # fourth was being added, which is the kind of small lie that makes a passing
 # run harder to trust than a failing one.
 checks=0
 
+# record <label> <ok|fail> <detail>
+#
+# One place that counts, so the summary line cannot drift from what actually
+# ran. `check` below is status-code assertions; the authenticated checks need
+# to assert on response bodies too, and both report through here.
+record() {
+	local label="$1" outcome="$2" detail="${3:-}"
+
+	checks=$((checks + 1))
+
+	if [[ "${outcome}" == "ok" ]]; then
+		echo "  ok    ${label}"
+	else
+		echo "  FAIL  ${label} -> ${detail}"
+		failures=$((failures + 1))
+	fi
+}
+
+# Decide whether the authenticated checks can run.
+#   0 - run them
+#   1 - skip them, and say so
+#   exit 2 - they were required and cannot run
+#
+# jq is a hard requirement rather than a nicety: it builds the login body, so
+# a password containing a quote or a backslash is escaped by a JSON encoder
+# rather than by hand.
+auth_preflight() {
+	local missing=""
+
+	if [[ -z "${HEARTBEAT_EMAIL}" ]]; then
+		missing="${missing} HEARTBEAT_EMAIL"
+	fi
+	if [[ -z "${HEARTBEAT_PASSWORD}" ]]; then
+		missing="${missing} HEARTBEAT_PASSWORD"
+	fi
+	if ! command -v jq >/dev/null 2>&1; then
+		missing="${missing} jq"
+	fi
+
+	if [[ -z "${missing}" ]]; then
+		return 0
+	fi
+
+	if [[ -n "${HEARTBEAT_REQUIRE_AUTH}" ]]; then
+		# Deliberately names what is missing and nothing else. Never echo the
+		# values - this repository is public and so are its Actions logs.
+		echo "heartbeat: authenticated checks are required but unavailable:${missing}" >&2
+		exit 2
+	fi
+
+	echo "  skip  authenticated checks (missing:${missing})"
+	return 1
+}
+
 # check <label> <expected-status> <curl-args...>
 check() {
 	local label="$1"
 	local expected="$2"
 	shift 2
-
-	checks=$((checks + 1))
 
 	local actual
 	# curl must not abort the script on a network failure, so its exit status
@@ -71,14 +135,20 @@ check() {
 		-A "${USER_AGENT}" "$@" || true)"
 
 	if [[ "${actual}" == "${expected}" ]]; then
-		echo "  ok    ${label} -> ${actual}"
+		record "${label} -> ${actual}" ok
 	else
-		echo "  FAIL  ${label} -> ${actual} (expected ${expected})"
-		failures=$((failures + 1))
+		record "${label}" fail "${actual} (expected ${expected})"
 	fi
 }
 
 echo "heartbeat: ${ENVIRONMENT}"
+
+# Test hook: resolve credentials, then stop before making any request. Used by
+# scripts/heartbeat.test.sh so the guard can be tested without network.
+if [[ -n "${HEARTBEAT_PREFLIGHT_ONLY:-}" ]]; then
+	auth_preflight || true
+	exit 0
+fi
 
 check "web app" 200 "${APP_URL}/"
 
