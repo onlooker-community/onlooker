@@ -249,7 +249,9 @@ Expected: PASS — `all 5 tests passed`.
 - [ ] **Step 6: Confirm the existing checks still behave**
 
 Run: `scripts/heartbeat.sh production`
-Expected: the four existing checks report `ok`, plus one `skip  authenticated checks (missing: HEARTBEAT_EMAIL HEARTBEAT_PASSWORD)` line, and `all 4 checks passed`. The skip must not increment the count.
+Expected: the four existing checks report `ok` and `all 4 checks passed`, exactly as before this task.
+
+There is deliberately no `skip` line yet. `auth_preflight` is defined here but nothing calls it outside the test hook — the call site arrives in Task 2. If you see a skip line at this point, something was added early.
 
 - [ ] **Step 7: Commit**
 
