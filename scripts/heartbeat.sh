@@ -145,8 +145,16 @@ echo "heartbeat: ${ENVIRONMENT}"
 
 # Test hook: resolve credentials, then stop before making any request. Used by
 # scripts/heartbeat.test.sh so the guard can be tested without network.
+#
+# It prints which branch it took because the exit code cannot say: run and skip
+# both exit 0, so without this a preflight that skipped forever - disabling
+# every authenticated check - would pass its own tests.
 if [[ -n "${HEARTBEAT_PREFLIGHT_ONLY:-}" ]]; then
-	auth_preflight || true
+	if auth_preflight; then
+		echo "preflight: run"
+	else
+		echo "preflight: skip"
+	fi
 	exit 0
 fi
 
