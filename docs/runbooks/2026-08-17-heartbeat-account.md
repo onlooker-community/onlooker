@@ -1,0 +1,101 @@
+# Runbook — the heartbeat account
+
+**Created:** 2026-08-17
+**Design:** [authenticated heartbeat](../superpowers/specs/2026-08-17-authenticated-heartbeat-design.md)
+
+The heartbeat logs in on every run to prove the authenticated path works. This
+is the account it logs in as.
+
+| | Production | Staging |
+|---|---|---|
+| Address | `heartbeat@onlooker.dev` | `heartbeat-staging@onlooker.dev` |
+| Password secret | `HEARTBEAT_PASSWORD_PRODUCTION` | `HEARTBEAT_PASSWORD_STAGING` |
+| Address secret | `HEARTBEAT_EMAIL_PRODUCTION` | `HEARTBEAT_EMAIL_STAGING` |
+
+## Rules
+
+**It owns nothing.** No data anyone would miss, no elevated permission. It is
+an ordinary user row that exists to be logged into.
+
+**Its address does not route.** There is no Email Routing rule for either
+address and there should not be one. Password reset is impossible by
+construction rather than by policy, which matters because this repository is
+public, `/auth/forgot-password` is public, and Email Routing forwards to a
+personal inbox — a routable address would make reading that inbox sufficient to
+take the account.
+
+**It is permanently unverified, on purpose.** `email_verified` stays `null`
+because nothing can confirm an address that accepts no mail. Nothing in the
+login path reads that column today. If verification ever gates login, this
+heartbeat will start failing — which is correct signal, because the same change
+would lock out every unverified real user. Fix the product decision, not the
+heartbeat.
+
+**The address is a secret, not an Actions variable.** Not for obscurity — the
+runbook names it — but because secrets are masked in logs and this repository's
+logs are public.
+
+## Creating one
+
+Use the product's own signup endpoint so the password hash is produced by the
+same code that will later verify it. No hand-written SQL, no hand-generated
+bcrypt hash.
+
+Generate a password:
+
+```bash
+openssl rand -base64 32
+```
+
+Create the account (production shown; for staging use
+`https://api-staging.onlooker.dev` and the staging address):
+
+```bash
+read -rs HEARTBEAT_PW    # paste the generated password, it will not echo
+jq -n --arg email 'heartbeat@onlooker.dev' \
+      --arg password "${HEARTBEAT_PW}" \
+      '{email: $email, password: $password, name: "Heartbeat"}' |
+  curl -s -X POST https://api.onlooker.dev/auth/signup \
+    -H 'Content-Type: application/json' --data @-
+```
+
+Expect `201` or `200` with a `token` and `refreshToken` in the body. A `409`
+with `user_exists` means the account is already there — do not create a second.
+
+Then set the secrets under **Settings → Secrets and variables → Actions**:
+`HEARTBEAT_EMAIL_PRODUCTION`, `HEARTBEAT_PASSWORD_PRODUCTION`,
+`HEARTBEAT_EMAIL_STAGING`, `HEARTBEAT_PASSWORD_STAGING`.
+
+Finally, unset the shell variable so the password does not sit in the session:
+
+```bash
+unset HEARTBEAT_PW
+```
+
+## Rotating one
+
+Because the address does not route, there is no reset flow. Two options:
+
+1. **Change the password** via `POST /auth/change-password` using the current
+   one, then update the secret.
+2. **Replace the account** — create a new one at a new address, update both
+   secrets, and delete the old via `DELETE /auth/account`. Simpler when the
+   current password is lost, and cheap because the account owns nothing.
+
+Option 2 is the recovery path if the password is ever lost. There is no other
+one, and that is deliberate.
+
+## When the heartbeat fails on an authenticated check
+
+The four authenticated checks are `auth login`, `auth me`, `auth logout` and
+`auth revoked refresh`. What each failure means:
+
+| Failing check | Most likely cause |
+|---|---|
+| `auth login` returning `401` | Password drift between the database and the secret. Rotate. |
+| `auth login` returning `200 without token and refreshToken` | The login handler's response shape changed. A client-breaking change. |
+| `auth me` returning `401` | `JWT_SECRET` changed, or `requireAuth` regressed. |
+| `auth me` returning a different account | A serious `getUserById` or session-lookup bug. Treat as an incident. |
+| `auth logout` failing | Revocation is broken; sessions will not end. |
+| `auth revoked refresh` returning `200` | Logout is not revoking. This exact regression has shipped once before. |
+| The run failing with `authenticated checks are required but unavailable` | A secret was deleted or renamed. The guard is working. |
