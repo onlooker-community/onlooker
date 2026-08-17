@@ -362,6 +362,99 @@ any chart" for how to tell the two apart.
 
 ---
 
+## What traces make answerable
+
+Workers tracing went on 2026-08-16 (PR #57): `[observability.traces]` per
+environment, no `head_sampling_rate`, so the rate is the default of 1 and
+everything is traced. It is configuration rather than instrumentation —
+fetches, binding calls and handler invocations are spanned with no code changes.
+
+**Workers & Pages → `onlooker-api-production` → Observability → Traces.**
+
+Three things about the dataset before any figure drawn from it:
+
+- **There is no history before the deploy.** Traces begin when #57 shipped. A
+  24-hour range looked empty for 23 of its hours on the day it landed, which is
+  the config being new rather than traffic being absent.
+- **Retention is 3 days** on the free plan, against 7 on paid, and the daily
+  budget is 200,000 events. Current volume is nowhere near it — roughly 400
+  spans a day against ~327 requests.
+- **From 2026-10-01 each span bills as one observability event**, sharing the
+  Workers Logs quota. Tracing is free only during the beta. That is the date to
+  revisit `head_sampling_rate`, not before — sampling a dataset this thin now
+  would only make it useless.
+
+### What a span actually contains
+
+Measured 2026-08-16 ~21:43 EDT, from a `POST /auth/refresh` trace — the whole
+trace dataset was about 40 minutes old, so these are small numbers of
+observations and are quoted as such rather than as averages.
+
+| | |
+|---|---|
+| `POST /auth/refresh` | 151 ms total, 2 spans |
+| └ `d1_all` child span | 100 ms |
+| `db.query.text` | `select "user_id", "expires_at" from "sessions" where "sessions"."token_hash" = ? limit ?` |
+| `cloudflare.d1.response.sql_duration_ms` | **0.3078** |
+| `cloudflare.colo` (where the Worker ran) | `LAX` |
+| `cloudflare.d1.response.served_by_colo` | `MIA` |
+| `cloudflare.d1.response.served_by_primary` | `true` |
+
+The SQL text arrives parameterized, with values bound out, so queries are
+identifiable without leaking anything.
+
+**The headline is the gap between those two durations.** Executing the query
+took 0.31 ms. The span took 100 ms. The Worker ran in Los Angeles and the
+database answered from Miami, off the primary. Essentially all of what looks
+like database time is the round trip to reach it, so the chart worth building is
+span duration *against* `sql_duration_ms`, not either alone — and no amount of
+query tuning moves it. Whether read replication should change that is a separate
+question from what to draw.
+
+### The three questions this section was opened to answer
+
+**Which D1 queries dominate a request** — answerable, and answered above. The
+second `/auth/refresh` trace in the same minute ran 84 ms, and the dashboard's
+own comparison panel put the two `d1_all` spans at 40 ms and 100 ms. At n=2 that
+is a range, not a distribution; re-measure before quoting it as one.
+
+**Where auth requests spend their time** — **not answerable from production
+traffic, and the reason matters more than the gap.** Every traced request today
+is either a `401` from the heartbeat or a `404` from a scanner. Nobody
+authenticates successfully, so no traced request reaches the code that costs
+anything:
+
+- `bcryptjs` at cost factor 10 runs only on login, signup and change-password.
+  Those paths get no production traffic at all, so the expense the epic worried
+  about has never been observed.
+- `GET /auth/me` traces as a single span with no D1 child. That is *not* because
+  it does no database work — `handleMe` calls `getUserById` — but because
+  `requireAuth` rejects the tokenless heartbeat first. The trace describes the
+  rejection path, not the real one.
+- `POST /auth/refresh` is the exception, and only by accident: it queries
+  `sessions` *before* deciding to reject, which is why it is the one path with a
+  D1 span to look at.
+
+So the traces currently describe what the system does when it turns people away.
+Answering this question needs a request that succeeds — either a real user, or a
+heartbeat check that authenticates as a seeded account. That is a change to
+`scripts/heartbeat.sh` and a decision about test credentials in production, not
+a chart.
+
+**Error rates by route rather than by worker** — answerable now, and already
+demonstrated. Use the Visualizations query in the `404` note under "Read this
+before trusting any chart": filter on `$workers.event.response.status`, group by
+`$workers.event.path`. Any status works, not just `404`.
+
+### One trap in the Traces tab
+
+The list is titled **100 Slowest Traces** and means it. It is not a sample, so
+averages taken from it are biased upward by construction. While the dataset is
+smaller than 100 traces this does not matter — the slowest 100 of 60 is all of
+them — but it will start lying quietly as volume grows.
+
+---
+
 ## Not buildable without Analytics Engine
 
 A real product funnel — signups, successful versus failed logins, which failure
