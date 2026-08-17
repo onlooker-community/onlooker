@@ -1,7 +1,14 @@
 # Synthetic Heartbeat — Design
 
-**Status:** Implemented and running — amended after measurement
+**Status:** Implemented and running — amended after measurement, then extended
 **Date:** 2026-08-09 (design), amended same day once the schedule had run
+**Extended by:** [the authenticated heartbeat](2026-08-17-authenticated-heartbeat-design.md), 2026-08-17
+
+The request table below describes checks 1–4 only, and its "six requests per
+run, three per environment" is doubly out of date: a deep-link check was added
+in PR #49, and four authenticated checks in 2026-08-17. It is eight per
+environment now. The reasoning here about equality assertions and about why
+`/auth/refresh` is the database check is unchanged and still worth reading.
 
 The design was approved and built as described. The [Cadence](#cadence) section
 has since been rewritten against observed behavior: GitHub delivers the

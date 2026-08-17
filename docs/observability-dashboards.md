@@ -172,10 +172,20 @@ median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
 | | per day |
 |---|---|
 | heartbeat runs | ~53 |
-| `onlooker-api-production` invocations | ~106 |
+| `onlooker-api-production` invocations | ~318 |
 | `onlooker-web-production` invocations | ~106 |
-| D1 queries per database | ~53 |
-| total requests, all four hosts | ~424 |
+| D1 queries per database | ~318 |
+| total requests, all four hosts | ~848 |
+
+The API and D1 figures roughly tripled on 2026-08-17 when the heartbeat gained
+four authenticated checks — login, an authenticated read, logout, and a
+revoked-token refresh. Six API requests per environment per run rather than
+two, and six D1 operations rather than one.
+
+**These two are derived, not measured.** They come from counting the calls each
+handler makes, against the same ~53 runs/day. Every other figure in this table
+was counted from delivered runs, and the ones that were derived have been wrong
+twice. Re-measure and correct them here.
 
 The web figures **doubled** when the heartbeat gained a deep-link check: it used
 to request only `/`, which is a file on disk and therefore could not detect the
@@ -342,11 +352,12 @@ makes carries `User-Agent: onlooker-heartbeat/1`, so exclude that and the
 remaining 401s are, by construction, somebody else probing your auth endpoints.
 A credential-stuffing detector for the cost of one filter.
 
-This used to be phrased as a constant to subtract by eye — the script produces
-exactly 4 401s per run, two per environment. That worked but was fragile in
-three ways: the number lived in a human's head, adding a hostname or a check
-invalidated it, and Cloudflare charts cannot draw a reference line at it anyway.
-The label replaces arithmetic with a filter.
+This used to be phrased as a constant to subtract by eye — the script produced
+exactly 4 401s per run, two per environment. It is now 6, three per environment,
+since the revoked-token check asserts a 401 too. That the number moved is the
+argument: it lived in a human's head, adding a check invalidated it, and
+Cloudflare charts cannot draw a reference line at it anyway. The label replaces
+arithmetic with a filter, and did not need updating when the number changed.
 
 Do not reach for `User-Agent not like curl/*` instead. It would exclude anyone
 probing with curl, which is precisely the traffic this chart exists to show.
