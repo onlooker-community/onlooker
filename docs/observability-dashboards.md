@@ -162,9 +162,21 @@ the cleanest signal on any of these dashboards (see D1 chart 1).
 Derived from the delivered cadence, not the requested one. Treat as a **ceiling**
 and expect irregular spacing — GitHub's scheduler is not punctual.
 
-Measured by counting the checks the script makes (`grep '^check ' scripts/heartbeat.sh`,
-four per environment) against the delivered run rate of 2.22 runs/hour — 100 scheduled
-runs over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
+Measured against the delivered run rate of 2.22 runs/hour — 100 scheduled runs
+over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
+
+Count the checks by **running** the script, not by grepping it. Its last line
+reports its own total — `all 8 checks passed` — and that is the number the
+arithmetic here uses. No grep reproduces it: the four original checks go through
+the `check` helper, one call site each, while the four authenticated checks
+report through `record` from separate success and failure branches, so any
+pattern counting call sites counts branches instead. This recipe used to say
+`grep '^check '`, which returns 4 and silently halved every figure below it —
+the exact way a derived figure goes wrong a third time.
+
+Without `HEARTBEAT_EMAIL` and `HEARTBEAT_PASSWORD` the script skips the
+authenticated checks and reports 4. Eight is the number with credentials, which
+is what CI runs.
 
 Counted, not derived from the median gap. The distribution's long tail makes the
 median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
@@ -172,17 +184,27 @@ median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
 | | per day |
 |---|---|
 | heartbeat runs | ~53 |
-| `onlooker-api-production` invocations | ~106 |
+| `onlooker-api-production` invocations | ~318 |
 | `onlooker-web-production` invocations | ~106 |
-| D1 queries per database | ~53 |
-| total requests, all four hosts | ~424 |
+| D1 queries per database | ~318 |
+| total requests, all four hosts | ~848 |
+
+The API figures roughly tripled on 2026-08-17, and the D1 figures rose sixfold,
+when the heartbeat gained four authenticated checks — login, an authenticated
+read, logout, and a revoked-token refresh. Six API requests per environment per
+run rather than two, and six D1 operations rather than one.
+
+**These two are derived, not measured.** They come from counting the calls each
+handler makes, against the same ~53 runs/day. Every other figure in this table
+was counted from delivered runs, and the ones that were derived have been wrong
+twice. Re-measure and correct them here.
 
 The web figures **doubled** when the heartbeat gained a deep-link check: it used
 to request only `/`, which is a file on disk and therefore could not detect the
 outage where every other route 404'd. Two requests per environment now.
 
 Deploys add a burst on top — the same script runs as a post-deploy smoke test,
-so each deploy contributes 4 requests per environment it touches.
+so each deploy contributes 8 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
 consecutive hours" — over any absolute count, but note how little headroom that
@@ -332,21 +354,23 @@ Built 2026-08-16, later than the other three, which were built 2026-08-09. Its
 value comes from separating human traffic from a known floor, and until the
 heartbeat labelled itself there was no reliable way to draw that line.
 
-Expect it to look empty. At ~424 requests a day, nearly all of them synthetic,
-these charts are a baseline being established rather than a signal being read.
-That is the point of having built it now: the shape of normal accumulates before
-there is anything abnormal to compare against.
+Expect it to look empty. At ~636 requests a day across the two API hosts this
+dashboard watches, nearly all of them synthetic, these charts are a baseline
+being established rather than a signal being read. That is the point of having
+built it now: the shape of normal accumulates before there is anything abnormal
+to compare against.
 
 **401s over time, with the heartbeat filtered out.** Every request the heartbeat
 makes carries `User-Agent: onlooker-heartbeat/1`, so exclude that and the
 remaining 401s are, by construction, somebody else probing your auth endpoints.
 A credential-stuffing detector for the cost of one filter.
 
-This used to be phrased as a constant to subtract by eye — the script produces
-exactly 4 401s per run, two per environment. That worked but was fragile in
-three ways: the number lived in a human's head, adding a hostname or a check
-invalidated it, and Cloudflare charts cannot draw a reference line at it anyway.
-The label replaces arithmetic with a filter.
+This used to be phrased as a constant to subtract by eye — the script produced
+exactly 4 401s per run, two per environment. It is now 6, three per environment,
+since the revoked-token check asserts a 401 too. That the number moved is the
+argument: it lived in a human's head, adding a check invalidated it, and
+Cloudflare charts cannot draw a reference line at it anyway. The label replaces
+arithmetic with a filter, and did not need updating when the number changed.
 
 Do not reach for `User-Agent not like curl/*` instead. It would exclude anyone
 probing with curl, which is precisely the traffic this chart exists to show.
