@@ -50,6 +50,18 @@ openssl rand -base64 32
 Create the account (production shown; for staging use
 `https://api-staging.onlooker.dev` and the staging address):
 
+**fish** — the shell this repository's operator actually uses:
+
+```fish
+read -sx HEARTBEAT_PW    # paste the generated password, it will not echo
+jq -n --arg email 'heartbeat@onlooker.dev' \
+      '{email: $email, password: env.HEARTBEAT_PW, name: "Heartbeat"}' |
+  curl -s -X POST https://api.onlooker.dev/auth/signup \
+    -H 'Content-Type: application/json' --data @-
+```
+
+**bash or zsh**, if you are somewhere else:
+
 ```bash
 read -rs HEARTBEAT_PW    # paste the generated password, it will not echo
 export HEARTBEAT_PW
@@ -58,6 +70,10 @@ jq -n --arg email 'heartbeat@onlooker.dev' \
   curl -s -X POST https://api.onlooker.dev/auth/signup \
     -H 'Content-Type: application/json' --data @-
 ```
+
+`read -sx` in fish is silent plus export in one flag. There is no `-r` because
+fish does not mangle backslashes and so has nothing to disable — `read -rs`
+fails outright with `unknown option`, which is how this was found.
 
 The password goes to `jq` through the environment rather than `--arg`, for the
 same reason `scripts/heartbeat.sh` does it that way: `/proc/PID/cmdline` is
@@ -73,8 +89,8 @@ Then set the secrets under **Settings → Secrets and variables → Actions**:
 
 Finally, unset the shell variable so the password does not sit in the session:
 
-```bash
-unset HEARTBEAT_PW
+```fish
+set -e HEARTBEAT_PW    # fish;  bash and zsh: unset HEARTBEAT_PW
 ```
 
 ## Rotating one
