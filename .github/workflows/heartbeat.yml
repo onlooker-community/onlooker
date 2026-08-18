@@ -32,6 +32,13 @@ jobs:
       # one people mute. Its result still reaches you as an annotation, and the
       # requests still reach Cloudflare either way.
       - name: Staging (advisory)
+        env:
+          HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_STAGING }}
+          HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_STAGING }}
+          # Required here too. Staging is advisory, so a missing secret surfaces
+          # as a warning rather than a failure - but it still surfaces, instead
+          # of silently reducing this step to the read-only checks.
+          HEARTBEAT_REQUIRE_AUTH: '1'
         run: |
           if ! scripts/heartbeat.sh staging; then
             echo "::warning title=Staging heartbeat failed::One or more staging checks did not return the expected status. This does not fail the run."
@@ -41,4 +48,8 @@ jobs:
       # Production failures fail the run, which is the whole alerting
       # mechanism: GitHub emails on workflow failure by default.
       - name: Production
+        env:
+          HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_PRODUCTION }}
+          HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_PRODUCTION }}
+          HEARTBEAT_REQUIRE_AUTH: '1'
         run: scripts/heartbeat.sh production

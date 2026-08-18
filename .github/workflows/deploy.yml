@@ -31,6 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The heartbeat's credential guard decides whether the authenticated
+      # checks run at all. It is the one piece of that script that can fail
+      # silently, by skipping forever, so it is pinned on every PR.
+      - name: Heartbeat script tests
+        run: bash scripts/heartbeat.test.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
