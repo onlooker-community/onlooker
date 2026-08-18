@@ -353,7 +353,16 @@ jobs:
       # One script, two triggers. Here it fails the run while the change is
       # still in front of whoever made it; on the cron it catches drift
       # afterwards.
+      #
+      # The credentials below are what make the first sentence true. Without
+      # them auth_preflight skips checks 5-8 and this gate silently asserts only
+      # that the API can still say no - directly after the step that applies D1
+      # migrations, which is the likeliest way to break saying yes.
       - name: Smoke test Staging
+        env:
+          HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_STAGING }}
+          HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_STAGING }}
+          HEARTBEAT_REQUIRE_AUTH: '1'
         run: ./scripts/heartbeat.sh staging
 
       - name: Notify Deployment
@@ -452,6 +461,10 @@ jobs:
       # prevention - but the alarm rings in the run that caused it rather than
       # up to 31 minutes later on the cron, and next to the commit responsible.
       - name: Smoke test Production
+        env:
+          HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_PRODUCTION }}
+          HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_PRODUCTION }}
+          HEARTBEAT_REQUIRE_AUTH: '1'
         run: ./scripts/heartbeat.sh production
 
       - name: Notify Deployment

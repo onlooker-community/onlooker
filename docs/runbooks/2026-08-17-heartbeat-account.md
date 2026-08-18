@@ -114,14 +114,35 @@ set -e HEARTBEAT_PW    # fish;  bash and zsh: unset HEARTBEAT_PW
 
 Because the address does not route, there is no reset flow. Two options:
 
-1. **Change the password** via `POST /auth/change-password` using the current
-   one, then update the secret.
-2. **Replace the account** — create a new one at a new address, update both
-   secrets, and delete the old via `DELETE /auth/account`. Simpler when the
-   current password is lost, and cheap because the account owns nothing.
+1. **Change the password** via `POST /auth/change-password`, then update the
+   secret. This needs the current password, so it is the rotation path, not the
+   recovery one. Two things about it are not guessable and will cost you a
+   detour: the endpoint requires an access token, so log in first and send
+   `Authorization: Bearer <token>`; and its body is `{"current_password": ...,
+   "new_password": ...}` in **snake_case**, alone in this API, where every
+   neighboring endpoint uses `refreshToken` and `email`. camelCase returns
+   `400 invalid_input`.
 
-Option 2 is the recovery path if the password is ever lost. There is no other
-one, and that is deliberate.
+   Between changing the password and updating the secret, every heartbeat run
+   fails `auth login -> 401`, and in production that fails the workflow and
+   emails you. At a ~24 minute median cadence you will usually catch at least
+   one. Expect it rather than being alarmed by it, and keep the gap short.
+
+2. **Replace the account** — create a new one at a new address and update both
+   secrets. This is the recovery path when the password is lost.
+
+   You cannot delete the old one through the API in that case: `DELETE
+   /auth/account` requires an access token, which requires a login, which
+   requires the password you no longer have. Leave the orphan row. It owns
+   nothing, its address does not route, and nothing can log into it. If you
+   want it gone, remove it directly with `wrangler d1 execute` — see the
+   database rebuild runbook for the shape of that.
+
+**Neither of these has been rehearsed.** The creation steps above were wrong
+twice on their first real use — bash syntax in a fish shell, and an unlabeled
+live credential — and both were found by running them, not by reading them.
+Treat everything in this section as unverified until someone has rotated the
+staging account for practice.
 
 ## When the heartbeat fails on an authenticated check
 
@@ -134,6 +155,7 @@ The four authenticated checks are `auth login`, `auth me`, `auth logout` and
 | `auth login` returning `200 without token and refreshToken` | The login handler's response shape changed. A client-breaking change. |
 | `auth me` returning `401` | `JWT_SECRET` changed, or `requireAuth` regressed. |
 | `auth me` returning a different account | A serious `getUserById` or session-lookup bug. Treat as an incident. |
+| `auth me` returning a different account, but nothing else is wrong | The `/auth/me` response shape changed — a renamed or moved `user.email`. The check cannot tell that from a genuinely wrong account, and a body that will not parse lands here too. Rule this out before escalating. |
 | `auth logout` failing | Revocation is broken; sessions will not end. |
 | `auth revoked refresh` returning `200` | Logout is not revoking. This exact regression has shipped once before. |
 | The run failing with `authenticated checks are required but unavailable` | A secret was deleted or renamed. The guard is working. |

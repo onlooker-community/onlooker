@@ -38,8 +38,8 @@ esac
 # synthetic traffic from real traffic by filtering rather than by arithmetic.
 #
 # The auth dashboard wants "401s that are not us". Without a label the only way
-# to get there is to know the floor - this script produces exactly 4 401s per
-# run, two per environment - and subtract it by eye. That number is held in a
+# to get there is to know the floor - this script produces exactly 6 401s per
+# run, three per environment - and subtract it by eye. That number is held in a
 # human's head, is invalidated by adding a hostname or a check, and cannot be
 # drawn on a Cloudflare chart anyway. Excluding `curl/*` instead would also
 # exclude anyone probing with curl, which is the traffic the chart exists to

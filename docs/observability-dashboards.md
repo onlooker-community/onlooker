@@ -162,9 +162,21 @@ the cleanest signal on any of these dashboards (see D1 chart 1).
 Derived from the delivered cadence, not the requested one. Treat as a **ceiling**
 and expect irregular spacing — GitHub's scheduler is not punctual.
 
-Measured by counting the checks the script makes (`grep '^check ' scripts/heartbeat.sh`,
-four per environment) against the delivered run rate of 2.22 runs/hour — 100 scheduled
-runs over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
+Measured against the delivered run rate of 2.22 runs/hour — 100 scheduled runs
+over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
+
+Count the checks by **running** the script, not by grepping it. Its last line
+reports its own total — `all 8 checks passed` — and that is the number the
+arithmetic here uses. No grep reproduces it: the four original checks go through
+the `check` helper, one call site each, while the four authenticated checks
+report through `record` from separate success and failure branches, so any
+pattern counting call sites counts branches instead. This recipe used to say
+`grep '^check '`, which returns 4 and silently halved every figure below it —
+the exact way a derived figure goes wrong a third time.
+
+Without `HEARTBEAT_EMAIL` and `HEARTBEAT_PASSWORD` the script skips the
+authenticated checks and reports 4. Eight is the number with credentials, which
+is what CI runs.
 
 Counted, not derived from the median gap. The distribution's long tail makes the
 median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
@@ -192,7 +204,7 @@ to request only `/`, which is a file on disk and therefore could not detect the
 outage where every other route 404'd. Two requests per environment now.
 
 Deploys add a burst on top — the same script runs as a post-deploy smoke test,
-so each deploy contributes 4 requests per environment it touches.
+so each deploy contributes 8 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
 consecutive hours" — over any absolute count, but note how little headroom that

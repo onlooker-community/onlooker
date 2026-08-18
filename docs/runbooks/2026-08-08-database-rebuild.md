@@ -165,6 +165,12 @@ converts it to the new nullable-timestamp shape — don't convert it here.
 > **Safe to continue if:** exactly one row comes back and every field above
 > is recorded in your scratch file.
 
+**Production now holds a second row.** A `heartbeat@onlooker.dev` account was
+created 2026-08-18 for the synthetic heartbeat's authenticated checks — see
+[the heartbeat account runbook](2026-08-17-heartbeat-account.md). A future
+rebuild must preserve that row or recreate the account afterward; "exactly one
+user" above is no longer accurate as a live gate, only as the shape to copy.
+
 ---
 
 ## Step 3 — Drop staging's tables

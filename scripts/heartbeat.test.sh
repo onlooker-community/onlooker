@@ -57,7 +57,7 @@ expect_preflight 2 "" "required but email only -> exit 2" \
 	HEARTBEAT_REQUIRE_AUTH=1 HEARTBEAT_EMAIL=a@b.test HEARTBEAT_PASSWORD=
 
 expect_preflight 0 "skip" "not required and no credentials -> skips" \
-	HEARTBEAT_EMAIL= HEARTBEAT_PASSWORD=
+	HEARTBEAT_REQUIRE_AUTH= HEARTBEAT_EMAIL= HEARTBEAT_PASSWORD=
 
 expect_preflight 0 "run" "required and both present -> runs" \
 	HEARTBEAT_REQUIRE_AUTH=1 HEARTBEAT_EMAIL=a@b.test HEARTBEAT_PASSWORD=secret
