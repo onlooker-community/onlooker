@@ -3,7 +3,7 @@
 # database read path works, and that a real session can be created, used and
 # revoked.
 #
-# Checks 1-4 write nothing. Checks 5-8 deliberately do: they log in, which
+# Checks 1-4 write nothing. Checks 5-9 deliberately do: they log in, which
 # writes a session row, and log out, which revokes it. A check that cannot
 # write cannot verify that writing works, and "the API correctly says no" is a
 # different claim from "the API works" - only the first was ever monitored.
@@ -259,7 +259,7 @@ if auth_preflight; then
 		# account that owns nothing, and the runner is destroyed after the
 		# job. The access token expires in TOKEN_EXPIRY_MINUTES (15). The
 		# refresh token carries 30 days, which is the weaker case - it is
-		# revoked seconds later by check 7, but only if check 7 runs. The
+		# revoked seconds later by check 8, but only if check 8 runs. The
 		# password is the durable secret and the one worth the extra handling.
 		me_response="$(api_request GET /auth/me \
 			-H "Authorization: Bearer ${access_token}")"
@@ -273,7 +273,7 @@ if auth_preflight; then
 			# Cloudflare's edge errors - 502, 520-524, the 1101 Worker
 			# exception page - are HTML, so parsing before checking the status
 			# would abort this script on exactly the outage it exists to
-			# catch: no failure line, no summary, and checks 7 and 8 skipped,
+			# catch: no failure line, no summary, and checks 7 to 9 skipped,
 			# leaving the session this run created unrevoked for 30 days.
 			me_email="$(printf '%s' "${me_body}" | jq -r '.user.email // empty' 2>/dev/null || true)"
 
@@ -290,6 +290,48 @@ if auth_preflight; then
 	fi
 
 	if [[ -n "${refresh_token}" ]]; then
+		# The only check here that asserts a session can be EXTENDED. Every
+		# other assertion about refresh is negative - check 4 sends a garbage
+		# token and check 9 sends a revoked one, and both expect 401. A token
+		# lookup that silently stopped matching would satisfy both: login still
+		# writes, /auth/me reads a JWT and never consults the sessions table,
+		# logout returns 200 unconditionally, and a 401 here would look
+		# correct. Every check would pass while every real user was logged out
+		# 15 minutes after signing in, which is TOKEN_EXPIRY_MINUTES.
+		refresh_payload="$(jq -n --arg token "${refresh_token}" '{refreshToken: $token}')"
+		refresh_response="$(printf '%s' "${refresh_payload}" |
+			api_request POST /auth/refresh \
+				-H 'Content-Type: application/json' \
+				--data @-)"
+		refresh_status="${refresh_response##*$'\n'}"
+		refresh_body="${refresh_response%$'\n'*}"
+
+		if [[ "${refresh_status}" != "200" ]]; then
+			# handleRefresh revokes only after every validation has passed, so
+			# a non-200 means the token we hold was not consumed and is still
+			# the right one to clean up below.
+			record "auth valid refresh" fail "${refresh_status} (expected 200)"
+		else
+			rotated_access="$(printf '%s' "${refresh_body}" | jq -r '.token // empty' 2>/dev/null || true)"
+			rotated_refresh="$(printf '%s' "${refresh_body}" | jq -r '.refreshToken // empty' 2>/dev/null || true)"
+
+			if [[ -z "${rotated_access}" || -z "${rotated_refresh}" ]]; then
+				# A 200 that carries no new pair. The server has already
+				# revoked what we sent, and we cannot see what replaced it, so
+				# the session below is unreachable and expires on its own after
+				# REFRESH_TOKEN_EXPIRY_DAYS. One orphan row per occurrence, and
+				# the failure is recorded rather than the row being pursued.
+				record "auth valid refresh" fail "200 without token and refreshToken"
+			else
+				record "auth valid refresh -> 200" ok
+				# Rotation consumed the old token. Everything after this must
+				# use the new one, or it is asserting against a token the
+				# server already revoked - which would pass for the wrong
+				# reason and leave the live session behind.
+				refresh_token="${rotated_refresh}"
+			fi
+		fi
+
 		logout_payload="$(jq -n --arg token "${refresh_token}" '{refreshToken: $token}')"
 		logout_response="$(printf '%s' "${logout_payload}" |
 			api_request POST /auth/logout \

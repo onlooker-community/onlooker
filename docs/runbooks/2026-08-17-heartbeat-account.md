@@ -146,8 +146,8 @@ staging account for practice.
 
 ## When the heartbeat fails on an authenticated check
 
-The four authenticated checks are `auth login`, `auth me`, `auth logout` and
-`auth revoked refresh`. What each failure means:
+The five authenticated checks are `auth login`, `auth me`, `auth valid
+refresh`, `auth logout` and `auth revoked refresh`. What each failure means:
 
 | Failing check | Most likely cause |
 |---|---|
@@ -156,6 +156,8 @@ The four authenticated checks are `auth login`, `auth me`, `auth logout` and
 | `auth me` returning `401` | `JWT_SECRET` changed, or `requireAuth` regressed. |
 | `auth me` returning a different account | A serious `getUserById` or session-lookup bug. Treat as an incident. |
 | `auth me` returning a different account, but nothing else is wrong | The `/auth/me` response shape changed — a renamed or moved `user.email`. The check cannot tell that from a genuinely wrong account, and a body that will not parse lands here too. Rule this out before escalating. |
+| `auth valid refresh` returning `401` | A session cannot be extended. Nothing else catches this: every other refresh assertion expects a rejection, so a broken token lookup satisfies them all while logging every real user out after 15 minutes. Treat as an incident. |
+| `auth valid refresh` returning `200 without token and refreshToken` | The refresh response shape changed. The old token was consumed anyway, so one session row is orphaned until it expires — harmless, but it explains a row you cannot account for. |
 | `auth logout` failing | Revocation is broken; sessions will not end. |
 | `auth revoked refresh` returning `200` | Logout is not revoking. This exact regression has shipped once before. |
 | The run failing with `authenticated checks are required but unavailable` | A secret was deleted or renamed. The guard is working. |
