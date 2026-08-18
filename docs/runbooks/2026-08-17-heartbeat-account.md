@@ -83,6 +83,23 @@ to do the thing the code was fixed not to do is worse than no runbook.
 Expect `201` with a `token` and `refreshToken` in the body. A `409` with
 `user_exists` means the account is already there — do not create a second.
 
+**Those two values are live credentials, and the `refreshToken` is good for 30
+days.** Signup logs you in as a side effect. Do not paste that response into a
+chat, an issue, a PR description, or anywhere else that gets stored or shared —
+the password is the secret you are protecting, but a refresh token mints
+sessions without it. If it does end up somewhere it should not, revoke it and
+move on; there is no need to recreate the account:
+
+```bash
+curl -s -X POST https://api.onlooker.dev/auth/logout \
+  -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"<the token>"}'
+```
+
+`{"success":true}` means it is dead. Nothing depends on that session — the
+heartbeat logs in fresh on every run — so revoking costs nothing. The access
+token beside it expires after `TOKEN_EXPIRY_MINUTES` (15) on its own.
+
 Then set the secrets under **Settings → Secrets and variables → Actions**:
 `HEARTBEAT_EMAIL_PRODUCTION`, `HEARTBEAT_PASSWORD_PRODUCTION`,
 `HEARTBEAT_EMAIL_STAGING`, `HEARTBEAT_PASSWORD_STAGING`.
