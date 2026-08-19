@@ -47,6 +47,18 @@ Generate a password:
 openssl rand -base64 32
 ```
 
+**Save it in your password manager before running anything else.** There is no
+reset path — that is deliberate, and it is documented two sections down as a
+security property. It is also a trap: an address that accepts no mail cannot
+receive a reset link, and `change-password` needs the password you are trying to
+recover. A password you did not save is gone, and the account it belongs to can
+never be rotated or deleted again.
+
+This is not hypothetical. Both accounts created on 2026-08-18 were created
+without saving the password first, because this paragraph did not exist yet.
+They still work — CI can read a secret a human cannot — but they are
+permanently unrotatable. See "Current accounts" below.
+
 Create the account (production shown; for staging use
 `https://api-staging.onlooker.dev` and the staging address):
 
@@ -112,37 +124,116 @@ set -e HEARTBEAT_PW    # fish;  bash and zsh: unset HEARTBEAT_PW
 
 ## Rotating one
 
-Because the address does not route, there is no reset flow. Two options:
+**Rehearsed 2026-08-19 against staging.** The commands below are what actually
+ran, not what the source suggested should work. Every one behaved as written.
 
-1. **Change the password** via `POST /auth/change-password`, then update the
-   secret. This needs the current password, so it is the rotation path, not the
-   recovery one. Two things about it are not guessable and will cost you a
-   detour: the endpoint requires an access token, so log in first and send
-   `Authorization: Bearer <token>`; and its body is `{"current_password": ...,
-   "new_password": ...}` in **snake_case**, alone in this API, where every
-   neighboring endpoint uses `refreshToken` and `email`. camelCase returns
-   `400 invalid_input`.
+Because the address does not route, there is no reset flow. Two options.
 
-   Between changing the password and updating the secret, every heartbeat run
-   fails `auth login -> 401`, and in production that fails the workflow and
-   emails you. At a ~24 minute median cadence you will usually catch at least
-   one. Expect it rather than being alarmed by it, and keep the gap short.
+### 1. Change the password
 
-2. **Replace the account** — create a new one at a new address and update both
-   secrets. This is the recovery path when the password is lost.
+The rotation path. Needs the current password, so it is not available for
+recovery.
 
-   You cannot delete the old one through the API in that case: `DELETE
-   /auth/account` requires an access token, which requires a login, which
-   requires the password you no longer have. Leave the orphan row. It owns
-   nothing, its address does not route, and nothing can log into it. If you
-   want it gone, remove it directly with `wrangler d1 execute` — see the
-   database rebuild runbook for the shape of that.
+Two things are not guessable: the endpoint requires an access token, so you log
+in first; and its body is **snake_case**, alone in this API, where every
+neighboring endpoint uses `refreshToken` and `email`. camelCase returns
+`400 invalid_input`.
 
-**Neither of these has been rehearsed.** The creation steps above were wrong
-twice on their first real use — bash syntax in a fish shell, and an unlabeled
-live credential — and both were found by running them, not by reading them.
-Treat everything in this section as unverified until someone has rotated the
-staging account for practice.
+Log in and capture the tokens without putting them in your scrollback:
+
+```fish
+read -sx HB_OLD
+set LOGIN (jq -n --arg e 'heartbeat-staging-2@onlooker.dev' \
+  '{email:$e,password:env.HB_OLD}' |
+  curl -s -X POST https://api-staging.onlooker.dev/auth/login \
+    -H 'Content-Type: application/json' --data @-)
+set TOKEN (echo $LOGIN | jq -r .token)
+set RT (echo $LOGIN | jq -r .refreshToken)
+test -n "$TOKEN"; and echo "logged in, token captured"
+```
+
+Generate the new password and **save it before the next command** — see the
+warning under "Creating one". Then:
+
+```fish
+read -sx HB_NEW
+jq -n --arg rt "$RT" \
+  '{current_password: env.HB_OLD, new_password: env.HB_NEW, refreshToken: $rt}' |
+  curl -s -X POST https://api-staging.onlooker.dev/auth/change-password \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' --data @-
+```
+
+`{"success":true}`. Passing `$RT` spares this session; changing a password ends
+the account's other sessions, and without it you would log yourself out
+mid-rotation.
+
+Then update the secret, which prompts rather than taking the value in argv:
+
+```fish
+gh secret set HEARTBEAT_PASSWORD_STAGING
+set -e HB_OLD HB_NEW
+```
+
+**The window between those two steps is real, and this is what it looks like:**
+
+```
+  FAIL  auth login -> 401 (expected 200)
+heartbeat: staging — 1 of 5 checks failed
+##[warning] One or more staging checks did not return the expected status.
+```
+
+Two things to expect there. In production this fails the workflow and emails
+you; in staging it warns and the run still passes. And the count says **1 of 5**
+rather than 1 of 9 — when login fails, checks 6 to 9 never run and the
+denominator shrinks with them. Nothing is broken; the named failure above it is
+the whole message. Keep the gap short and it is at most one run.
+
+### 2. Replace the account
+
+The recovery path when the password is lost, and the only one.
+
+Create a new account at a **new address** — the old one still holds its own, so
+signup returns `409 user_exists` — and update both secrets.
+
+You cannot delete the old account in that case. `DELETE /auth/account` requires
+an access token, which requires a login, which requires the password you no
+longer have. Leave the orphan row: it owns nothing, its address does not route,
+and its password exists only inside a GitHub secret that is about to be
+overwritten, after which nothing can ever log into it again. If you want it gone
+anyway, remove it directly with `wrangler d1 execute` — see the database rebuild
+runbook for the shape of that.
+
+### Deleting an account you can still log into
+
+**Rehearsed 2026-08-19** against a throwaway staging account, created and
+deleted in one sitting. Signup returns an access token, so no separate login is
+needed:
+
+```fish
+curl -s -X DELETE https://api-staging.onlooker.dev/auth/account \
+  -H "Authorization: Bearer $TOKEN" -w '\n%{http_code}\n'
+```
+
+`{"success":true}` and `200`. **Then prove it deleted** by logging in again and
+expecting `401`. That step is not ceremony: `handleLogout` once returned `200`
+while revoking nothing, and shipped. An endpoint that reports success and leaves
+the row is the same bug wearing a different hat, and nothing in the test suite
+currently asserts otherwise.
+
+## Current accounts
+
+| Address | Environment | Password |
+|---|---|---|
+| `heartbeat-staging-2@onlooker.dev` | staging, live | known, rotated 2026-08-19 |
+| `heartbeat@onlooker.dev` | production, live | **unknown** — exists only in `HEARTBEAT_PASSWORD_PRODUCTION` |
+| `heartbeat-staging@onlooker.dev` | none — orphan | unknown, unreachable |
+
+The two unknown ones were created 2026-08-18 without the password being saved
+first, before this runbook warned to. They work, because CI can read a secret a
+human cannot. They cannot be rotated or deleted, so when production next needs
+rotating, option 2 is the only path. That is the cost of the missing sentence,
+and it is why the warning under "Creating one" exists.
 
 ## When the heartbeat fails on an authenticated check
 
