@@ -1,9 +1,16 @@
 # Authenticated Heartbeat — Design
 
-**Status:** Approved, not yet implemented
+**Status:** Implemented and running — then extended
 **Date:** 2026-08-17
 **Extends:** [the synthetic heartbeat](2026-08-09-heartbeat-design.md)
 **Bead:** `onlooker-9bn`
+
+Shipped as PR #61 and verified in CI: `all 8 checks passed` in both
+environments. A fifth authenticated check was added the next day under
+`onlooker-5fe` — refreshing with a *valid* token — so the count below is eight
+per environment and the live figure is nine. The reasoning here is unchanged;
+what it missed is recorded in "Out of scope" and was the first thing the review
+of this work found.
 
 ---
 
