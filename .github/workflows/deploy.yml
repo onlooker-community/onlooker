@@ -37,6 +37,13 @@ jobs:
       - name: Heartbeat script tests
         run: bash scripts/heartbeat.test.sh
 
+      # The client error monitor's filter key cannot be validated at runtime:
+      # an unknown key returns success with zero matches, exactly like a quiet
+      # window. These tests are the only thing standing between a working
+      # monitor and one that is green forever, so they run on every PR.
+      - name: Client error monitor script tests
+        run: bash scripts/client-error-monitor.test.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:

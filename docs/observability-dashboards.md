@@ -483,6 +483,34 @@ averages taken from it are biased upward by construction. While the dataset is
 smaller than 100 traces this does not matter — the slowest 100 of 60 is all of
 them — but it will start lying quietly as volume grows.
 
+### A wrong filter key looks exactly like a quiet window
+
+Filtering on a key that does not exist does not fail. The query returns
+`success: true`, an empty `errors` array, and zero events — which is
+indistinguishable from a correct query over a period when nothing happened.
+
+This bit the client error monitor before it shipped. Three plausible-looking
+filters for the same log line:
+
+| Filter | Matches |
+|---|---|
+| `$metadata.message includes client_error` | 0 |
+| `source.event eq client_error` | 0 |
+| `event eq client_error` | **1** |
+
+Workers Logs parses the JSON string given to `console.error` and makes every
+property a top-level queryable key. A `message` property inside that JSON is
+promoted into `$metadata.message`, so `$metadata.message` holds the inner text
+and never the JSON envelope. Responses nest the parsed object under `source`,
+but `source.` is not a query prefix — query the bare property name.
+
+So when a chart or a check reads zero, that is two claims, not one: nothing
+happened, *or* it has been asking the wrong question since the day it was
+built. Confirm the key against `/keys`, or against a log line you know exists,
+before believing the zero. Anything automated should verify with a control
+query that must return something — see
+[the client error monitor runbook](runbooks/2026-08-21-client-error-monitor.md).
+
 ---
 
 ## Not buildable without Analytics Engine
