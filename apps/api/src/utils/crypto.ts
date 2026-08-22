@@ -60,14 +60,19 @@ export async function verifyJwt(
 }
 
 /**
- * Generate a random refresh token
+ * Generate a random refresh token.
+ *
+ * 32 bytes from crypto.getRandomValues, hex encoded. This matches
+ * createVerificationToken in db/queries.ts, deliberately - it was the only
+ * correct precedent in the codebase when this was fixed.
+ *
+ * This used to build the token from Math.random() in a loop, which is not a
+ * CSPRNG: V8 implements it as xorshift128+ with a per-isolate seed, and enough
+ * observed outputs recover the internal state. Workers reuse isolates across
+ * requests, so an attacker able to mint several tokens from one isolate had a
+ * path at the others it produced. See onlooker-axo.
  */
 export function generateRefreshToken(): string {
-	const chars =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	let token = "";
-	for (let i = 0; i < 64; i++) {
-		token += chars.charAt(Math.floor(Math.random() * chars.length));
-	}
-	return token;
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
