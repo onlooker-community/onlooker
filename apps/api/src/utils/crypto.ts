@@ -60,14 +60,41 @@ export async function verifyJwt(
 }
 
 /**
- * Generate a random refresh token
+ * Generate a random refresh token.
+ *
+ * 32 bytes from crypto.getRandomValues, hex encoded. This matches
+ * createVerificationToken in db/queries.ts, deliberately - it was the only
+ * correct precedent in the codebase when this was fixed.
+ *
+ * This used to build the token from Math.random() in a loop, which is not a
+ * CSPRNG: V8 implements it as xorshift128+ with a per-isolate seed, and enough
+ * observed outputs recover the internal state. Workers reuse isolates across
+ * requests, so an attacker able to mint several tokens from one isolate had a
+ * path at the others it produced. See onlooker-axo.
  */
 export function generateRefreshToken(): string {
-	const chars =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	let token = "";
-	for (let i = 0; i < 64; i++) {
-		token += chars.charAt(Math.floor(Math.random() * chars.length));
-	}
-	return token;
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * SHA-256 of a bearer token. Sessions, verification tokens, and machine
+ * tokens all store only this - a read of any of those tables must not
+ * produce a working credential.
+ *
+ * Not bcrypt, deliberately. These are 256 bits of crypto random, not a
+ * password - there is no dictionary to slow an attacker down, so a work
+ * factor buys nothing, and it would be paid on every request that presents
+ * one (every sync request, for machine tokens).
+ *
+ * The one hash. Imported, never re-declared - two copies drift apart with no
+ * symptom until one changes and the other doesn't, and tokens stop verifying
+ * with nothing to point at.
+ */
+export async function hashToken(token: string): Promise<string> {
+	const data = new TextEncoder().encode(token);
+	const digest = await crypto.subtle.digest("SHA-256", data);
+	return [...new Uint8Array(digest)]
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
 }

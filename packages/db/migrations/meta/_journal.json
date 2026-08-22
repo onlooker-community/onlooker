@@ -15,6 +15,20 @@
       "when": 1786843374104,
       "tag": "0001_youthful_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787427948189,
+      "tag": "0002_sturdy_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787430474563,
+      "tag": "0003_slim_pandemic",
+      "breakpoints": true
     }
   ]
 }

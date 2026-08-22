@@ -1,7 +1,8 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { sessions, users, verification_tokens } from "@onlooker/db";
 import { and, eq, ne } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import { hashToken } from "../utils/crypto.js";
+import { client } from "./client.js";
 
 export interface User {
 	id: string;
@@ -21,15 +22,6 @@ export interface RefreshToken {
 	expires_at: string;
 	created_at: string;
 }
-
-/**
- * The drizzle client is constructed per call rather than passed in, so these
- * signatures stay identical to the raw-D1 versions they replaced. That keeps
- * every call site in routes/auth.ts untouched and keeps the characterization
- * tests meaningful across this rewrite. Construction is a thin wrapper over
- * the binding, not a connection.
- */
-const client = (db: D1Database) => drizzle(db);
 
 /**
  * Create a new user in the database
@@ -150,17 +142,6 @@ export async function revokeRefreshToken(
 	await client(db)
 		.delete(sessions)
 		.where(eq(sessions.token_hash, await hashToken(token)));
-}
-
-/**
- * SHA-256 of the raw token. Sessions store only this.
- */
-async function hashToken(token: string): Promise<string> {
-	const encoder = new TextEncoder();
-	const data = encoder.encode(token);
-	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

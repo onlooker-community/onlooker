@@ -23,4 +23,14 @@ export {
 } from "./auth";
 
 export { handleGetDashboard, handleGetUserProfile } from "./data";
+export {
+	handlePushLessons,
+	handleReadLessons,
+	handleTransitionLesson,
+} from "./lessons";
+export {
+	handleCreateMachine,
+	handleListMachines,
+	handleRevokeMachine,
+} from "./machines";
 export { handleClientError } from "./telemetry";
