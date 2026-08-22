@@ -1743,7 +1743,7 @@ export function canonicalize(value: unknown): string {
 pnpm --filter @onlooker/api exec vitest run src/utils/canonical.test.ts
 ```
 
-Expected: PASS, 5 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Write the failing tests for the sequence**
 
@@ -2648,6 +2648,105 @@ describe("POST /lessons/:id/status", () => {
 		]);
 	});
 
+	// The route's PRIMARY EFFECT, and it had no test at all until a mutation
+	// found that out: neutering the UPDATE so it matched no rows left the whole
+	// 176-test suite green. The response envelope and the feed rows were both
+	// checked; the row the route exists to modify was not.
+	//
+	// The production failure that hides behind that gap is a bad one. The feed
+	// advances, so every mirror is told "something changed here", pulls the
+	// lesson, and receives identical content. The retraction silently does
+	// nothing and the system looks healthy.
+	it("actually changes the stored lesson, not just the feed", async () => {
+		const written = lesson();
+		await push(machineToken, [written]);
+
+		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({ status: "retracted", superseded_by: null }),
+		});
+
+		const row = await db()
+			.prepare("SELECT status, body FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ status: string; body: string }>();
+
+		// Both representations, because they can disagree: `status` is the column
+		// the server filters on, `body.status` is what the client mirror reads.
+		expect(row?.status).toBe("retracted");
+		expect(JSON.parse(row?.body ?? "{}").status).toBe("retracted");
+	});
+
+	it("records superseded_by in the stored lesson", async () => {
+		const original = lesson();
+		const replacement = lesson();
+		await push(machineToken, [original, replacement]);
+
+		const response = await SELF.fetch(
+			`${BASE}/lessons/${original.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({
+					status: "superseded",
+					superseded_by: replacement.id,
+				}),
+			},
+		);
+
+		expect(response.status).toBe(200);
+
+		const row = await db()
+			.prepare("SELECT status, body FROM lessons WHERE id = ?")
+			.bind(original.id)
+			.first<{ status: string; body: string }>();
+
+		expect(row?.status).toBe("superseded");
+		expect(JSON.parse(row?.body ?? "{}").superseded_by).toBe(replacement.id);
+	});
+
+	it("rejects superseded_by on a status that is not superseded", async () => {
+		const written = lesson();
+		await push(machineToken, [written]);
+
+		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({
+				status: "retracted",
+				superseded_by: "01KZ45MKAM734ZS7JK24D2DK99",
+			}),
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	it("404s for a lesson id that does not exist", async () => {
+		const response = await SELF.fetch(
+			`${BASE}/lessons/01KZ45MKAM734ZS7JK24D2DK98/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({ status: "retracted", superseded_by: null }),
+			},
+		);
+
+		expect(response.status).toBe(404);
+	});
+
 	it("rejects a status the contract does not define", async () => {
 		const written = lesson();
 		await push(machineToken, [written]);
@@ -2858,7 +2957,7 @@ Add `transitionLesson` to the imports from `../db/lessons.js`, export the handle
 pnpm --filter @onlooker/api exec vitest run src/routes/lessons-status.test.ts
 ```
 
-Expected: PASS, 5 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 6: Commit**
 
