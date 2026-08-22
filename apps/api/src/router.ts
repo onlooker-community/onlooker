@@ -7,17 +7,20 @@ import { errorHandler } from "./middleware";
 import {
 	handleChangePassword,
 	handleClientError,
+	handleCreateMachine,
 	handleDeleteAccount,
 	handleForgotPassword,
 	handleGetDashboard,
 	handleGetProfile,
 	handleGetUserProfile,
+	handleListMachines,
 	handleLogin,
 	handleLogout,
 	handleMe,
 	handleRefresh,
 	handleResendVerification,
 	handleResetPassword,
+	handleRevokeMachine,
 	handleSignup,
 	handleUpdateProfile,
 	handleVerifyEmail,
@@ -26,7 +29,7 @@ import {
 import type { WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
-interface Route {
+export interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;
 	handler: (request: Request, env: WorkerEnv) => Promise<Response>;
@@ -133,14 +136,71 @@ const ROUTES: Route[] = [
 		path: "/api/client-errors",
 		handler: handleClientError,
 	},
+
+	// =========================================================================
+	// Machine tokens (subsystem 3 - credentials for non-browser clients)
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/machines",
+		handler: handleCreateMachine,
+	},
+	{
+		method: "GET",
+		path: "/machines",
+		handler: handleListMachines,
+	},
+	{
+		method: "DELETE",
+		path: "/machines/:id",
+		handler: handleRevokeMachine,
+	},
 ];
 
 /**
- * Match a request to a route and dispatch to the handler.
- * Returns null if no route matches.
+ * Whether a `:param`-bearing pattern matches a concrete path.
+ *
+ * Segment count must agree, so /machines/:id does not swallow
+ * /machines/a/b. Only whole segments are parameters; there is no partial or
+ * wildcard matching, because nothing here needs one.
  */
-function findRoute(method: string, path: string): Route | undefined {
-	return ROUTES.find((route) => route.method === method && route.path === path);
+export function pathMatches(pattern: string, path: string): boolean {
+	const patternSegments = pattern.split("/");
+	const pathSegments = path.split("/");
+	if (patternSegments.length !== pathSegments.length) return false;
+
+	return patternSegments.every(
+		(segment, i) => segment.startsWith(":") || segment === pathSegments[i],
+	);
+}
+
+/**
+ * Match a request to a route.
+ *
+ * Exact routes win over parameterized ones. Without that ordering, a literal
+ * route registered after a parameterized one of the same shape would become
+ * unreachable, and the symptom would be a working endpoint quietly answering
+ * from the wrong handler.
+ *
+ * `routes` defaults to the module's real table; tests pass their own to check
+ * dispatch ordering without needing a shape collision to exist in production.
+ */
+export function findRoute(
+	method: string,
+	path: string,
+	routes: Route[] = ROUTES,
+): Route | undefined {
+	const exact = routes.find(
+		(route) => route.method === method && route.path === path,
+	);
+	if (exact) return exact;
+
+	return routes.find(
+		(route) =>
+			route.method === method &&
+			route.path.includes(":") &&
+			pathMatches(route.path, path),
+	);
 }
 
 /**
