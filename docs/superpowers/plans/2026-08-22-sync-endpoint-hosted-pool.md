@@ -37,6 +37,7 @@
 | `apps/api/src/middleware/machine-auth.ts` | Create — `requireMachineToken` |
 | `apps/api/src/routes/machines.ts` | Create — token management, browser-authenticated |
 | `apps/api/src/test-support/lessons.ts` | Create — shared test fixture for all three lesson suites |
+| `scripts/source-guards.test.sh` | Create (Task 9) — file-level assertions the Workers test pool cannot make |
 | `apps/api/src/routes/lessons.ts` | Create — push, transition, delta read |
 | `apps/api/src/router.ts` | Modify — wire the new routes |
 
@@ -48,7 +49,7 @@
 - Modify: `apps/api/src/utils/crypto.ts:65`
 - Test: `apps/api/src/utils/crypto.test.ts`
 
-**Bead:** `onlooker-axo` (P1) — this task closes it and unblocks `onlooker-cwj`.
+**Bead:** `onlooker-axo` (P1). This task *fixes* it; the bead is closed in Task 10, after the PR lands and the session-revocation decision is recorded. Do not run `bd close` here.
 
 This is not part of the sync endpoint. It runs first because Task 2 writes a new
 bearer token in the same codebase, and the plan's Global Constraints tell that
@@ -62,31 +63,34 @@ precedent in the file.
 
 - [ ] **Step 1: Write the failing test**
 
-Create or append to `apps/api/src/utils/crypto.test.ts`:
+Create `apps/api/src/utils/crypto.test.ts`:
 
 ```ts
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateRefreshToken } from "./crypto.js";
 
 describe("generateRefreshToken", () => {
-	// The actual defect. Math.random is xorshift128+ in V8, seeded per isolate;
-	// enough observed outputs recover the state and predict the rest. A refresh
-	// token is a 30-day bearer credential for the whole account, and Workers
-	// reuse isolates across requests.
+	// The only assertion here that can catch the defect this task exists to fix.
 	//
-	// This asserts on the source text rather than on behavior because
-	// predictability is not observable from outputs at test scale - a weak PRNG
-	// and a strong one look identical over a handful of samples. A source
-	// assertion is blunt, and it is the only thing here that can actually fail.
+	// Predictability is not observable from output. An implementation that hex
+	// encodes 32 bytes derived from Math.random() passes both behavioral tests
+	// below - the format is right and the values do not repeat - while remaining
+	// exactly as predictable as before. So the guard has to read the source.
+	//
+	// Function.prototype.toString() rather than readFileSync: apps/api's vitest
+	// runs in the Cloudflare Workers pool, where node:fs throws
+	// (node-internal:internal_fs_sync). toString() needs no filesystem and was
+	// verified to return the real function body in that pool on 2026-08-22.
+	//
+	// Known limit: this sees only this function. Moving the randomness into a
+	// helper would evade it. That is acceptable - the guard exists to catch a
+	// revert of this specific function, not to prove the whole codebase clean.
 	it("does not use Math.random", () => {
-		const source = readFileSync(
-			new URL("./crypto.ts", import.meta.url),
-			"utf8",
-		);
-		const body = source.slice(source.indexOf("export function generateRefreshToken"));
+		expect(generateRefreshToken.toString()).not.toContain("Math.random");
+	});
 
-		expect(body.slice(0, body.indexOf("\n}"))).not.toContain("Math.random");
+	it("draws from crypto.getRandomValues", () => {
+		expect(generateRefreshToken.toString()).toContain("getRandomValues");
 	});
 
 	it("returns 64 hex characters, the same length as before", () => {
@@ -109,9 +113,10 @@ describe("generateRefreshToken", () => {
 pnpm --filter @onlooker/api exec vitest run src/utils/crypto.test.ts
 ```
 
-Expected: FAIL on "does not use Math.random", and FAIL on the hex assertion —
-the current implementation returns a 64-character alphanumeric string from a
-62-character alphabet, not hex.
+Expected: FAIL on three of the four — "does not use Math.random", "draws from
+crypto.getRandomValues", and the hex format assertion. "does not repeat" passes
+already, because Math.random does not repeat over 100 samples either. That is
+precisely why it is not the guard.
 
 - [ ] **Step 3: Fix the generator**
 
@@ -143,7 +148,7 @@ export function generateRefreshToken(): string {
 pnpm --filter @onlooker/api exec vitest run src/utils/crypto.test.ts
 ```
 
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Run the whole API suite**
 
@@ -2711,7 +2716,7 @@ git commit -m "feat(api): let a lesson change state without moving in the feed :
 **Files:**
 - Modify: `apps/api/src/db/lessons.ts`, `apps/api/src/routes/lessons.ts`, `apps/api/src/router.ts`, `apps/api/src/routes/index.ts`
 - Test: `apps/api/src/routes/lessons-delta.test.ts`
-- Test: `apps/api/src/lessons/boundary.test.ts`
+- Modify: `scripts/source-guards.test.sh` (created in Task 0)
 
 **Interfaces:**
 - Produces:
@@ -2922,41 +2927,113 @@ Add `readLessonDelta` to the imports, export the handler, and wire `GET /lessons
 
 - [ ] **Step 5: Write the boundary test**
 
-Create `apps/api/src/lessons/boundary.test.ts`:
+The boundary guard has to read whole FILES — it asks which files contain a
+lesson query — so unlike Task 0's guard it cannot use
+`Function.prototype.toString()`, and `apps/api`'s vitest runs in the Workers
+pool where `node:fs` throws (`node-internal:internal_fs_sync`, probed
+2026-08-22).
 
-```ts
-import { readdirSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+So it goes where CI already runs structural checks: a bash suite beside
+`heartbeat.test.sh`, `client-error-monitor.test.sh` and
+`d1-latency-sample.test.sh`.
 
-// The contract spec designates the visibility filter as the security boundary:
-// "A bug there leaks private lessons, so it belongs in exactly one place rather
-// than spread across every query site."
-//
-// That is only true while it stays in one place. This asserts it structurally,
-// because the natural way to break it is not to write a bug - it is to add a
-// second query somewhere else that forgets the filter, which no behavioral test
-// would notice until it leaked.
-describe("the lesson visibility boundary", () => {
-	it("has no lesson query outside db/lessons.ts", () => {
-		const offenders: string[] = [];
+Create `scripts/source-guards.test.sh`:
 
-		for (const dir of ["src/routes", "src/middleware", "src/lessons"]) {
-			for (const file of readdirSync(new URL(`../../${dir}`, import.meta.url))) {
-				if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+```bash
+#!/usr/bin/env bash
+# Assertions about source TEXT that the app's own suite cannot make.
+#
+# apps/api's vitest runs in the Cloudflare Workers pool, where node:fs throws.
+# A guard that needs to know which FILES contain something therefore cannot
+# live there. (A guard that only needs one function's body can - see
+# Function.prototype.toString() in apps/api/src/utils/crypto.test.ts.)
+set -uo pipefail
 
-				const source = readFileSync(
-					new URL(`../../${dir}/${file}`, import.meta.url),
-					"utf8",
-				);
-				if (/FROM\s+lessons|FROM\s+lesson_feed/i.test(source)) {
-					offenders.push(`${dir}/${file}`);
-				}
-			}
-		}
+readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-		expect(offenders).toEqual([]);
-	});
-});
+tests=0
+failures=0
+
+pass() {
+	tests=$((tests + 1))
+	echo "  ok    $1"
+}
+
+fail() {
+	tests=$((tests + 1))
+	failures=$((failures + 1))
+	echo "  FAIL  $1 -> $2"
+}
+```
+
+Then the boundary checks:
+
+```bash
+echo
+echo "source-guards: the lesson visibility boundary"
+
+# The contract spec designates the visibility filter as the security boundary:
+# "A bug there leaks private lessons, so it belongs in exactly one place rather
+# than spread across every query site."
+#
+# That is only true while it stays in one place, and the natural way to break it
+# is not to write a bug - it is to add a second query somewhere else that
+# forgets the filter. No behavioral test notices that until it leaks, because
+# the new query works fine for whoever wrote it.
+offenders=""
+for dir in routes middleware lessons utils; do
+	path="${ROOT}/apps/api/src/${dir}"
+	[[ -d "${path}" ]] || continue
+
+	while IFS= read -r file; do
+		case "${file}" in *.test.ts) continue ;; esac
+		if grep -Eqi "FROM[[:space:]]+lessons|FROM[[:space:]]+lesson_feed" "${file}"; then
+			offenders="${offenders} ${file#"${ROOT}/"}"
+		fi
+	done < <(find "${path}" -name '*.ts' -type f)
+done
+
+if [[ -n "${offenders}" ]]; then
+	fail "no lesson query outside db/lessons.ts" "found in:${offenders}"
+else
+	pass "no lesson query outside db/lessons.ts"
+fi
+
+# The boundary is only meaningful if the module it lives in actually queries.
+# Without this, deleting every query in the codebase would pass the check above.
+if grep -Eqi "FROM[[:space:]]+lesson_feed" "${ROOT}/apps/api/src/db/lessons.ts"; then
+	pass "db/lessons.ts is where the lesson queries live"
+else
+	fail "db/lessons.ts is where the lesson queries live" "no lesson_feed query found there"
+fi
+```
+
+And the summary:
+
+```bash
+echo
+if (( failures > 0 )); then
+	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
+	exit 1
+fi
+
+echo "source-guards.test.sh: all ${tests} tests passed"
+```
+
+Note the second check. Without it the guard passes trivially when there are no
+lesson queries anywhere — a check that holds when the thing it guards has been
+deleted is not a check.
+
+Wire it into `.github/workflows/deploy.yml` beside the other three script
+suites:
+
+```yaml
+      # The visibility filter is the security boundary, and it is only in one
+      # place while nothing else queries the tables. That is a property of which
+      # files contain what, so it cannot be checked from inside the Workers test
+      # pool.
+      - name: Source guard tests
+        run: bash scripts/source-guards.test.sh
 ```
 
 - [ ] **Step 6: Run the full suite**
@@ -2969,18 +3046,26 @@ Expected: PASS.
 
 - [ ] **Step 7: Verify the boundary test can fail**
 
-Temporarily add `const leak = "SELECT * FROM lessons";` to `apps/api/src/routes/lessons.ts`, run `boundary.test.ts`, and confirm it fails naming that file. Remove it.
+Temporarily add `const leak = "SELECT * FROM lessons";` to
+`apps/api/src/routes/lessons.ts`, run the guard, and confirm it fails naming
+that file. Remove it.
 
 ```bash
-pnpm --filter @onlooker/api exec vitest run src/lessons/boundary.test.ts
+bash scripts/source-guards.test.sh
 ```
 
-Expected while the leak is present: FAIL listing `src/routes/lessons.ts`.
+Expected while the leak is present: FAIL listing `apps/api/src/routes/lessons.ts`.
+
+Then check the second assertion can fail too: temporarily rename the `FROM
+lesson_feed` in `db/lessons.ts` and confirm the guard reports the module no
+longer holds the queries. Restore it.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add apps/api/src/db/lessons.ts apps/api/src/routes/lessons.ts apps/api/src/routes/lessons-delta.test.ts apps/api/src/lessons/boundary.test.ts apps/api/src/routes/index.ts apps/api/src/router.ts
+git add apps/api/src/db/lessons.ts apps/api/src/routes/lessons.ts \
+  apps/api/src/routes/lessons-delta.test.ts scripts/source-guards.test.sh \
+  .github/workflows/deploy.yml apps/api/src/routes/index.ts apps/api/src/router.ts
 git commit -m "feat(api): serve a delta a client can prove it received whole :satellite:"
 ```
 
@@ -3056,5 +3141,7 @@ Deferred and unchanged: org tier, public tier, author_key binding, multi-author 
 **One deliberate widening.** Rule 3 rejects any two-sided range matching no version, not only an inverted one. `">=4 <4"` is not inverted and still matches nothing — the same defect by another route, and the same code.
 
 **Type consistency.** `createLessonWithFeed`, `getLessonById`, `transitionLesson`, `readLessonDelta`, `canonicalize`, `checkCrossFieldRules`, `requireMachineToken`, `verifyMachineToken`, `createMachineToken`, `revokeMachineToken` and `listMachineTokens` are each defined once and used with matching signatures throughout. `StoredLesson`, `RuleViolation`, `MachineTokenSummary` and `PushResult` likewise.
+
+**A third fact, found during execution.** `apps/api`'s vitest runs in the Cloudflare Workers pool, where `node:fs` throws — `readFileSync` dies in `node-internal:internal_fs_sync`, probed directly on 2026-08-22. Both of this plan's source-reading guards were originally written as vitest files using `readFileSync` and could not have run. They now split by what they actually need to see: Task 0's guard needs one function's body, so it uses `Function.prototype.toString()` and stays in the vitest suite beside the code it guards (also probed — it returns the real body in that pool). Task 9's guard needs to know which *files* contain a query, which no runtime API exposes, so it moves to `scripts/source-guards.test.sh` beside the three bash suites CI already runs. This matters more than a config detail: those two guards check properties *no behavioral test can observe* — a predictable token and a correct one produce indistinguishable output, and a query that forgets the visibility filter works perfectly for whoever wrote it. Deleting them because they will not run is how the plan loses exactly the assertions it exists to make.
 
 **Two repository facts verified while writing this, both of which change a task.** `findRoute` (`router.ts:143`) does exact string matching and has no path-parameter support, so Task 3 extends it — with exact matches tried first, because `contract.test.ts` pins the existing surface and a resolution-order change would surface there as an unrelated failure. And `client` is module-private at `queries.ts:32`, so Task 2 extracts it rather than declaring a second drizzle factory.
