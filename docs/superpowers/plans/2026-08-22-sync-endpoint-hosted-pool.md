@@ -591,7 +591,18 @@ import { drizzle } from "drizzle-orm/d1";
 
 /** The one drizzle client. Imported, never re-declared. */
 export const client = (db: D1Database) => drizzle(db);
+```
 
+**`hashToken` moves too, and must not be written a second time.** It is
+currently module-private in `queries.ts` (around line 149) and this task needs
+the same function.
+
+It does **not** go in `client.ts` — that file's one responsibility is the
+drizzle factory. It goes in `apps/api/src/utils/crypto.ts`, beside
+`hashPassword`, `verifyPassword`, `signJwt` and `generateRefreshToken`, which is
+already the crypto helper module:
+
+```ts
 /**
  * SHA-256 of a raw bearer token. Sessions, verification tokens and machine
  * tokens all store only this.
@@ -609,12 +620,11 @@ export async function hashToken(token: string): Promise<string> {
 }
 ```
 
-**Move `hashToken` too, and do not write a second copy.** It is currently
-module-private in `queries.ts` (around line 149) and this task needs the same
-function. Two implementations of the hash that protects every bearer credential
-in the system is exactly the duplication that drifts — one gets changed and the
-other does not, and the symptom is tokens that silently stop verifying. Import
-it in both `queries.ts` and `machine-tokens.ts`.
+Import it in both `queries.ts` and `machine-tokens.ts`. Two implementations of
+the hash protecting every bearer credential in the system — session refresh
+tokens, verification and reset tokens, machine tokens — is exactly the
+duplication that drifts, and the failure is quiet: one gets changed, the other
+does not, and tokens stop verifying with nothing to point at.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -637,7 +647,7 @@ Expected: no output. If this prints anything, the credential is predictable — 
 ```bash
 pnpm lint
 git add apps/api/src/db/machine-tokens.ts apps/api/src/db/machine-tokens.test.ts \
-  apps/api/src/db/client.ts apps/api/src/db/queries.ts
+  apps/api/src/db/client.ts apps/api/src/db/queries.ts apps/api/src/utils/crypto.ts
 git commit -m "feat(api): issue machine tokens that a shell can carry :computer:"
 ```
 
