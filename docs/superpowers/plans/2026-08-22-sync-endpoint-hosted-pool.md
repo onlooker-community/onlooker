@@ -21,6 +21,7 @@
   right is the one that fails. `apps/api` had no dependency on it before this
   plan; Task 5 added it as `workspace:*` and built the package so the workspace
   symlink resolves. Later tasks inherit that — do not remove it.
+- **Import `D1Database` explicitly**, as `import type { D1Database } from "@cloudflare/workers-types";`. The snippets in this plan use the type without importing it and typecheck anyway via an ambient global, but every existing module in `apps/api/src/db/` imports it, and matching the file you are sitting in beats matching the snippet.
 - **Indentation is tabs.** Biome enforces it; run `pnpm lint` before every commit.
 - **The code snippets in this plan are not Biome-formatted.** They are written
   for readability at this width, and Biome will reformat some of them — chiefly
