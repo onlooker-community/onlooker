@@ -1355,6 +1355,44 @@ describe("a two-sided range admits at least one version", () => {
 		expect(violations[0].rule).toBe("range_admits_a_version");
 	});
 
+	// All FOUR operator pairs at equal bounds, not two. With only `>=4 <4` and
+	// `>=4 <=4` covered, an implementation that ignores lowerOperator entirely -
+	// `return upperOperator !== "<="` - passes every test in this file AND every
+	// push-deletion mutation, while wrongly allowing `>4 <=4`. The strict lower
+	// bound already excludes the only version the upper bound admits.
+	//
+	// Mutation testing proves a rule fires. It does not prove the rule is right,
+	// and it cannot notice a combination no test names.
+	it("rejects an exclusive lower bound at an inclusive equal upper bound", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				applies_to: {
+					stack: ["vite"],
+					scope: { kind: "versioned", versions: { vite: ">4 <=4" } },
+					file_patterns: [],
+					task_kinds: [],
+				},
+			}),
+		);
+
+		expect(violations[0].rule).toBe("range_admits_a_version");
+	});
+
+	it("rejects both bounds exclusive at equal versions", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				applies_to: {
+					stack: ["vite"],
+					scope: { kind: "versioned", versions: { vite: ">4 <4" } },
+					file_patterns: [],
+					task_kinds: [],
+				},
+			}),
+		);
+
+		expect(violations[0].rule).toBe("range_admits_a_version");
+	});
+
 	it("allows an inclusive range pinning one version", () => {
 		expect(
 			checkCrossFieldRules(
@@ -1563,11 +1601,19 @@ export function checkCrossFieldRules(lesson: TLesson): RuleViolation[] {
 pnpm --filter @onlooker/api exec vitest run src/lessons/rules.test.ts
 ```
 
-Expected: PASS, 11 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 5: Mutation-test each rule**
 
 A rule whose test passes with the rule deleted is not a rule. `onlooker-59e` shipped two brand tokens whose guards could not fail and the suite was green at 59/59 the entire time — these three rules are the same shape, rarely violated in practice, so a test that quietly stops checking looks exactly like one that keeps passing.
+
+**Know what this step does not prove.** Deleting a `violations.push` shows the
+rule *fires*. It says nothing about whether the rule is *right*, and it cannot
+notice a case no test names. Rule 3's first version passed every deletion
+mutation while a variant ignoring `lowerOperator` also passed every test — the
+suite covered two of the four operator pairs at equal bounds, so the AND of both
+operators was never forced. If a rule branches on more than one input, check
+that the tests name every combination before trusting the mutation result.
 
 For each of the three, comment out the `violations.push` block, run the suite, and confirm a test fails. Restore it before moving on.
 
