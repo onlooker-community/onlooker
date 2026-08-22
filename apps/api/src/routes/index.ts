@@ -23,6 +23,7 @@ export {
 } from "./auth";
 
 export { handleGetDashboard, handleGetUserProfile } from "./data";
+export { handlePushLessons } from "./lessons";
 export {
 	handleCreateMachine,
 	handleListMachines,

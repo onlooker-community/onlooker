@@ -17,6 +17,7 @@ import {
 	handleLogin,
 	handleLogout,
 	handleMe,
+	handlePushLessons,
 	handleRefresh,
 	handleResendVerification,
 	handleResetPassword,
@@ -154,6 +155,15 @@ const ROUTES: Route[] = [
 		method: "DELETE",
 		path: "/machines/:id",
 		handler: handleRevokeMachine,
+	},
+
+	// =========================================================================
+	// Lessons (hosted pool ingest)
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/lessons",
+		handler: handlePushLessons,
 	},
 ];
 
