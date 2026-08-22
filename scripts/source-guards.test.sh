@@ -34,18 +34,36 @@ echo "source-guards: the lesson visibility boundary"
 # is not to write a bug - it is to add a second query somewhere else that
 # forgets the filter. No behavioral test notices that until it leaks, because
 # the new query works fine for whoever wrote it.
-offenders=""
-for dir in routes middleware lessons utils; do
-	path="${ROOT}/apps/api/src/${dir}"
-	[[ -d "${path}" ]] || continue
+# Which files may contain a lesson query: exactly one. Everything under
+# apps/api/src is scanned, not a hand-listed set of directories - the realistic
+# regression is someone adding a second query to a SIBLING of lessons.ts in
+# db/, which a directory allowlist that omits db/ cannot see.
+#
+# The matcher squashes newlines before grepping. grep is line-oriented, so
+# "FROM" on one line and the table name on the next slips past a naive pattern -
+# and that is not a contrived evasion: every query in db/lessons.ts is already
+# a multi-line template literal, so it is the file's own house style. Verified
+# by probe: the line-broken form does NOT match a plain
+# `grep -Eqi "FROM[[:space:]]+lesson_feed"`.
+#
+# The trailing [^_a-zA-Z0-9] keeps a hypothetical `lessons_archive` from being
+# flagged, and the appended space guarantees a delimiter exists at end of file.
+has_lesson_query() {
+	{ tr '\n' ' ' < "$1"; printf ' '; } |
+		grep -Eqi "FROM[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]"
+}
 
-	while IFS= read -r file; do
-		case "${file}" in *.test.ts) continue ;; esac
-		if grep -Eqi "FROM[[:space:]]+lessons|FROM[[:space:]]+lesson_feed" "${file}"; then
-			offenders="${offenders} ${file#"${ROOT}/"}"
-		fi
-	done < <(find "${path}" -name '*.ts' -type f)
-done
+offenders=""
+while IFS= read -r file; do
+	case "${file}" in
+		*/db/lessons.ts) continue ;;
+		*.test.ts) continue ;;
+	esac
+
+	if has_lesson_query "${file}"; then
+		offenders="${offenders} ${file#"${ROOT}/"}"
+	fi
+done < <(find "${ROOT}/apps/api/src" -name '*.ts' -type f)
 
 if [[ -n "${offenders}" ]]; then
 	fail "no lesson query outside db/lessons.ts" "found in:${offenders}"
@@ -53,12 +71,13 @@ else
 	pass "no lesson query outside db/lessons.ts"
 fi
 
-# The boundary is only meaningful if the module it lives in actually queries.
-# Without this, deleting every query in the codebase would pass the check above.
-if grep -Eqi "FROM[[:space:]]+lesson_feed" "${ROOT}/apps/api/src/db/lessons.ts"; then
+# The second check, and it is not padding. Without it the guard passes
+# trivially once every lesson query is deleted - a check that holds when the
+# thing it guards is gone.
+if has_lesson_query "${ROOT}/apps/api/src/db/lessons.ts"; then
 	pass "db/lessons.ts is where the lesson queries live"
 else
-	fail "db/lessons.ts is where the lesson queries live" "no lesson_feed query found there"
+	fail "db/lessons.ts is where the lesson queries live" "no lesson query found there"
 fi
 
 echo
