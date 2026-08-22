@@ -52,7 +52,20 @@ export class SequenceExhaustedError extends Error {
  */
 const MAX_SEQ_ATTEMPTS = 5;
 
-function isUniqueViolationOn(error: unknown, table: string): boolean {
+/**
+ * Does this D1 failure mean the named table's unique constraint rejected us?
+ *
+ * The whole retry/500 decision hangs on D1's error TEXT, which is a vendor
+ * string nothing in our build pins. Exported so it can be tested against the
+ * literal messages SQLite emits - if D1 ever reformats them, every concurrent
+ * push would start 500ing instead of retrying, and without a test on these
+ * strings nothing would notice.
+ *
+ * `table` is matched as a substring, so callers pass the most specific form
+ * available: "lessons.id" rather than "lessons", which would also match
+ * "lesson_feed" messages in a future where a column is renamed.
+ */
+export function isUniqueViolationOn(error: unknown, table: string): boolean {
 	return (
 		error instanceof Error &&
 		/UNIQUE constraint failed/i.test(error.message) &&

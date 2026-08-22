@@ -5,6 +5,7 @@ import {
 	createLessonsWithFeed,
 	getLessonById,
 	getLessonsByIds,
+	isUniqueViolationOn,
 } from "./lessons.js";
 import { createUser } from "./queries.js";
 
@@ -217,5 +218,68 @@ describe("getLessonsByIds", () => {
 
 	it("returns an empty map for no ids", async () => {
 		expect((await getLessonsByIds(db(), [])).size).toBe(0);
+	});
+});
+
+// The retry-or-500 decision hangs entirely on D1's error TEXT, a vendor string
+// nothing in the build pins. The lesson_feed branch is the acknowledged
+// untestable concurrency path - but its TRIGGER is testable, and if D1 ever
+// reformats these messages every concurrent push 500s instead of retrying.
+//
+// The wrapped forms are the literal strings this repository's D1 emits, read
+// off a real collision; the bare forms are what SQLite itself produces.
+describe("isUniqueViolationOn", () => {
+	const LESSON_ID = "UNIQUE constraint failed: lessons.id";
+	const FEED = "UNIQUE constraint failed: lesson_feed.user_id, lesson_feed.seq";
+	const WRAPPED_LESSON_ID = `D1_ERROR: ${LESSON_ID}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)`;
+	const WRAPPED_FEED = `D1_ERROR: ${FEED}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_UNIQUE)`;
+
+	it("classifies a lessons.id collision", () => {
+		expect(isUniqueViolationOn(new Error(LESSON_ID), "lessons.id")).toBe(true);
+		expect(
+			isUniqueViolationOn(new Error(WRAPPED_LESSON_ID), "lessons.id"),
+		).toBe(true);
+	});
+
+	it("classifies a lesson_feed collision", () => {
+		expect(isUniqueViolationOn(new Error(FEED), "lesson_feed")).toBe(true);
+		expect(isUniqueViolationOn(new Error(WRAPPED_FEED), "lesson_feed")).toBe(
+			true,
+		);
+	});
+
+	// Cross-matching is what turns a retryable sequence collision into a fatal
+	// "id already taken", or the reverse - each answers the other's question.
+	it("does not cross-match the other table", () => {
+		expect(isUniqueViolationOn(new Error(LESSON_ID), "lesson_feed")).toBe(
+			false,
+		);
+		expect(
+			isUniqueViolationOn(new Error(WRAPPED_LESSON_ID), "lesson_feed"),
+		).toBe(false);
+		expect(isUniqueViolationOn(new Error(FEED), "lessons.id")).toBe(false);
+		expect(isUniqueViolationOn(new Error(WRAPPED_FEED), "lessons.id")).toBe(
+			false,
+		);
+	});
+
+	it("classifies an unrelated failure as neither", () => {
+		const other = new Error("D1_ERROR: no such table: lessons: SQLITE_ERROR");
+
+		expect(isUniqueViolationOn(other, "lessons.id")).toBe(false);
+		expect(isUniqueViolationOn(other, "lesson_feed")).toBe(false);
+	});
+
+	it("classifies a NOT NULL failure on the same table as neither", () => {
+		const notNull = new Error(
+			"D1_ERROR: NOT NULL constraint failed: lesson_feed.seq: SQLITE_CONSTRAINT",
+		);
+
+		expect(isUniqueViolationOn(notNull, "lesson_feed")).toBe(false);
+	});
+
+	it("survives a thrown value that is not an Error", () => {
+		expect(isUniqueViolationOn(LESSON_ID, "lessons.id")).toBe(false);
+		expect(isUniqueViolationOn(null, "lessons.id")).toBe(false);
 	});
 });
