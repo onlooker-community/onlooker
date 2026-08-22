@@ -172,6 +172,86 @@ describe("POST /lessons", () => {
 		expect(results[0].error).toContain("superseded_by");
 	});
 
+	// One push, one contiguous block. The concurrency this protects against is
+	// exercised where it can be: db/lessons.test.ts drives two batches at once.
+	it("gives one push a contiguous block of sequence numbers", async () => {
+		const response = await push(machineToken, [lesson(), lesson(), lesson()]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ seq: number }>;
+		};
+		expect(results.map((r) => r.seq)).toEqual([1, 2, 3]);
+	});
+
+	// Only lessons that are actually written may take a number. A rejected
+	// lesson consuming one would leave a hole that the client's contiguity check
+	// reads as a lost lesson - the exact failure the dense sequence exists to
+	// make loud, fired on healthy data.
+	it("spends no sequence number on a lesson it rejects", async () => {
+		const response = await push(machineToken, [
+			lesson(),
+			lesson({ schema_version: 99 }),
+			lesson(),
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; seq?: number }>;
+		};
+		expect(results.map((r) => r.outcome)).toEqual([
+			"created",
+			"invalid",
+			"created",
+		]);
+		expect(results.map((r) => r.seq)).toEqual([1, undefined, 2]);
+
+		const rows = await db()
+			.prepare("SELECT seq FROM lesson_feed ORDER BY seq")
+			.all<{ seq: number }>();
+		expect(rows.results?.map((row) => row.seq)).toEqual([1, 2]);
+	});
+
+	// A no-op consumes no number either, so a batch mixing fresh lessons with
+	// ones the mirror already holds still numbers the fresh ones densely.
+	it("spends no sequence number on a no-op", async () => {
+		const held = lesson();
+		await push(machineToken, [held]);
+
+		const response = await push(machineToken, [held, lesson()]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; seq?: number }>;
+		};
+		expect(results.map((r) => r.outcome)).toEqual(["noop", "created"]);
+		expect(results[1].seq).toBe(2);
+	});
+
+	// An id repeated inside ONE request. The batch write claims each id once, so
+	// the second appearance has to be answered from what was actually stored
+	// rather than from what the request asked for.
+	it("reconciles an id that repeats inside one request", async () => {
+		const twice = lesson();
+		const response = await push(machineToken, [
+			twice,
+			twice,
+			{ ...twice, claim: "A different claim under the same id" },
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; seq?: number }>;
+		};
+		expect(results.map((r) => r.outcome)).toEqual([
+			"created",
+			"noop",
+			"conflict",
+		]);
+		expect(results[0].seq).toBe(1);
+
+		const stored = await db()
+			.prepare("SELECT COUNT(*) AS n FROM lessons")
+			.first<{ n: number }>();
+		expect(stored?.n).toBe(1);
+	});
+
 	// The 409 must not become an existence oracle over other users' lesson ids.
 	it("does not reveal that an id belongs to someone else", async () => {
 		const written = lesson();

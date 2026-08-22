@@ -1,10 +1,10 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { ZLesson } from "@onlooker-community/lesson-contract";
 import {
-	createLessonWithFeed,
-	getLessonById,
-	LessonIdTakenError,
+	createLessonsWithFeed,
+	getLessonsByIds,
 	readLessonDelta,
+	SequenceExhaustedError,
 	transitionLesson,
 } from "../db/lessons.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
@@ -13,7 +13,16 @@ import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { canonicalize } from "../utils/canonical.js";
 
-type Outcome = "created" | "noop" | "conflict" | "invalid";
+/**
+ * The verdict on one lesson.
+ *
+ * `error` is the fifth value beside the spec's four, and it exists so an
+ * unexpected failure on one lesson cannot take the whole response down. It is
+ * deliberately not folded into `invalid`: `invalid` means "this lesson will
+ * never be accepted, stop sending it", and a client that treats a transient
+ * write failure that way drops the lesson permanently. `error` means retry.
+ */
+type Outcome = "created" | "noop" | "conflict" | "invalid" | "error";
 
 interface PushResult {
 	id: string;
@@ -24,6 +33,19 @@ interface PushResult {
 
 /** How many lessons one request may carry. */
 const MAX_BATCH = 100;
+
+/** A candidate that survived validation, still tied to its place in the batch. */
+interface Admitted {
+	index: number;
+	lesson: TLesson;
+}
+
+/** Best effort at naming a candidate that may not even be an object. */
+function idOf(candidate: unknown): string {
+	return typeof (candidate as { id?: unknown })?.id === "string"
+		? (candidate as { id: string }).id
+		: "unknown";
+}
 
 /**
  * Name the first field whose value differs, for a conflict the caller owns.
@@ -42,11 +64,84 @@ function firstDifferingField(stored: string, incoming: unknown): string {
 }
 
 /**
+ * Everything about one lesson that can be decided without the database.
+ *
+ * Kept separate from the write because none of these checks may consume a
+ * sequence number: a number spent on a lesson that is never stored leaves a
+ * hole, and the client's contiguity check reads a hole as corruption.
+ */
+function screen(
+	candidate: unknown,
+): { lesson: TLesson } | { result: PushResult } {
+	const id = idOf(candidate);
+
+	const parsed = ZLesson.safeParse(candidate);
+	if (!parsed.success) {
+		return {
+			result: {
+				id,
+				outcome: "invalid",
+				error: parsed.error.issues
+					.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+					.join("; "),
+			},
+		};
+	}
+	const lesson = parsed.data;
+
+	// The tier gate says so explicitly. A generic validation failure here would
+	// read as a client bug once org and public open.
+	if (lesson.visibility !== "private") {
+		return {
+			result: {
+				id,
+				outcome: "invalid",
+				error: `The ${lesson.visibility} tier is not open yet; only private lessons are accepted`,
+			},
+		};
+	}
+
+	if (lesson.superseded_by !== null && lesson.status !== "superseded") {
+		return {
+			result: {
+				id,
+				outcome: "invalid",
+				error:
+					"superseded_by is set on a lesson whose status is not superseded",
+			},
+		};
+	}
+
+	const violations = checkCrossFieldRules(lesson);
+	if (violations.length > 0) {
+		return {
+			result: {
+				id,
+				outcome: "invalid",
+				error: violations.map((v) => v.message).join("; "),
+			},
+		};
+	}
+
+	return { lesson };
+}
+
+/**
  * Push lessons into the pool.
  *
- * Results are per item rather than per request. One lesson failing a
- * cross-field rule must not reject the rest, because a client told only that
- * "the batch failed" will re-push everything and keep doing it.
+ * Three phases, and the shape is load-bearing rather than tidy.
+ *
+ * Everything per item - parse, the tier gate, the cross-field rules, the
+ * idempotency check - happens first, so only lessons that will actually be
+ * written reach the sequence. Then ONE transaction assigns every number
+ * contiguously, because assigning per lesson lets a concurrent push interleave
+ * into the middle of a batch: the pusher is told 5 and 7, advances its cursor
+ * to 7 on the spec's own invitation, and never receives 6.
+ *
+ * Results stay per item throughout. One lesson failing must not reject the
+ * rest, because a client told only that "the batch failed" will re-push
+ * everything and keep doing it - including the lessons that succeeded, whose
+ * seq values it can no longer recover.
  */
 export async function handlePushLessons(
 	request: Request,
@@ -66,82 +161,126 @@ export async function handlePushLessons(
 		);
 	}
 
-	const results: PushResult[] = [];
+	const candidates = payload.lessons;
+	const results = new Array<PushResult | undefined>(candidates.length);
+	const admitted: Admitted[] = [];
 
-	for (const candidate of payload.lessons) {
-		results.push(await pushOne(env.DB, userId, candidate));
+	// 1. Everything decidable without touching the database.
+	for (const [index, candidate] of candidates.entries()) {
+		try {
+			const screened = screen(candidate);
+			if ("result" in screened) results[index] = screened.result;
+			else admitted.push({ index, lesson: screened.lesson });
+		} catch (error) {
+			results[index] = unexpected(idOf(candidate), error);
+		}
 	}
 
-	return Response.json({ results });
+	// 2. One read decides idempotency for the whole batch.
+	const stored = await getLessonsByIds(
+		env.DB,
+		admitted.map((item) => item.lesson.id),
+	);
+	const creatable: Admitted[] = [];
+	const claimed = new Set<string>();
+	// Answerable only once the write has settled: an id repeated inside this
+	// request, and an id a concurrent push took first. Both reconcile against
+	// what is actually stored rather than against what we expected to store.
+	const settle: Admitted[] = [];
+
+	for (const item of admitted) {
+		const existing = stored.get(item.lesson.id);
+		if (existing) {
+			results[item.index] = reconcile(existing, item.lesson, userId);
+		} else if (claimed.has(item.lesson.id)) {
+			settle.push(item);
+		} else {
+			claimed.add(item.lesson.id);
+			creatable.push(item);
+		}
+	}
+
+	// 3. One transaction assigns every sequence number, contiguously.
+	if (creatable.length > 0) {
+		try {
+			const writes = await createLessonsWithFeed(
+				env.DB,
+				userId,
+				creatable.map((item) => item.lesson),
+			);
+
+			for (const [offset, write] of writes.entries()) {
+				const item = creatable[offset];
+				if (write.outcome === "created") {
+					results[item.index] = {
+						id: item.lesson.id,
+						outcome: "created",
+						seq: write.seq,
+					};
+				} else {
+					settle.push(item);
+				}
+			}
+		} catch (error) {
+			// Contention is a condition of the whole user's stream, not of any one
+			// lesson: nothing was written, and retrying items individually cannot
+			// help. The spec answers 503 there - "never a partial write" - and the
+			// named class is what carries that past errorHandler, which would
+			// otherwise echo a bare Error's message, user id and all, as a 500.
+			if (error instanceof SequenceExhaustedError) {
+				throw new ApiError(
+					503,
+					"sequence_contention",
+					"Could not assign a lesson sequence; nothing was written, so retry the batch",
+				);
+			}
+
+			// Any other write failure rolled the transaction back whole. Give the
+			// lessons it covered their own outcome instead of discarding the
+			// verdicts already reached for everything else in the request.
+			for (const item of creatable) {
+				results[item.index] = unexpected(item.lesson.id, error);
+			}
+		}
+	}
+
+	if (settle.length > 0) {
+		const now = await getLessonsByIds(
+			env.DB,
+			settle.map((item) => item.lesson.id),
+		);
+		for (const item of settle) {
+			const existing = now.get(item.lesson.id);
+			results[item.index] = existing
+				? reconcile(existing, item.lesson, userId)
+				: {
+						id: item.lesson.id,
+						outcome: "error",
+						error: "The lesson was not stored; retry it",
+					};
+		}
+	}
+
+	return Response.json({
+		results: results.map(
+			(result, index) => result ?? unexpected(idOf(candidates[index]), null),
+		),
+	});
 }
 
-async function pushOne(
-	db: D1Database,
-	userId: string,
-	candidate: unknown,
-): Promise<PushResult> {
-	const id =
-		typeof (candidate as { id?: unknown })?.id === "string"
-			? (candidate as { id: string }).id
-			: "unknown";
-
-	const parsed = ZLesson.safeParse(candidate);
-	if (!parsed.success) {
-		return {
-			id,
-			outcome: "invalid",
-			error: parsed.error.issues
-				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-				.join("; "),
-		};
-	}
-	const lesson = parsed.data;
-
-	// The tier gate says so explicitly. A generic validation failure here would
-	// read as a client bug once org and public open.
-	if (lesson.visibility !== "private") {
-		return {
-			id,
-			outcome: "invalid",
-			error: `The ${lesson.visibility} tier is not open yet; only private lessons are accepted`,
-		};
-	}
-
-	if (lesson.superseded_by !== null && lesson.status !== "superseded") {
-		return {
-			id,
-			outcome: "invalid",
-			error: "superseded_by is set on a lesson whose status is not superseded",
-		};
-	}
-
-	const violations = checkCrossFieldRules(lesson);
-	if (violations.length > 0) {
-		return {
-			id,
-			outcome: "invalid",
-			error: violations.map((v) => v.message).join("; "),
-		};
-	}
-
-	const existing = await getLessonById(db, lesson.id);
-	if (existing) return reconcile(existing, lesson, userId);
-
-	try {
-		return {
-			id,
-			outcome: "created",
-			seq: await createLessonWithFeed(db, userId, lesson),
-		};
-	} catch (error) {
-		// Lost a race with a concurrent push of the same id. Re-read and answer
-		// from what is now stored, rather than reporting a failure that is not one.
-		if (error instanceof LessonIdTakenError) {
-			const raced = await getLessonById(db, lesson.id);
-			if (raced) return reconcile(raced, lesson, userId);
-		}
-		throw error;
-	}
+/**
+ * A lesson that failed for a reason the route did not anticipate.
+ *
+ * The message is deliberately generic: an unexpected failure's text is a D1
+ * string we do not control, and echoing it back is how internal identifiers
+ * reach a response body.
+ */
+function unexpected(id: string, _cause: unknown): PushResult {
+	return {
+		id,
+		outcome: "error",
+		error: "This lesson could not be stored; retry it",
+	};
 }
 
 function reconcile(
@@ -227,7 +366,22 @@ export async function handleTransitionLesson(
 		);
 	}
 
-	const seq = await transitionLesson(env.DB, userId, id, status, supersededBy);
+	let seq: number | null;
+	try {
+		seq = await transitionLesson(env.DB, userId, id, status, supersededBy);
+	} catch (error) {
+		// Same reason as the push route: a bare Error becomes a 500 whose body is
+		// error.message verbatim, and that message named the internal user id.
+		if (error instanceof SequenceExhaustedError) {
+			throw new ApiError(
+				503,
+				"sequence_contention",
+				"Could not assign a lesson sequence; nothing was written, so retry the transition",
+			);
+		}
+		throw error;
+	}
+
 	if (seq === null) {
 		throw new ApiError(404, "not_found", "No such lesson");
 	}

@@ -21,11 +21,24 @@ export interface StoredLesson {
 	body: string;
 }
 
-/** The lesson id is already taken. Distinct from sequence contention. */
-export class LessonIdTakenError extends Error {
-	constructor(id: string) {
-		super(`lesson ${id} already exists`);
-		this.name = "LessonIdTakenError";
+/**
+ * Sequence assignment gave up after MAX_SEQ_ATTEMPTS.
+ *
+ * A named class rather than a plain Error, for two reasons. It is what lets a
+ * route answer 503 - "the pool is contended, come back" - instead of the 500
+ * that a bare Error collapses into, which is what the spec asks for. And
+ * `errorHandler` echoes `error.message` into the response body verbatim, so
+ * the message this replaced published the internal user id to anyone who could
+ * provoke contention. The id now travels as a property, where the handler
+ * cannot reach it, and remains available for logging.
+ */
+export class SequenceExhaustedError extends Error {
+	constructor(
+		public readonly userId: string,
+		public readonly attempts: number,
+	) {
+		super(`could not assign a lesson sequence after ${attempts} attempts`);
+		this.name = "SequenceExhaustedError";
 	}
 }
 
@@ -47,38 +60,73 @@ function isUniqueViolationOn(error: unknown, table: string): boolean {
 	);
 }
 
+/** What the batch write decided for one lesson, in the order it was given. */
+export type BatchWrite =
+	| { outcome: "created"; seq: number }
+	| { outcome: "taken" };
+
 /**
- * Insert a lesson and its feed row in one transaction, returning the seq.
+ * How many ids one existence lookup may ask about.
+ *
+ * D1 caps bound parameters per query at 100, and MAX_BATCH is 100 lessons, so
+ * an unchunked `IN` list would sit exactly on the limit. Half of it leaves
+ * room and still answers a full batch in two round-trips.
+ */
+const ID_LOOKUP_CHUNK = 50;
+
+/**
+ * Insert a whole batch of lessons and their feed rows in ONE transaction.
+ *
+ * The batch is the unit, not the lesson, and that is a correctness requirement
+ * rather than an optimization. Assigning per lesson means each one runs its own
+ * MAX(seq)+1, so a concurrent push interleaves between them: machine A is told
+ * `seq 5` and `seq 7` while machine B takes 6. The spec invites a client to
+ * advance its cursor to the returned seq without a follow-up read, so that
+ * client advances past 6 and never receives it - and the contiguity check
+ * cannot catch it, because the gap was never inside a delivered window.
  *
  * Raw prepared statements rather than the drizzle builder, because `batch` is
- * the transaction primitive here and both statements must land together. A
+ * the transaction primitive here and every statement must land together. A
  * lesson row without its feed entry is invisible to every mirror; a feed entry
  * without its lesson breaks the join.
  *
- * The sequence is MAX(seq)+1 over lesson_feed for this user, read inside the
- * same call. Two racing pushes can compute the same value - UNIQUE(user_id,
- * seq) rejects the loser, which retries. Correctness rests on that constraint
- * rather than on D1 committing in seq order.
+ * A UNIQUE(user_id, seq) collision retries the WHOLE batch, per the spec, so
+ * the numbers a batch receives are always contiguous. A rolled-back batch
+ * consumes no numbers, so the sequence stays dense.
+ *
+ * An id that a concurrent push took first comes back as `taken` rather than
+ * throwing. The caller reconciles it against what is now stored, which is the
+ * same answer it would have reached had it seen the row on its first read - a
+ * race must end up reconciled, never fatal.
  */
-export async function createLessonWithFeed(
+export async function createLessonsWithFeed(
 	db: D1Database,
 	userId: string,
-	lesson: TLesson,
-): Promise<number> {
-	const now = new Date().toISOString();
-	const body = canonicalize(lesson);
+	lessons: TLesson[],
+): Promise<BatchWrite[]> {
+	const results: BatchWrite[] = lessons.map(() => ({ outcome: "taken" }));
+	if (lessons.length === 0) return results;
 
-	for (let attempt = 0; attempt < MAX_SEQ_ATTEMPTS; attempt++) {
+	const now = new Date().toISOString();
+	let pending = lessons.map((_, index) => index);
+	let attempts = 0;
+
+	while (pending.length > 0) {
+		if (attempts >= MAX_SEQ_ATTEMPTS) {
+			throw new SequenceExhaustedError(userId, MAX_SEQ_ATTEMPTS);
+		}
+
 		const next = await db
 			.prepare(
 				"SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM lesson_feed WHERE user_id = ?",
 			)
 			.bind(userId)
 			.first<{ next: number }>();
-		const seq = next?.next ?? 1;
+		const first = next?.next ?? 1;
 
-		try {
-			await db.batch([
+		const statements = pending.flatMap((index, offset) => {
+			const lesson = lessons[index];
+			return [
 				db
 					.prepare(
 						`INSERT INTO lessons
@@ -91,7 +139,7 @@ export async function createLessonWithFeed(
 						lesson.visibility,
 						lesson.status,
 						lesson.schema_version,
-						body,
+						canonicalize(lesson),
 						now,
 						now,
 					),
@@ -100,46 +148,92 @@ export async function createLessonWithFeed(
 						`INSERT INTO lesson_feed (seq, user_id, lesson_id, kind, at)
 						 VALUES (?, ?, ?, ?, ?)`,
 					)
-					.bind(seq, userId, lesson.id, "create", now),
-			]);
+					.bind(first + offset, userId, lesson.id, "create", now),
+			];
+		});
 
-			return seq;
+		try {
+			await db.batch(statements);
 		} catch (error) {
-			// An id collision is not sequence contention and retrying it would
-			// burn all five attempts and then report the wrong problem.
-			if (isUniqueViolationOn(error, "lessons.id")) {
-				throw new LessonIdTakenError(lesson.id);
+			if (isUniqueViolationOn(error, "lesson_feed")) {
+				attempts += 1;
+				continue;
 			}
-			if (isUniqueViolationOn(error, "lesson_feed")) continue;
+
+			// An id collision is not sequence contention, and charging it to the
+			// retry budget would burn all five attempts and then report the wrong
+			// problem. The batch rolled back whole, so nothing here was written and
+			// no number was consumed: drop whichever ids now exist and re-run the
+			// rest. Each pass strictly shrinks `pending`, so this terminates.
+			if (isUniqueViolationOn(error, "lessons.id")) {
+				const taken = await getLessonsByIds(
+					db,
+					pending.map((index) => lessons[index].id),
+				);
+				const remaining = pending.filter(
+					(index) => !taken.has(lessons[index].id),
+				);
+				// No id we can see accounts for the collision, so retrying the same
+				// statements would loop on the same failure. Report it instead.
+				if (remaining.length === pending.length) throw error;
+				pending = remaining;
+				continue;
+			}
+
 			throw error;
 		}
+
+		for (const [offset, index] of pending.entries()) {
+			results[index] = { outcome: "created", seq: first + offset };
+		}
+		return results;
 	}
 
-	throw new Error(
-		`could not assign a sequence for user ${userId} after ${MAX_SEQ_ATTEMPTS} attempts`,
-	);
+	return results;
 }
 
 /**
- * Fetch a lesson by id, WITHOUT filtering by owner.
+ * Fetch lessons by id, WITHOUT filtering by owner.
  *
  * The caller must apply ownership itself. This exists for the idempotency check
  * on push, which has to know that an id is taken even when it belongs to
  * someone else - while being careful never to reveal that fact. See the
  * conflict handling in routes/lessons.ts.
+ *
+ * Plural because push decides idempotency for a whole batch at once. Answering
+ * one id per round-trip cost up to a hundred sequential D1 calls inside a
+ * single Worker request.
  */
+export async function getLessonsByIds(
+	db: D1Database,
+	ids: string[],
+): Promise<Map<string, StoredLesson>> {
+	const found = new Map<string, StoredLesson>();
+	const unique = [...new Set(ids)];
+
+	for (let at = 0; at < unique.length; at += ID_LOOKUP_CHUNK) {
+		const chunk = unique.slice(at, at + ID_LOOKUP_CHUNK);
+		const rows = await db
+			.prepare(
+				`SELECT id, user_id, visibility, status, body
+				 FROM lessons
+				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+			)
+			.bind(...chunk)
+			.all<StoredLesson>();
+
+		for (const row of rows.results ?? []) found.set(row.id, row);
+	}
+
+	return found;
+}
+
+/** One id's worth of {@link getLessonsByIds}. */
 export async function getLessonById(
 	db: D1Database,
 	id: string,
 ): Promise<StoredLesson | null> {
-	const row = await db
-		.prepare(
-			"SELECT id, user_id, visibility, status, body FROM lessons WHERE id = ?",
-		)
-		.bind(id)
-		.first<StoredLesson>();
-
-	return row ?? null;
+	return (await getLessonsByIds(db, [id])).get(id) ?? null;
 }
 
 /**
@@ -201,9 +295,7 @@ export async function transitionLesson(
 		}
 	}
 
-	throw new Error(
-		`could not assign a sequence for user ${userId} after ${MAX_SEQ_ATTEMPTS} attempts`,
-	);
+	throw new SequenceExhaustedError(userId, MAX_SEQ_ATTEMPTS);
 }
 
 /**
