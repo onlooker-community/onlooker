@@ -36,8 +36,147 @@
 | `apps/api/src/db/lessons.ts` | Create — every lesson and feed query; the visibility boundary |
 | `apps/api/src/middleware/machine-auth.ts` | Create — `requireMachineToken` |
 | `apps/api/src/routes/machines.ts` | Create — token management, browser-authenticated |
+| `apps/api/src/test-support/lessons.ts` | Create — shared test fixture for all three lesson suites |
 | `apps/api/src/routes/lessons.ts` | Create — push, transition, delta read |
 | `apps/api/src/router.ts` | Modify — wire the new routes |
+
+---
+
+## Task 0: Refresh tokens must come from a CSPRNG
+
+**Files:**
+- Modify: `apps/api/src/utils/crypto.ts:65`
+- Test: `apps/api/src/utils/crypto.test.ts`
+
+**Bead:** `onlooker-axo` (P1) — this task closes it and unblocks `onlooker-cwj`.
+
+This is not part of the sync endpoint. It runs first because Task 2 writes a new
+bearer token in the same codebase, and the plan's Global Constraints tell that
+implementer to follow `createVerificationToken` rather than
+`generateRefreshToken`. Fixing this makes the correct precedent the only
+precedent in the file.
+
+**Interfaces:**
+- Produces: `generateRefreshToken(): string` — unchanged signature, unchanged
+  output length (64 hex characters). Nothing downstream sees a shape change.
+
+- [ ] **Step 1: Write the failing test**
+
+Create or append to `apps/api/src/utils/crypto.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { generateRefreshToken } from "./crypto.js";
+
+describe("generateRefreshToken", () => {
+	// The actual defect. Math.random is xorshift128+ in V8, seeded per isolate;
+	// enough observed outputs recover the state and predict the rest. A refresh
+	// token is a 30-day bearer credential for the whole account, and Workers
+	// reuse isolates across requests.
+	//
+	// This asserts on the source text rather than on behavior because
+	// predictability is not observable from outputs at test scale - a weak PRNG
+	// and a strong one look identical over a handful of samples. A source
+	// assertion is blunt, and it is the only thing here that can actually fail.
+	it("does not use Math.random", () => {
+		const source = readFileSync(
+			new URL("./crypto.ts", import.meta.url),
+			"utf8",
+		);
+		const body = source.slice(source.indexOf("export function generateRefreshToken"));
+
+		expect(body.slice(0, body.indexOf("\n}"))).not.toContain("Math.random");
+	});
+
+	it("returns 64 hex characters, the same length as before", () => {
+		expect(generateRefreshToken()).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	it("does not repeat", () => {
+		const seen = new Set(
+			Array.from({ length: 100 }, () => generateRefreshToken()),
+		);
+
+		expect(seen.size).toBe(100);
+	});
+});
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+pnpm --filter @onlooker/api exec vitest run src/utils/crypto.test.ts
+```
+
+Expected: FAIL on "does not use Math.random", and FAIL on the hex assertion —
+the current implementation returns a 64-character alphanumeric string from a
+62-character alphabet, not hex.
+
+- [ ] **Step 3: Fix the generator**
+
+Replace the body of `generateRefreshToken` in `apps/api/src/utils/crypto.ts`:
+
+```ts
+/**
+ * Generate a random refresh token.
+ *
+ * 32 bytes from crypto.getRandomValues, hex encoded. This matches
+ * createVerificationToken in db/queries.ts, deliberately - it was the only
+ * correct precedent in the codebase when this was fixed.
+ *
+ * This used to build the token from Math.random() in a loop, which is not a
+ * CSPRNG: V8 implements it as xorshift128+ with a per-isolate seed, and enough
+ * observed outputs recover the internal state. Workers reuse isolates across
+ * requests, so an attacker able to mint several tokens from one isolate had a
+ * path at the others it produced. See onlooker-axo.
+ */
+export function generateRefreshToken(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+```bash
+pnpm --filter @onlooker/api exec vitest run src/utils/crypto.test.ts
+```
+
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Run the whole API suite**
+
+The token's length is unchanged (64 characters) and `sessions.token_hash`
+stores a SHA-256 either way, so nothing should notice. Confirm that rather than
+assume it — the contract suite exercises signup, login and rotation.
+
+```bash
+pnpm --filter @onlooker/api test
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Check for other uses in security paths**
+
+```bash
+grep -rn --exclude-dir=node_modules --exclude-dir=dist "Math.random" apps packages
+```
+
+Report anything found. Do not fix unrelated hits in this task — file them.
+
+- [ ] **Step 7: Commit**
+
+```bash
+pnpm lint
+git add apps/api/src/utils/crypto.ts apps/api/src/utils/crypto.test.ts
+git commit -m "fix(api): draw refresh tokens from a CSPRNG :lock:"
+```
+
+**Note for the controller, not the implementer:** every refresh token minted
+before this fix came from a predictable source. Revoking them forces one
+re-login per active device and is the only way to stop trusting tokens that were
+never trustworthy. That is a production action, handled in Task 10, not here.
 
 ---
 
@@ -1749,7 +1888,111 @@ git commit -m "feat(api): assign a dense sequence a client can check for holes :
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `apps/api/src/routes/lessons.test.ts` with a helper that signs up, mints a machine token, and pushes. Include these cases:
+First create the shared fixture at `apps/api/src/test-support/lessons.ts`. All
+three lesson suites import it, so a helper fixed in one place cannot leave the
+others silently testing something different:
+
+```ts
+import { SELF } from "cloudflare:test";
+
+export const BASE = "https://api.onlooker.dev";
+const PASSWORD = "correct-horse-battery";
+
+let counter = 0;
+
+/** Reset between suites so ids are stable within a run. */
+export function resetLessonCounter(): void {
+	counter = 0;
+}
+
+/** A lesson that violates nothing, so a caller can break exactly one thing. */
+export function lesson(overrides: Record<string, unknown> = {}) {
+	counter += 1;
+	return {
+		id: `01KZ45MKAM734ZS7JK24D2DK${counter.toString().padStart(2, "0")}`,
+		schema_version: 2,
+		claim: "Pin rollup when vite is below 6",
+		rationale: "The bundled rollup version drifts",
+		evidence: { artifact_ids: [], resolution: "pinned rollup" },
+		applies_to: {
+			stack: ["vite"],
+			scope: { kind: "versioned", versions: { vite: "<6" } },
+			file_patterns: [],
+			task_kinds: [],
+		},
+		visibility: "private",
+		consensus: { judges: 3, agreed: 2, decided_at: "2026-08-22T00:00:00.000Z" },
+		status: "active",
+		superseded_by: null,
+		source: "local",
+		author_key: "a".repeat(32),
+		promoted_at: "2026-08-22T00:00:00.000Z",
+		...overrides,
+	};
+}
+
+/** Sign up, then mint a machine token for that account. */
+export async function mintMachineToken(email: string): Promise<string> {
+	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
+	});
+	const { accessToken } = (await signup.json()) as { accessToken: string };
+
+	const machine = await SELF.fetch(`${BASE}/machines`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${accessToken}`,
+		},
+		body: JSON.stringify({ name: "test machine" }),
+	});
+	const { token } = (await machine.json()) as { token: string };
+	return token;
+}
+
+export function push(token: string, lessons: unknown[]) {
+	return SELF.fetch(`${BASE}/lessons`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${token}`,
+		},
+		body: JSON.stringify({ lessons }),
+	});
+}
+```
+
+Then create `apps/api/src/routes/lessons.test.ts`, importing from the fixture:
+
+```ts
+import { env, SELF } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+	BASE,
+	lesson,
+	mintMachineToken,
+	push,
+	resetLessonCounter,
+} from "../test-support/lessons.js";
+
+const db = () => env.DB;
+let machineToken: string;
+
+beforeEach(async () => {
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
+	await db().prepare("DELETE FROM machine_tokens").run();
+	await db().prepare("DELETE FROM sessions").run();
+	await db().prepare("DELETE FROM users").run();
+	machineToken = await mintMachineToken("push@example.com");
+	resetLessonCounter();
+});
+```
+
+Include these cases (the `lesson`, `mintMachineToken` and `push` calls below
+resolve to the fixture above):
 
 ```ts
 import { env, SELF } from "cloudflare:test";
@@ -2195,7 +2438,9 @@ git commit -m "feat(api): accept lessons into the pool, one verdict per lesson :
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `apps/api/src/routes/lessons-status.test.ts`. Reuse the `lesson`, `mintMachineToken` and `push` helpers from Task 7 — copy them into this file rather than exporting from a test, so each suite stands alone. Cases:
+Create `apps/api/src/routes/lessons-status.test.ts`, importing the shared
+fixture created in Task 7 (`../test-support/lessons.js`) and using the same
+`beforeEach` reset. Cases:
 
 ```ts
 describe("POST /lessons/:id/status", () => {
@@ -2476,7 +2721,8 @@ git commit -m "feat(api): let a lesson change state without moving in the feed :
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `apps/api/src/routes/lessons-delta.test.ts`, reusing the helpers. Cases:
+Create `apps/api/src/routes/lessons-delta.test.ts`, importing the same shared
+fixture from `../test-support/lessons.js`. Cases:
 
 ```ts
 describe("GET /lessons", () => {
@@ -2756,21 +3002,47 @@ pnpm --filter @onlooker/db verify:schema
 
 Expected: no differences.
 
-- [ ] **Step 3: Push the branch and open a PR**
+- [ ] **Step 3: Revoke every pre-Task-0 refresh token**
+
+Every refresh token minted before Task 0 came from `Math.random()`. Revoking
+them forces one re-login per active device and is the only way to stop trusting
+credentials that were never trustworthy. At current user counts that is close to
+free; the alternative is keeping predictable 30-day bearer tokens alive for
+another month.
+
+This is a production action and needs the human's explicit go-ahead before it
+runs. Do not run it automatically.
+
+```bash
+pnpm --filter @onlooker/api exec wrangler d1 execute DB --env production --remote \
+  --command "DELETE FROM sessions"
+```
+
+Record the decision and the timestamp in `onlooker-axo` before closing it.
+
+- [ ] **Step 4: Push the branch and open a PR**
 
 Use the `/pr` skill.
 
-- [ ] **Step 4: File follow-ups**
+- [ ] **Step 5: File follow-ups**
 
 ```bash
 bd create --title="Machine token management UI in apps/web" --type=feature --priority=3 \
   --description="The API routes exist (POST/GET /machines, DELETE /machines/:id). There is no UI, so a token can only be minted with curl. The raw token is returned exactly once and must be presented as copy-once, never re-fetchable."
 ```
 
-- [ ] **Step 5: Close the bead**
+- [ ] **Step 6: Close the beads**
 
 ```bash
-bd close onlooker-cwj --reason="..."
+bd close onlooker-axo --reason="Fixed in Task 0 of the sync endpoint plan: generateRefreshToken now draws 32 bytes from crypto.getRandomValues, matching createVerificationToken. Output length is unchanged at 64 characters, so nothing downstream saw a shape change. A test asserts the function body does not reference Math.random - a source assertion rather than a behavioral one, because a weak PRNG and a strong one are indistinguishable over any number of samples a test can take."
+
+bd close onlooker-cwj --reason="Machine credential and private-tier pool shipped. \
+machine_tokens carries an onlk_-prefixed token from crypto.getRandomValues, SHA-256 at rest, \
+revocable per row. lessons holds current state; lesson_feed is append-only with a per-user dense \
+seq, so a client can prove it received the stream whole. All three cross-field rules are enforced \
+at ingest and each was mutation-tested. The visibility filter is one function, enforced \
+structurally by a test that fails if any route builds its own lesson query. \
+Deferred and unchanged: org tier, public tier, author_key binding, multi-author cursor."
 ```
 
 ---
