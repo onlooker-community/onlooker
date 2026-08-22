@@ -42,6 +42,16 @@ export function lesson(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+/** Everything a test needs to use, and then revoke, one machine. */
+export interface MintedMachine {
+	/** The machine row's id, for DELETE /machines/:id. */
+	id: string;
+	/** The machine credential, for the sync routes. */
+	token: string;
+	/** The browser session, which is what may revoke the machine. */
+	accessToken: string;
+}
+
 /**
  * Sign up, then mint a machine token for that account.
  *
@@ -50,9 +60,9 @@ export function lesson(overrides: Record<string, unknown> = {}) {
  * as `token` (not `accessToken` - check contract.test.ts, which reads
  * `body.token`), and /machines returns the machine token, also as `token`.
  * Reading the wrong one sends `Bearer undefined` and every authenticated case
- * 401s.
+ * 401s. Both are named here so a caller cannot pick up the wrong one silently.
  */
-export async function mintMachineToken(email: string): Promise<string> {
+export async function mintMachine(email: string): Promise<MintedMachine> {
 	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -68,8 +78,13 @@ export async function mintMachineToken(email: string): Promise<string> {
 		},
 		body: JSON.stringify({ name: "test machine" }),
 	});
-	const { token } = (await machine.json()) as { token: string };
-	return token;
+	const { id, token } = (await machine.json()) as { id: string; token: string };
+	return { id, token, accessToken };
+}
+
+/** {@link mintMachine} for the callers that only ever want the credential. */
+export async function mintMachineToken(email: string): Promise<string> {
+	return (await mintMachine(email)).token;
 }
 
 export function push(token: string, lessons: unknown[]) {

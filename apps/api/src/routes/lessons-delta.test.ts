@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BASE,
 	lesson,
+	mintMachine,
 	mintMachineToken,
 	push,
 	resetLessonCounter,
@@ -104,11 +105,95 @@ describe("GET /lessons", () => {
 		expect(body.lessons.map((l) => l.seq)).toEqual([1, 2, 3]);
 	});
 
+	// This test used to send onlk_ + 64 zeros, a token that was never issued -
+	// so nothing was revoked, and deleting the revoked_at clause from
+	// verifyMachineToken left it green. A revoked token has to be a token that
+	// was real first, or the revocation is not what the 401 proves.
 	it("rejects a machine token that has been revoked", async () => {
+		const machine = await mintMachine("revoked@example.com");
+
+		// It works, so the 401 below is about the revocation and nothing else.
+		const before = await SELF.fetch(`${BASE}/lessons?since=0`, {
+			headers: { Authorization: `Bearer ${machine.token}` },
+		});
+		expect(before.status).toBe(200);
+
+		const revoke = await SELF.fetch(`${BASE}/machines/${machine.id}`, {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${machine.accessToken}` },
+		});
+		expect(revoke.status).toBe(200);
+
+		const after = await SELF.fetch(`${BASE}/lessons?since=0`, {
+			headers: { Authorization: `Bearer ${machine.token}` },
+		});
+		expect(after.status).toBe(401);
+	});
+
+	it("rejects a machine token that was never issued", async () => {
 		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
-			headers: { Authorization: "Bearer onlk_" + "0".repeat(64) },
+			headers: { Authorization: `Bearer onlk_${"0".repeat(64)}` },
 		});
 
 		expect(response.status).toBe(401);
+	});
+
+	// Revoking a lost laptop must not sign the other machines out.
+	it("leaves the account's other machines working", async () => {
+		const lost = await mintMachine("two-machines@example.com");
+		const kept = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${lost.accessToken}`,
+			},
+			body: JSON.stringify({ name: "desk machine" }),
+		});
+		const { token: keptToken } = (await kept.json()) as { token: string };
+
+		await SELF.fetch(`${BASE}/machines/${lost.id}`, {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${lost.accessToken}` },
+		});
+
+		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+			headers: { Authorization: `Bearer ${keptToken}` },
+		});
+
+		expect(response.status).toBe(200);
+	});
+
+	// Removing Math.min at the clamp turns ?limit=1000000 into an unbounded read
+	// of a user's entire feed into one response.
+	it("clamps a limit above the ceiling", async () => {
+		const written = lesson();
+		await push(machineToken, [written]);
+
+		// 500 more feed rows for the same lesson rather than 500 more lessons: the
+		// delta read joins the feed to current state, and the spec says a lesson
+		// appearing twice in one window is harmless because the client upserts by
+		// id. That makes this cheap, and it exercises exactly the row count the
+		// clamp is about.
+		const filler = Array.from({ length: 500 }, (_, at) =>
+			db()
+				.prepare(
+					"INSERT INTO lesson_feed (seq, user_id, lesson_id, kind, at) SELECT ?, user_id, ?, 'status', ? FROM lesson_feed WHERE seq = 1",
+				)
+				.bind(at + 2, written.id, "2026-08-22T00:00:00.000Z"),
+		);
+		await db().batch(filler);
+
+		const response = await SELF.fetch(`${BASE}/lessons?since=0&limit=1000000`, {
+			headers: { Authorization: `Bearer ${machineToken}` },
+		});
+
+		const body = (await response.json()) as {
+			lessons: unknown[];
+			has_more: boolean;
+		};
+		// Exactly the ceiling, out of 501 available: "at most" would also pass
+		// with a clamp set to the wrong number.
+		expect(body.lessons).toHaveLength(500);
+		expect(body.has_more).toBe(true);
 	});
 });
