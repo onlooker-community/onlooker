@@ -1049,14 +1049,40 @@ export type NewLessonFeedEntry = typeof lesson_feed.$inferInsert;
 
 - [ ] **Step 2: Generate the migration and regenerate the expected schema**
 
+**Build first.** `generate:expected-schema` reads the compiled schema from
+`dist/`, not from `src/`. Run it without building and it silently emits a file
+describing the *previous* schema — no error, just a wrong artifact that then
+fails `verify:schema` against a database that is actually correct. Found the
+hard way in Task 1.
+
 ```bash
+pnpm --filter @onlooker/db build
 pnpm --filter @onlooker/db generate:migrations
 pnpm --filter @onlooker/db generate:expected-schema
 ```
 
 Read the generated SQL. `lesson_feed` must have `UNIQUE` on `(user_id, seq)` as a composite index, not two separate ones — a separate unique index on `seq` alone would make the second user's first lesson collide with the first user's.
 
-- [ ] **Step 3: Verify**
+- [ ] **Step 3: Update the schema guardrail test**
+
+`packages/db/src/__tests__/schema.test.ts` ends with a check that the schema
+declares exactly N tables — "the deferred tables are deferred on purpose. If one
+reappears, it should arrive with the feature that needs it, not by accident."
+Adding tables breaks it by design; that is the guardrail working.
+
+Task 1 took it from three to four. This task adds two more, so it goes to **six**.
+
+Bump the exact count — do not relax it into `toBeGreaterThanOrEqual`, which
+would disable the guardrail permanently to avoid editing one number.
+
+Then add a `describe` block for each new table, mirroring the coverage the
+existing blocks give `sessions` and `machine_tokens`: the exact column list, the
+foreign key's cascade behavior, and for `lesson_feed` that
+`lesson_feed_user_seq_idx` is unique on `(user_id, seq)` — that index is what
+makes the sequence counter correct, so it is worth asserting rather than
+assuming.
+
+- [ ] **Step 4: Verify**
 
 ```bash
 pnpm --filter @onlooker/db typecheck && pnpm --filter @onlooker/db test && pnpm lint
@@ -1064,10 +1090,16 @@ pnpm --filter @onlooker/db typecheck && pnpm --filter @onlooker/db test && pnpm 
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+Note on `pnpm lint`: `@onlooker/auth-react` emits 17 `noExplicitAny` **warnings**
+from files this plan never touches. Biome exits 0 on warnings and turbo reports
+`14 successful, 14 total`. That output is pre-existing noise, not a failure —
+read the task summary line, not the warning volume.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema.ts packages/db/migrations packages/db/src/expected-schema.ts
+git add packages/db/src/schema.ts packages/db/migrations \
+  packages/db/src/expected-schema.ts packages/db/src/__tests__/schema.test.ts
 git commit -m "feat(db): give lessons a home and an append-only feed :books:"
 ```
 
