@@ -23,9 +23,6 @@ fail() {
 	echo "  FAIL  $1 -> $2"
 }
 
-echo
-echo "source-guards: the lesson visibility boundary"
-
 # The contract spec designates the visibility filter as the security boundary:
 # "A bug there leaks private lessons, so it belongs in exactly one place rather
 # than spread across every query site."
@@ -46,12 +43,89 @@ echo "source-guards: the lesson visibility boundary"
 # by probe: the line-broken form does NOT match a plain
 # `grep -Eqi "FROM[[:space:]]+lesson_feed"`.
 #
-# The trailing [^_a-zA-Z0-9] keeps a hypothetical `lessons_archive` from being
-# flagged, and the appended space guarantees a delimiter exists at end of file.
+# TWO forms, because raw SQL is not how the next lesson query gets written.
+# db/queries.ts and db/machine-tokens.ts - the two files sitting beside
+# db/lessons.ts - are both drizzle builder style, so `.from(lessons)` is the
+# MOST likely shape for a second query, and matching only `FROM lessons` walks
+# straight past the thing this guard exists to catch. `.update`, `.insert` and
+# `.delete` are here for the same reason: drizzle names the table as the
+# builder's argument, not after a FROM.
+#
+# Both forms end on a delimiter so a name that merely starts with a table name
+# is not flagged. `FROM lessons_archive` and `.from(lessonsArchive)` are legal
+# code that has nothing to do with this boundary, and a guard that over-flags
+# gets disabled by the first person it inconveniences. The appended space
+# guarantees the raw-SQL form has a delimiter at end of file.
 has_lesson_query() {
 	{ tr '\n' ' ' < "$1"; printf ' '; } |
-		grep -Eqi "FROM[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]"
+		grep -Eqi "FROM[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]|\.(from|update|insert|delete)\([[:space:]]*(lessons|lesson_feed)[[:space:]]*[,)]"
 }
+
+# The matcher is itself tested, because a matcher that quietly stops matching
+# looks exactly like a boundary that is being respected. The previous version
+# recognized only `FROM lessons`, so every drizzle-style query walked past it -
+# and nothing here would have said so.
+probe_dir="$(mktemp -d)"
+trap 'rm -rf "${probe_dir}"' EXIT
+
+probe() {
+	local expected="$1" name="$2" content="$3" actual
+	printf '%s' "${content}" > "${probe_dir}/probe.ts"
+
+	if has_lesson_query "${probe_dir}/probe.ts"; then
+		actual="catches"
+	else
+		actual="ignores"
+	fi
+
+	if [[ "${actual}" == "${expected}" ]]; then
+		pass "${expected}: ${name}"
+	else
+		fail "${expected}: ${name}" "the matcher ${actual} it"
+	fi
+}
+
+echo
+echo "source-guards: what the matcher sees"
+
+probe catches "single-line FROM lessons" \
+	'const rows = await db.prepare("SELECT * FROM lessons WHERE id = ?").all();'
+probe catches "FROM on its own line, table on the next" \
+	'const rows = await db.prepare(`SELECT f.seq
+		 FROM lesson_feed
+		 WHERE f.user_id = ?`).all();'
+probe catches "drizzle .from(lesson_feed)" \
+	'client(db).select().from(lesson_feed).where(eq(lesson_feed.user_id, id));'
+probe catches "drizzle .from(lessons)" \
+	'client(db).select().from(lessons).limit(1);'
+probe catches "drizzle .update(lessons)" \
+	'client(db).update(lessons).set({ status: "retracted" });'
+probe catches "drizzle .insert(lesson_feed)" \
+	'client(db).insert(lesson_feed).values(row);'
+probe catches "drizzle .delete(lessons)" \
+	'client(db).delete(lessons).where(eq(lessons.id, id));'
+probe catches "drizzle builder broken across lines" \
+	'client(db)
+		.select()
+		.from(
+			lessons,
+		)
+		.limit(1);'
+
+# Over-flagging is not the safe direction. A guard that fires on code with
+# nothing to do with this boundary gets disabled by the first person it
+# inconveniences, and then it guards nothing.
+probe ignores "a differently named table in raw SQL" \
+	'const rows = await db.prepare("SELECT * FROM lessons_archive").all();'
+probe ignores "a differently named table in drizzle" \
+	'client(db).select().from(lessonsArchive).limit(1);'
+probe ignores "importing from the module that owns the queries" \
+	'import { getLessonById } from "../db/lessons.js";'
+probe ignores "prose that mentions the tables" \
+	'// Every query touching lessons or lesson_feed belongs in db/lessons.ts.'
+
+echo
+echo "source-guards: the lesson visibility boundary"
 
 offenders=""
 while IFS= read -r file; do
