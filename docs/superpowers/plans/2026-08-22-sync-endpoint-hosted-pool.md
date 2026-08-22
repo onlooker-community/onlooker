@@ -735,11 +735,44 @@ describe("POST /machines", () => {
 		expect(await list.text()).not.toContain(created.token);
 	});
 
-	it("requires a browser session, not a machine token", async () => {
+	it("rejects a request with no credential at all", async () => {
 		const response = await SELF.fetch(`${BASE}/machines`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: "work laptop" }),
+		});
+
+		expect(response.status).toBe(401);
+	});
+
+	// The test that actually pins the design constraint, and it has to present a
+	// REAL machine token to do it. Asserting 401 on a missing header proves
+	// nothing here: a handler that wrongly called requireMachineToken would also
+	// 401 on a missing header, so that test passes either way.
+	//
+	// The constraint is that a machine token cannot mint further machine tokens.
+	// If it could, revocation would be meaningless - revoking the stolen laptop
+	// would not reach the credentials it had already issued itself.
+	it("rejects a valid machine token, which must not manage machines", async () => {
+		const createFirst = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "first laptop" }),
+		});
+		const { token: machineToken } = (await createFirst.json()) as {
+			token: string;
+		};
+
+		const response = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({ name: "second laptop" }),
 		});
 
 		expect(response.status).toBe(401);
@@ -2660,6 +2693,12 @@ export async function handleTransitionLesson(
 ): Promise<Response> {
 	const { userId } = await requireMachineToken(request, env);
 
+	// Positional extraction, matching handleRevokeMachine's own idiom. Note that
+	// this route is the SECOND parameterized route in the table, so the router's
+	// pathMatches is now doing real work rather than being a formality - and note
+	// that neither handler asks the router which segment was the parameter. If a
+	// third parameterized route of a different shape arrives, this idiom is what
+	// breaks first, and it breaks silently by reading the wrong segment.
 	const segments = new URL(request.url).pathname.split("/");
 	const id = segments[segments.length - 2] ?? "";
 
