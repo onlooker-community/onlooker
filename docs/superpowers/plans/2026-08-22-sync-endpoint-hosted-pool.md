@@ -591,7 +591,30 @@ import { drizzle } from "drizzle-orm/d1";
 
 /** The one drizzle client. Imported, never re-declared. */
 export const client = (db: D1Database) => drizzle(db);
+
+/**
+ * SHA-256 of a raw bearer token. Sessions, verification tokens and machine
+ * tokens all store only this.
+ *
+ * Not bcrypt, deliberately. These are high-entropy random values rather than
+ * passwords: there is no dictionary to slow an attacker down, so a work factor
+ * buys nothing, and it would be paid on every authenticated request.
+ */
+export async function hashToken(token: string): Promise<string> {
+	const data = new TextEncoder().encode(token);
+	const digest = await crypto.subtle.digest("SHA-256", data);
+	return [...new Uint8Array(digest)]
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}
 ```
+
+**Move `hashToken` too, and do not write a second copy.** It is currently
+module-private in `queries.ts` (around line 149) and this task needs the same
+function. Two implementations of the hash that protects every bearer credential
+in the system is exactly the duplication that drifts — one gets changed and the
+other does not, and the symptom is tokens that silently stop verifying. Import
+it in both `queries.ts` and `machine-tokens.ts`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -613,7 +636,8 @@ Expected: no output. If this prints anything, the credential is predictable — 
 
 ```bash
 pnpm lint
-git add apps/api/src/db/machine-tokens.ts apps/api/src/db/machine-tokens.test.ts
+git add apps/api/src/db/machine-tokens.ts apps/api/src/db/machine-tokens.test.ts \
+  apps/api/src/db/client.ts apps/api/src/db/queries.ts
 git commit -m "feat(api): issue machine tokens that a shell can carry :computer:"
 ```
 
