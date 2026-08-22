@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * Users.
@@ -131,6 +137,84 @@ export const machine_tokens = sqliteTable(
 	}),
 );
 
+/**
+ * The hosted lesson pool - current state, one row per lesson.
+ *
+ * Only the fields the server filters or orders on are lifted into columns.
+ * Everything else stays in `body` as the contract's own JSON, which makes this
+ * version-tolerant by construction: a future schema_version stores without a
+ * migration, because the server never reads the fields that changed.
+ *
+ * The server never matches applies_to. scope.versions holds comparator strings
+ * like ">=4 <6", and deciding whether one matches vite@5.2.1 is a semver
+ * comparison that D1 cannot do. Matching happens on the client against its
+ * mirror, which leaves visibility as the only server-side filter.
+ *
+ * Note what is absent: there is no seq column here. See lesson_feed.
+ */
+export const lessons = sqliteTable(
+	"lessons",
+	{
+		id: text("id").primaryKey(),
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		visibility: text("visibility").notNull(),
+		status: text("status").notNull(),
+		schema_version: integer("schema_version").notNull(),
+		body: text("body").notNull(),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		userIdIdx: index("lessons_user_id_idx").on(table.user_id),
+	}),
+);
+
+/**
+ * The delta feed - append-only, never updated.
+ *
+ * This exists because a dense sequence and mutable row positions are
+ * incompatible. Putting seq on `lessons` and bumping it so mirrors notice a
+ * retraction vacates the lesson's old position, and the client's contiguity
+ * check then sees a hole and correctly reports corruption - so the mechanism
+ * that exists to catch lost lessons would fire on every legitimate status
+ * change. Rows here never move, so the sequence has no holes.
+ *
+ * seq is dense PER USER, not globally. A global counter would leave each user's
+ * own stream full of gaps wherever any other user wrote, which makes the
+ * contiguity check fire constantly and mean nothing.
+ *
+ * UNIQUE(user_id, seq) is what makes the counter correct: two racing pushes
+ * that both compute the same next value collide, and the loser retries.
+ * Correctness therefore rests on a declared constraint rather than on D1
+ * committing in seq order.
+ *
+ * This is NOT an event log. Current state is a plain row in `lessons`, read
+ * directly; this table carries ordering only.
+ */
+export const lesson_feed = sqliteTable(
+	"lesson_feed",
+	{
+		seq: integer("seq").notNull(),
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		lesson_id: text("lesson_id")
+			.notNull()
+			.references(() => lessons.id, { onDelete: "cascade" }),
+		kind: text("kind").notNull(),
+		at: text("at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		userSeqIdx: uniqueIndex("lesson_feed_user_seq_idx").on(
+			table.user_id,
+			table.seq,
+		),
+		lessonIdIdx: index("lesson_feed_lesson_id_idx").on(table.lesson_id),
+	}),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -142,3 +226,8 @@ export type NewVerificationToken = typeof verification_tokens.$inferInsert;
 
 export type MachineToken = typeof machine_tokens.$inferSelect;
 export type NewMachineToken = typeof machine_tokens.$inferInsert;
+
+export type Lesson = typeof lessons.$inferSelect;
+export type NewLesson = typeof lessons.$inferInsert;
+export type LessonFeedEntry = typeof lesson_feed.$inferSelect;
+export type NewLessonFeedEntry = typeof lesson_feed.$inferInsert;
