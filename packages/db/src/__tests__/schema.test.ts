@@ -1,7 +1,12 @@
 import { is } from "drizzle-orm";
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
-import { sessions, users, verification_tokens } from "../schema.js";
+import {
+	machine_tokens,
+	sessions,
+	users,
+	verification_tokens,
+} from "../schema.js";
 
 const columnNames = (table: Parameters<typeof getTableConfig>[0]) =>
 	getTableConfig(table)
@@ -88,14 +93,53 @@ describe("verification_tokens", () => {
 	});
 });
 
+describe("machine_tokens", () => {
+	it("declares exactly the columns a machine credential needs", () => {
+		expect(columnNames(machine_tokens)).toEqual([
+			"created_at",
+			"id",
+			"last_used_at",
+			"name",
+			"revoked_at",
+			"token_hash",
+			"user_id",
+		]);
+	});
+
+	it("stores a token hash, not a token", () => {
+		expect(columnNames(machine_tokens)).toContain("token_hash");
+		expect(columnNames(machine_tokens)).not.toContain("token");
+	});
+
+	it("keeps token_hash unique", () => {
+		const idx = getTableConfig(machine_tokens).indexes.find(
+			(i) => i.config.name === "machine_tokens_token_hash_idx",
+		);
+		expect(idx?.config.unique).toBe(true);
+	});
+
+	it("cascades when its user is deleted", () => {
+		const fk = getTableConfig(machine_tokens).foreignKeys[0];
+		expect(fk.onDelete).toBe("cascade");
+	});
+
+	// revoked_at is nullable so a revoked machine stays visible rather than
+	// disappearing - the row is what lets someone identify the stolen laptop.
+	it("allows revoked_at and last_used_at to be null", () => {
+		const columns = getTableConfig(machine_tokens).columns;
+		expect(columns.find((c) => c.name === "revoked_at")?.notNull).toBe(false);
+		expect(columns.find((c) => c.name === "last_used_at")?.notNull).toBe(false);
+	});
+});
+
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
 	// arrive with the feature that needs it, not by accident.
-	it("declares only the three tables in use", async () => {
+	it("declares only the four tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(3);
+		expect(tables).toHaveLength(4);
 	});
 });
