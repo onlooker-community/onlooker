@@ -16,6 +16,17 @@
 - **Random bytes come from `crypto.getRandomValues`, never `Math.random()`.** Follow `createVerificationToken` (`apps/api/src/db/queries.ts:341`), not `generateRefreshToken` (`apps/api/src/utils/crypto.ts:65`). The latter is the bug tracked by `onlooker-axo`.
 - **Bearer tokens are hashed with SHA-256 at rest, never bcrypt.** They are 256-bit random values, not passwords.
 - **Indentation is tabs.** Biome enforces it; run `pnpm lint` before every commit.
+- **The code snippets in this plan are not Biome-formatted.** They are written
+  for readability at this width, and Biome will reformat some of them — chiefly
+  multi-argument `throw new ApiError(...)` and `Response.json(...)` calls. A
+  `pnpm lint` failure on freshly transcribed snippet code is expected, not your
+  mistake: run `pnpm lint:fix`, confirm the diff is whitespace only, and carry
+  on. Read the diff rather than trusting the tool — `lint:fix` can also apply
+  non-formatting rules, and those are worth seeing.
+- **`pnpm lint` prints pre-existing `noExplicitAny` warnings** from
+  `@onlooker/auth-react` and other packages this plan never touches. Biome exits
+  0 on warnings. Judge success by turbo's summary line (`N successful, N total`),
+  not by the volume of warning output.
 - **`visibility` may only be `private` in this subsystem.** `org` and `public` are rejected with an explicit "tier not open" message, never a generic validation failure.
 - **Every query touching `lessons` or `lesson_feed` lives in `apps/api/src/db/lessons.ts`.** That module is the visibility boundary; Task 9 adds a test that enforces it structurally.
 - **American English** in comments, identifiers, and commit messages.
