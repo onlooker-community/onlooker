@@ -76,3 +76,25 @@ export function generateRefreshToken(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
 	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * SHA-256 of a bearer token. Sessions, verification tokens, and machine
+ * tokens all store only this - a read of any of those tables must not
+ * produce a working credential.
+ *
+ * Not bcrypt, deliberately. These are 256 bits of crypto random, not a
+ * password - there is no dictionary to slow an attacker down, so a work
+ * factor buys nothing, and it would be paid on every request that presents
+ * one (every sync request, for machine tokens).
+ *
+ * The one hash. Imported, never re-declared - two copies drift apart with no
+ * symptom until one changes and the other doesn't, and tokens stop verifying
+ * with nothing to point at.
+ */
+export async function hashToken(token: string): Promise<string> {
+	const data = new TextEncoder().encode(token);
+	const digest = await crypto.subtle.digest("SHA-256", data);
+	return [...new Uint8Array(digest)]
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}

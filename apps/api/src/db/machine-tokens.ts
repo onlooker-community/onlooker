@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { machine_tokens } from "@onlooker/db";
 import { and, eq, isNull } from "drizzle-orm";
+import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
 
 /**
@@ -20,22 +21,6 @@ export interface MachineTokenSummary {
  * greppable by secret scanners, which is what gets a leaked credential noticed.
  */
 const TOKEN_PREFIX = "onlk_";
-
-/**
- * SHA-256 of the raw token. Machine tokens store only this, the same way
- * sessions and verification_tokens do.
- *
- * Not bcrypt, deliberately. The token is 256 bits of crypto random, not a
- * password - there is no dictionary to slow an attacker down, so a work factor
- * buys nothing, and it would be paid on every sync request.
- */
-async function hashToken(token: string): Promise<string> {
-	const data = new TextEncoder().encode(token);
-	const digest = await crypto.subtle.digest("SHA-256", data);
-	return [...new Uint8Array(digest)]
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-}
 
 /**
  * Issue a machine token, returning the raw value exactly once.

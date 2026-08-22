@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { sessions, users, verification_tokens } from "@onlooker/db";
 import { and, eq, ne } from "drizzle-orm";
+import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
 
 export interface User {
@@ -141,17 +142,6 @@ export async function revokeRefreshToken(
 	await client(db)
 		.delete(sessions)
 		.where(eq(sessions.token_hash, await hashToken(token)));
-}
-
-/**
- * SHA-256 of the raw token. Sessions store only this.
- */
-async function hashToken(token: string): Promise<string> {
-	const encoder = new TextEncoder();
-	const data = encoder.encode(token);
-	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
