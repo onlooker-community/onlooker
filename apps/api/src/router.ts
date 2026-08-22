@@ -23,6 +23,7 @@ import {
 	handleResetPassword,
 	handleRevokeMachine,
 	handleSignup,
+	handleTransitionLesson,
 	handleUpdateProfile,
 	handleVerifyEmail,
 	handleVerifyResetToken,
@@ -164,6 +165,11 @@ const ROUTES: Route[] = [
 		method: "POST",
 		path: "/lessons",
 		handler: handlePushLessons,
+	},
+	{
+		method: "POST",
+		path: "/lessons/:id/status",
+		handler: handleTransitionLesson,
 	},
 ];
 

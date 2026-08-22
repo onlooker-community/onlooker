@@ -140,3 +140,67 @@ export async function getLessonById(
 
 	return row ?? null;
 }
+
+/**
+ * Apply a lifecycle transition, appending to the feed.
+ *
+ * Returns the new seq, or null when the lesson does not exist or is not this
+ * user's - the caller cannot tell those apart, which keeps the route from
+ * confirming that another user's lesson id exists.
+ *
+ * The lesson's ORIGINAL feed row is untouched. Appending rather than moving is
+ * the entire reason the feed is a separate table: moving a row vacates its old
+ * position, and the client's contiguity check would then report corruption on
+ * every legitimate status change.
+ */
+export async function transitionLesson(
+	db: D1Database,
+	userId: string,
+	id: string,
+	status: string,
+	supersededBy: string | null,
+): Promise<number | null> {
+	const existing = await getLessonById(db, id);
+	if (!existing || existing.user_id !== userId) return null;
+
+	const body = JSON.parse(existing.body) as Record<string, unknown>;
+	body.status = status;
+	body.superseded_by = supersededBy;
+
+	const now = new Date().toISOString();
+
+	for (let attempt = 0; attempt < MAX_SEQ_ATTEMPTS; attempt++) {
+		const next = await db
+			.prepare(
+				"SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM lesson_feed WHERE user_id = ?",
+			)
+			.bind(userId)
+			.first<{ next: number }>();
+		const seq = next?.next ?? 1;
+
+		try {
+			await db.batch([
+				db
+					.prepare(
+						"UPDATE lessons SET status = ?, body = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+					)
+					.bind(status, canonicalize(body), now, id, userId),
+				db
+					.prepare(
+						`INSERT INTO lesson_feed (seq, user_id, lesson_id, kind, at)
+						 VALUES (?, ?, ?, ?, ?)`,
+					)
+					.bind(seq, userId, id, "status", now),
+			]);
+
+			return seq;
+		} catch (error) {
+			if (isUniqueViolationOn(error, "lesson_feed")) continue;
+			throw error;
+		}
+	}
+
+	throw new Error(
+		`could not assign a sequence for user ${userId} after ${MAX_SEQ_ATTEMPTS} attempts`,
+	);
+}

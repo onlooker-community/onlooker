@@ -4,6 +4,7 @@ import {
 	createLessonWithFeed,
 	getLessonById,
 	LessonIdTakenError,
+	transitionLesson,
 } from "../db/lessons.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
@@ -166,4 +167,69 @@ function reconcile(
 		outcome: "conflict",
 		error: `Content differs from the stored lesson, starting at "${firstDifferingField(existing.body, incoming)}". Lesson content is immutable; use the status route for lifecycle changes.`,
 	};
+}
+
+/**
+ * The lifecycle states the contract defines.
+ *
+ * There is deliberately no "expired". When applies_to.scope stops matching,
+ * nothing happens to the record - the lesson is simply not selected. Storing an
+ * expired status would need something sweeping the pool to set it, which is the
+ * review-queue failure mode the design exists to avoid.
+ */
+const TRANSITIONS = ["active", "refuted", "superseded", "retracted"];
+
+export async function handleTransitionLesson(
+	request: Request,
+	env: WorkerEnv,
+): Promise<Response> {
+	const { userId } = await requireMachineToken(request, env);
+
+	// Positional extraction, matching handleRevokeMachine's own idiom. Note that
+	// this route is the SECOND parameterized route in the table, so the router's
+	// pathMatches is now doing real work rather than being a formality - and note
+	// that neither handler asks the router which segment was the parameter. If a
+	// third parameterized route of a different shape arrives, this idiom is what
+	// breaks first, and it breaks silently by reading the wrong segment.
+	const segments = new URL(request.url).pathname.split("/");
+	const id = segments[segments.length - 2] ?? "";
+
+	const body = (await request.json()) as {
+		status?: unknown;
+		superseded_by?: unknown;
+	};
+
+	const status = typeof body.status === "string" ? body.status : "";
+	if (!TRANSITIONS.includes(status)) {
+		throw new ApiError(
+			400,
+			"invalid_status",
+			`status must be one of ${TRANSITIONS.join(", ")}`,
+		);
+	}
+
+	const supersededBy =
+		typeof body.superseded_by === "string" ? body.superseded_by : null;
+
+	if (status === "superseded" && !supersededBy) {
+		throw new ApiError(
+			400,
+			"missing_superseded_by",
+			"A superseded lesson must name the lesson that replaced it",
+		);
+	}
+	if (status !== "superseded" && supersededBy) {
+		throw new ApiError(
+			400,
+			"unexpected_superseded_by",
+			"superseded_by belongs only on a superseded lesson",
+		);
+	}
+
+	const seq = await transitionLesson(env.DB, userId, id, status, supersededBy);
+	if (seq === null) {
+		throw new ApiError(404, "not_found", "No such lesson");
+	}
+
+	return Response.json({ id, seq });
 }
