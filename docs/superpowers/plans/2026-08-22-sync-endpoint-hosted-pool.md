@@ -6,7 +6,7 @@
 
 **Architecture:** Three new tables. `machine_tokens` carries a long-lived bearer credential, separate from `sessions`. `lessons` holds current state as a JSON body plus only the columns the server filters on. `lesson_feed` is append-only with a per-user dense `seq`, which is what makes a lost lesson detectable rather than silent. The server never matches `applies_to` — version ranges are comparator strings and D1 has no semver — so the only server-side filter is visibility.
 
-**Tech Stack:** Cloudflare Workers, D1, Drizzle ORM, Zod via `@onlooker/lesson-contract`, Vitest with `@cloudflare/vitest-pool-workers`.
+**Tech Stack:** Cloudflare Workers, D1, Drizzle ORM, Zod via `@onlooker-community/lesson-contract`, Vitest with `@cloudflare/vitest-pool-workers`.
 
 **Spec:** [2026-08-22-sync-endpoint-hosted-pool-design.md](../specs/2026-08-22-sync-endpoint-hosted-pool-design.md)
 **Bead:** `onlooker-cwj`
@@ -15,6 +15,12 @@
 
 - **Random bytes come from `crypto.getRandomValues`, never `Math.random()`.** Follow `createVerificationToken` (`apps/api/src/db/queries.ts:341`), not `generateRefreshToken` (`apps/api/src/utils/crypto.ts:65`). The latter is the bug tracked by `onlooker-axo`.
 - **Bearer tokens are hashed with SHA-256 at rest, never bcrypt.** They are 256-bit random values, not passwords.
+- **The lesson contract package is `@onlooker-community/lesson-contract`**, not
+  `@onlooker/lesson-contract`. It was renamed for public npm scoping while the
+  rest of the workspace kept the `@onlooker/` prefix, so the name that looks
+  right is the one that fails. `apps/api` had no dependency on it before this
+  plan; Task 5 added it as `workspace:*` and built the package so the workspace
+  symlink resolves. Later tasks inherit that — do not remove it.
 - **Indentation is tabs.** Biome enforces it; run `pnpm lint` before every commit.
 - **The code snippets in this plan are not Biome-formatted.** They are written
   for readability at this width, and Biome will reformat some of them — chiefly
@@ -1193,7 +1199,7 @@ git commit -m "feat(db): give lessons a home and an append-only feed :books:"
 - Test: `apps/api/src/lessons/rules.test.ts`
 
 **Interfaces:**
-- Consumes: `TLesson` from `@onlooker/lesson-contract`.
+- Consumes: `TLesson` from `@onlooker-community/lesson-contract`.
 - Produces:
   - `interface RuleViolation { rule: string; message: string }`
   - `checkCrossFieldRules(lesson: TLesson): RuleViolation[]` — empty array means valid
@@ -1205,7 +1211,7 @@ These three rules are deliberately absent from `packages/lesson-contract`, becau
 Create `apps/api/src/lessons/rules.test.ts`:
 
 ```ts
-import type { TLesson } from "@onlooker/lesson-contract";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { describe, expect, it } from "vitest";
 import { checkCrossFieldRules } from "./rules.js";
 
@@ -1437,7 +1443,7 @@ Expected: FAIL — cannot resolve `./rules.js`.
 Create `apps/api/src/lessons/rules.ts`:
 
 ```ts
-import type { TLesson } from "@onlooker/lesson-contract";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 
 export interface RuleViolation {
 	rule: string;
@@ -1557,7 +1563,7 @@ export function checkCrossFieldRules(lesson: TLesson): RuleViolation[] {
 pnpm --filter @onlooker/api exec vitest run src/lessons/rules.test.ts
 ```
 
-Expected: PASS, 12 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Mutation-test each rule**
 
@@ -1698,7 +1704,7 @@ Create `apps/api/src/db/lessons.test.ts`:
 
 ```ts
 import { env } from "cloudflare:test";
-import type { TLesson } from "@onlooker/lesson-contract";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createUser } from "./queries.js";
 import { createLessonWithFeed, getLessonById } from "./lessons.js";
@@ -1830,7 +1836,7 @@ Expected: FAIL — cannot resolve `./lessons.js`.
 Create `apps/api/src/db/lessons.ts`:
 
 ```ts
-import type { TLesson } from "@onlooker/lesson-contract";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 
 /**
@@ -2280,7 +2286,7 @@ Expected: FAIL — 404, the route is not wired.
 Create `apps/api/src/routes/lessons.ts`:
 
 ```ts
-import { ZLesson } from "@onlooker/lesson-contract";
+import { ZLesson } from "@onlooker-community/lesson-contract";
 import {
 	createLessonWithFeed,
 	getLessonById,
