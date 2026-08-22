@@ -52,6 +52,13 @@ jobs:
       - name: D1 latency sampler script tests
         run: bash scripts/d1-latency-sample.test.sh
 
+      # The visibility filter is the security boundary, and it is only in one
+      # place while nothing else queries the tables. That is a property of which
+      # files contain what, so it cannot be checked from inside the Workers test
+      # pool.
+      - name: Source guard tests
+        run: bash scripts/source-guards.test.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:

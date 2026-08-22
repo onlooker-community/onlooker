@@ -4,6 +4,7 @@ import {
 	createLessonWithFeed,
 	getLessonById,
 	LessonIdTakenError,
+	readLessonDelta,
 	transitionLesson,
 } from "../db/lessons.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
@@ -232,4 +233,54 @@ export async function handleTransitionLesson(
 	}
 
 	return Response.json({ id, seq });
+}
+
+/** Default and ceiling for one delta window. */
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 500;
+
+export async function handleReadLessons(
+	request: Request,
+	env: WorkerEnv,
+): Promise<Response> {
+	const { userId } = await requireMachineToken(request, env);
+	const url = new URL(request.url);
+
+	const since = Number.parseInt(url.searchParams.get("since") ?? "0", 10);
+	if (!Number.isInteger(since) || since < 0) {
+		throw new ApiError(
+			400,
+			"invalid_cursor",
+			"since must be a non-negative integer",
+		);
+	}
+
+	const requested = Number.parseInt(
+		url.searchParams.get("limit") ?? String(DEFAULT_LIMIT),
+		10,
+	);
+	const limit =
+		Number.isInteger(requested) && requested > 0
+			? Math.min(requested, MAX_LIMIT)
+			: DEFAULT_LIMIT;
+
+	const { entries, hasMore } = await readLessonDelta(
+		env.DB,
+		userId,
+		since,
+		limit,
+	);
+
+	// seq travels beside each lesson so the client can assert the window is
+	// contiguous with what it already holds. A gap means a lesson was skipped,
+	// and the client must refuse to advance its cursor rather than treat the
+	// absence as "nothing was promoted".
+	return Response.json({
+		lessons: entries.map((entry) => ({
+			seq: entry.seq,
+			lesson: JSON.parse(entry.body) as unknown,
+		})),
+		cursor: entries.length > 0 ? entries[entries.length - 1].seq : since,
+		has_more: hasMore,
+	});
 }

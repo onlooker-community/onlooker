@@ -1,3 +1,4 @@
+import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 
@@ -203,4 +204,44 @@ export async function transitionLesson(
 	throw new Error(
 		`could not assign a sequence for user ${userId} after ${MAX_SEQ_ATTEMPTS} attempts`,
 	);
+}
+
+/**
+ * Read one window of a user's feed, joined to current state.
+ *
+ * user_id is the visibility filter and therefore the security boundary. It
+ * comes from the authenticated token and never from the request - a caller
+ * cannot ask for someone else's stream, because there is no parameter that
+ * would let them.
+ *
+ * A lesson changed twice appears twice in one window. That is harmless: the
+ * client upserts by id and the later entry wins.
+ *
+ * One extra row is fetched to decide has_more without a second count query.
+ */
+export async function readLessonDelta(
+	db: D1Database,
+	userId: string,
+	since: number,
+	limit: number,
+): Promise<{
+	entries: Array<{ seq: number; body: string }>;
+	hasMore: boolean;
+}> {
+	const rows = await db
+		.prepare(
+			`SELECT f.seq AS seq, l.body AS body
+			 FROM lesson_feed f
+			 JOIN lessons l ON l.id = f.lesson_id
+			 WHERE f.user_id = ? AND f.seq > ?
+			 ORDER BY f.seq ASC
+			 LIMIT ?`,
+		)
+		.bind(userId, since, limit + 1)
+		.all<{ seq: number; body: string }>();
+
+	const found = rows.results ?? [];
+	const hasMore = found.length > limit;
+
+	return { entries: hasMore ? found.slice(0, limit) : found, hasMore };
 }

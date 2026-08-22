@@ -18,6 +18,7 @@ import {
 	handleLogout,
 	handleMe,
 	handlePushLessons,
+	handleReadLessons,
 	handleRefresh,
 	handleResendVerification,
 	handleResetPassword,
@@ -165,6 +166,11 @@ const ROUTES: Route[] = [
 		method: "POST",
 		path: "/lessons",
 		handler: handlePushLessons,
+	},
+	{
+		method: "GET",
+		path: "/lessons",
+		handler: handleReadLessons,
 	},
 	{
 		method: "POST",
