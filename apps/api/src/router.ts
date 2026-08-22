@@ -29,7 +29,7 @@ import {
 import type { WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
-export interface Route {
+interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;
 	handler: (request: Request, env: WorkerEnv) => Promise<Response>;
@@ -164,7 +164,7 @@ const ROUTES: Route[] = [
  * /machines/a/b. Only whole segments are parameters; there is no partial or
  * wildcard matching, because nothing here needs one.
  */
-export function pathMatches(pattern: string, path: string): boolean {
+function pathMatches(pattern: string, path: string): boolean {
 	const patternSegments = pattern.split("/");
 	const pathSegments = path.split("/");
 	if (patternSegments.length !== pathSegments.length) return false;
@@ -175,20 +175,22 @@ export function pathMatches(pattern: string, path: string): boolean {
 }
 
 /**
- * Match a request to a route.
+ * Resolve a request to a route within a given table.
  *
  * Exact routes win over parameterized ones. Without that ordering, a literal
  * route registered after a parameterized one of the same shape would become
  * unreachable, and the symptom would be a working endpoint quietly answering
  * from the wrong handler.
  *
- * `routes` defaults to the module's real table; tests pass their own to check
- * dispatch ordering without needing a shape collision to exist in production.
+ * Takes `routes` explicitly, rather than reading the module's ROUTES itself,
+ * so this ordering is exercisable against a table built for the test - a
+ * shape collision like /machines/settings beside /machines/:id doesn't have
+ * to exist in production for the precedence rule to be checked.
  */
-export function findRoute(
+export function resolveRoute(
+	routes: Route[],
 	method: string,
 	path: string,
-	routes: Route[] = ROUTES,
 ): Route | undefined {
 	const exact = routes.find(
 		(route) => route.method === method && route.path === path,
@@ -201,6 +203,13 @@ export function findRoute(
 			route.path.includes(":") &&
 			pathMatches(route.path, path),
 	);
+}
+
+/**
+ * Match a request to a route in the live route table.
+ */
+function findRoute(method: string, path: string): Route | undefined {
+	return resolveRoute(ROUTES, method, path);
 }
 
 /**

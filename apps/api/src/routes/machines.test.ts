@@ -46,10 +46,33 @@ describe("POST /machines", () => {
 		expect(await list.text()).not.toContain(created.token);
 	});
 
-	it("requires a browser session, not a machine token", async () => {
+	it("rejects a request with no credential at all", async () => {
 		const response = await SELF.fetch(`${BASE}/machines`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: "work laptop" }),
+		});
+
+		expect(response.status).toBe(401);
+	});
+
+	it("rejects a real machine token, not just a browser session", async () => {
+		const seed = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "seed machine" }),
+		});
+		const { token: machineToken } = (await seed.json()) as { token: string };
+
+		const response = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
 			body: JSON.stringify({ name: "work laptop" }),
 		});
 
