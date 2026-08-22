@@ -233,6 +233,44 @@ plate rather than of wherever the pill happens to sit.
 `#db3a3a` survives as `--mark`, for non-text use only — a border, a fill, an icon
 tint — where text contrast rules do not apply. It must never carry small text.
 
+### Non-text tokens: `--shadow` and `--mark`
+
+Neither carries text, so the AA floor does not apply to either. Both were
+nonetheless shipped with no coverage at all — mutating `--shadow` to the night
+ground and `--mark` to the night panel, making each invisible, left the suite
+green at 59/59. What follows is the decision recorded after looking at them
+rendered.
+
+**`--shadow` is decorative and exempt from a contrast floor.** Not as a
+concession — no floor is reachable. Against the night ground, a *pure black*
+shadow scores **1.32**. The shipped `#141222` sits at 1.16, already 88% of the
+theoretical maximum, so no value would let the night card shadow clear 3.0 or
+even 2.0. This is the same structural wall as `--edge`: the constraint is the
+surface, not the value.
+
+Day is the opposite case and the two should not be conflated. Black would score
+14.89 on the day ground and 10.90 on the day panel, so day's 1.99 and 1.45 are a
+*chosen* softness with room to spare. If the daylight card shadow ever wants more
+weight, it can have it.
+
+What is enforced instead is **direction**: `--shadow` must be strictly darker
+than both `--ground` and `--panel` in every block. A shadow lighter than the
+surface it falls on is a glow — it reads as a rendering fault rather than a
+style, and contrast alone is blind to it, being unsigned. A day shadow of
+`#c5c5de` scores 1.20 on the ground and 1.14 on the panel, numbers that look
+interchangeable, while the second is a glow under every button.
+
+**`--mark` is `--ground`-only.** It clears the 3:1 non-text floor on the ground
+in both themes (3.54 night, 6.48 day) and does **not** clear it on the night
+panel (2.08). That asymmetry is the whole rule: it may tint a border, fill, or
+icon that sits on the page ground, and it must not be placed on a panel at
+night. Only the ground is machine-enforced; the panel restriction is a rule for
+the call site, like a plate's boundary.
+
+Nothing rendered `--mark` when this was written — there was no `var(--mark)` in
+`apps/` or `packages/` at all. The floor was set anyway, so the first thing to
+reach for it finds the rule rather than a review comment.
+
 ## Typography
 
 **Abaddon (CC BY 3.0) for display and chrome only.** Headings, buttons, labels,

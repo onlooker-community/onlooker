@@ -57,6 +57,17 @@ const ALL_BLOCKS = [":root", ...THEME_SELECTORS];
 // with the theme the way an ink token does.
 const CONSTANT_ACROSS_THEMES = ["--edge"];
 
+// Every block that carries a full palette, named as the theme a reader is in.
+// :root and its data-theme twin are both listed on purpose: they are separate
+// blocks, and a guard that checked only one would miss a value drifting in the
+// other.
+const THEMES: Array<[string, string]> = [
+	["night", ":root"],
+	["day (media)", "@media (prefers-color-scheme: light)"],
+	["day (attr)", ':root[data-theme="light"]'],
+	["night (attr)", ':root[data-theme="dark"]'],
+];
+
 describe("plate tokens", () => {
 	it("are all defined on :root", () => {
 		const root = tokens(block(":root"));
@@ -192,13 +203,6 @@ describe("color-scheme", () => {
 });
 
 describe("text accents", () => {
-	const themes: Array<[string, string]> = [
-		["night", ":root"],
-		["day (media)", "@media (prefers-color-scheme: light)"],
-		["day (attr)", ':root[data-theme="light"]'],
-		["night (attr)", ':root[data-theme="dark"]'],
-	];
-
 	// Every token here carries body-size text somewhere: --ink-dim on hints
 	// and captions, --red on inline field errors, --teal and --gold on labels
 	// and stat readouts. Small text needs AA, and --ground and --panel are the
@@ -209,7 +213,7 @@ describe("text accents", () => {
 	// their own check. The old threshold was AA-large, which passed --ink-dim
 	// at 3.34 on a panel and --red at 4.12. Non-text use has its own rule and
 	// its own 3.0 floor; this loop is about text.
-	for (const [name, sel] of themes) {
+	for (const [name, sel] of THEMES) {
 		for (const surface of ["--ground", "--panel"]) {
 			for (const ink of [
 				"--ink",
@@ -226,6 +230,73 @@ describe("text accents", () => {
 				});
 			}
 		}
+	}
+});
+
+// --shadow is the hard offset that gives the 16-bit treatment its depth, and the
+// decision recorded here is that it is decorative and exempt from a contrast
+// floor. That is not a concession - no floor is reachable. Against the night
+// ground, a PURE BLACK shadow scores 1.32. The shipped #141222 sits at 1.16,
+// which is 88% of the theoretical maximum, so there is no color that would make
+// the night card shadow clear 3.0, or even 2.0. Same shape as --edge above: the
+// constraint is the surface, not the value.
+//
+// Day is the opposite case and the two should not be conflated. Black would
+// score 14.89 on the day ground and 10.90 on the day panel, so day's 1.99 and
+// 1.45 are a chosen softness with room to spare, not a ceiling. If the daylight
+// card shadow ever wants more weight, it can have it.
+//
+// What is worth pinning is direction. A shadow lighter than the surface it falls
+// on is a glow - it reads as a rendering fault rather than a style, and no
+// contrast number would catch it because contrast is unsigned. Mutating --shadow
+// to #221f38, the night ground itself, makes the shadow vanish entirely and left
+// the whole suite green at 59/59 during the feat/web-auth-brand review. It fails
+// here: a shadow equal in luminance to its surface is not darker than it.
+//
+// Both surfaces are checked because the token lands on both - the 6px card
+// shadow falls on --ground, the 4px button shadow falls on --panel.
+describe("shadow direction", () => {
+	for (const [name, sel] of THEMES) {
+		for (const surface of ["--ground", "--panel"]) {
+			it(`${name}: --shadow is darker than ${surface}`, () => {
+				const t = tokens(block(sel));
+				expect(t["--shadow"], `--shadow missing from ${sel}`).toBeDefined();
+				expect(
+					luminance(t["--shadow"]),
+					`--shadow ${t["--shadow"]} must be darker than ${surface} ${t[surface]} - a shadow at or above its surface is a glow`,
+				).toBeLessThan(luminance(t[surface]));
+			});
+		}
+	}
+});
+
+// --mark is #db3a3a, the Skull icon's red. It is the one value from the icon art
+// that failed as a text color - 2.08 on the night panel - and was kept for
+// non-text use only: a border, a fill, an icon tint.
+//
+// Nothing renders it yet. There is no var(--mark) anywhere in apps/ or packages/
+// as of this guard being written, and that is the reason to set the floor now
+// rather than when something reaches for it. A rule that exists before the first
+// consumer is a rule they find; a rule written afterwards is a review comment.
+//
+// The floor is --ground only, and the asymmetry is real rather than convenient:
+// --mark clears 3.0 on the ground in both themes (3.54 night, 6.48 day) and does
+// not clear it on the night panel (2.08). Asserting both surfaces would fail the
+// token on a use it was never cleared for; asserting neither is where this bead
+// started. So the ground is enforced and the panel is written down here.
+//
+// A consumer putting --mark on the panel at night is outside what this package
+// can see, the same way plate boundaries are - that is a rule for the call site.
+describe("--mark is ground-only", () => {
+	for (const [name, sel] of THEMES) {
+		it(`${name}: --mark clears the 3.0 non-text floor on --ground`, () => {
+			const t = tokens(block(sel));
+			expect(t["--mark"], `--mark missing from ${sel}`).toBeDefined();
+			expect(
+				contrast(t["--mark"], t["--ground"]),
+				`--mark ${t["--mark"]} on --ground ${t["--ground"]}`,
+			).toBeGreaterThanOrEqual(3.0);
+		});
 	}
 });
 
