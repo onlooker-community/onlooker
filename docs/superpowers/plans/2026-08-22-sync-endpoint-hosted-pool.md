@@ -688,8 +688,11 @@ async function signup(email: string): Promise<string> {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
 	});
-	const body = (await response.json()) as { accessToken: string };
-	return body.accessToken;
+	// `token`, not `accessToken` - see contract.test.ts, which reads body.token.
+	// Reading the wrong field sends `Bearer undefined` and every authenticated
+	// case 401s.
+	const body = (await response.json()) as { token: string };
+	return body.token;
 }
 
 beforeEach(async () => {
@@ -2002,14 +2005,23 @@ export function lesson(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-/** Sign up, then mint a machine token for that account. */
+/**
+ * Sign up, then mint a machine token for that account.
+ *
+ * Note the destructure-rename. BOTH responses have a field called `token` and
+ * they are different credentials: /auth/signup returns the browser access token
+ * as `token` (not `accessToken` - check contract.test.ts, which reads
+ * `body.token`), and /machines returns the machine token, also as `token`.
+ * Reading the wrong one sends `Bearer undefined` and every authenticated case
+ * 401s.
+ */
 export async function mintMachineToken(email: string): Promise<string> {
 	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
 	});
-	const { accessToken } = (await signup.json()) as { accessToken: string };
+	const { token: accessToken } = (await signup.json()) as { token: string };
 
 	const machine = await SELF.fetch(`${BASE}/machines`, {
 		method: "POST",
@@ -2066,82 +2078,6 @@ Include these cases (the `lesson`, `mintMachineToken` and `push` calls below
 resolve to the fixture above):
 
 ```ts
-import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-
-const db = () => env.DB;
-const BASE = "https://api.onlooker.dev";
-const PASSWORD = "correct-horse-battery";
-
-let machineToken: string;
-let counter = 0;
-
-function lesson(overrides: Record<string, unknown> = {}) {
-	counter += 1;
-	return {
-		id: `01KZ45MKAM734ZS7JK24D2DK${counter.toString().padStart(2, "0")}`,
-		schema_version: 2,
-		claim: "Pin rollup when vite is below 6",
-		rationale: "The bundled rollup version drifts",
-		evidence: { artifact_ids: [], resolution: "pinned rollup" },
-		applies_to: {
-			stack: ["vite"],
-			scope: { kind: "versioned", versions: { vite: "<6" } },
-			file_patterns: [],
-			task_kinds: [],
-		},
-		visibility: "private",
-		consensus: { judges: 3, agreed: 2, decided_at: "2026-08-22T00:00:00.000Z" },
-		status: "active",
-		superseded_by: null,
-		source: "local",
-		author_key: "a".repeat(32),
-		promoted_at: "2026-08-22T00:00:00.000Z",
-		...overrides,
-	};
-}
-
-async function mintMachineToken(email: string): Promise<string> {
-	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
-	});
-	const { accessToken } = (await signup.json()) as { accessToken: string };
-
-	const machine = await SELF.fetch(`${BASE}/machines`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${accessToken}`,
-		},
-		body: JSON.stringify({ name: "test machine" }),
-	});
-	const { token } = (await machine.json()) as { token: string };
-	return token;
-}
-
-function push(token: string, lessons: unknown[]) {
-	return SELF.fetch(`${BASE}/lessons`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${token}`,
-		},
-		body: JSON.stringify({ lessons }),
-	});
-}
-
-beforeEach(async () => {
-	await db().prepare("DELETE FROM lesson_feed").run();
-	await db().prepare("DELETE FROM lessons").run();
-	await db().prepare("DELETE FROM machine_tokens").run();
-	await db().prepare("DELETE FROM sessions").run();
-	await db().prepare("DELETE FROM users").run();
-	machineToken = await mintMachineToken("push@example.com");
-	counter = 0;
-});
-
 describe("POST /lessons", () => {
 	it("rejects a request with no machine token", async () => {
 		const response = await SELF.fetch(`${BASE}/lessons`, {
