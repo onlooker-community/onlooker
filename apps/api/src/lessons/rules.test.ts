@@ -142,6 +142,41 @@ describe("a two-sided range admits at least one version", () => {
 		expect(violations[0].rule).toBe("range_admits_a_version");
 	});
 
+	// The equal-bounds case depends on BOTH comparators, not just the upper
+	// one: >=4 <4 and >=4 <=4 above only ever vary the upper bound, so a
+	// rule that ignored lowerOperator entirely would still pass both. These
+	// two hold the upper bound fixed and vary the lower bound instead, so a
+	// rule that ignores the lower comparator fails here.
+	it("rejects an empty range with a strict lower bound and an inclusive upper bound", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				applies_to: {
+					stack: ["vite"],
+					scope: { kind: "versioned", versions: { vite: ">4 <=4" } },
+					file_patterns: [],
+					task_kinds: [],
+				},
+			}),
+		);
+
+		expect(violations[0].rule).toBe("range_admits_a_version");
+	});
+
+	it("rejects an empty range with a strict lower bound and a strict upper bound", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				applies_to: {
+					stack: ["vite"],
+					scope: { kind: "versioned", versions: { vite: ">4 <4" } },
+					file_patterns: [],
+					task_kinds: [],
+				},
+			}),
+		);
+
+		expect(violations[0].rule).toBe("range_admits_a_version");
+	});
+
 	it("allows an inclusive range pinning one version", () => {
 		expect(
 			checkCrossFieldRules(
