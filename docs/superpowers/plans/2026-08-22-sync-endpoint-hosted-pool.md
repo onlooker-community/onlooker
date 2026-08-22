@@ -2935,7 +2935,16 @@ Expected: FAIL — 404.
 
 - [ ] **Step 3: Add the query**
 
-Append to `apps/api/src/db/lessons.ts`:
+Append to `apps/api/src/db/lessons.ts`.
+
+While you have this file open, add the type import it is missing:
+`import type { D1Database } from "@cloudflare/workers-types";`. Task 6 created
+it without one — it compiles through an ambient global that `test/env.d.ts`
+happens to pull into scope, so it works today and is an implicit dependency
+rather than a declared one. Its three siblings in `apps/api/src/db/` all import
+it explicitly.
+
+The query itself:
 
 ```ts
 /**
