@@ -44,6 +44,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@onlooker-community/lesson-contract':
+        specifier: workspace:*
+        version: link:../../packages/lesson-contract
       '@onlooker/api-contract':
         specifier: workspace:*
         version: link:../../packages/api-contract
