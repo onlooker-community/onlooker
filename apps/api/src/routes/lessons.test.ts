@@ -88,6 +88,97 @@ describe("POST /lessons", () => {
 		};
 		expect(results[0].outcome).toBe("conflict");
 		expect(results[0].error).toContain("claim");
+		expect(results[0].error).toMatch(/immutable/i);
+		// This one really is a content rewrite, so it must NOT be described as a
+		// stale copy the pusher can fix by pulling.
+		expect(results[0].error).not.toMatch(/pull before you push/i);
+	});
+
+	// The reachable case where the old message asserted something false. A
+	// mirror re-pushes a copy it holds at a stale status - AFTER someone used
+	// the status route - and was told "content is immutable; use the status
+	// route", naming the one field it is allowed to change and pointing at the
+	// route that caused the difference. Its actual problem is "pull first".
+	it("tells a mirror with a stale lifecycle to pull, not that content is immutable", async () => {
+		const written = lesson();
+		await push(machineToken, [written]);
+
+		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({ status: "retracted", superseded_by: null }),
+		});
+
+		const stale = await push(machineToken, [written]);
+
+		const { results } = (await stale.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("conflict");
+		expect(results[0].error).toMatch(/pull before you push/i);
+		expect(results[0].error).toContain("status");
+		expect(results[0].error).not.toMatch(/immutable/i);
+	});
+
+	// superseded_by moves through the same route and belongs on the same side of
+	// the branch. Both lifecycle fields differ at once here.
+	it("treats a stale superseded_by as a lifecycle conflict too", async () => {
+		const original = lesson();
+		const replacement = lesson();
+		await push(machineToken, [original, replacement]);
+
+		await SELF.fetch(`${BASE}/lessons/${original.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({
+				status: "superseded",
+				superseded_by: replacement.id,
+			}),
+		});
+
+		const stale = await push(machineToken, [original]);
+
+		const { results } = (await stale.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("conflict");
+		expect(results[0].error).toContain("superseded_by");
+		expect(results[0].error).not.toMatch(/immutable/i);
+	});
+
+	// A rewrite that also carries a stale status is still a rewrite. The branch
+	// must key on whether ANY content field differs, not on whether a lifecycle
+	// field happens to be among them.
+	it("still reports immutability when content differs alongside the lifecycle", async () => {
+		const written = lesson();
+		await push(machineToken, [written]);
+
+		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({ status: "retracted", superseded_by: null }),
+		});
+
+		const both = await push(machineToken, [
+			{ ...written, claim: "Rewritten while also being stale" },
+		]);
+
+		const { results } = (await both.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("conflict");
+		expect(results[0].error).toMatch(/immutable/i);
+		expect(results[0].error).toContain("claim");
+		expect(results[0].error).not.toMatch(/pull before you push/i);
 	});
 
 	it("rejects org and public with a message naming the tier", async () => {

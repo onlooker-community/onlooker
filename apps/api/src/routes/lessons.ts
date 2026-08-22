@@ -34,6 +34,17 @@ interface PushResult {
 /** How many lessons one request may carry. */
 const MAX_BATCH = 100;
 
+/**
+ * The two fields the status route owns.
+ *
+ * A conflict confined to these is not an attempted content rewrite. It is a
+ * mirror whose copy predates a lifecycle change - possibly one the same account
+ * made through the status route - and telling it that content is immutable
+ * would name the one thing it is allowed to change. Keeping the two apart is
+ * the distinction the two-route split exists to preserve.
+ */
+const LIFECYCLE_FIELDS = new Set(["status", "superseded_by"]);
+
 /** A candidate that survived validation, still tied to its place in the batch. */
 interface Admitted {
 	index: number;
@@ -48,19 +59,18 @@ function idOf(candidate: unknown): string {
 }
 
 /**
- * Name the first field whose value differs, for a conflict the caller owns.
+ * Every field whose value differs, for a conflict the caller owns.
  *
  * Only ever called when the stored lesson belongs to the pusher. Reporting a
  * field on someone else's lesson would confirm what they wrote.
  */
-function firstDifferingField(stored: string, incoming: unknown): string {
+function differingFields(stored: string, incoming: unknown): string[] {
 	const before = JSON.parse(stored) as Record<string, unknown>;
 	const after = incoming as Record<string, unknown>;
 
-	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-		if (canonicalize(before[key]) !== canonicalize(after[key])) return key;
-	}
-	return "unknown";
+	return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+		.filter((key) => canonicalize(before[key]) !== canonicalize(after[key]))
+		.sort();
 }
 
 /**
@@ -302,10 +312,25 @@ function reconcile(
 
 	if (identical) return { id: incoming.id, outcome: "noop" };
 
+	const differing = differingFields(existing.body, incoming);
+	const content = differing.filter((field) => !LIFECYCLE_FIELDS.has(field));
+
+	if (content.length > 0) {
+		return {
+			id: incoming.id,
+			outcome: "conflict",
+			error: `Content differs from the stored lesson at ${content.join(", ")}. Lesson content is immutable; use the status route for lifecycle changes.`,
+		};
+	}
+
+	// Nothing outside status and superseded_by differs, so the content matches
+	// and the pusher's copy is merely behind. Saying "content is immutable" here
+	// would name the opposite problem, and point at the very route that produced
+	// the difference.
 	return {
 		id: incoming.id,
 		outcome: "conflict",
-		error: `Content differs from the stored lesson, starting at "${firstDifferingField(existing.body, incoming)}". Lesson content is immutable; use the status route for lifecycle changes.`,
+		error: `The stored lesson's ${differing.join(" and ") || "lifecycle"} has moved on since your copy; its content is unchanged. Pull before you push.`,
 	};
 }
 
