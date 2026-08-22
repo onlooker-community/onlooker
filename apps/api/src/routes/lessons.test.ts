@@ -144,6 +144,34 @@ describe("POST /lessons", () => {
 		expect(stored?.n).toBe(2);
 	});
 
+	// Both of the route's remaining guards, which had no tests at all when this
+	// task first shipped. A rule in the code with nothing exercising it is the
+	// defect this plan keeps finding; these two are no different for being small.
+	it("rejects a batch over the size cap", async () => {
+		// The cap is checked on the array length BEFORE any lesson is parsed, so
+		// these do not need to be valid lessons - which is also what the test
+		// proves. Remove the cap and this returns 200 with 101 per-item results.
+		const oversized = Array.from({ length: 101 }, () => ({}));
+
+		const response = await push(machineToken, oversized);
+
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error?: string; code?: string };
+		expect(JSON.stringify(body)).toMatch(/batch_too_large|At most 100/);
+	});
+
+	it("rejects superseded_by on a lesson that is not superseded", async () => {
+		const response = await push(machineToken, [
+			lesson({ superseded_by: "01KZ45MKAM734ZS7JK24D2DK99" }),
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("invalid");
+		expect(results[0].error).toContain("superseded_by");
+	});
+
 	// The 409 must not become an existence oracle over other users' lesson ids.
 	it("does not reveal that an id belongs to someone else", async () => {
 		const written = lesson();
