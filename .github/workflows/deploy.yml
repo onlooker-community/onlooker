@@ -44,6 +44,14 @@ jobs:
       - name: Client error monitor script tests
         run: bash scripts/client-error-monitor.test.sh
 
+      # Same failure mode as the monitor above, one step worse: the D1 sampler's
+      # dataset and view names could not be confirmed against a live account, so
+      # a wrong guess returns success with zero rows and reads as "no database
+      # problem". These tests pin the arithmetic and keep those names
+      # overridable, which is what makes a wrong guess a one-line fix.
+      - name: D1 latency sampler script tests
+        run: bash scripts/d1-latency-sample.test.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:

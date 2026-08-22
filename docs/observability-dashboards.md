@@ -481,6 +481,13 @@ observations and are quoted as such rather than as averages.
 The SQL text arrives parameterized, with values bound out, so queries are
 identifiable without leaking anything.
 
+**One trap in that table if you go to query it.** The row above reads
+`served_by_colo`, which is what the trace view showed. The *queryable* attribute
+in Cloudflare's spans and attributes reference is
+`cloudflare.d1.response.served_by_region`. Filtering on `served_by_colo` returns
+nothing — and returns it as `success: true` with zero rows, which is the same
+answer a quiet window gives. Query `served_by_region`.
+
 **The headline is the gap between those two durations.** Executing the query
 took 0.31 ms. The span took 100 ms. The Worker ran in Los Angeles and the
 database answered from Miami, off the primary. Essentially all of what looks
@@ -496,11 +503,31 @@ second `/auth/refresh` trace in the same minute ran 84 ms, and the dashboard's
 own comparison panel put the two `d1_all` spans at 40 ms and 100 ms. At n=2 that
 is a range, not a distribution; re-measure before quoting it as one.
 
-**Where auth requests spend their time** — **not answerable from production
-traffic, and the reason matters more than the gap.** Every traced request today
-is either a `401` from the heartbeat or a `404` from a scanner. Nobody
-authenticates successfully, so no traced request reaches the code that costs
-anything:
+`scripts/d1-latency-sample.sh production` is that re-measurement. It queries the
+telemetry API rather than reading this tab, which matters for the reason in the
+trap below — the list here is the slowest 100, not a sample, so percentiles
+taken off it are biased upward by construction. That is the wrong direction of
+error for deciding whether 100 ms is typical or the tail.
+
+**Where auth requests spend their time** — **answerable now; it was not when
+this section was written, and the change is worth knowing about.**
+
+The paragraph below described a system where every traced request was either a
+`401` from the heartbeat or a `404` from a scanner, so nothing reached the code
+that costs anything. It closed by saying the fix was "a heartbeat check that
+authenticates as a seeded account… a change to `scripts/heartbeat.sh` and a
+decision about test credentials in production, not a chart."
+
+That shipped. PRs #61 and #62 gave the heartbeat a real account — see the
+[heartbeat account runbook](runbooks/2026-08-17-heartbeat-account.md) — and it
+now logs in and refreshes on every run. So successful authenticated requests
+have been tracing for days, and the D1 spans on the refresh path are real
+samples rather than rejections.
+
+What follows is kept because it is still the right description of the *rejection*
+paths. Treat every bullet as an observation from before #61, not as current
+behavior — none of it has been re-observed since the heartbeat gained an
+account, and at least the first two have almost certainly changed:
 
 - `bcryptjs` at cost factor 10 runs only on login, signup and change-password.
   Those paths get no production traffic at all, so the expense the epic worried
@@ -513,11 +540,14 @@ anything:
   `sessions` *before* deciding to reject, which is why it is the one path with a
   D1 span to look at.
 
-So the traces currently describe what the system does when it turns people away.
-Answering this question needs a request that succeeds — either a real user, or a
-heartbeat check that authenticates as a seeded account. That is a change to
-`scripts/heartbeat.sh` and a decision about test credentials in production, not
-a chart.
+Two of those three have almost certainly changed. `scripts/heartbeat.sh` now
+posts real credentials to `/auth/login` on every run, which is the one path that
+runs `bcryptjs` at cost factor 10, and it carries the resulting token into the
+authenticated checks — so `GET /auth/me` should now be reaching `getUserById`
+rather than being turned away at `requireAuth`.
+
+**Should**, because nobody has looked. Re-observing it is the work, and
+`scripts/d1-latency-sample.sh` is the instrument for the D1 half of it.
 
 **Error rates by route rather than by worker** — answerable now, and already
 demonstrated. Use the Visualizations query in the `404` note under "Read this
