@@ -94,6 +94,64 @@ describe("POST /machines", () => {
 });
 
 describe("DELETE /machines/:id", () => {
+	// The route's PRIMARY EFFECT, which had no test at all: replacing the id
+	// extraction at machines.ts:53 with `const id = ""` left the whole suite
+	// green, because the only case covered was one that 404s anyway - and it
+	// 404s just as readily when the id is empty.
+	//
+	// The 200 alone is not enough either. Revocation that answers success and
+	// leaves the credential working is the silent failure this whole subsystem
+	// is written against, so the token is used afterwards.
+	it("revokes your own machine, and the token stops working", async () => {
+		const create = await SELF.fetch(`${BASE}/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "lost laptop" }),
+		});
+		const { id, token } = (await create.json()) as {
+			id: string;
+			token: string;
+		};
+
+		// It authenticates now, so the 401 below is about the revocation.
+		const before = await SELF.fetch(`${BASE}/lessons?since=0`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		expect(before.status).toBe(200);
+
+		const revoke = await SELF.fetch(`${BASE}/machines/${id}`, {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${accessToken}` },
+		});
+		expect(revoke.status).toBe(200);
+		expect(await revoke.json()).toEqual({ success: true });
+
+		const after = await SELF.fetch(`${BASE}/lessons?since=0`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		expect(after.status).toBe(401);
+
+		// And the row says so, rather than the token merely having stopped
+		// resolving for some other reason.
+		const row = await db()
+			.prepare("SELECT revoked_at FROM machine_tokens WHERE id = ?")
+			.bind(id)
+			.first<{ revoked_at: string | null }>();
+		expect(row?.revoked_at).toBeTruthy();
+	});
+
+	it("404s for a machine that does not exist", async () => {
+		const response = await SELF.fetch(`${BASE}/machines/no-such-machine`, {
+			method: "DELETE",
+			headers: { Authorization: `Bearer ${accessToken}` },
+		});
+
+		expect(response.status).toBe(404);
+	});
+
 	it("will not revoke another user's machine", async () => {
 		const create = await SELF.fetch(`${BASE}/machines`, {
 			method: "POST",
