@@ -30,20 +30,39 @@ minutes of any range under six hours read low. It is not a traffic drop. On
 dashboards whose premise is "deviation from a constant means trouble," that
 artifact sits exactly where the eye lands first. Worth a pinned text note.
 
-**Bucket hourly, and mean it.** The heartbeat does not run every 5 minutes as
-configured, and it does not run every 31 either — that figure came from a
-three-run sample. Counted across 100 consecutive scheduled runs spanning 44.7 h
-(2026-08-16), the delivery is a broad distribution rather than a throttle:
+**Bucket hourly — except you cannot save it, and it is still not enough.** The
+heartbeat does not run every 5 minutes as configured, and it does not run every
+31 either — that figure came from a three-run sample. Counted across 196
+consecutive scheduled runs spanning 113.3 h (2026-08-22), the delivery is a broad
+distribution rather than a throttle:
 
-| min | p25 | median | mean | p75 | max |
-|---|---|---|---|---|---|
-| 12 | 19 | 24 | 27.1 | 31 | **112** |
+| min | median | p90 | max |
+|---|---|---|---|
+| 17 | 32 | 52 | **95** |
 
 Any bucket narrower than the delivered interval is empty whenever no run lands in
-it, so the floor reads as sparse spikes rather than a constant line. This is not
-hypothetical: at the ~15-minute bucketing Dashboard 1 shipped with, two of the
-four hosts read zero at 18:00 on 2026-08-16 while production was fully healthy.
-An hourly bucket gets ~4.4 requests per host and is reliably non-empty.
+it, so the floor reads as sparse spikes rather than a constant line. At the ~15
+minutes Auto picks for a 24-hour range, Dashboard 1's hostname chart is a
+sawtooth touching zero constantly.
+
+Setting the chart's **Interval** to 1 hour fixes the shape completely — and does
+not persist. It lives in the chart's `···` menu, reverts to Auto on reload, and
+has no equivalent in Configure, which exposes no granularity field at all. The
+dashboard time range is URL state (`?time={"r":10080}`) rather than a saved
+default. Bucket width is a per-view setting, so **there is no way to ship a
+dashboard that opens correctly bucketed** — whoever opens it gets Auto.
+
+Hourly would not be sufficient even if it did stick. Over the same 196 runs, **5
+of 113 interior clock-hours contained no run at all (4.4%)** — roughly one empty
+bucket per day on a host whose only traffic is the heartbeat. Confirmed against
+the run log rather than inferred: 23:55:01Z then 01:01:40Z on 2026-08-22 is a
+66-minute gap, with every surrounding run successful.
+
+This is the tail beating the mean, which is the same mistake this document warns
+about further down. ~3.5 requests per host per hour is the average; the p90 gap
+of 52 minutes and the max of 95 are what decide whether a 60-minute bucket is
+empty. **A zero bucket is not signal.** Detection is the heartbeat workflow
+failing and emailing; these dashboards are for investigation afterward.
 
 **Standard datasets are sampled.** The heartbeat's volume is what makes sampling
 behave at all, and it delivers less than designed. Do not read low-count charts
@@ -165,6 +184,14 @@ and expect irregular spacing — GitHub's scheduler is not punctual.
 Measured against the delivered run rate of 2.22 runs/hour — 100 scheduled runs
 over 44.7 h, via `gh run list --workflow=heartbeat.yml --event=schedule`.
 
+**Remeasured 2026-08-22 and the rate has dropped: 1.73 runs/hour**, from 196
+scheduled runs over 113.3 h. The table below was derived at 2.22 and is now
+roughly 22% high — which is the direction the section already asks you to read it
+in, since it says "treat as a ceiling," but the gap is now wider than it looks.
+The figures below are deliberately **not** rescaled: recomputing them from a
+factor rather than remeasuring each one is how a derived figure goes wrong a
+fourth time. Multiply by ~0.78 for a current estimate, or remeasure.
+
 Count the checks by **running** the script, not by grepping it. Its last line
 reports its own total — `all 9 checks passed` — and that is the number the
 arithmetic here uses. No grep reproduces it: the four original checks go through
@@ -233,11 +260,32 @@ Every figure here has been wrong twice. The original set assumed the configured
 Zone-scoped on `onlooker.dev`, every chart additionally filtered to the four app
 hostnames.
 
-**Requests by hostname over time.** The floor chart, and the one the heartbeat
-exists to make meaningful. Hostname is the grouping dimension, so restrict the
-set rather than letting it enumerate. All four hosts non-zero is the healthy
-state; one dropping out is the `api-staging` DNS failure that motivated the
-whole design.
+**Requests by hostname over time.** Hostname is the grouping dimension, so
+restrict the set rather than letting it enumerate.
+
+This chart was designed as the floor chart — "all four hosts non-zero is the
+healthy state; one dropping out is the `api-staging` DNS failure that motivated
+the whole design." **That premise does not hold and cannot be made to hold.** At
+any bucket width the tool can render, a healthy heartbeat-only host reads zero
+some of the time: ~4.4% of clock-hours at hourly, constantly at the 15 minutes
+Auto picks. See the bucketing note at the top for the measurements.
+
+So read it for **shape and totals, not for a floor**. The legend totals are
+reliable at any bucket width — they are what to compare between hosts and across
+days. A sustained flat-zero stretch on one host while the others carry traffic is
+still worth chasing; a single empty bucket is cadence, not an outage.
+
+The `api-staging` DNS failure this was built for would be caught today by the
+heartbeat workflow failing and emailing, which is the detection mechanism. This
+chart is where you look afterward to see when it started.
+
+**Availability.** Reads non-5xx / total requests across `api` and `app`, so 100%
+is healthy and a dip is real. It originally shipped with the status filter
+inverted — numerator `is in` the 5xx set rather than `is not in` — which computed
+the error rate correctly and then displayed it under a heading that made 0.00%
+read as total outage (onlooker-mxf). Worth knowing because the tile looked
+broken and was not: the math was right and the label was wrong, which no amount
+of staring at the number would have revealed.
 
 **Status codes over time.** Split api from web. `401` is the healthy steady
 state on api — it is what a correct auth rejection looks like — and would be
