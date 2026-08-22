@@ -49,16 +49,32 @@ fail() {
 # MOST likely shape for a second query, and matching only `FROM lessons` walks
 # straight past the thing this guard exists to catch. `.update`, `.insert` and
 # `.delete` are here for the same reason: drizzle names the table as the
-# builder's argument, not after a FROM.
+# builder's argument, not after a FROM. `.innerJoin`/`.leftJoin`/`.rightJoin`/
+# `.fullJoin` join the same alternation for the same reason again -
+# `.innerJoin(users, ...)` is already house style (db/queries.ts), so
+# `.innerJoin(lessons, ...)` is exactly as plausible a second query as
+# `.from(lessons)` is, and was walking past the builder pattern below just
+# as `FROM` alone once walked past `.from`.
 #
-# Both forms end on a delimiter so a name that merely starts with a table name
-# is not flagged. `FROM lessons_archive` and `.from(lessonsArchive)` are legal
+# The raw-SQL side gets the same expansion, and in the opposite direction:
+# `FROM` already catches `SELECT ... FROM lessons` and, incidentally,
+# `DELETE FROM lessons` (DELETE's own FROM keyword satisfies it). What it
+# never caught is `INSERT INTO` and bare `UPDATE` - and those are not a
+# hypothetical shape, they are db/lessons.ts's OWN idiom (its INSERT INTO
+# lessons/lesson_feed and UPDATE lessons statements). A guard that catches
+# drizzle writes but not the protected file's own raw-SQL writes is backwards:
+# copying that file's idiom into a sibling is the most likely way this
+# boundary breaks, and it was the one shape walking straight past.
+#
+# All forms end on a delimiter so a name that merely starts with a table name
+# is not flagged. `FROM lessons_archive`, `.from(lessonsArchive)`,
+# `UPDATE lesson_feedback`, and `.innerJoin(lessonsArchive, ...)` are legal
 # code that has nothing to do with this boundary, and a guard that over-flags
 # gets disabled by the first person it inconveniences. The appended space
 # guarantees the raw-SQL form has a delimiter at end of file.
 has_lesson_query() {
 	{ tr '\n' ' ' < "$1"; printf ' '; } |
-		grep -Eqi "FROM[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]|\.(from|update|insert|delete)\([[:space:]]*(lessons|lesson_feed)[[:space:]]*[,)]"
+		grep -Eqi "FROM[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]|(INSERT[[:space:]]+INTO|UPDATE)[[:space:]]+(lessons|lesson_feed)[^_a-zA-Z0-9]|\.(from|update|insert|delete|innerJoin|leftJoin|rightJoin|fullJoin)\([[:space:]]*(lessons|lesson_feed)[[:space:]]*[,)]"
 }
 
 # The matcher is itself tested, because a matcher that quietly stops matching
@@ -111,6 +127,22 @@ probe catches "drizzle builder broken across lines" \
 			lessons,
 		)
 		.limit(1);'
+probe catches "drizzle .innerJoin(lessons)" \
+	'client(db).select().from(users).innerJoin(lessons, eq(lessons.user_id, users.id));'
+probe catches "drizzle .leftJoin(lesson_feed)" \
+	'client(db).select().from(users).leftJoin(lesson_feed, eq(lesson_feed.user_id, users.id));'
+probe catches "drizzle .rightJoin(lessons)" \
+	'client(db).select().from(users).rightJoin(lessons, eq(lessons.user_id, users.id));'
+probe catches "drizzle .fullJoin(lesson_feed)" \
+	'client(db).select().from(users).fullJoin(lesson_feed, eq(lesson_feed.user_id, users.id));'
+probe catches "raw SQL INSERT INTO lessons" \
+	'db.prepare("INSERT INTO lessons (id, user_id) VALUES (?, ?)").bind(id, userId);'
+probe catches "raw SQL INSERT INTO lesson_feed" \
+	'db.prepare("INSERT INTO lesson_feed (seq, user_id) VALUES (?, ?)").bind(seq, userId);'
+probe catches "raw SQL UPDATE lessons" \
+	'db.prepare("UPDATE lessons SET status = ? WHERE id = ?").bind(status, id);'
+probe catches "raw SQL DELETE FROM lessons" \
+	'db.prepare("DELETE FROM lessons WHERE id = ?").bind(id);'
 
 # Over-flagging is not the safe direction. A guard that fires on code with
 # nothing to do with this boundary gets disabled by the first person it
@@ -123,6 +155,18 @@ probe ignores "importing from the module that owns the queries" \
 	'import { getLessonById } from "../db/lessons.js";'
 probe ignores "prose that mentions the tables" \
 	'// Every query touching lessons or lesson_feed belongs in db/lessons.ts.'
+probe ignores "innerJoin on an unrelated table (real house style)" \
+	'client(db).select().from(verification_tokens).innerJoin(users, eq(users.id, verification_tokens.user_id));'
+probe ignores "innerJoin on a differently named table" \
+	'client(db).select().from(users).innerJoin(lessonsArchive, eq(lessonsArchive.id, users.id));'
+probe ignores "raw SQL UPDATE on an unrelated table" \
+	'db.prepare("UPDATE machine_tokens SET revoked_at = ? WHERE id = ?").bind(now, id);'
+probe ignores "raw SQL UPDATE on another unrelated table" \
+	'db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").bind(exp, id);'
+probe ignores "raw SQL UPDATE on a differently named table" \
+	'db.prepare("UPDATE lesson_feedback SET rating = ? WHERE id = ?").bind(rating, id);'
+probe ignores "raw SQL INSERT INTO a differently named table" \
+	'db.prepare("INSERT INTO lessons_archive (id) VALUES (?)").bind(id);'
 
 echo
 echo "source-guards: the lesson visibility boundary"
