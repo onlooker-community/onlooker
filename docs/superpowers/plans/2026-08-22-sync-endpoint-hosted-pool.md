@@ -650,7 +650,7 @@ does not, and tokens stop verifying with nothing to point at.
 pnpm --filter @onlooker/api exec vitest run src/db/machine-tokens.test.ts
 ```
 
-Expected: PASS, 9 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Verify the token is not predictable**
 
@@ -1769,7 +1769,20 @@ function lesson(overrides: Partial<TLesson> = {}): TLesson {
 		schema_version: 2,
 		claim: "Pin rollup when vite is below 6",
 		rationale: "The bundled rollup version drifts",
-		evidence: { artifact_ids: [], resolution: "pinned rollup" },
+		// ZEvidence is a strictObject and every field here is required:
+		// artifact_ids and session_ids are .min(1), project_key is 12 lowercase
+		// hex, observed_at is an ISO datetime. A partial evidence block fails
+		// ZLesson.safeParse, so every "created" case would come back "invalid".
+		//
+		// This surfaced only at Task 7 because it is the first task that actually
+		// validates - Tasks 5 and 6 cast past the schema with `as TLesson`.
+		evidence: {
+			artifact_ids: ["01KZ45MKAM734ZS7JK24D2DK0R"],
+			session_ids: ["session-01"],
+			project_key: "0123456789ab",
+			observed_at: "2026-08-22T00:00:00.000Z",
+			resolution: "pinned rollup",
+		},
 		applies_to: {
 			stack: ["vite"],
 			scope: { kind: "versioned", versions: { vite: "<6" } },
@@ -2084,7 +2097,20 @@ export function lesson(overrides: Record<string, unknown> = {}) {
 		schema_version: 2,
 		claim: "Pin rollup when vite is below 6",
 		rationale: "The bundled rollup version drifts",
-		evidence: { artifact_ids: [], resolution: "pinned rollup" },
+		// ZEvidence is a strictObject and every field here is required:
+		// artifact_ids and session_ids are .min(1), project_key is 12 lowercase
+		// hex, observed_at is an ISO datetime. A partial evidence block fails
+		// ZLesson.safeParse, so every "created" case would come back "invalid".
+		//
+		// This surfaced only at Task 7 because it is the first task that actually
+		// validates - Tasks 5 and 6 cast past the schema with `as TLesson`.
+		evidence: {
+			artifact_ids: ["01KZ45MKAM734ZS7JK24D2DK0R"],
+			session_ids: ["session-01"],
+			project_key: "0123456789ab",
+			observed_at: "2026-08-22T00:00:00.000Z",
+			resolution: "pinned rollup",
+		},
 		applies_to: {
 			stack: ["vite"],
 			scope: { kind: "versioned", versions: { vite: "<6" } },
@@ -2298,6 +2324,34 @@ describe("POST /lessons", () => {
 			.prepare("SELECT COUNT(*) AS n FROM lessons")
 			.first<{ n: number }>();
 		expect(stored?.n).toBe(2);
+	});
+
+	// Both of the route's remaining guards, which had no tests at all when this
+	// task first shipped. A rule in the code with nothing exercising it is the
+	// defect this plan keeps finding; these two are no different for being small.
+	it("rejects a batch over the size cap", async () => {
+		// The cap is checked on the array length BEFORE any lesson is parsed, so
+		// these do not need to be valid lessons - which is also what the test
+		// proves. Remove the cap and this returns 200 with 101 per-item results.
+		const oversized = Array.from({ length: 101 }, () => ({}));
+
+		const response = await push(machineToken, oversized);
+
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error?: string; code?: string };
+		expect(JSON.stringify(body)).toMatch(/batch_too_large|At most 100/);
+	});
+
+	it("rejects superseded_by on a lesson that is not superseded", async () => {
+		const response = await push(machineToken, [
+			lesson({ superseded_by: "01KZ45MKAM734ZS7JK24D2DK99" }),
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("invalid");
+		expect(results[0].error).toContain("superseded_by");
 	});
 
 	// The 409 must not become an existence oracle over other users' lesson ids.
@@ -2517,7 +2571,7 @@ Export `handlePushLessons` from `routes/index.ts` and add to `ROUTES`:
 pnpm --filter @onlooker/api exec vitest run src/routes/lessons.test.ts
 ```
 
-Expected: PASS, 9 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 6: Commit**
 
