@@ -3,67 +3,41 @@
 	"globalEnv": [],
 	"tasks": {
 		"@onlooker/db#build": {
-			"dependsOn": ["^build"],
-			"outputs": ["dist/**"]
+			"dependsOn": [
+				"^build"
+			],
+			"outputs": [
+				"dist/**"
+			]
 		},
 		"@onlooker/db#lint": {
 			"outputs": []
 		},
 		"@onlooker/db#test": {
-			"dependsOn": ["@onlooker/db#build"],
+			"dependsOn": [
+				"@onlooker/db#build"
+			],
 			"outputs": []
 		},
 		"@onlooker/db#typecheck": {
 			"outputs": []
 		},
-		"@onlooker/cache#build": {
-			"dependsOn": ["@onlooker/logger#build"],
-			"outputs": ["dist/**"]
-		},
-		"@onlooker/cache#go": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
-		"@onlooker/cache#lint": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
-		"@onlooker/cache#test": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
-		"@onlooker/cache#test:coverage": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
-		"@onlooker/cache#typecheck": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
-		"@onlooker/logger#build": {
-			"dependsOn": ["^build"],
-			"outputs": ["dist/**"]
-		},
 		"@onlooker/website#dev": {
 			"cache": false,
-			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"],
 			"persistent": true
 		},
 		"@onlooker/website#go": {
 			"cache": false,
-			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"],
 			"persistent": true
-		},
-		"@onlooker/website#test": {
-			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"]
-		},
-		"@onlooker/website#test:coverage": {
-			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"]
-		},
-		"@onlooker/website#typecheck": {
-			"dependsOn": ["@onlooker/cache#build", "@onlooker/logger#build"]
 		},
 		"@onlooker/api#dev": {
 			"cache": false,
 			"persistent": true
 		},
 		"build": {
-			"dependsOn": ["^build"],
+			"dependsOn": [
+				"^build"
+			],
 			"env": [
 				"AUDIT_LOG_ENABLED",
 				"AUDIT_LOG_GET_USER_IP",
@@ -105,11 +79,20 @@
 				"PROMETHEUS_ENABLED",
 				"PROMETHEUS_EXPORTER_PORT"
 			],
-			"outputs": ["dist/**", ".next/**", "schema/**"]
+			"outputs": [
+				"dist/**",
+				".next/**",
+				"schema/**"
+			]
 		},
 		"build:dev": {
-			"dependsOn": ["^build:dev"],
-			"outputs": ["dist/**", ".next/**"]
+			"dependsOn": [
+				"^build:dev"
+			],
+			"outputs": [
+				"dist/**",
+				".next/**"
+			]
 		},
 		"clean": {
 			"cache": false,
@@ -120,7 +103,9 @@
 			"persistent": true
 		},
 		"generate": {
-			"dependsOn": ["^generate"]
+			"dependsOn": [
+				"^generate"
+			]
 		},
 		"go": {
 			"cache": false,
@@ -133,18 +118,19 @@
 			"cache": false,
 			"persistent": true
 		},
-		"storybook#storybook": {
-			"dependsOn": ["@onlooker/logger#build"]
-		},
 		"test": {
-			"dependsOn": ["^build"],
+			"dependsOn": [
+				"^build"
+			],
 			"outputs": []
 		},
 		"test:coverage": {
 			"outputs": []
 		},
 		"typecheck": {
-			"dependsOn": ["^typecheck"],
+			"dependsOn": [
+				"^typecheck"
+			],
 			"outputs": []
 		}
 	},

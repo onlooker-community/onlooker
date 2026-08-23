@@ -8,8 +8,11 @@
  * these patterns would drift - which is the failure this package exists to
  * prevent elsewhere.
  *
- * Not in @onlooker/logger, which reads as the natural home: it depends on pino
- * and pino-opentelemetry-transport, and apps/web is a browser bundle.
+ * It was once weighed against @onlooker/logger, which read as the natural home
+ * and was rejected because that package depended on pino and
+ * pino-opentelemetry-transport while apps/web is a browser bundle. That package
+ * has since been deleted outright, for the same reason scaled up: nothing on
+ * Cloudflare can run a Node logger, so it never gained a consumer.
  *
  * What is at stake: two routes carry a single-use credential in the path, and
  * the ordinary shape of a network error is "Failed to fetch <that URL>". A
