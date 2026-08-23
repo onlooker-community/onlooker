@@ -51,7 +51,12 @@ describe("timedD1", () => {
 		expect(typeof line.wall_ms).toBe("number");
 		expect(typeof line.trip_ms).toBe("number");
 		expect(line.trip_ms).toBe(
-			Math.max(0, Math.round(((line.wall_ms as number) - (line.exec_ms as number)) * 1000) / 1000),
+			Math.max(
+				0,
+				Math.round(
+					((line.wall_ms as number) - (line.exec_ms as number)) * 1000,
+				) / 1000,
+			),
 		);
 	});
 

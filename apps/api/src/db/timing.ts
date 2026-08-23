@@ -1,4 +1,7 @@
-import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 
 /**
  * Wraps a D1 binding so every query reports how long it took, split into the
@@ -81,7 +84,9 @@ function report(verb: string, timing: D1Timing): void {
 				wall_ms: Math.round(timing.wallMs * 1000) / 1000,
 				exec_ms: timing.execMs,
 				trip_ms:
-					timing.tripMs === null ? null : Math.round(timing.tripMs * 1000) / 1000,
+					timing.tripMs === null
+						? null
+						: Math.round(timing.tripMs * 1000) / 1000,
 				rows_read: timing.rowsRead,
 			}),
 		);
