@@ -9,7 +9,7 @@ import {
 } from "../db/lessons.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
-import type { WorkerEnv } from "../types";
+import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { canonicalize } from "../utils/canonical.js";
 
@@ -347,17 +347,21 @@ const TRANSITIONS = ["active", "refuted", "superseded", "retracted"];
 export async function handleTransitionLesson(
 	request: Request,
 	env: WorkerEnv,
+	params: RouteParams,
 ): Promise<Response> {
 	const { userId } = await requireMachineToken(request, env);
 
-	// Positional extraction, matching handleRevokeMachine's own idiom. Note that
-	// this route is the SECOND parameterized route in the table, so the router's
-	// pathMatches is now doing real work rather than being a formality - and note
-	// that neither handler asks the router which segment was the parameter. If a
-	// third parameterized route of a different shape arrives, this idiom is what
-	// breaks first, and it breaks silently by reading the wrong segment.
-	const segments = new URL(request.url).pathname.split("/");
-	const id = segments[segments.length - 2] ?? "";
+	// The router captured this from /lessons/:id/status, so the handler does not
+	// have to know that :id is the second-to-last segment. It used to, and so did
+	// handleRevokeMachine with a different rule for its own shape - two idioms,
+	// each right only for its own route, and a third shape would have read the
+	// wrong segment without failing.
+	//
+	// No `?? ""` fallback: the router sets every `:name` in the pattern it
+	// matched, so an absent key would mean this handler is reading a name its own
+	// route does not declare - and coercing that to "" is how such a bug turns
+	// into a quiet 404 instead of something anyone notices.
+	const id = params.id;
 
 	const body = (await request.json()) as {
 		status?: unknown;

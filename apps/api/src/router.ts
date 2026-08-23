@@ -29,13 +29,21 @@ import {
 	handleVerifyEmail,
 	handleVerifyResetToken,
 } from "./routes";
-import type { WorkerEnv } from "./types";
+import type { RouteParams, WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
 interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;
-	handler: (request: Request, env: WorkerEnv) => Promise<Response>;
+	/**
+	 * `params` is optional so the handlers on fixed paths - which is most of
+	 * them - need no signature change. Only the parameterized routes read it.
+	 */
+	handler: (
+		request: Request,
+		env: WorkerEnv,
+		params: RouteParams,
+	) => Promise<Response>;
 }
 
 const ROUTES: Route[] = [
@@ -186,14 +194,38 @@ const ROUTES: Route[] = [
  * /machines/a/b. Only whole segments are parameters; there is no partial or
  * wildcard matching, because nothing here needs one.
  */
-function pathMatches(pattern: string, path: string): boolean {
+/**
+ * Match a `:param`-bearing pattern against a concrete path, returning the
+ * captured parameters, or null when it does not match.
+ *
+ * Returning the captures rather than a boolean is the whole point. The router
+ * already works out which segment was the parameter; discarding that forced
+ * every handler to re-derive it positionally, and they did it differently -
+ * `.pop()` for `/machines/:id`, `[length - 2]` for `/lessons/:id/status`. Both
+ * were correct only for their own shape, and a third route of a different shape
+ * would have read the wrong segment and failed silently, as a 404 or a mutation
+ * applied to nothing.
+ *
+ * Segment count must agree, so `/machines/:id` does not swallow
+ * `/machines/a/b`. Only whole segments are parameters; there is no partial or
+ * wildcard matching, because nothing here needs one.
+ */
+function matchPath(pattern: string, path: string): RouteParams | null {
 	const patternSegments = pattern.split("/");
 	const pathSegments = path.split("/");
-	if (patternSegments.length !== pathSegments.length) return false;
+	if (patternSegments.length !== pathSegments.length) return null;
 
-	return patternSegments.every(
-		(segment, i) => segment.startsWith(":") || segment === pathSegments[i],
-	);
+	const params: RouteParams = {};
+
+	for (const [i, segment] of patternSegments.entries()) {
+		if (segment.startsWith(":")) {
+			params[segment.slice(1)] = pathSegments[i];
+			continue;
+		}
+		if (segment !== pathSegments[i]) return null;
+	}
+
+	return params;
 }
 
 /**
@@ -209,28 +241,36 @@ function pathMatches(pattern: string, path: string): boolean {
  * shape collision like /machines/settings beside /machines/:id doesn't have
  * to exist in production for the precedence rule to be checked.
  */
+/** A resolved route together with whatever its pattern captured. */
+export interface ResolvedRoute {
+	route: Route;
+	params: RouteParams;
+}
+
 export function resolveRoute(
 	routes: Route[],
 	method: string,
 	path: string,
-): Route | undefined {
+): ResolvedRoute | undefined {
 	const exact = routes.find(
 		(route) => route.method === method && route.path === path,
 	);
-	if (exact) return exact;
+	if (exact) return { route: exact, params: {} };
 
-	return routes.find(
-		(route) =>
-			route.method === method &&
-			route.path.includes(":") &&
-			pathMatches(route.path, path),
-	);
+	for (const route of routes) {
+		if (route.method !== method || !route.path.includes(":")) continue;
+
+		const params = matchPath(route.path, path);
+		if (params) return { route, params };
+	}
+
+	return undefined;
 }
 
 /**
  * Match a request to a route in the live route table.
  */
-function findRoute(method: string, path: string): Route | undefined {
+function findRoute(method: string, path: string): ResolvedRoute | undefined {
 	return resolveRoute(ROUTES, method, path);
 }
 
@@ -247,14 +287,14 @@ export async function dispatch(
 	const path = url.pathname;
 
 	// Find matching route
-	const route = findRoute(method, path);
+	const matched = findRoute(method, path);
 
-	if (!route) {
+	if (!matched) {
 		return errorHandler(new ApiError(404, "not_found", "Route not found"));
 	}
 
 	try {
-		return await route.handler(request, env);
+		return await matched.route.handler(request, env, matched.params);
 	} catch (error) {
 		return errorHandler(error);
 	}

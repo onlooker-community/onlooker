@@ -4,7 +4,7 @@ import {
 	revokeMachineToken,
 } from "../db/machine-tokens.js";
 import { requireAuth } from "../middleware/auth.js";
-import type { WorkerEnv } from "../types";
+import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
 /**
@@ -48,9 +48,10 @@ export async function handleListMachines(
 export async function handleRevokeMachine(
 	request: Request,
 	env: WorkerEnv,
+	params: RouteParams,
 ): Promise<Response> {
 	const { userId } = await requireAuth(request, env);
-	const id = new URL(request.url).pathname.split("/").pop() ?? "";
+	const id = params.id;
 
 	// 404 rather than 403 when the machine belongs to someone else. A 403 would
 	// confirm the id exists, which is an existence oracle over other users' rows.
