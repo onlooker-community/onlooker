@@ -110,6 +110,59 @@ export async function storeRefreshToken(
 }
 
 /**
+ * Rotate a refresh token: revoke the old one and store the new one, together.
+ *
+ * Two reasons this is one function rather than the two calls it replaces, and
+ * the second is the one that would justify it alone.
+ *
+ * ATOMICITY. Revoking and storing are halves of a single operation - a rotation.
+ * Issued as two awaits, a failure between them leaves the caller holding a
+ * refresh token that has just been revoked and no replacement, which is a forced
+ * logout with no error anyone can act on. D1's batch() runs its statements in one
+ * implicit transaction, so either both land or neither does.
+ *
+ * LATENCY. onlooker-ujy measured D1 at a p50 of 43 ms wall against 0.182 ms of
+ * execution - the worker is in LAX and the primary is in MIA, so essentially all
+ * of that is the crossing. Every await pays it separately, and /auth/refresh was
+ * making four. These two statements do not depend on each other's results, so
+ * batching them removes one crossing outright. That is independent of Smart
+ * Placement, which makes each crossing cheaper rather than making the count
+ * right.
+ *
+ * drizzle's batch() builds the statements and hands them to the D1 binding's own
+ * batch(), which is what makes this one round trip rather than two dressed up as
+ * one - and is also why db/timing.ts reports it as a single BATCH line.
+ */
+export async function rotateRefreshToken(
+	db: D1Database,
+	oldToken: string,
+	userId: string,
+	newToken: string,
+	expiresAt: Date,
+): Promise<void> {
+	// Both hashes resolve before the batch is built. batch() takes already-built
+	// query builders, and hashToken is async, so the values have to exist first;
+	// Promise.all rather than two awaits so the hashing does not serialize.
+	const [oldHash, newHash] = await Promise.all([
+		hashToken(oldToken),
+		hashToken(newToken),
+	]);
+
+	const drizzle = client(db);
+
+	await drizzle.batch([
+		drizzle.delete(sessions).where(eq(sessions.token_hash, oldHash)),
+		drizzle.insert(sessions).values({
+			id: crypto.randomUUID(),
+			user_id: userId,
+			token_hash: newHash,
+			expires_at: expiresAt.toISOString(),
+			created_at: new Date().toISOString(),
+		}),
+	]);
+}
+
+/**
  * Get refresh token
  */
 export async function getRefreshToken(

@@ -4,6 +4,7 @@ import {
 	getUserByEmail,
 	getUserById,
 	revokeRefreshToken,
+	rotateRefreshToken,
 	storeRefreshToken,
 } from "../db/queries";
 import { ApiError } from "../middleware";
@@ -191,13 +192,22 @@ export async function handleRefresh(
 		expiresInMinutes,
 	);
 
-	await revokeRefreshToken(env.DB, body.refreshToken);
-
 	const newRefreshToken = generateRefreshToken();
 	const refreshExpiresAt = new Date();
 	refreshExpiresAt.setDate(refreshExpiresAt.getDate() + refreshExpiresInDays);
 
-	await storeRefreshToken(env.DB, user.id, newRefreshToken, refreshExpiresAt);
+	// One call, one round trip, and one transaction. These were a revoke followed
+	// by a store, which is a rotation split into halves that can fail apart: a
+	// failure between them revokes the caller's token without issuing the
+	// replacement, logging them out with nothing to retry. See rotateRefreshToken
+	// for why batching also removes a crossing (onlooker-1hp).
+	await rotateRefreshToken(
+		env.DB,
+		body.refreshToken,
+		user.id,
+		newRefreshToken,
+		refreshExpiresAt,
+	);
 
 	return new Response(
 		JSON.stringify({

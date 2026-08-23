@@ -114,6 +114,42 @@ describe("timedD1", () => {
 		expect(result?.one).toBe(1);
 	});
 
+	// The reason batch() is timed as one operation, made concrete. onlooker-ujy
+	// measured D1 at a p50 of 43 ms wall against 0.182 ms of execution, so what a
+	// request pays is the number of crossings, not the work. /auth/refresh made
+	// four; rotating the refresh token as a batch removes one.
+	//
+	// This asserts the crossing count directly rather than trusting that a call
+	// named "batch" makes one. Unpicked back into a delete and an insert, it
+	// emits two lines and this fails - which is the regression the latency half
+	// of onlooker-1hp is guarding against, separate from the atomicity half
+	// covered in queries.test.ts.
+	it("reports a token rotation as one crossing, not two", async () => {
+		const { createUser, rotateRefreshToken, storeRefreshToken } = await import(
+			"./queries.js"
+		);
+
+		// Setup goes through the UNWRAPPED binding so it emits no timing lines and
+		// the count below is only the rotation.
+		const user = await createUser(env.DB, "trip@example.com", "hash");
+		const expires = new Date(Date.now() + 60_000);
+		await storeRefreshToken(env.DB, user.id, "old-token", expires);
+
+		spy.mock.calls.length = 0;
+
+		await rotateRefreshToken(
+			timedD1(env.DB),
+			"old-token",
+			user.id,
+			"new-token",
+			expires,
+		);
+
+		const lines = emitted(spy);
+		expect(lines).toHaveLength(1);
+		expect(lines[0].verb).toBe("BATCH");
+	});
+
 	// The wrapper has to be invisible to drizzle, since that is how most of this
 	// codebase reaches D1.
 	it("does not disturb drizzle", async () => {
