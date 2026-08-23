@@ -11,6 +11,7 @@
  */
 
 import type { ExecutionContext } from "@cloudflare/workers-types";
+import { timedD1 } from "./db/timing.js";
 import { preflightResponse, withCors } from "./middleware";
 import { dispatch, listRoutes } from "./router";
 import type { WorkerEnv } from "./types";
@@ -28,8 +29,16 @@ async function handleRequest(
 		return preflightResponse(request, env);
 	}
 
-	// Route the request
-	const response = await dispatch(request, env);
+	// Every handler downstream receives a DB binding that reports its own
+	// timings. Wrapped once here rather than at the 42 call sites that take
+	// env.DB, because a wrapper applied per call site is one someone forgets -
+	// and the query they forget is exactly the one nobody measures.
+	//
+	// drizzle reaches D1 through the same prepare() the wrapper intercepts, so
+	// this covers the query layer in db/queries.ts as well as the raw statements
+	// in db/lessons.ts. See db/timing.ts for why the measurement lives here and
+	// not in Workers tracing.
+	const response = await dispatch(request, { ...env, DB: timedD1(env.DB) });
 
 	return withCors(response, request, env);
 }
