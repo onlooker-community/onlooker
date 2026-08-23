@@ -194,16 +194,18 @@ new shape.
 Librarian already owns every upstream step — artifact reader, durability filter,
 Haiku classifier, Jaccard dedup, proposal queue — so the lesson transform is one
 more stage on a chain that exists. The decisive argument against a new plugin is
-the watermark: librarian's `last_scan.json` already tracks which artifacts have
-been considered, and a separate plugin would need a second copy of that state,
-free to drift.
+the dedup state: librarian already records which artifacts have been considered,
+in `proposals/` and `declined.jsonl`, and a separate plugin would need a second
+copy of that state, free to drift. (Not `last_scan.json` — that watermark records
+only *when* a scan ran, so it can say a rescan is due but never which artifacts
+it already handled.)
 
 ### State
 
 ```
 ~/.onlooker/librarian/<project-key>/
   lessons/approved/<ulid>.json   jury passed; awaiting subsystem 3
-  lessons/declined.jsonl         artifact_id + verdict + reason
+  lessons/declined.jsonl         artifact_id + lesson_id + verdict + reason
 ```
 
 **The declined ledger closes a hole in one-shot rejection.** The watermark
@@ -310,7 +312,7 @@ already moved past them.
 | `version_independent` with a hollow justification | schema passes; `scope_accuracy` catches it |
 | tribunal unreachable, or judge errors | **not** declined; stays in proposals |
 | jury below quorum for `majority` | treated as unjudged, not rejected |
-| same artifact promoted twice | watermark, ledger, and pool all keyed by `artifact_id` |
+| same artifact promoted twice | `proposals/`, `declined.jsonl` and `approved/` are all checked by `artifact_id`. Not the watermark: `last_scan.json` is `{"scanned_at": ISO-8601}`, which records *when* a scan ran, not which artifacts it considered |
 
 A secret reaching `evidence.resolution` is caught only at the public tier. Org
 scope relies on org trust, per Section 3 of the contract spec. This follows the
@@ -340,9 +342,24 @@ artifact goes stale without failing loudly.
 The artifact that motivated the contract spec is real and still on disk:
 `~/.onlooker/archivist/6a7678979e31/decisions/01KZ45MKAM734ZS7JK24D2DK0R.json`.
 
-It should transform to `kind: "versioned"` with
-`{"vite": "<6", "vitest": ">=4"}`, and a session on vite 8.0.16 must not match
-it. The artifact that started this becomes the test that proves it works.
+It does **not** transform. Its `evidence.resolution` would have to be a
+non-empty string, and the artifact has no resolution to give: it records that
+the mismatch is real and its session ended on the open question "What is the
+correct fix for the vitest/vite version mismatch?". Its later refutation
+artifact (`01KZEAF9EY4C6TTR0V7YFN9VYJ`) says the claim was disproven without
+saying what is true, so it carries no resolution either.
+
+So it is the **negative** acceptance test: the transform refuses it and the
+pipeline declines it with `no_resolution`. That is the stronger test of the
+two. The artifact that motivated the whole design is the one that proves the
+resolution rule fires — "this breaks" without "and this fixed it" is a warning,
+not a lesson.
+
+A positive fixture has to be synthetic. No artifact currently on disk carries
+both a resolution and version information; the implementation uses one shaped
+like the vitest case, asserting it transforms to `kind: "versioned"` with
+`{"vite": "<6", "vitest": ">=4"}` and that a session on vite 8.0.16 does not
+match it.
 
 ---
 
