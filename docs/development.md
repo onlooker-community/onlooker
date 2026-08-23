@@ -6,7 +6,6 @@
 |---|---|---|
 | Node.js | `>=20.19`, `>=22.12`, or `>=24.0` | Use a version manager (nvm, mise, etc.) |
 | pnpm | `11.0.9` | Pinned via `packageManager` field |
-| Redis | `6+` | Required for `@onlooker/cache` locally |
 
 Install pnpm if you don't have it:
 
@@ -45,10 +44,8 @@ onlooker/
 ├── apps/
 │   └── website/          # Astro + Cloudflare Workers site
 ├── packages/
-│   ├── cache/            # Redis cache client (@onlooker/cache)
 │   ├── config-biome/     # Shared Biome configuration presets
 │   ├── config-typescript/# Shared TypeScript configuration presets
-│   ├── logger/           # Pino-based logger (@onlooker/logger)
 │   ├── types/            # Shared TypeScript types (@onlooker/types)
 │   └── vite-plugins/     # Shared Vite plugins (@onlooker/vite-plugins)
 ├── docs/                 # Project documentation
@@ -86,9 +83,12 @@ pnpm build:dev    # Build in dev mode
 Packages must be built before apps that depend on them. Turbo handles this automatically; if you're working in a single package directly, build its dependencies first:
 
 ```sh
-pnpm --filter @onlooker/logger build
-pnpm --filter @onlooker/cache build
+pnpm --filter @onlooker/db build
 ```
+
+`@onlooker/db` is the one that matters in practice: `apps/api` imports from its
+`dist`, and both `generate:expected-schema` and `verify:schema` read `dist` too,
+so a stale build there shows up as unrelated-looking test failures.
 
 ### Testing
 
@@ -101,8 +101,8 @@ pnpm test:e2e          # Playwright end-to-end tests
 Run tests for a single package:
 
 ```sh
-pnpm --filter @onlooker/cache test
-pnpm --filter @onlooker/logger test
+pnpm --filter @onlooker/api test
+pnpm --filter @onlooker/db test
 ```
 
 ### Linting and Formatting
@@ -145,13 +145,13 @@ pnpm clean:all     # Also removes pnpm-lock.yaml (full reset)
 
 ```sh
 # Add to a specific package
-pnpm --filter @onlooker/cache add redis
+pnpm --filter @onlooker/api add some-package
 
 # Add a dev dependency
-pnpm --filter @onlooker/logger add -D vitest
+pnpm --filter @onlooker/api add -D vitest
 
 # Add a workspace package as a dependency
-pnpm --filter @onlooker/website add @onlooker/cache
+pnpm --filter @onlooker/web add @onlooker/brand
 # pnpm-workspace.yaml has linkWorkspacePackages: true, so use workspace:*
 ```
 
@@ -214,16 +214,9 @@ For the API's full list — every var and secret, and which are real — see
 Astro env field with a `default: false` in `astro.config.mjs`, not a shell
 variable.
 
-Two package-level variables are read from the process environment, and both are
-optional:
-
-| Variable | Read by | Effect when unset |
-|---|---|---|
-| `LOG_LEVEL` | `packages/logger` | defaults to `info` |
-| `REDIS_URL` | `packages/cache` | the Redis integration tests skip themselves |
-
-Set those in your shell when you want them. Note that no app currently imports
-either package, so neither affects `pnpm dev`.
+Nothing else reads the process environment. `LOG_LEVEL` and `REDIS_URL` were
+listed here for `packages/logger` and `packages/cache`; both packages have since
+been removed, for the reasons in the note below.
 
 ### What used to be here
 
@@ -241,6 +234,21 @@ about the script and the script was the fiction — anyone who followed them end
 up with four generated credentials and no idea they were inert.
 
 `apps/web/.env.example` is a different file and is real. It is unaffected.
+
+`packages/cache` and `packages/logger` went the same way, and for the same
+reason. Neither was imported by any app. `cache` was a node-`redis` client whose
+key generator addressed workspaces, organizations, billing and EE licenses -
+none of which exist here - and `logger` was pino plus
+`pino-opentelemetry-transport`. Every deployable in this repository runs on
+Cloudflare: `apps/api` is a Worker, `apps/web` is a browser bundle, and
+`apps/website` is Astro on the Cloudflare adapter. None of them can run a Node
+logger or open a TCP connection to Redis.
+
+`apps/api` logs with `console.error` and a JSON string deliberately, because
+that is the form Workers Logs parses into individually queryable fields - see
+`src/db/timing.ts`. Adopting pino would have broken that rather than improved
+it, which is also why `packages/api-contract/src/redact.ts` was written where it
+is instead of in the logger.
 
 ## Website App
 
@@ -273,9 +281,9 @@ turbo run test --force
 ```
 
 The task dependency graph in `turbo.json` means:
-- `@onlooker/logger` builds before anything that depends on it
-- `@onlooker/cache` builds after `@onlooker/logger`
-- The website dev server waits for both `cache` and `logger` to be built
+- `^build` makes every package build its own dependencies first
+- `@onlooker/db#test` waits on `@onlooker/db#build`, because the tests read
+  `dist` rather than `src`
 
 If Turbo's cache gets stale, clear it:
 
