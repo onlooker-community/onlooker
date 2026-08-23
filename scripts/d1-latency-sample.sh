@@ -173,26 +173,48 @@ render_stats() {
 		| [ $timed[] | .trip_ms | select(. != null) ] as $trips
 		| ($walls | add // 0) as $wall_total
 		| ($execs | add // 0) as $exec_total
+		# The round trip is only meaningful over queries that reported BOTH
+		# numbers. Dividing a sum of every wall time by a sum of the few exec
+		# times that exist inflates the ratio - right answer for the wrong
+		# reason, which is how it went unnoticed the first time.
+		| [ $timed[] | select(.wall_ms != null and .exec_ms != null) ] as $paired
+		| ([ $paired[] | .wall_ms ] | add // 0) as $paired_wall
+		| ([ $paired[] | .exec_ms ] | add // 0) as $paired_exec
 		|
 		"  queries sampled: \($events | length)  (with a wall time: \($timed | length))",
 		"",
-		"  wall  (what the worker waited)   p50  \(fmt($walls | pct(50))) ms",
+		"  wall  (what the worker waited)   n=\($walls | length)",
+		"                                   p50  \(fmt($walls | pct(50))) ms",
 		"                                   p90  \(fmt($walls | pct(90))) ms",
 		"                                   p99  \(fmt($walls | pct(99))) ms",
 		"                                   max  \(fmt($walls | pct(100))) ms",
 		"",
-		"  exec  (D1 executing the query)   p50  \(fmt($execs | pct(50))) ms",
+		"  exec  (D1 executing the query)   n=\($execs | length)",
+		"                                   p50  \(fmt($execs | pct(50))) ms",
 		"                                   p90  \(fmt($execs | pct(90))) ms",
 		"                                   max  \(fmt($execs | pct(100))) ms",
 		"",
-		"  trip  (wall - exec)              p50  \(fmt($trips | pct(50))) ms",
+		"  trip  (wall - exec)              n=\($trips | length)",
+		"                                   p50  \(fmt($trips | pct(50))) ms",
 		"                                   p90  \(fmt($trips | pct(90))) ms",
 		"                                   max  \(fmt($trips | pct(100))) ms",
 		"",
-		(if $wall_total > 0 then
-			"  round trip is \(((($wall_total - $exec_total) / $wall_total) * 1000 | round / 10))% of observed query time"
+		# The counts above are load-bearing, not decoration. exec and trip cover
+		# only the queries D1 reported a duration for, and that is NOT all of
+		# them: drizzle reads reach D1 through raw(), which returns arrays with
+		# no meta, while writes go through run(), which has it. So the exec and
+		# trip rows can describe a different - and slower - population than the
+		# wall row, and comparing a percentile across rows with different n is
+		# meaningless. Read down a column, not across.
+		(if ($paired | length) == 0 then
+			"  round trip: not computable, no query reported both a wall and an exec time"
 		else
-			"  round trip: not computable, no query carried a wall time"
+			"  round trip is \(((($paired_wall - $paired_exec) / $paired_wall) * 1000 | round / 10))% of query time, over the \($paired | length) queries reporting both"
+		end),
+		(if ($execs | length) < ($walls | length) then
+			"  NOTE: \(($walls | length) - ($execs | length)) of \($walls | length) queries reported no execution time, so the figure above covers a subset. See the comment in render_stats."
+		else
+			empty
 		end),
 		"",
 		"  by verb:",
