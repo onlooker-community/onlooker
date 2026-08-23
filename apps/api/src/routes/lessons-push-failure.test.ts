@@ -203,6 +203,7 @@ describe("POST /lessons/:id/status when the write fails", () => {
 					body: JSON.stringify({ status: "retracted", superseded_by: null }),
 				}),
 				against,
+				{ id },
 			),
 		);
 	}

@@ -4,6 +4,17 @@ export * from "./requests";
 export * from "./responses";
 
 /**
+ * Path parameters the router captured from a route pattern, keyed without the
+ * colon: `/lessons/:id/status` matched against `/lessons/abc/status` gives
+ * `{ id: "abc" }`.
+ *
+ * Declared here rather than in router.ts because router.ts imports every route
+ * handler; handlers importing a type back from it would close a cycle. This
+ * sits beside WorkerEnv, which handlers already import for the same reason.
+ */
+export type RouteParams = Record<string, string>;
+
+/**
  * Worker environment variables and bindings.
  * These are injected by Cloudflare Workers runtime.
  */
