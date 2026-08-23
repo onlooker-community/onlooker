@@ -25,13 +25,18 @@ cd onlooker
 # 2. Install dependencies
 pnpm install
 
-# 3. Set up environment variables
-pnpm dev:setup
+# 3. Run the tests
+pnpm test
 ```
 
-`pnpm dev:setup` copies `.env.example` → `.env` and generates any required secrets (`ENCRYPTION_KEY`, etc.). Run it once after cloning; it's safe to re-run and will not overwrite an existing `.env`.
+There is no environment setup step. Each app carries its own configuration and a
+fresh clone runs without a credential: the API's `wrangler.toml` ships a
+throwaway `JWT_SECRET` for development, and `wrangler dev` is local-first, so D1
+resolves to a SQLite file under `apps/api/.wrangler/` rather than reaching
+Cloudflare.
 
-If you need to customize environment variables, edit `.env` directly. See [Environment Variables](#environment-variables) below.
+See [Environment Variables](#environment-variables) below for where each app
+reads its configuration from.
 
 ## Repository Structure
 
@@ -191,18 +196,51 @@ Shared presets live in `packages/config-typescript/`. Each package's `tsconfig.j
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in the required values. The setup script handles this automatically (`pnpm dev:setup`).
+**There is no root `.env`, and nothing would read one if there were.** This
+repository has no `dotenv` dependency, no vitest env-file loading, and no turbo
+`globalDotEnv`. Each app reads its configuration from its own place:
 
-Key variables:
+| App | Reads from |
+|---|---|
+| `apps/api` | `apps/api/wrangler.toml` (`[env.*.vars]`) and `wrangler secret` |
+| `apps/web` | `apps/web/.env.<mode>`, at build time, `VITE_`-prefixed |
+| `apps/website` | the `env.schema` block in `apps/website/astro.config.mjs` |
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `REDIS_URL` | Yes | `redis://localhost:6379` | Redis connection URL for caching |
-| `LOG_LEVEL` | No | `info` | Log verbosity (`debug`, `info`, `warn`, `error`, `fatal`) |
-| `ENCRYPTION_KEY` | Yes | auto-generated | 32-byte hex key for encryption |
-| `SITE_LAUNCHED` | No | `false` | Feature flag controlling site launch state |
+For the API's full list — every var and secret, and which are real — see
+[ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md), which
+`scripts/source-guards.test.sh` holds to what `WorkerEnv` declares.
 
-OpenTelemetry, Sentry, and rate limiting are opt-in — see `.env.example` for full details.
+`SITE_LAUNCHED` is in that third row rather than a table of its own: it is an
+Astro env field with a `default: false` in `astro.config.mjs`, not a shell
+variable.
+
+Two package-level variables are read from the process environment, and both are
+optional:
+
+| Variable | Read by | Effect when unset |
+|---|---|---|
+| `LOG_LEVEL` | `packages/logger` | defaults to `info` |
+| `REDIS_URL` | `packages/cache` | the Redis integration tests skip themselves |
+
+Set those in your shell when you want them. Note that no app currently imports
+either package, so neither affects `pnpm dev`.
+
+### What used to be here
+
+`pnpm dev:setup` ran `scripts/setup-dev-env.sh`, which copied a root
+`.env.example` to `.env` and generated `ENCRYPTION_KEY`, `NEXTAUTH_SECRET`,
+`CRON_SECRET` and `CUBEJS_API_SECRET` into it. All four are gone, along with the
+script and the template, because nothing read any of them — there is no
+NextAuth, no Cube.js, and no cron consumer in this repository, and as established
+above nothing loads a root `.env` at all. The template itself was a Cal.com
+`.env.example` carried in wholesale; it documented Webdis, Prometheus, EE
+licenses, and telemetry "sent to Onlooker".
+
+Written down rather than quietly deleted, because the instructions were accurate
+about the script and the script was the fiction — anyone who followed them ended
+up with four generated credentials and no idea they were inert.
+
+`apps/web/.env.example` is a different file and is real. It is unaffected.
 
 ## Website App
 

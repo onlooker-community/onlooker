@@ -20,7 +20,6 @@
 		"test:e2e": "playwright test",
 		"test-e2e:azure": "pnpm test:e2e -c playwright.service.config.ts --workers=10",
 		"storybook": "turbo run storybook",
-		"dev:setup": "bash ./scripts/setup-dev-env.sh",
 		"deploy": "echo 'Name an environment: pnpm deploy:staging or pnpm deploy:prod. There is no environment-less deploy - it built workers that shadowed the real ones.' && exit 1",
 		"deploy:staging": "pnpm deploy:api:staging && pnpm deploy:web:staging",
 		"deploy:prod": "pnpm deploy:api:prod && pnpm deploy:web:prod",
