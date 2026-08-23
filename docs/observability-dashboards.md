@@ -523,6 +523,26 @@ That also sidesteps the trap below: these are every query, not the slowest 100,
 so the percentiles are not biased upward by construction — which matters for
 deciding whether 100 ms is typical or the tail.
 
+**What it measured, and what was done about it.** Production, 60 minutes, 20
+queries: wall `p50 43 ms / p90 92 ms / max 98 ms`, against an execution `p50` of
+`0.182 ms`. So ~99.8% of D1 time is the trip, not the query. The exec figure
+covers writes only — drizzle reaches D1 through `raw()` for selects, which
+returns arrays carrying no `meta`, so only `run()` reports a duration. At 0.18 ms
+a read would have to be roughly 200× slower to change the conclusion.
+
+The per-query number understates it, because requests make several serial calls:
+`POST /auth/refresh` issues four, `/auth/signup` three, `/auth/login` two. Four
+crossings at p50 is ~172 ms of round trip in one request.
+
+Smart Placement is enabled in response — `[env.production.placement]` in
+`apps/api/wrangler.toml`, which carries the full reasoning and the trade it
+accepts. **Enabled is not the same as placed**, and nothing surfaces the
+difference on its own: placement follows traffic heuristics this API's heartbeat
+probably does not meet yet. The same sampler is how to check. If the worker has
+been moved next to the primary, wall `p50` drops from ~43 ms to single digits,
+since the trip is precisely what it measures. Still ~43 ms means the heuristics
+have not fired — not that the configuration is wrong.
+
 **Where auth requests spend their time** — **answerable now; it was not when
 this section was written, and the change is worth knowing about.**
 
