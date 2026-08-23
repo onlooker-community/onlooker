@@ -101,6 +101,42 @@ describe("POST /lessons/:id/status", () => {
 		expect(JSON.parse(row?.body ?? "{}").status).toBe("retracted");
 	});
 
+	// The parameter in this route is NOT the last segment - "status" is. Handlers
+	// used to re-derive the id from the path themselves, each with a rule fitted
+	// to its own route's shape, so reading the wrong segment was a live hazard
+	// with no type or test standing in the way. The router now hands the id over
+	// as a captured parameter (onlooker-r5v).
+	//
+	// Two lessons, not one, and the assertion is on the one NOT named in the
+	// path. With a single lesson a handler that ignored its parameter entirely
+	// and retracted whatever it found would still pass.
+	it("transitions the lesson named in the path, not a neighbor", async () => {
+		const target = lesson();
+		const bystander = lesson();
+		await push(machineToken, [target, bystander]);
+
+		const response = await SELF.fetch(`${BASE}/lessons/${target.id}/status`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${machineToken}`,
+			},
+			body: JSON.stringify({ status: "retracted", superseded_by: null }),
+		});
+
+		// A mis-read parameter shows up here first: "status" is not a lesson id,
+		// so the lookup misses and the route 404s without ever saying why.
+		expect(response.status).toBe(200);
+
+		const rows = await db()
+			.prepare("SELECT id, status FROM lessons ORDER BY id")
+			.all<{ id: string; status: string }>();
+
+		expect(
+			Object.fromEntries(rows.results.map((row) => [row.id, row.status])),
+		).toEqual({ [target.id]: "retracted", [bystander.id]: "active" });
+	});
+
 	it("records superseded_by in the stored lesson", async () => {
 		const original = lesson();
 		const replacement = lesson();
