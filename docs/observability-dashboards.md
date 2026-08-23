@@ -503,11 +503,25 @@ second `/auth/refresh` trace in the same minute ran 84 ms, and the dashboard's
 own comparison panel put the two `d1_all` spans at 40 ms and 100 ms. At n=2 that
 is a range, not a distribution; re-measure before quoting it as one.
 
-`scripts/d1-latency-sample.sh production` is that re-measurement. It queries the
-telemetry API rather than reading this tab, which matters for the reason in the
-trap below — the list here is the slowest 100, not a sample, so percentiles
-taken off it are biased upward by construction. That is the wrong direction of
-error for deciding whether 100 ms is typical or the tail.
+`scripts/d1-latency-sample.sh production` is that re-measurement, and how it
+works is worth knowing, because the obvious approach does not.
+
+**Trace spans are not reachable from the telemetry query API.** Probed directly
+against production on 2026-08-23: that dataset's key list contains no
+`cloudflare.d1.*` field of any kind, no event in it carries a `spanName`, and an
+`exists` filter on `spanName` returns nothing — with no error, which is the
+failure mode this page warns about everywhere else. The Traces tab you are
+reading reads a different backend. The first version of that script queried the
+API for `d1_all` spans and could never have worked, whatever its dataset name.
+
+So `apps/api` measures it internally instead — see `apps/api/src/db/timing.ts`,
+which wraps the D1 binding and emits one `d1_timing` line per query into Workers
+Logs. `wall_ms` is what the Worker waited, `exec_ms` is D1's own
+`meta.duration`, and the difference is the round trip. The sampler reads those.
+
+That also sidesteps the trap below: these are every query, not the slowest 100,
+so the percentiles are not biased upward by construction — which matters for
+deciding whether 100 ms is typical or the tail.
 
 **Where auth requests spend their time** — **answerable now; it was not when
 this section was written, and the change is worth knowing about.**
@@ -547,7 +561,9 @@ authenticated checks — so `GET /auth/me` should now be reaching `getUserById`
 rather than being turned away at `requireAuth`.
 
 **Should**, because nobody has looked. Re-observing it is the work, and
-`scripts/d1-latency-sample.sh` is the instrument for the D1 half of it.
+`scripts/d1-latency-sample.sh` is the instrument for the D1 half — reading the
+`d1_timing` lines `apps/api` now emits, not the trace spans this tab shows,
+which are not queryable. See the note above.
 
 **Error rates by route rather than by worker** — answerable now, and already
 demonstrated. Use the Visualizations query in the `404` note under "Read this
