@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
-# Samples D1 span timings from Workers traces and prints a distribution.
+# Samples D1 query timings from Workers Logs and prints a distribution.
 #
-# onlooker-ujy observed a d1_all span at 100 ms whose own
-# cloudflare.d1.response.sql_duration_ms was 0.3078 - the worker in LAX, the
-# database answering from MIA. So ~99.7% of what reads as database time was the
-# trip across the continent, and tuning the query would recover nothing.
+# onlooker-ujy observed a d1_all span at 100 ms whose own execution was 0.3078 ms
+# - worker in LAX, database in MIA - so ~99.7% of what read as database time was
+# the trip across the continent, and tuning the query would recover nothing.
+# That was n=2: two spans, 40 ms and 100 ms, a range rather than a distribution.
+# This is how you get past n=2.
 #
-# That was n=2. The two spans were 40 ms and 100 ms, which is a range and not a
-# distribution, and the bead explicitly says not to pick a lever from it. This
-# script is how you get past n=2 without eyeballing the dashboard.
+# THE FIRST VERSION OF THIS SCRIPT COULD NOT WORK, and the reason is worth
+# keeping. It queried Workers *tracing* for d1_all spans, because the bead noted
+# that the dashboard's Traces tab already records everything needed. That is
+# true of the dashboard and false of anything automated. Probed against
+# production on 2026-08-23: the telemetry query API's key list contains no
+# cloudflare.d1.* field of any kind, no event in it carries a spanName, and an
+# `exists` filter on spanName returns nothing - with no error. The Traces tab
+# reads a different backend. No dataset or view name would have fixed it.
 #
-# It queries the telemetry API directly rather than reading the Traces tab,
-# and that is the point. That list is titled "100 Slowest Traces" and means it -
-# it is not a sample, so any percentile taken from it is biased upward by
-# construction, which is exactly the wrong error when the question is whether
-# 100 ms is typical or the tail.
+# So apps/api measures this itself now - see apps/api/src/db/timing.ts - and
+# emits one d1_timing line per query into Workers Logs, which this reads. The
+# numbers are ours rather than the vendor's:
+#
+#   wall_ms  how long the Worker actually waited
+#   exec_ms  meta.duration, D1's own report of execution time
+#   trip_ms  wall - exec, the part that is neither the query nor the client
+#
+# trip_ms is the number the bead is about.
 #
 # Usage: scripts/d1-latency-sample.sh production|staging [--minutes N]
 #
@@ -68,9 +78,8 @@ readonly API_BASE="https://api.cloudflare.com/client/v4"
 readonly CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 readonly CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 
-# The share of span time that has to be round trip before this reports a
-# finding rather than just a table. The observed case was 99.7%; anything above
-# this means the query itself is not the thing to tune.
+# The share of query time that has to be round trip before this reports a
+# finding rather than just a table. The originally observed case was 99.7%.
 readonly ROUND_TRIP_ALERT_PCT="${D1_SAMPLE_ALERT_PCT:-90}"
 
 # Test seams. All exit before any network request.
@@ -78,43 +87,19 @@ readonly SAMPLE_PREFLIGHT_ONLY="${SAMPLE_PREFLIGHT_ONLY:-}"
 readonly SAMPLE_PRINT_QUERY="${SAMPLE_PRINT_QUERY:-}"
 readonly SAMPLE_RENDER_STATS="${SAMPLE_RENDER_STATS:-}"
 
-# ---------------------------------------------------------------------------
-# The unverified part, isolated on purpose.
-#
-# Everything below this block was verified against Cloudflare's published spans
-# and attributes reference. These four values were NOT: the telemetry query
-# API's dataset name and view for trace spans are not documented anywhere
-# public, and they could not be confirmed by experiment because that needs a
-# token this was written without.
-#
-# That matters more here than it would elsewhere. This endpoint answers an
-# unknown filter key with success:true, errors:[], zero events - identical in
-# every observable way to a correct query over a quiet window (onlooker-kuk,
-# 2026-08-21). A wrong guess here does not fail. It produces a script that
-# reports "no spans" forever and sounds like good news.
-#
-# So they are named constants with overrides rather than literals buried in the
-# query, and assert_attributes_present below refuses to print a distribution
-# unless the spans actually carry the fields being measured. If a guess is
-# wrong you get exit 2 naming the key, on the first run, not a plausible table.
-readonly TRACE_DATASET="${D1_SAMPLE_DATASET:-cloudflare-workers-traces}"
-readonly TRACE_VIEW="${D1_SAMPLE_VIEW:-events}"
-readonly SPAN_NAME_KEY="${D1_SAMPLE_SPAN_NAME_KEY:-name}"
-readonly SPAN_DURATION_KEY="${D1_SAMPLE_DURATION_KEY:-duration}"
-# ---------------------------------------------------------------------------
+# Verified against the live API on 2026-08-23 rather than guessed. The first
+# version named `cloudflare-workers-traces`, which does not exist; a control
+# query against this one returns rows.
+readonly DATASET="${D1_SAMPLE_DATASET:-cloudflare-workers}"
 
-# Verified against the spans and attributes reference. Note served_by_REGION:
-# onlooker-ujy's notes call it served_by_colo, which is the dashboard's display
-# label, not the attribute name. Querying served_by_colo returns nothing, in
-# the silent way described above.
-readonly ATTR_SQL_MS="cloudflare.d1.response.sql_duration_ms"
-readonly ATTR_SERVED_REGION="cloudflare.d1.response.served_by_region"
-readonly ATTR_SERVED_PRIMARY="cloudflare.d1.response.served_by_primary"
-
-# Every D1 span that runs a statement and returns rows. d1_all is what
-# onlooker-ujy measured; the others are here because a refresh path that grows
-# a d1_first would otherwise silently drop out of the sample.
-readonly D1_SPAN_NAMES='["d1_all","d1_first","d1_run","d1_raw","d1_exec","d1_batch"]'
+# The discriminator, and the failure this script is most exposed to.
+#
+# Workers Logs parses the JSON string handed to console.error and makes each
+# property a queryable top-level key, so `event` is filterable directly. The
+# response nests the parsed object under `source`, but `source.` is NOT a query
+# prefix - filtering on it matches nothing and reports success while doing so.
+# Established for client_error in onlooker-kuk and reused here unchanged.
+readonly EVENT_NAME="${D1_SAMPLE_EVENT:-d1_timing}"
 
 require_jq() {
 	if ! command -v jq >/dev/null 2>&1; then
@@ -123,17 +108,12 @@ require_jq() {
 	fi
 }
 
-# build_filters
-#
-# Span name is matched with `in` rather than `eq` so the whole D1 family is
-# sampled in one query.
 build_filters() {
 	jq -n -c \
+		--arg event "${EVENT_NAME}" \
 		--arg service "${SERVICE}" \
-		--arg name_key "${SPAN_NAME_KEY}" \
-		--argjson names "${D1_SPAN_NAMES}" \
 		'[
-			{key: $name_key, operation: "in", value: $names, type: "string"},
+			{key: "event", operation: "eq", value: $event, type: "string"},
 			{key: "$metadata.service", operation: "eq", value: $service, type: "string"}
 		]'
 }
@@ -141,8 +121,11 @@ build_filters() {
 # build_query [filters-json]
 #
 # Timeframe is epoch MILLISECONDS. Cloudflare's own observability MCP client
-# takes ISO-8601 and converts before sending, so a schema copied from it sends
-# a value this API reads as 1970 and a window that matches nothing.
+# takes ISO-8601 and converts before sending, so a schema copied from it sends a
+# value this API reads as 1970 and a window that matches nothing.
+#
+# Note `operation: "eq"` throughout. An earlier version used `in` with an array
+# value and the API answered HTTP 400 - only scalar eq is accepted here.
 build_query() {
 	local filters="${1:-$(build_filters)}"
 	local to_ms from_ms
@@ -153,8 +136,7 @@ build_query() {
 		--argjson from "${from_ms}" \
 		--argjson to "${to_ms}" \
 		--argjson filters "${filters}" \
-		--arg dataset "${TRACE_DATASET}" \
-		--arg view "${TRACE_VIEW}" \
+		--arg dataset "${DATASET}" \
 		'{
 			queryId: "onlooker-d1-latency-sample",
 			parameters: {
@@ -163,70 +145,58 @@ build_query() {
 				filterCombination: "and"
 			},
 			timeframe: {from: $from, to: $to},
-			view: $view,
+			view: "events",
 			limit: 1000
 		}'
 }
 
 # render_stats
 #
-# Reads the spans array on stdin and prints the distribution.
+# Reads the events array on stdin and prints the distribution.
 #
-# Percentiles are nearest-rank on the sorted sample, not interpolated. With
-# sample sizes this small interpolation invents precision that is not there,
-# and every number printed here is meant to be one that was actually observed.
+# Fields come from `.source`, which is where the API nests the parsed JSON
+# object - the same place client-error-monitor.sh reads .source.kind from.
 #
-# The derived line is the whole reason the script exists: span duration minus
-# sql_duration_ms is the part that is not the query, and on the observed trace
-# that was 99.7% of it.
+# Percentiles are nearest-rank on the sorted sample, not interpolated. At these
+# sample sizes interpolation invents precision that is not there, and every
+# number printed here is one that was actually observed.
 render_stats() {
-	jq -r \
-		--arg dur "${SPAN_DURATION_KEY}" \
-		--arg sql "${ATTR_SQL_MS}" \
-		--arg region "${ATTR_SERVED_REGION}" \
-		--arg primary "${ATTR_SERVED_PRIMARY}" \
-		'
+	jq -r '
 		def pct(p): if length == 0 then null
 			else sort | .[ ((length - 1) * p / 100) | floor ] end;
 		def fmt(v): if v == null then "n/a" else (v * 1000 | round / 1000 | tostring) end;
 
-		# Span duration is milliseconds in the dashboard. attributes may be flat
-		# or nested depending on the view, so both are read - but a span that
-		# yields neither is dropped and counted, never coerced to zero. A zero
-		# would sink every percentile and read as a fast database.
-		def attr($k): (.attributes[$k]? // .[$k]?);
-
-		. as $spans
-		| [ $spans[] | select(attr($dur) != null) ] as $timed
-		| [ $timed[] | attr($dur) ] as $durations
-		| [ $timed[] | attr($sql) | select(. != null) ] as $sqls
-		| ($durations | add // 0) as $dur_total
-		| ($sqls | add // 0) as $sql_total
+		. as $events
+		| [ $events[] | .source | select(.wall_ms != null) ] as $timed
+		| [ $timed[] | .wall_ms ] as $walls
+		| [ $timed[] | .exec_ms | select(. != null) ] as $execs
+		| [ $timed[] | .trip_ms | select(. != null) ] as $trips
+		| ($walls | add // 0) as $wall_total
+		| ($execs | add // 0) as $exec_total
 		|
-		"  spans sampled: \($spans | length)  (with a duration: \($timed | length))",
+		"  queries sampled: \($events | length)  (with a wall time: \($timed | length))",
 		"",
-		"  span duration      p50  \(fmt($durations | pct(50))) ms",
-		"                     p90  \(fmt($durations | pct(90))) ms",
-		"                     p99  \(fmt($durations | pct(99))) ms",
-		"                     max  \(fmt($durations | pct(100))) ms",
+		"  wall  (what the worker waited)   p50  \(fmt($walls | pct(50))) ms",
+		"                                   p90  \(fmt($walls | pct(90))) ms",
+		"                                   p99  \(fmt($walls | pct(99))) ms",
+		"                                   max  \(fmt($walls | pct(100))) ms",
 		"",
-		"  sql_duration_ms    p50  \(fmt($sqls | pct(50))) ms",
-		"                     p90  \(fmt($sqls | pct(90))) ms",
-		"                     max  \(fmt($sqls | pct(100))) ms",
+		"  exec  (D1 executing the query)   p50  \(fmt($execs | pct(50))) ms",
+		"                                   p90  \(fmt($execs | pct(90))) ms",
+		"                                   max  \(fmt($execs | pct(100))) ms",
 		"",
-		(if $dur_total > 0 then
-			"  round trip = span - sql  ->  \(((($dur_total - $sql_total) / $dur_total) * 1000 | round / 10))% of observed span time"
+		"  trip  (wall - exec)              p50  \(fmt($trips | pct(50))) ms",
+		"                                   p90  \(fmt($trips | pct(90))) ms",
+		"                                   max  \(fmt($trips | pct(100))) ms",
+		"",
+		(if $wall_total > 0 then
+			"  round trip is \(((($wall_total - $exec_total) / $wall_total) * 1000 | round / 10))% of observed query time"
 		else
-			"  round trip: not computable, no span carried a duration"
+			"  round trip: not computable, no query carried a wall time"
 		end),
 		"",
-		"  served_by_region:",
-		( [ $spans[] | attr($region) // "(absent)" ]
-			| group_by(.) | map({k: .[0], n: length}) | sort_by(-.n)
-			| .[] | "    \(.k)  \(.n)" ),
-		"",
-		"  served_by_primary:",
-		( [ $spans[] | attr($primary) | tostring ]
+		"  by verb:",
+		( [ $events[] | .source.verb // "(absent)" ]
 			| group_by(.) | map({k: .[0], n: length}) | sort_by(-.n)
 			| .[] | "    \(.k)  \(.n)" )
 		'
@@ -295,9 +265,9 @@ telemetry_query() {
 
 # run_query <label> <body>
 #
-# Sets `span_count` and `spans_json`. Any failure to get a usable answer exits
+# Sets `event_count` and `events_json`. Any failure to get a usable answer exits
 # 2 rather than returning: there is no partial success worth continuing from,
-# because a sampler that cannot read the traces must not print a distribution.
+# because a sampler that cannot read the logs must not print a distribution.
 run_query() {
 	local label="$1" body="$2"
 	local response status payload
@@ -327,98 +297,86 @@ run_query() {
 		exit 2
 	fi
 
-	spans_json="$(printf '%s' "${payload}" | jq -c '.result.events.events // []')"
-	span_count="$(printf '%s' "${spans_json}" | jq -r 'length')"
+	events_json="$(printf '%s' "${payload}" | jq -c '.result.events.events // []')"
+	event_count="$(printf '%s' "${events_json}" | jq -r 'length')"
 }
 
-# The control query. Same endpoint, same window, same dataset, no filters.
+# The control query, and the reason this script is more than one request.
 #
-# It must find something. An unknown dataset name, an unknown view, or a trace
-# feed that simply is not there all return success with zero rows, and so does
-# a genuinely quiet window - nothing in the response tells them apart. Without
-# this, a wrong TRACE_DATASET produces "no D1 spans" forever, which reads as
-# "no database problem" and is the same shape as the apex-path heartbeat that
-# passed every check through a total outage.
+# An unknown filter key returns success:true with zero events. So does a correct
+# query over a quiet window - nothing in the response tells them apart. Without
+# this, a wrong EVENT_NAME produces "no timings" forever, which reads as "no
+# database problem" and is the same shape as the apex-path heartbeat that passed
+# every check through a total outage.
 run_query "control" "$(build_query '[]')"
 
-if (( span_count == 0 )); then
+if (( event_count == 0 )); then
 	echo "d1-latency-sample: the control query found nothing in the last ${LOOKBACK_MINUTES}m" >&2
-	echo "d1-latency-sample: dataset '${TRACE_DATASET}' view '${TRACE_VIEW}' returned no rows at all," >&2
-	echo "  so either tracing is off, the window is empty, or those two names are wrong." >&2
-	echo "  Override with D1_SAMPLE_DATASET / D1_SAMPLE_VIEW. See the block at the top of this file." >&2
+	echo "d1-latency-sample: dataset '${DATASET}' returned no rows at all, so either the" >&2
+	echo "  window is empty or that name is wrong. Override with D1_SAMPLE_DATASET." >&2
 	exit 2
 fi
 
-echo "  ok    control query found ${span_count} rows, the dataset is readable"
+echo "  ok    control query found ${event_count} rows, the dataset is readable"
 
-run_query "d1 spans" "$(build_query)"
+run_query "d1 timings" "$(build_query)"
 
-if (( span_count == 0 )); then
-	echo "d1-latency-sample: no D1 spans in the last ${LOOKBACK_MINUTES}m, though the dataset is readable" >&2
-	echo "  Either nothing hit the database in that window, or '${SPAN_NAME_KEY}' is not the span name key." >&2
-	echo "  Override with D1_SAMPLE_SPAN_NAME_KEY." >&2
+if (( event_count == 0 )); then
+	echo "d1-latency-sample: no '${EVENT_NAME}' events in the last ${LOOKBACK_MINUTES}m, though the dataset is readable" >&2
+	echo "  Either apps/api served no request in that window, or the timing wrapper" >&2
+	echo "  is not installed - see apps/api/src/db/timing.ts and confirm index.ts" >&2
+	echo "  still passes timedD1(env.DB) to dispatch." >&2
 	exit 2
 fi
 
-# assert_attributes_present
+# assert_fields_present
 #
-# The control query proves the dataset answers. It does not prove these spans
-# carry the fields being measured, and a span whose duration and sql_duration
-# both read as null would sail through every percentile above as "n/a" while
-# still printing a confident-looking table.
-#
-# So this refuses to print anything unless at least one span actually carries
-# each field. Named individually, because knowing WHICH key came back empty is
-# the difference between a one-line fix and a rewrite.
-assert_attributes_present() {
+# The control query proves the dataset answers and the filter proves these are
+# d1_timing events. Neither proves they carry the numbers being measured - and
+# an event whose wall_ms and exec_ms both read as null would sail through every
+# percentile above as "n/a" while still printing a confident-looking table.
+assert_fields_present() {
 	local missing=""
-	local key label
+	local field
 
-	while IFS='|' read -r key label; do
+	for field in wall_ms exec_ms; do
 		local present
-		present="$(printf '%s' "${spans_json}" | jq -r \
-			--arg k "${key}" \
-			'[ .[] | (.attributes[$k]? // .[$k]?) | select(. != null) ] | length')"
+		present="$(printf '%s' "${events_json}" | jq -r \
+			--arg f "${field}" \
+			'[ .[] | .source[$f]? | select(. != null) ] | length')"
 		if (( present == 0 )); then
-			missing="${missing}\n    ${key}  (${label})"
+			missing="${missing} ${field}"
 		fi
-	done <<-KEYS
-		${SPAN_DURATION_KEY}|span duration, override with D1_SAMPLE_DURATION_KEY
-		${ATTR_SQL_MS}|time inside the query itself
-	KEYS
+	done
 
 	if [[ -n "${missing}" ]]; then
-		echo "d1-latency-sample: found ${span_count} D1 spans, but none of them carry:" >&2
-		printf '%b\n' "${missing}" >&2
+		echo "d1-latency-sample: found ${event_count} ${EVENT_NAME} events, but none carry:${missing}" >&2
 		echo "  Refusing to print a distribution over fields that are not there." >&2
 		exit 2
 	fi
 }
 
-assert_attributes_present
+assert_fields_present
 
 echo
-echo "d1-latency-sample: ${ENVIRONMENT} — ${span_count} D1 spans over the last ${LOOKBACK_MINUTES}m"
+echo "d1-latency-sample: ${ENVIRONMENT} — ${event_count} queries over the last ${LOOKBACK_MINUTES}m"
 echo
-printf '%s' "${spans_json}" | render_stats
+printf '%s' "${events_json}" | render_stats
 echo
 
-if (( span_count >= 1000 )); then
+if (( event_count >= 1000 )); then
 	echo "  (1000 is the query limit, so the window holds more than this sample)"
 fi
 
-# The finding, restated as an exit code so this can be run from CI later
-# without anyone reading the table.
-round_trip_pct="$(printf '%s' "${spans_json}" | jq -r \
-	--arg dur "${SPAN_DURATION_KEY}" \
-	--arg sql "${ATTR_SQL_MS}" \
-	'def attr($k): (.attributes[$k]? // .[$k]?);
-	 ([ .[] | attr($dur) | select(. != null) ] | add // 0) as $d
-	 | ([ .[] | attr($sql) | select(. != null) ] | add // 0) as $s
-	 | if $d > 0 then (($d - $s) / $d * 100 | floor) else 0 end')"
+# The finding, restated as an exit code so this can run from CI later without
+# anyone reading the table.
+round_trip_pct="$(printf '%s' "${events_json}" | jq -r \
+	'([ .[] | .source.wall_ms? | select(. != null) ] | add // 0) as $w
+	 | ([ .[] | .source.exec_ms? | select(. != null) ] | add // 0) as $e
+	 | if $w > 0 then (($w - $e) / $w * 100 | floor) else 0 end')"
 
 if (( round_trip_pct >= ROUND_TRIP_ALERT_PCT )); then
-	echo "d1-latency-sample: ${round_trip_pct}% of D1 span time is round trip, not query."
+	echo "d1-latency-sample: ${round_trip_pct}% of D1 query time is round trip, not execution."
 	echo "  Tuning the SQL recovers nothing. The levers are D1 read replication with"
 	echo "  the Sessions API, or Smart Placement - see onlooker-ujy, and note that the"
 	echo "  refresh path writes as well as reads, so read-your-own-writes needs the"
