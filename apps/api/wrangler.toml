@@ -85,6 +85,12 @@ EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
 
 # Staging: Use staging D1 database
+# Smart Placement, declared here for parity with production rather than because
+# staging will benefit - staging sees almost no traffic, so it is unlikely to
+# ever meet the heuristics described under [env.production.placement].
+[env.staging.placement]
+mode = "smart"
+
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "onlooker-db-staging"
@@ -109,6 +115,49 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+
+# Move the worker toward the database instead of running it wherever the request
+# lands. onlooker-ujy measured why: at p50 the worker waits 43 ms per D1 query
+# and D1 itself executes in 0.182 ms, so ~99.8% of what reads as database time is
+# the trip - worker in LAX, primary in MIA. Tuning the queries recovers nothing.
+#
+# What makes this the right lever rather than read replication is the trip COUNT.
+# POST /auth/refresh issues four sequential D1 calls (get the refresh token, get
+# the user, revoke, store), and each pays the crossing on its own: ~172 ms of
+# round trip in one request. Smart Placement collapses all four at once, and it
+# gets better as that count rises. Read replication would help the two reads
+# only - the two writes must reach the primary regardless, and because the same
+# request both reads and writes the session rows, it would also need Sessions API
+# bookmarks for read-your-own-writes.
+#
+# THE TRADE, stated plainly: this adds one leg between the user and the worker,
+# paid by every request including those that touch no D1 at all. It is the right
+# trade for an API whose requests are several serial binding calls, and the wrong
+# one for an edge worker doing cheap local work. If this API ever grows routes
+# that are latency-sensitive to the user's own location and make no D1 calls,
+# revisit.
+#
+# IT MAY NOT TAKE EFFECT YET, and that is expected rather than a misconfiguration.
+# Placement is driven by heuristics over observed traffic, and the published
+# thresholds are qualitative. This API's only steady traffic is a heartbeat, which
+# probably does not meet them. Since March 2025 a worker that HAS been placed no
+# longer reverts when traffic falls off, so enabling it now means the placement
+# sticks once real traffic first arrives, rather than needing someone to remember
+# this decision at that moment.
+#
+# HOW TO TELL WHETHER IT WORKED, because "enabled" and "placed" are different
+# things and nothing surfaces the difference on its own: run
+# `scripts/d1-latency-sample.sh production`. It reads the d1_timing lines the
+# worker emits and prints wall time. Placed, wall p50 should fall from ~43 ms to
+# single digits, because the trip is what it is measuring. Still ~43 ms means the
+# heuristics have not fired - not that the config is wrong.
+#
+# Declared per environment rather than at the top level. Whether `placement` is
+# an inheritable key is not something this file wants to depend on: the comment
+# at the top of this file records what relying on inheritance for `routes` nearly
+# cost, and the observability blocks below are repeated for the same reason.
+[env.production.placement]
+mode = "smart"
 
 # Production: Use production D1 database
 [[env.production.d1_databases]]
