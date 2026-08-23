@@ -3364,21 +3364,50 @@ git commit -m "feat(api): serve a delta a client can prove it received whole :sa
 
 ---
 
-## Task 10: Apply the migrations and close out
+## Task 10: Confirm the rollout and close out
 
-- [ ] **Step 1: Apply to staging**
+**Steps 1 and 2 are not yours to run.** `deploy.yml` already applies migrations
+and verifies the schema on every merge to `main` — for staging *and* production,
+in that order, with a `pnpm build` first. This task was written without checking
+that, and the original version had you doing by hand what the pipeline does
+automatically, which teaches the next reader that a deployment is pending when
+it is not.
+
+Confirm rather than execute.
+
+- [ ] **Step 1: Check the deploy run for this merge**
 
 ```bash
-pnpm migrate:staging
+gh run list --workflow deploy.yml --limit 1
+gh run view <id> --log | grep "matches packages/db/src/schema.ts"
 ```
 
-- [ ] **Step 2: Verify the live schema matches**
+Expected, two lines — the success message `verify-schema.mjs` prints:
+
+```
+onlooker-db-staging (staging) matches packages/db/src/schema.ts
+onlooker-db (production) matches packages/db/src/schema.ts
+```
+
+If the run is green and both lines are present, both databases are migrated and
+verified against source. There is nothing to apply.
+
+- [ ] **Step 2: Only if you need to check a database by hand**
+
+The script takes **two positional arguments** — `[database, env]` — and reads
+the expected schema from `dist/`, not `src/`. Run bare it passes `undefined` for
+both and wrangler rejects `--env undefined`; run without building it compares
+against whatever was last compiled.
 
 ```bash
-pnpm --filter @onlooker/db verify:schema
+pnpm --filter @onlooker/db build
+pnpm --filter @onlooker/db verify:schema onlooker-db-staging staging
 ```
 
-Expected: no differences.
+Note the **database name**, not the `DB` binding — matching how `deploy.yml`
+invokes it. The `dist/` dependency is the same trap Task 1 hit with
+`generate:expected-schema`; both read the same compiled artifact, and neither
+errors when it is stale.
 
 - [ ] **Step 3: Revoke every pre-Task-0 refresh token**
 
