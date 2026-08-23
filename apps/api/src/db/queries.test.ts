@@ -14,6 +14,7 @@ import {
 	revokeAllSessionsForUser,
 	revokeAllSessionsForUserExcept,
 	revokeRefreshToken,
+	rotateRefreshToken,
 	setEmailVerified,
 	storeRefreshToken,
 	updatePassword,
@@ -88,6 +89,50 @@ describe("getUserById", () => {
 describe("refresh tokens", () => {
 	const future = () => new Date(Date.now() + 60_000);
 	const past = () => new Date(Date.now() - 60_000);
+
+	// A rotation is one operation, not a revoke that happens to be followed by a
+	// store. Split into two awaits, a failure between them takes the caller's
+	// refresh token away without issuing a replacement - a forced logout with
+	// nothing to retry and no error the client can act on.
+	//
+	// Forced here through the unique index on token_hash: rotating TO a value
+	// another session already holds makes the insert fail while the delete would
+	// otherwise have succeeded. Two awaits leave the old session deleted. One
+	// batch rolls both back.
+	describe("rotateRefreshToken", () => {
+		it("revokes the old token and stores the new one", async () => {
+			const user = await createUser(db(), "rot@example.com", "hash");
+			await storeRefreshToken(db(), user.id, "old-token", future());
+
+			await rotateRefreshToken(
+				db(),
+				"old-token",
+				user.id,
+				"new-token",
+				future(),
+			);
+
+			expect(await getRefreshToken(db(), "old-token")).toBeNull();
+			expect((await getRefreshToken(db(), "new-token"))?.user_id).toBe(user.id);
+		});
+
+		it("leaves the old token usable when storing the new one fails", async () => {
+			const user = await createUser(db(), "atomic@example.com", "hash");
+			await storeRefreshToken(db(), user.id, "old-token", future());
+			// Held by a different session, so rotating onto it violates the unique
+			// index on token_hash.
+			await storeRefreshToken(db(), user.id, "taken-token", future());
+
+			await expect(
+				rotateRefreshToken(db(), "old-token", user.id, "taken-token", future()),
+			).rejects.toThrow();
+
+			// The half that would have succeeded on its own must not have landed.
+			// This is the assertion that fails if the batch is ever unpicked back
+			// into a revoke and a store.
+			expect((await getRefreshToken(db(), "old-token"))?.user_id).toBe(user.id);
+		});
+	});
 
 	it("stores a token and retrieves it by its raw value", async () => {
 		const user = await createUser(db(), "f@example.com", "hash");
