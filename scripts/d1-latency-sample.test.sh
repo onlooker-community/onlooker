@@ -221,7 +221,7 @@ rendered="$(stats "${FIXTURE}" CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a)"
 expect_contains "${rendered}" "p50  50 ms" "p50 of [40,50,84,100] is 50"
 expect_contains "${rendered}" "p90  84 ms" "p90 of [40,50,84,100] is 84"
 expect_contains "${rendered}" "max  100 ms" "max of [40,50,84,100] is 100"
-expect_contains "${rendered}" "99.6% of observed query time" "round trip share is 99.6%"
+expect_contains "${rendered}" "99.6% of query time, over the 4 queries reporting both" "round trip share is 99.6%, scoped to the queries reporting both"
 expect_contains "${rendered}" "queries sampled: 4" "counts every query"
 expect_contains "${rendered}" "SELECT  3" "groups by verb"
 
@@ -245,6 +245,27 @@ expect_contains "${with_null}" "queries sampled: 4  (with a wall time: 3)" "the 
 # assertion above.
 expect_contains "${rendered}" "exec  (D1 executing the query)" "reports execution time separately"
 expect_contains "${rendered}" "trip  (wall - exec)" "reports the round trip separately"
+
+# The defect this caught in production. drizzle reads reach D1 through raw(),
+# which returns no meta, while writes go through run(), which does - so exec and
+# trip can cover a strictly smaller, and slower, population than wall. The first
+# version printed percentiles from both with no counts, which made trip p50 read
+# as LARGER than wall p50: arithmetically impossible per query, and entirely
+# possible across two different populations.
+#
+# Real numbers from production, 2026-08-23: 20 queries, 20 walls, 8 execs - the
+# 8 being every write and no read.
+mixed="$(stats '[
+	{"source":{"wall_ms":12,"verb":"SELECT"}},
+	{"source":{"wall_ms":43,"verb":"SELECT"}},
+	{"source":{"wall_ms":90,"exec_ms":0.2,"trip_ms":89.8,"verb":"INSERT"}},
+	{"source":{"wall_ms":96,"exec_ms":0.2,"trip_ms":95.8,"verb":"DELETE"}}
+]' CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a)"
+
+expect_contains "${mixed}" "wall  (what the worker waited)   n=4" "wall reports its own count"
+expect_contains "${mixed}" "exec  (D1 executing the query)   n=2" "exec reports a smaller count when meta is missing"
+expect_contains "${mixed}" "over the 2 queries reporting both" "the round trip is scoped to the paired subset"
+expect_contains "${mixed}" "2 of 4 queries reported no execution time" "an unpaired majority is called out explicitly"
 
 empty="$(stats '[]' CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a)"
 expect_contains "${empty}" "n/a" "an empty sample renders n/a rather than 0"
