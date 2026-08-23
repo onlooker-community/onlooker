@@ -199,6 +199,57 @@ else
 fi
 
 echo
+echo "source-guards: every binding the API reads is documented"
+
+# ENVIRONMENT_VARIABLES.md drifted badly enough to be worth a guard rather than
+# a habit (onlooker-6av). It documented DATABASE_PASSWORD, ENCRYPTION_KEY,
+# OAUTH_CLIENT_SECRET, DB_HOST, DB_NAME and a TOKEN_CACHE binding - six entries
+# nothing read, complete with commands for generating and setting them - while
+# omitting the three the mail path depends on. RESEND_API_KEY was the expensive
+# one: unset, the API logs mail instead of sending it, so its absence presents
+# as password resets never arriving rather than as any error.
+#
+# The direction checked here is the one that hurts. A variable added to
+# WorkerEnv and left undocumented is invisible: nothing fails, and the next
+# person deploying an environment has no way to learn it exists. The reverse -
+# a documented entry with no reader - needs a human to notice that a name is
+# fiction, which is exactly the judgment a script does not have.
+readonly ENV_DOC="${ROOT}/ENVIRONMENT_VARIABLES.md"
+readonly WORKER_ENV="${ROOT}/apps/api/src/types/index.ts"
+
+# Field names between `export interface WorkerEnv {` and its closing brace.
+worker_env_fields() {
+	sed -n '/export interface WorkerEnv/,/^}/p' "${WORKER_ENV}" |
+		grep -oE '^	[A-Z_]+' | tr -d '\t'
+}
+
+undocumented=""
+field_count=0
+while IFS= read -r field; do
+	[[ -z "${field}" ]] && continue
+	field_count=$((field_count + 1))
+	grep -qF "\`${field}\`" "${ENV_DOC}" || undocumented="${undocumented} ${field}"
+done < <(worker_env_fields)
+
+if [[ -n "${undocumented}" ]]; then
+	fail "every WorkerEnv field appears in ENVIRONMENT_VARIABLES.md" \
+		"undocumented:${undocumented}"
+else
+	pass "every WorkerEnv field appears in ENVIRONMENT_VARIABLES.md"
+fi
+
+# Same trap as the lesson-query guard below it: with zero fields parsed, the
+# loop above never runs and the check passes while asserting nothing. That is
+# not hypothetical - the extraction is a sed range over a type declaration, and
+# renaming the interface or reformatting its fields breaks it silently.
+if (( field_count >= 8 )); then
+	pass "WorkerEnv fields are actually being parsed (${field_count} found)"
+else
+	fail "WorkerEnv fields are actually being parsed" \
+		"parsed ${field_count}, expected at least 8 - the extraction is broken"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

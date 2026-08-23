@@ -57,8 +57,16 @@ Sensitive values managed via CLI:
 
 ```bash
 pnpm --filter @onlooker/api exec wrangler secret put JWT_SECRET --env production
-pnpm --filter @onlooker/api exec wrangler secret put DATABASE_PASSWORD --env production
+pnpm --filter @onlooker/api exec wrangler secret put RESEND_API_KEY --env production
 ```
+
+Those two, and nothing else. `DATABASE_PASSWORD` was the second line here and
+nothing reads it — D1 is reached through the `DB` binding, which needs no
+password. `RESEND_API_KEY` is the one that goes unnoticed when it is missing: the
+API logs mail instead of sending it, so the deployment looks healthy and the
+password resets never arrive. See
+[ENVIRONMENT_VARIABLES.md](../../ENVIRONMENT_VARIABLES.md) for the full list,
+which `scripts/source-guards.test.sh` holds to what `WorkerEnv` declares.
 
 ## Deployment
 
@@ -174,13 +182,13 @@ async function handler(request: Request, env: WorkerEnv) {
 
 ### KV Namespace
 
-```typescript
-// Access in handlers
-async function handler(request: Request, env: WorkerEnv) {
-  const cache = env.TOKEN_CACHE;
-  await cache.put(token, 'true', { expirationTtl: 3600 });
-}
-```
+There is no KV namespace bound in any environment. This section showed handlers
+reading `env.TOKEN_CACHE`, a binding that has never existed under that name.
+
+`WorkerEnv` does declare `TOKEN_REVOCATION?: KVNamespace`, bound nowhere and read
+nowhere, marking where an access-token denylist would attach if that trade is
+ever revisited. See the KV Namespace Binding section in
+[ENVIRONMENT_VARIABLES.md](../../ENVIRONMENT_VARIABLES.md).
 
 ## Endpoints
 
@@ -261,14 +269,8 @@ const hash = await hashPassword(password);
 
 ### Rate Limiting
 
-Optional rate limiting with KV:
-
-```typescript
-const remaining = await rateLimit(ip, env.TOKEN_CACHE);
-if (remaining <= 0) {
-  return new Response('Too many requests', { status: 429 });
-}
-```
+None. There is no `rateLimit` function in this codebase and no KV namespace for
+one to use — the sample previously here called both.
 
 ## Rollback
 
