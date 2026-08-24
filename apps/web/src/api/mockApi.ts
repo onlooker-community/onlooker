@@ -655,7 +655,11 @@ export async function mockDataApi(
 		// not minted here. The mock's pool is always empty, so a well-formed
 		// cursor still yields nothing - only the rejection needs to match.
 		const cursor = query.get("cursor");
-		if (cursor !== null) {
+		// `if (cursor)` and not `!== null`: URLSearchParams returns "" for a
+		// bare `?cursor=`, and apps/api guards with `if (opts.cursor)`, which
+		// treats "" as absent. Rejecting it here would 400 a request production
+		// answers 200 - the same divergence this task exists to close, inverted.
+		if (cursor) {
 			let decoded: string | null = null;
 			try {
 				decoded = atob(cursor);

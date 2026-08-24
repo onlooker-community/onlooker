@@ -371,6 +371,18 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			name: "an empty cursor is treated as no cursor",
+			path: "/api/lessons?cursor=",
+			init: { method: "GET" },
+			status: 200,
+			body: {
+				lessons: expectArray,
+				cursor: null,
+				has_more: false,
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "a cursor this server did not mint is rejected",
 			path: "/api/lessons?cursor=not-a-real-cursor",
 			init: { method: "GET" },
