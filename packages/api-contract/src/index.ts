@@ -364,6 +364,20 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			name: "an unknown lesson status is rejected",
+			path: "/api/lessons?status=banana",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "a cursor this server did not mint is rejected",
+			path: "/api/lessons?cursor=not-a-real-cursor",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "lesson that nobody holds",
 			path: "/api/lessons/01NOPE00000000000000000000",
 			init: { method: "GET" },

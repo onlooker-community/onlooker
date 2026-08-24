@@ -635,6 +635,42 @@ export async function mockDataApi(
 
 	if (poolPath === "/api/lessons" && (options.method ?? "GET") === "GET") {
 		requireAuth(options);
+
+		// Mirrors handleBrowseLessons in apps/api. The mock accepting a query
+		// the API rejects is the same class of divergence as the error envelope:
+		// it makes a broken request look fine in development.
+		const query = new URLSearchParams(path.split("?")[1] ?? "");
+
+		for (const status of query.getAll("status")) {
+			if (!["active", "refuted", "superseded", "retracted"].includes(status)) {
+				throw new AuthApiError(
+					400,
+					"invalid_status",
+					"status must be one of active, refuted, superseded, retracted",
+				);
+			}
+		}
+
+		// The real cursor is base64 of `<promoted_at>\n<id>`; anything else was
+		// not minted here. The mock's pool is always empty, so a well-formed
+		// cursor still yields nothing - only the rejection needs to match.
+		const cursor = query.get("cursor");
+		if (cursor !== null) {
+			let decoded: string | null = null;
+			try {
+				decoded = atob(cursor);
+			} catch {
+				decoded = null;
+			}
+			if (decoded === null || decoded.split("\n").length !== 2) {
+				throw new AuthApiError(
+					400,
+					"invalid_cursor",
+					"That cursor was not issued by this server; start from the first page",
+				);
+			}
+		}
+
 		return json({ lessons: [], cursor: null, has_more: false });
 	}
 
