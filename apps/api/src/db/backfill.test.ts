@@ -14,12 +14,7 @@ beforeEach(async () => {
 	await db().prepare("DELETE FROM lesson_feed").run();
 	await db().prepare("DELETE FROM lessons").run();
 	await db().prepare("DELETE FROM users").run();
-	const user = await createUser(
-		db(),
-		"backfill@example.com",
-		"hash",
-		"Ada",
-	);
+	const user = await createUser(db(), "backfill@example.com", "hash", "Ada");
 	userId = user.id;
 });
 
@@ -45,7 +40,10 @@ const promotedAtOf = async (id: string) =>
 
 describe("the 0004 backfill", () => {
 	it("copies promoted_at out of the body", async () => {
-		await seedUnbackfilled("01BACKFILL0000000000000001", "2026-08-20T00:00:00.000Z");
+		await seedUnbackfilled(
+			"01BACKFILL0000000000000001",
+			"2026-08-20T00:00:00.000Z",
+		);
 
 		await db().prepare(BACKFILL).run();
 
@@ -58,7 +56,10 @@ describe("the 0004 backfill", () => {
 	// a second run would overwrite a correct column value with whatever the
 	// body happened to say.
 	it("leaves an already-populated row alone", async () => {
-		await seedUnbackfilled("01BACKFILL0000000000000002", "2026-08-20T00:00:00.000Z");
+		await seedUnbackfilled(
+			"01BACKFILL0000000000000002",
+			"2026-08-20T00:00:00.000Z",
+		);
 		await db()
 			.prepare("UPDATE lessons SET promoted_at = ? WHERE id = ?")
 			.bind("2026-08-21T00:00:00.000Z", "01BACKFILL0000000000000002")
