@@ -394,7 +394,12 @@ In `apps/web/src/api/mockApi.ts`, inside the `GET /api/lessons` branch added for
 			} catch {
 				decoded = null;
 			}
-			if (decoded === null || decoded.split("\n").length !== 2) {
+			// decodeCursor requires BOTH parts non-empty, not merely two of them:
+			// `!promotedAt || !id` in apps/api/src/db/lessons.ts. Counting parts
+			// alone accepts "\nabc" and "abc\n", which the API rejects - the same
+			// under-rejection this task exists to close, pointed at the mock.
+			const parts = decoded === null ? [] : decoded.split("\n");
+			if (parts.length !== 2 || !parts[0] || !parts[1]) {
 				throw new AuthApiError(
 					400,
 					"invalid_cursor",
