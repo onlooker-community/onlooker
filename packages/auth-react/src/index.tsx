@@ -107,12 +107,14 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 			// `err.code === "not_found"` passed in development and failed in
 			// production. The narrow type below is deliberate: the `as any` that
 			// used to be here is what let the two shapes go unnoticed.
-			const envelope = data as {
+			const envelope = (data ?? {}) as {
 				error?: { code?: string; message?: string; details?: unknown };
 			};
 			throw new AuthApiError(
 				response.status,
-				envelope.error?.code ?? "unknown_error",
+				typeof envelope.error?.code === "string"
+					? envelope.error.code
+					: "unknown_error",
 				envelope.error?.message ??
 					`Request failed with status ${response.status}`,
 				envelope.error?.details,
