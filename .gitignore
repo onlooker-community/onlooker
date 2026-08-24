@@ -54,3 +54,6 @@ pnpm-debug.log*
 # *.lock, but only inside .beads/ - this one lands outside its scope, so it
 # showed up in every git status and was one `git add -A` away from a commit.
 .beads.gate.lock
+
+# Visual brainstorming companion scratch (superpowers)
+.superpowers/
