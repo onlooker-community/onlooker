@@ -92,7 +92,12 @@ describe("GET /api/lessons", () => {
 		expect(response.status).toBe(400);
 	});
 
-	it("clamps limit to the maximum rather than failing", async () => {
+	// Against an empty pool this only proves the request does not 400 - it
+	// cannot tell a clamped limit from an unclamped one, since either way
+	// there is nothing to return. The clamp itself is proven at the db layer,
+	// in lessons-browser.test.ts, where seeding enough rows to matter is
+	// cheap.
+	it("does not reject a limit above the maximum", async () => {
 		const response = await browse("/api/lessons?limit=99999");
 		expect(response.status).toBe(200);
 	});

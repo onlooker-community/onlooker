@@ -420,6 +420,11 @@ export async function listLessonsPage(
 	let where = "user_id = ?";
 
 	if (opts.statuses && opts.statuses.length > 0) {
+		// This filters on the status COLUMN, but the row returned below is the
+		// BODY - a different value on the same row. They only stay in step
+		// because transitionLesson writes both in one batch; a caller that sets
+		// one without the other would make this filter and its own response
+		// disagree.
 		where += ` AND status IN (${opts.statuses.map(() => "?").join(", ")})`;
 		binds.push(...opts.statuses);
 	}

@@ -3,11 +3,13 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
+	BROWSE_MAX_LIMIT,
 	createLessonsWithFeed,
 	decodeCursor,
 	encodeCursor,
 	getLessonForUser,
 	listLessonsPage,
+	transitionLesson,
 } from "./lessons.js";
 import { createUser } from "./queries.js";
 
@@ -104,10 +106,11 @@ describe("listLessonsPage", () => {
 			"2026-08-01T00:00:00.000Z",
 			"2026-08-02T00:00:00.000Z",
 		]);
-		await db()
-			.prepare("UPDATE lessons SET status = 'retracted' WHERE id = ?")
-			.bind(first.id)
-			.run();
+		// transitionLesson, not a raw UPDATE: it writes the column and the body
+		// in one batch, so the row this test filters on agrees with the row the
+		// response returns. A raw UPDATE would leave the body's own status
+		// field stale, and the assertion below is what would catch that.
+		await transitionLesson(db(), userId, first.id, "retracted", null);
 
 		const page = await listLessonsPage(db(), userId, {
 			limit: 50,
@@ -115,7 +118,44 @@ describe("listLessonsPage", () => {
 		});
 
 		expect(page.lessons).toHaveLength(1);
-		expect((page.lessons[0] as { id: string }).id).toBe(first.id);
+		expect(page.lessons[0]).toMatchObject({
+			id: first.id,
+			status: "retracted",
+		});
+	});
+
+	// statuses and cursor bind into the same WHERE clause, in that order. A
+	// reorder of the `where +=` / `binds.push` lines above would bind userId
+	// into the status slot instead - a data-scoping failure, not a cosmetic
+	// one - and no other test exercises both filters on the same call.
+	it("filters by status across a cursor-paginated walk", async () => {
+		const written = await seed([
+			"2026-08-01T00:00:00.000Z",
+			"2026-08-02T00:00:00.000Z",
+			"2026-08-03T00:00:00.000Z",
+			"2026-08-04T00:00:00.000Z",
+			"2026-08-05T00:00:00.000Z",
+			"2026-08-06T00:00:00.000Z",
+		]);
+		const retracted = written.slice(0, 3);
+		for (const lesson of retracted) {
+			await transitionLesson(db(), userId, lesson.id, "retracted", null);
+		}
+
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		do {
+			const page = await listLessonsPage(db(), userId, {
+				limit: 2,
+				statuses: ["retracted"],
+				cursor,
+			});
+			seen.push(...(page.lessons as Array<{ id: string }>).map((l) => l.id));
+			cursor = page.cursor;
+		} while (cursor);
+
+		expect(seen).toHaveLength(3);
+		expect(new Set(seen)).toEqual(new Set(retracted.map((l) => l.id)));
 	});
 
 	it("never returns another user's lessons", async () => {
@@ -139,6 +179,22 @@ describe("listLessonsPage", () => {
 		expect(page.lessons).toHaveLength(2);
 		expect(page.hasMore).toBe(true);
 		expect(page.cursor).not.toBeNull();
+	});
+
+	// BROWSE_MAX_LIMIT is the only thing standing between a session and a
+	// full-pool dump in one response. A pool of BROWSE_MAX_LIMIT + 1 is the
+	// smallest one where "clamped" and "not clamped" produce different
+	// answers, so it is the one that actually proves the clamp exists.
+	it("clamps a limit above the maximum to BROWSE_MAX_LIMIT", async () => {
+		const dates = Array.from({ length: BROWSE_MAX_LIMIT + 1 }, (_, i) =>
+			new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+		);
+		await seed(dates);
+
+		const page = await listLessonsPage(db(), userId, { limit: 99999 });
+
+		expect(page.lessons).toHaveLength(BROWSE_MAX_LIMIT);
+		expect(page.hasMore).toBe(true);
 	});
 });
 
