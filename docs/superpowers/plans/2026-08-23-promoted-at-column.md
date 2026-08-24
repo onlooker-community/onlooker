@@ -209,6 +209,15 @@ Add a third statement to the end of the generated file. Every existing row got `
 UPDATE `lessons` SET `promoted_at` = json_extract(`body`, '$.promoted_at') WHERE `promoted_at` = '';
 ```
 
+**If `pnpm migrate:prod` fails partway** - the `ALTER TABLE` commits but the `UPDATE` does not - wrangler never inserts the `d1_migrations` row, so a retry replays the file from the top and dies on `duplicate column name: promoted_at`. To recover, drop the index first (SQLite refuses `DROP COLUMN` on an indexed column), then the column, then re-run:
+
+```sql
+DROP INDEX IF EXISTS lessons_user_promoted_at_idx;
+ALTER TABLE lessons DROP COLUMN promoted_at;
+```
+
+D1 has no down-migration mechanism, so anything beyond this recovery is a forward-only `0005`. This is mitigated by `deploy.yml` running the identical migration against staging first, with a schema verify and a smoke test, before production is eligible - so a malformed migration cannot reach production.
+
 - [ ] **Step 3: Write the failing test for the backfill expression**
 
 Create `apps/api/src/db/backfill.test.ts`, colocated beside `lessons.ts` the way every other `apps/api` test is. This runs the same `UPDATE` against a seeded row. It verifies the `json_extract` path, which is the part that can be wrong — it does not re-run migration 0004 itself, because the pool harness has already applied every migration before any test body runs.
@@ -477,7 +486,16 @@ Expected: exit 0, no diff. A diff here means the committed snapshot disagrees wi
 
 Invoke the `/pr` skill. Flag for reviewers: migration 0004 runs against production on merge, the `DEFAULT ''` is deliberate and load-bearing, and the backfill is guarded so it is idempotent.
 
-- [ ] **Step 4: Close the bead once merged**
+- [ ] **Step 4: Re-run the backfill after production deploys**
+
+The deploy order is migrate then deploy the worker (see `deploy.yml`), so the old worker is still serving between the two - any lesson it inserts in that gap binds no `promoted_at` and lands on `DEFAULT ''` forever, since migration 0004 has already run once and will not run again. Running the backfill statement again after the deploy closes that window every time, instead of relying on someone remembering to. It is the same `WHERE promoted_at = ''` guard as the migration's own backfill, so it is a no-op on every row already correct and safe to run unconditionally.
+
+```bash
+pnpm --filter @onlooker/api exec wrangler d1 execute DB --env production --remote \
+  --command "UPDATE lessons SET promoted_at = json_extract(body, '\$.promoted_at') WHERE promoted_at = ''"
+```
+
+- [ ] **Step 5: Close the bead once merged**
 
 ```bash
 bd close onlooker-w5o --reason "Column, index, backfill and ingest write landed in <PR>."
@@ -487,7 +505,7 @@ bd close onlooker-w5o --reason "Column, index, backfill and ingest write landed 
 
 ## Notes on what this plan deliberately does not do
 
-**No runtime guard against `promoted_at = ''`.** A row can only hold the empty string if it predates migration 0004 and escaped the backfill, which the backfill's `WHERE` clause makes impossible for any row the migration saw. Adding a defensive check in the read path would be guarding against a state the write path cannot produce.
+**No runtime guard against `promoted_at = ''`.** A row can hold `''` only if it was written between migration 0004 committing and the API deploy that followed it - the deploy migrates before it ships code. That window is currently unreachable, because no machine token exists in production and only a machine-authenticated push writes lessons. The backfill is idempotent, so re-running it after a deploy closes the window. Adding a defensive check in the read path would be guarding against a state the write path cannot produce.
 
 **No change to `transitionLesson`.** A status change does not re-promote a lesson, so `promoted_at` is correct to leave alone. This is stated here because "update the timestamp on write" is the reflex, and it would be wrong.
 

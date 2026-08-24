@@ -171,8 +171,11 @@ export const lessons = sqliteTable(
 		// ADD COLUMN ... NOT NULL without a non-NULL default - true even for
 		// an empty table - so a default is the only way this column can be
 		// added to a table that already exists. Ingest always writes a real
-		// value; an empty string means a row that predates migration 0004 and
-		// escaped the backfill.
+		// value; an empty string means a row was written between migration
+		// 0004 committing and the API deploy that followed it (deploy.yml
+		// migrates before it ships code), which is unreachable today because
+		// no machine token exists in production and only a machine-
+		// authenticated push writes lessons.
 		promoted_at: text("promoted_at").notNull().default(""),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
