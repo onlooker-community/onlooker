@@ -29,6 +29,11 @@ export {
 	handleTransitionLesson,
 } from "./lessons";
 export {
+	handleBrowseLessons,
+	handleBrowserTransition,
+	handleGetLesson,
+} from "./lessons-browser";
+export {
 	handleCreateMachine,
 	handleListMachines,
 	handleRevokeMachine,
