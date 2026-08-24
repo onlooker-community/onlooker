@@ -163,11 +163,26 @@ export const lessons = sqliteTable(
 		status: text("status").notNull(),
 		schema_version: integer("schema_version").notNull(),
 		body: text("body").notNull(),
+		// Lifted out of `body` so the pool can be ordered by it. Immutable:
+		// written once at ingest, never updated, so it cannot disagree with
+		// the copy inside the JSON.
+		//
+		// The default is not a fallback anyone should rely on. SQLite refuses
+		// ADD COLUMN ... NOT NULL without a non-NULL default - true even for
+		// an empty table - so a default is the only way this column can be
+		// added to a table that already exists. Ingest always writes a real
+		// value; an empty string means a row that predates migration 0004 and
+		// escaped the backfill.
+		promoted_at: text("promoted_at").notNull().default(""),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => ({
 		userIdIdx: index("lessons_user_id_idx").on(table.user_id),
+		userPromotedAtIdx: index("lessons_user_promoted_at_idx").on(
+			table.user_id,
+			table.promoted_at,
+		),
 	}),
 );
 

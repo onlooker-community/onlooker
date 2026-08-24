@@ -84,6 +84,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "promoted_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
 				name: "created_at",
 				type: "TEXT",
 				notnull: 1,
@@ -99,6 +105,10 @@ export const EXPECTED_SCHEMA = {
 		indexes: [
 			{
 				name: "lessons_user_id_idx",
+				unique: false,
+			},
+			{
+				name: "lessons_user_promoted_at_idx",
 				unique: false,
 			},
 		],
