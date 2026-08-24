@@ -336,8 +336,12 @@ export function authenticatedCases(): ContractCase[] {
 			// Bare, and `lessons` is an array even when there is nothing in it.
 			// An empty pool is not a 404 and not a null - the two-pane UI
 			// renders an empty state from this, and a missing key throws.
+			// `cursor` is pinned too - it is the field the pagination loop
+			// reads, and its absence produces an infinite loop, not a visible
+			// error.
 			body: {
 				lessons: expectArray,
+				cursor: null,
 				has_more: false,
 			},
 			forbidden: NO_SECRETS,
@@ -354,6 +358,7 @@ export function authenticatedCases(): ContractCase[] {
 			// implementations honest about parsing them at all.
 			body: {
 				lessons: expectArray,
+				cursor: null,
 				has_more: false,
 			},
 			forbidden: NO_SECRETS,
