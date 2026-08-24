@@ -671,14 +671,23 @@ export async function mockDataApi(
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof AuthApiError) {
-		const apiError = error as AuthApiError;
+		// Byte-identical to apps/api's errorHandler, including the header. A
+		// mock that answers in a different shape than the thing it stands in
+		// for is worse than no mock: it makes development pass and production
+		// fail. The Content-Type was missing here too.
 		return new Response(
 			JSON.stringify({
-				error: apiError.code,
-				message: apiError.message,
-				details: apiError.details,
+				success: false,
+				error: {
+					code: error.code,
+					message: error.message,
+					details: error.details,
+				},
 			}),
-			{ status: apiError.status },
+			{
+				status: error.status,
+				headers: { "Content-Type": "application/json" },
+			},
 		);
 	}
 	const message = error instanceof Error ? error.message : String(error);

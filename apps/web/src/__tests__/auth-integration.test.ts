@@ -40,6 +40,11 @@ function createMemoryStorage(): Storage {
 	};
 }
 
+/** An error body in the shape apps/api actually returns. */
+function apiError(code: string, message = "Something went wrong") {
+	return { success: false, error: { code, message } };
+}
+
 function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
 	return {
 		baseUrl: "",
@@ -209,11 +214,11 @@ describe("token refresh middleware", () => {
 		const onUnauthorized = vi.fn();
 		const scripted = (async (url: string) => {
 			if (String(url).endsWith("/auth/refresh")) {
-				return new Response(JSON.stringify({ error: "invalid_grant" }), {
+				return new Response(JSON.stringify(apiError("invalid_grant")), {
 					status: 401,
 				});
 			}
-			return new Response(JSON.stringify({ error: "unauthorized" }), {
+			return new Response(JSON.stringify(apiError("unauthorized")), {
 				status: 401,
 			});
 		}) as unknown as typeof fetch;
@@ -234,7 +239,7 @@ describe("token refresh middleware", () => {
 		const calls: string[] = [];
 		const scripted = (async (url: string) => {
 			calls.push(String(url));
-			return new Response(JSON.stringify({ error: "invalid_credentials" }), {
+			return new Response(JSON.stringify(apiError("invalid_credentials")), {
 				status: 401,
 			});
 		}) as unknown as typeof fetch;
