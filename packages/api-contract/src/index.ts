@@ -328,6 +328,56 @@ export function authenticatedCases(): ContractCase[] {
 			},
 			forbidden: NO_SECRETS,
 		},
+		{
+			name: "lesson pool, empty",
+			path: "/api/lessons",
+			init: { method: "GET" },
+			status: 200,
+			// Bare, and `lessons` is an array even when there is nothing in it.
+			// An empty pool is not a 404 and not a null - the two-pane UI
+			// renders an empty state from this, and a missing key throws.
+			body: {
+				lessons: expectArray,
+				has_more: false,
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lesson pool, filtered and limited",
+			path: "/api/lessons?status=active&limit=10",
+			init: { method: "GET" },
+			status: 200,
+			// The query string is the point of this case, not the filter. The
+			// mock matches on a path that still carries `?...`, so an equality
+			// check there passes the case above and fails every real call the
+			// app makes. One case with parameters is what keeps the two
+			// implementations honest about parsing them at all.
+			body: {
+				lessons: expectArray,
+				has_more: false,
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lesson that nobody holds",
+			path: "/api/lessons/01NOPE00000000000000000000",
+			init: { method: "GET" },
+			status: 404,
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "transition to a status the browser may not assert",
+			path: "/api/lessons/01NOPE00000000000000000000/status",
+			init: {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ status: "refuted" }),
+			},
+			// 400 and not 404: the status is rejected before the lesson is
+			// looked up, so this holds without either side seeding a lesson.
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
 	];
 }
 

@@ -621,6 +621,51 @@ export async function mockDataApi(
 		return json(data);
 	}
 
+	// The hosted pool, mocked. The mock has no lessons and no way to acquire
+	// any - lessons arrive by machine-authenticated push, which a browser
+	// cannot make - so this is permanently the empty-pool case. That is enough
+	// for the contract, which pins the envelope shape rather than contents.
+	//
+	// Matched on the pathname alone. `path` here still carries the search
+	// string - toHandlerPath returns `pathname + search`, because the
+	// reset-link handler reads its token straight out of it - so an equality
+	// check against "/api/lessons" would stop matching the moment the app
+	// asked for ?limit= or ?status=, which is every real call it makes.
+	const poolPath = path.split("?")[0];
+
+	if (poolPath === "/api/lessons" && (options.method ?? "GET") === "GET") {
+		requireAuth(options);
+		return json({ lessons: [], cursor: null, has_more: false });
+	}
+
+	if (
+		poolPath.startsWith("/api/lessons/") &&
+		poolPath.endsWith("/status") &&
+		options.method === "PATCH"
+	) {
+		requireAuth(options);
+		const { status } = JSON.parse(String(options.body ?? "{}")) as {
+			status?: unknown;
+		};
+		if (status !== "active" && status !== "retracted") {
+			throw new AuthApiError(
+				400,
+				"status_not_allowed",
+				"A lesson may be retracted or made active again from here.",
+			);
+		}
+		// The pool is always empty here, so any id is one nobody holds.
+		throw new AuthApiError(404, "not_found", "No such lesson");
+	}
+
+	if (
+		poolPath.startsWith("/api/lessons/") &&
+		(options.method ?? "GET") === "GET"
+	) {
+		requireAuth(options);
+		throw new AuthApiError(404, "not_found", "No such lesson");
+	}
+
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
 }
 
