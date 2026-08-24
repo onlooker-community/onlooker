@@ -649,9 +649,9 @@ describe("GET /api/lessons", () => {
 	it("rejects a cursor it did not mint", async () => {
 		const response = await browse("/api/lessons?cursor=not-a-real-cursor");
 		expect(response.status).toBe(400);
-		expect((await response.json()) as { error: string }).toMatchObject({
-			error: "invalid_cursor",
-		});
+		expect((await response.json()) as { error: { code: string } }).toMatchObject(
+			{ error: { code: "invalid_cursor" } },
+		);
 	});
 
 	it("rejects a status nobody could hold", async () => {
@@ -734,9 +734,9 @@ describe("PATCH /api/lessons/:id/status", () => {
 		for (const status of ["refuted", "superseded"]) {
 			const response = await patch(written.id, status);
 			expect(response.status).toBe(400);
-			expect((await response.json()) as { error: string }).toMatchObject({
-				error: "status_not_allowed",
-			});
+			expect(
+				(await response.json()) as { error: { code: string } },
+			).toMatchObject({ error: { code: "status_not_allowed" } });
 		}
 	});
 
@@ -772,9 +772,12 @@ describe("PATCH /api/lessons/:id/status", () => {
 			await SELF.fetch(`${BASE}/lessons?since=1`, {
 				headers: { Authorization: `Bearer ${machineToken}` },
 			})
-		).json()) as { lessons: Array<{ status: string }> };
+		).json()) as { lessons: Array<{ lesson: { status: string } }> };
 
-		expect(delta.lessons.at(-1)?.status).toBe("retracted");
+		// The delta wraps each entry as { seq, lesson }, so the status sits one
+		// level down. That envelope is the machine contract and is not ours to
+		// flatten - reading it correctly is the test's job.
+		expect(delta.lessons.at(-1)?.lesson.status).toBe("retracted");
 	});
 });
 ```
