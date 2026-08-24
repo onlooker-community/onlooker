@@ -25,7 +25,7 @@ Three files disagree:
 - `data.error` is the `{ code, message }` **object**, so `AuthApiError.code` — typed `string` at `packages/auth-core/src/index.ts:113` — holds an object. `err.code === "some_code"` is therefore **false in production and true against the mock**.
 - `data.message` is **undefined**, so every non-401 error message falls back to `Request failed with status ${status}`.
 
-The 401 branch returns before reading the body, so 401s are unaffected. Everything else is broken.
+The 401 branch never reads the parsed body, so 401s are unaffected. (The body is parsed unconditionally above that check — the branch just ignores it.) Everything else is broken.
 
 This is the experience `apps/web/src/lib/apiErrors.ts` documents in its own comment — "meaningless, and reading like a bug they had caused" — and attributes to 501 stubs that no longer exist. The stubs are gone; the generic messages are not, because the real cause is this mismatch.
 
@@ -34,7 +34,7 @@ This is the experience `apps/web/src/lib/apiErrors.ts` documents in its own comm
 - **The API's envelope is the source of truth. Do not change `apps/api/src/middleware/error.ts`.** It is deployed, and `apps/api/src/middleware/error.test.ts` already pins it.
 - **The parser and the mock must land in the same commit.** Fix either alone and the suite is red in between — see Task 1's note.
 - `apps/api` declares `@onlooker/auth-core` as a dependency but imports nothing from it in `src`. The parser change therefore does not reach the API. Do not "fix" that unused dependency here.
-- The 401 path in the parser returns before reading the body and must keep doing so — it clears the token and fires `onUnauthorized`.
+- The 401 path in the parser must keep behaving exactly as it does. Note the body is parsed unconditionally *above* the 401 check; the branch simply never reads it. It clears the token and fires `onUnauthorized`.
 - Do not use `as any`. The current casts are what let this bug exist; the replacement narrows to a real type.
 - American English. Conventional Commits with a mood emoji, subject **≤72 characters including the emoji** — several commits on recent branches have exceeded this. Commits go through the `/commit` skill.
 - Branch off `main`; everything lands via a PR.
@@ -270,7 +270,7 @@ Refs: onlooker-5em
 
 - [ ] **Step 1: Add the case**
 
-In `packages/api-contract/src/index.ts`, add to the array returned by `authenticatedCases`. `expectObject` is already imported at the top of the file.
+In `packages/api-contract/src/index.ts`, add to the array returned by `authenticatedCases`. `expectObject` is already defined at the top of the file.
 
 ```typescript
 		{
@@ -386,8 +386,12 @@ In `apps/web/src/api/mockApi.ts`, inside the `GET /api/lessons` branch added for
 		// The real cursor is base64 of `<promoted_at>\n<id>`; anything else was
 		// not minted here. The mock's pool is always empty, so a well-formed
 		// cursor still yields nothing - only the rejection needs to match.
+		// `if (cursor)` and not `!== null`: URLSearchParams returns "" for a
+		// bare `?cursor=`, and apps/api guards with `if (opts.cursor)`, which
+		// treats "" as absent. Rejecting it here would 400 a request production
+		// answers 200 - the same divergence this task exists to close, inverted.
 		const cursor = query.get("cursor");
-		if (cursor !== null) {
+		if (cursor) {
 			let decoded: string | null = null;
 			try {
 				decoded = atob(cursor);
