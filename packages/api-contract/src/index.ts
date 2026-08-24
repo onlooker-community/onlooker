@@ -383,6 +383,23 @@ export function authenticatedCases(): ContractCase[] {
 			status: 400,
 			forbidden: NO_SECRETS,
 		},
+		{
+			name: "an error carries the shared envelope",
+			path: "/api/lessons/01NOPE00000000000000000000",
+			init: { method: "GET" },
+			status: 404,
+			// The one case that pins an ERROR body rather than just its status.
+			// Every other error case here asserts status alone, which is how the
+			// mock and apps/api managed to disagree about this shape for months:
+			// the suite built to catch drift could not see it. `error` must be an
+			// object, not a bare code string - that difference put an object in
+			// AuthApiError.code and made `err.code === "..."` false in production.
+			body: {
+				success: false,
+				error: expectObject,
+			},
+			forbidden: NO_SECRETS,
+		},
 	];
 }
 
