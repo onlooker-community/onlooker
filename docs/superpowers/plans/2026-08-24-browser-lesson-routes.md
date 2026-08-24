@@ -394,17 +394,18 @@ export const BROWSE_MAX_LIMIT = 200;
  * shows it twice.
  *
  * Opaque on purpose: the client echoes it back and never constructs one, so
- * the sort keys can change without becoming a breaking API change.
+ * the sort keys can change without becoming a breaking API change. `\n` is the
+ * join delimiter because neither an ISO timestamp nor a ULID can contain one.
  */
 export function encodeCursor(promotedAt: string, id: string): string {
-	return btoa(`${promotedAt} ${id}`);
+	return btoa(`${promotedAt}\n${id}`);
 }
 
 export function decodeCursor(
 	cursor: string,
 ): { promotedAt: string; id: string } | null {
 	try {
-		const [promotedAt, id, ...rest] = atob(cursor).split(" ");
+		const [promotedAt, id, ...rest] = atob(cursor).split("\n");
 		if (!promotedAt || !id || rest.length > 0) return null;
 		return { promotedAt, id };
 	} catch {
