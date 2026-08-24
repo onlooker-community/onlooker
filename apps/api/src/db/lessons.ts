@@ -354,3 +354,128 @@ export async function readLessonDelta(
 
 	return { entries: hasMore ? found.slice(0, limit) : found, hasMore };
 }
+
+/** Default and ceiling for one browsing page. */
+export const BROWSE_DEFAULT_LIMIT = 50;
+export const BROWSE_MAX_LIMIT = 200;
+
+/**
+ * A keyset cursor carries BOTH sort keys, because promoted_at alone is not
+ * unique. Two lessons promoted in the same millisecond would make the boundary
+ * ambiguous, and a page break landing between them either skips a lesson or
+ * shows it twice.
+ *
+ * Opaque on purpose: the client echoes it back and never constructs one, so
+ * the sort keys can change without becoming a breaking API change. `\n` is the
+ * join delimiter because neither an ISO timestamp nor a ULID can contain one.
+ */
+export function encodeCursor(promotedAt: string, id: string): string {
+	return btoa(`${promotedAt}\n${id}`);
+}
+
+export function decodeCursor(
+	cursor: string,
+): { promotedAt: string; id: string } | null {
+	try {
+		const [promotedAt, id, ...rest] = atob(cursor).split("\n");
+		if (!promotedAt || !id || rest.length > 0) return null;
+		return { promotedAt, id };
+	} catch {
+		// atob throws on anything that is not base64. A client-supplied cursor
+		// is untrusted input, and a malformed one is a 400, not a 500.
+		return null;
+	}
+}
+
+/** Raised when a client sends a cursor this server did not mint. */
+export class InvalidCursorError extends Error {
+	constructor() {
+		super("Invalid cursor");
+		this.name = "InvalidCursorError";
+	}
+}
+
+export interface LessonPage {
+	lessons: unknown[];
+	cursor: string | null;
+	hasMore: boolean;
+}
+
+/**
+ * One page of the pool, newest first.
+ *
+ * Ordered by (promoted_at, id) rather than promoted_at alone - see
+ * encodeCursor. The matching index is lessons_user_promoted_at_idx.
+ *
+ * Fetches limit + 1 rows to learn whether another page exists without a second
+ * COUNT query, then discards the extra.
+ */
+export async function listLessonsPage(
+	db: D1Database,
+	userId: string,
+	opts: { statuses?: string[]; cursor?: string | null; limit: number },
+): Promise<LessonPage> {
+	const limit = Math.min(Math.max(1, opts.limit), BROWSE_MAX_LIMIT);
+	const binds: unknown[] = [userId];
+	let where = "user_id = ?";
+
+	if (opts.statuses && opts.statuses.length > 0) {
+		// This filters on the status COLUMN, but the row returned below is the
+		// BODY - a different value on the same row. They only stay in step
+		// because transitionLesson writes both in one batch; a caller that sets
+		// one without the other would make this filter and its own response
+		// disagree.
+		where += ` AND status IN (${opts.statuses.map(() => "?").join(", ")})`;
+		binds.push(...opts.statuses);
+	}
+
+	if (opts.cursor) {
+		const after = decodeCursor(opts.cursor);
+		if (!after) throw new InvalidCursorError();
+		// Row-value comparison, which SQLite supports: strictly "older than the
+		// boundary lesson", with id breaking a promoted_at tie.
+		where += " AND (promoted_at, id) < (?, ?)";
+		binds.push(after.promotedAt, after.id);
+	}
+
+	binds.push(limit + 1);
+
+	const { results } = await db
+		.prepare(
+			`SELECT body FROM lessons
+			 WHERE ${where}
+			 ORDER BY promoted_at DESC, id DESC
+			 LIMIT ?`,
+		)
+		.bind(...binds)
+		.all<{ body: string }>();
+
+	const rows = results ?? [];
+	const hasMore = rows.length > limit;
+	const page = (hasMore ? rows.slice(0, limit) : rows).map(
+		(r) => JSON.parse(r.body) as { id: string; promoted_at: string },
+	);
+	const last = page.at(-1);
+
+	return {
+		lessons: page,
+		cursor: hasMore && last ? encodeCursor(last.promoted_at, last.id) : null,
+		hasMore,
+	};
+}
+
+/**
+ * One lesson, or null when it does not exist OR is not this user's.
+ *
+ * The caller cannot tell those apart, and that is the point: a 403 on someone
+ * else's lesson would confirm the id exists. Same reasoning as transitionLesson.
+ */
+export async function getLessonForUser(
+	db: D1Database,
+	userId: string,
+	id: string,
+): Promise<unknown | null> {
+	const stored = await getLessonById(db, id);
+	if (!stored || stored.user_id !== userId) return null;
+	return JSON.parse(stored.body) as unknown;
+}

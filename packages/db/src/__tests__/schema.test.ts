@@ -160,16 +160,19 @@ describe("lessons", () => {
 		]);
 	});
 
-	// Ordering the pool newest-first is the whole reason this column was
-	// lifted out of `body`. Without the index the sort is a scan, and
-	// ordering by json_extract could not use one at all.
-	it("indexes (user_id, promoted_at) so the pool can be ordered", () => {
+	// The third column is the keyset tiebreak. Two lessons promoted in the same
+	// millisecond make a cursor on promoted_at alone ambiguous, and a page
+	// boundary that lands between them can skip or repeat a row. Ordering by
+	// (promoted_at, id) is what makes the cursor stable; carrying id in the
+	// index is what keeps that comparison off the table.
+	it("indexes (user_id, promoted_at, id) so the cursor is stable", () => {
 		const idx = getTableConfig(lessons).indexes.find(
 			(i) => i.config.name === "lessons_user_promoted_at_idx",
 		);
 		expect(indexColumnNames(idx?.config.columns ?? [])).toEqual([
 			"user_id",
 			"promoted_at",
+			"id",
 		]);
 	});
 

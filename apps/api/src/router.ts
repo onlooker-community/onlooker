@@ -5,12 +5,15 @@
 
 import { errorHandler } from "./middleware";
 import {
+	handleBrowseLessons,
+	handleBrowserTransition,
 	handleChangePassword,
 	handleClientError,
 	handleCreateMachine,
 	handleDeleteAccount,
 	handleForgotPassword,
 	handleGetDashboard,
+	handleGetLesson,
 	handleGetProfile,
 	handleGetUserProfile,
 	handleListMachines,
@@ -184,6 +187,26 @@ const ROUTES: Route[] = [
 		method: "POST",
 		path: "/lessons/:id/status",
 		handler: handleTransitionLesson,
+	},
+
+	// =========================================================================
+	// Lessons (browsing - session-authenticated, separate from the sync routes
+	// above on purpose; see routes/lessons-browser.ts)
+	// =========================================================================
+	{
+		method: "GET",
+		path: "/api/lessons",
+		handler: handleBrowseLessons,
+	},
+	{
+		method: "GET",
+		path: "/api/lessons/:id",
+		handler: handleGetLesson,
+	},
+	{
+		method: "PATCH",
+		path: "/api/lessons/:id/status",
+		handler: handleBrowserTransition,
 	},
 ];
 
