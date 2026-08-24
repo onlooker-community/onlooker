@@ -185,6 +185,7 @@ export const lessons = sqliteTable(
 		userPromotedAtIdx: index("lessons_user_promoted_at_idx").on(
 			table.user_id,
 			table.promoted_at,
+			table.id,
 		),
 	}),
 );
