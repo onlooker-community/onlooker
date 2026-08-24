@@ -378,6 +378,16 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			// CmFiYw== is base64 of "\nabc" - well-formed base64, two parts, but
+			// the first is empty. decodeCursor requires BOTH parts non-empty, not
+			// merely two of them, so this must be rejected the same as garbage.
+			name: "a cursor missing half its key is rejected",
+			path: "/api/lessons?cursor=CmFiYw%3D%3D",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "lesson that nobody holds",
 			path: "/api/lessons/01NOPE00000000000000000000",
 			init: { method: "GET" },
