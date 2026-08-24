@@ -4,9 +4,14 @@ import { createUser } from "./queries.js";
 
 const db = () => env.DB;
 
-/** The statement appended to migration 0004, verbatim. */
+// Sourced from the migration itself rather than hand-transcribed, so a change
+// to the shipped UPDATE is what this test verifies - not a copy of it that
+// could drift out of sync and still pass. The backfill is the last statement
+// in 0004 by construction, so `.at(-1)` is stable.
 const BACKFILL =
-	"UPDATE lessons SET promoted_at = json_extract(body, '$.promoted_at') WHERE promoted_at = ''";
+	env.TEST_MIGRATIONS.find(
+		(m) => m.name === "0004_chunky_toro.sql",
+	)?.queries.at(-1) ?? "";
 
 let userId: string;
 
@@ -39,6 +44,14 @@ const promotedAtOf = async (id: string) =>
 	)?.promoted_at;
 
 describe("the 0004 backfill", () => {
+	// Guards the lookup above: if a future migration rename ever makes the
+	// `find` miss, BACKFILL silently falls back to "" and every test below
+	// would pass while asserting nothing. This is what makes that loud.
+	it("resolves an UPDATE statement from the migration file", () => {
+		expect(BACKFILL).not.toBe("");
+		expect(BACKFILL).toContain("json_extract");
+	});
+
 	it("copies promoted_at out of the body", async () => {
 		await seedUnbackfilled(
 			"01BACKFILL0000000000000001",
