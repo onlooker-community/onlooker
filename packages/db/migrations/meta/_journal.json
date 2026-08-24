@@ -29,6 +29,13 @@
       "when": 1787430474563,
       "tag": "0003_slim_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787542728357,
+      "tag": "0004_chunky_toro",
+      "breakpoints": true
     }
   ]
 }

@@ -151,11 +151,25 @@ describe("lessons", () => {
 			"body",
 			"created_at",
 			"id",
+			"promoted_at",
 			"schema_version",
 			"status",
 			"updated_at",
 			"user_id",
 			"visibility",
+		]);
+	});
+
+	// Ordering the pool newest-first is the whole reason this column was
+	// lifted out of `body`. Without the index the sort is a scan, and
+	// ordering by json_extract could not use one at all.
+	it("indexes (user_id, promoted_at) so the pool can be ordered", () => {
+		const idx = getTableConfig(lessons).indexes.find(
+			(i) => i.config.name === "lessons_user_promoted_at_idx",
+		);
+		expect(indexColumnNames(idx?.config.columns ?? [])).toEqual([
+			"user_id",
+			"promoted_at",
 		]);
 	});
 
