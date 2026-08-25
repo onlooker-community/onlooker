@@ -1,36 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { PasswordStrength } from "../lib/validation";
+import { PALETTE } from "./palette";
 
 // Lightweight, dependency-free form primitives shared across the auth pages.
 // Styling intentionally mirrors the existing LoginPage inline-style look so the
 // pages feel consistent until a design system lands.
-
-// Values are CSS custom properties from @onlooker/brand, resolved at render
-// time - React inline styles pass var() through untouched. Plates are constant
-// across themes; the text accents shift. See the brand spec.
-const PALETTE = {
-	// A plate is a filled background and is constant across themes; an accent
-	// is ink on a ground and shifts. One key cannot be both - using the plate
-	// as text put links at 1.35 contrast in day mode.
-	plateTeal: "var(--plate-teal)",
-	plateRed: "var(--plate-red)",
-	plateInk: "var(--plate-ink)",
-	accent: "var(--teal)",
-	danger: "var(--red)",
-	// Not var(--edge): TextField's --ground fill sits on --panel when
-	// nested in AuthCard (signup, forgot-password, reset-password) - the
-	// mirror of AuthCard's own case, same 1.70/1.37 fallback-free edge.
-	// On the settings page, which has no AuthCard wrapper, it sits
-	// directly on the page's own --ground - fill and surrounding are
-	// identical there, so the border is the only boundary at all.
-	// ink-dim clears every one of these. (LoginPage is hand-rolled and
-	// doesn't use TextField at all - see Task 4.)
-	border: "var(--ink-dim)",
-	borderError: "var(--red)",
-	muted: "var(--ink-dim)",
-	track: "var(--panel)",
-} as const;
 
 // The meter ramps from failing to strong. It reuses the semantic tokens rather
 // than a private scale so it tracks the theme like everything else.
