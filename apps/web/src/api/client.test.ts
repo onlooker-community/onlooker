@@ -45,6 +45,11 @@ function json(
 	return new Response(JSON.stringify(body), { status, headers });
 }
 
+/** An error body in the shape apps/api actually returns. */
+function apiError(code: string, message = "Something went wrong") {
+	return { success: false, error: { code, message } };
+}
+
 function authHeaderOf(init: RequestInit | undefined): string | null {
 	return new Headers(init?.headers as HeadersInit | undefined).get(
 		"Authorization",
@@ -92,7 +97,7 @@ describe("createApiClient — token refresh", () => {
 			}
 			return authHeaderOf(init) === "Bearer new"
 				? json(200, { user: { id: "u1", email: "a@b.co" } })
-				: json(401, { error: "unauthorized" });
+				: json(401, apiError("unauthorized"));
 		});
 
 		const { apiClient } = createApiClient({
@@ -152,9 +157,9 @@ describe("createApiClient — token refresh", () => {
 
 		const baseFetch = vi.fn(async (url: string) => {
 			if (url.endsWith("/auth/refresh")) {
-				return json(401, { error: "invalid_refresh_token" });
+				return json(401, apiError("invalid_refresh_token"));
 			}
-			return json(401, { error: "unauthorized" });
+			return json(401, apiError("unauthorized"));
 		});
 
 		const { apiClient } = createApiClient({
@@ -183,7 +188,7 @@ describe("createApiClient — token refresh", () => {
 			}
 			return authHeaderOf(init) === "Bearer new"
 				? json(200, { ok: true })
-				: json(401, { error: "unauthorized" });
+				: json(401, apiError("unauthorized"));
 		});
 
 		const { authenticatedFetch } = createApiClient({
@@ -205,7 +210,7 @@ describe("createApiClient — token refresh", () => {
 	it("does not attempt refresh on login/signup 401s", async () => {
 		store.setRefreshToken("r1");
 		const baseFetch = vi.fn(async () =>
-			json(401, { error: "invalid_credentials" }),
+			json(401, apiError("invalid_credentials")),
 		);
 
 		const { authenticatedFetch } = createApiClient({
@@ -444,7 +449,7 @@ describe("createApiClient — retry & backoff", () => {
 		const baseFetch = vi.fn(async () => {
 			calls += 1;
 			return calls < 3
-				? json(503, { error: "unavailable" })
+				? json(503, apiError("unavailable"))
 				: json(200, { ok: true });
 		});
 
@@ -461,7 +466,7 @@ describe("createApiClient — retry & backoff", () => {
 	});
 
 	it("stops retrying after maxRetries and returns the last 5xx", async () => {
-		const baseFetch = vi.fn(async () => json(500, { error: "boom" }));
+		const baseFetch = vi.fn(async () => json(500, apiError("boom")));
 
 		const { authenticatedFetch } = createApiClient({
 			config: testConfig({ maxRetries: 1 }),
@@ -476,7 +481,7 @@ describe("createApiClient — retry & backoff", () => {
 	});
 
 	it("does not retry non-retryable 4xx responses", async () => {
-		const baseFetch = vi.fn(async () => json(404, { error: "not_found" }));
+		const baseFetch = vi.fn(async () => json(404, apiError("not_found")));
 
 		const { authenticatedFetch } = createApiClient({
 			config: testConfig({ maxRetries: 3 }),

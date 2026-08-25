@@ -635,6 +635,51 @@ export async function mockDataApi(
 
 	if (poolPath === "/api/lessons" && (options.method ?? "GET") === "GET") {
 		requireAuth(options);
+
+		// Mirrors handleBrowseLessons in apps/api. The mock accepting a query
+		// the API rejects is the same class of divergence as the error envelope:
+		// it makes a broken request look fine in development.
+		const query = new URLSearchParams(path.split("?")[1] ?? "");
+
+		for (const status of query.getAll("status")) {
+			if (!["active", "refuted", "superseded", "retracted"].includes(status)) {
+				throw new AuthApiError(
+					400,
+					"invalid_status",
+					"status must be one of active, refuted, superseded, retracted",
+				);
+			}
+		}
+
+		// The real cursor is base64 of `<promoted_at>\n<id>`; anything else was
+		// not minted here. The mock's pool is always empty, so a well-formed
+		// cursor still yields nothing - only the rejection needs to match.
+		const cursor = query.get("cursor");
+		// `if (cursor)` and not `!== null`: URLSearchParams returns "" for a
+		// bare `?cursor=`, and apps/api guards with `if (opts.cursor)`, which
+		// treats "" as absent. Rejecting it here would 400 a request production
+		// answers 200 - the same divergence this task exists to close, inverted.
+		if (cursor) {
+			let decoded: string | null = null;
+			try {
+				decoded = atob(cursor);
+			} catch {
+				decoded = null;
+			}
+			// decodeCursor requires BOTH parts non-empty, not merely two of them:
+			// `!promotedAt || !id` in apps/api/src/db/lessons.ts. Counting parts
+			// alone accepts "\nabc" and "abc\n", which the API rejects - the same
+			// under-rejection this task exists to close, pointed at the mock.
+			const parts = decoded === null ? [] : decoded.split("\n");
+			if (parts.length !== 2 || !parts[0] || !parts[1]) {
+				throw new AuthApiError(
+					400,
+					"invalid_cursor",
+					"That cursor was not issued by this server; start from the first page",
+				);
+			}
+		}
+
 		return json({ lessons: [], cursor: null, has_more: false });
 	}
 
@@ -671,14 +716,23 @@ export async function mockDataApi(
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof AuthApiError) {
-		const apiError = error as AuthApiError;
+		// Byte-identical to apps/api's errorHandler, including the header. A
+		// mock that answers in a different shape than the thing it stands in
+		// for is worse than no mock: it makes development pass and production
+		// fail. The Content-Type was missing here too.
 		return new Response(
 			JSON.stringify({
-				error: apiError.code,
-				message: apiError.message,
-				details: apiError.details,
+				success: false,
+				error: {
+					code: error.code,
+					message: error.message,
+					details: error.details,
+				},
 			}),
-			{ status: apiError.status },
+			{
+				status: error.status,
+				headers: { "Content-Type": "application/json" },
+			},
 		);
 	}
 	const message = error instanceof Error ? error.message : String(error);

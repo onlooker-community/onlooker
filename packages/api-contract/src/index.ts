@@ -364,6 +364,42 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			name: "an unknown lesson status is rejected",
+			path: "/api/lessons?status=banana",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "an empty cursor is treated as no cursor",
+			path: "/api/lessons?cursor=",
+			init: { method: "GET" },
+			status: 200,
+			body: {
+				lessons: expectArray,
+				cursor: null,
+				has_more: false,
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "a cursor this server did not mint is rejected",
+			path: "/api/lessons?cursor=not-a-real-cursor",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
+			// CmFiYw== is base64 of "\nabc" - well-formed base64, two parts, but
+			// the first is empty. decodeCursor requires BOTH parts non-empty, not
+			// merely two of them, so this must be rejected the same as garbage.
+			name: "a cursor missing half its key is rejected",
+			path: "/api/lessons?cursor=CmFiYw%3D%3D",
+			init: { method: "GET" },
+			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "lesson that nobody holds",
 			path: "/api/lessons/01NOPE00000000000000000000",
 			init: { method: "GET" },
@@ -381,6 +417,23 @@ export function authenticatedCases(): ContractCase[] {
 			// 400 and not 404: the status is rejected before the lesson is
 			// looked up, so this holds without either side seeding a lesson.
 			status: 400,
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "an error carries the shared envelope",
+			path: "/api/lessons/01NOPE00000000000000000000",
+			init: { method: "GET" },
+			status: 404,
+			// The one case that pins an ERROR body rather than just its status.
+			// Every other error case here asserts status alone, which is how the
+			// mock and apps/api managed to disagree about this shape for months:
+			// the suite built to catch drift could not see it. `error` must be an
+			// object, not a bare code string - that difference put an object in
+			// AuthApiError.code and made `err.code === "..."` false in production.
+			body: {
+				success: false,
+				error: expectObject,
+			},
 			forbidden: NO_SECRETS,
 		},
 	];

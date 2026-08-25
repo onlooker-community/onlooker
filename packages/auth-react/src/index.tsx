@@ -100,12 +100,24 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 		}
 
 		if (!response.ok) {
+			// apps/api wraps every error through a shared errorHandler as
+			// { success: false, error: { code, message, details } }. Reading
+			// `data.error` as the code - which this did - yields an OBJECT
+			// against the real API and a string against a mock, so a check like
+			// `err.code === "not_found"` passed in development and failed in
+			// production. The narrow type below is deliberate: the `as any` that
+			// used to be here is what let the two shapes go unnoticed.
+			const envelope = (data ?? {}) as {
+				error?: { code?: string; message?: string; details?: unknown };
+			};
 			throw new AuthApiError(
 				response.status,
-				(data as any).error ?? "unknown_error",
-				(data as any).message ??
+				typeof envelope.error?.code === "string"
+					? envelope.error.code
+					: "unknown_error",
+				envelope.error?.message ??
 					`Request failed with status ${response.status}`,
-				(data as any).details,
+				envelope.error?.details,
 			);
 		}
 
