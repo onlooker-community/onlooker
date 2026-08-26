@@ -31,12 +31,10 @@ async function list() {
 
 // A distinct account per test rather than the shared seeded one. MACHINES in
 // mockApi.ts is keyed by email and lives for the whole file's test run - the
-// mock has no per-test reset, and api-contract.test.ts depends on that: it
-// calls createMockFetch() fresh per case and still expects a machine minted
-// in one case to be listable in the next. A shared account here would let
-// machines minted by an earlier test in this file leak into a later test's
-// list, which is exactly what "keeps every machine" and "starts a fresh
-// machine as never used" are checking is NOT true.
+// mock has no per-test reset. A shared account here would let machines minted
+// by an earlier test in this file leak into a later test's list, which is
+// exactly what "keeps every machine" and "starts a fresh machine as never
+// used" are checking is NOT true.
 let mockMachineTestAccountCounter = 0;
 
 beforeEach(async () => {

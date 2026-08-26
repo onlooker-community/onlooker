@@ -87,6 +87,22 @@ describe("TokenReveal", () => {
 		expect(document.activeElement).toBe(last);
 	});
 
+	// The mirror of the wrap above. Without it, a forward Tab off the last
+	// button - "I've saved it" - would walk into the machine-name input and
+	// Mint button behind the opaque backdrop, where focus is invisible.
+	it("wraps to the first control when Tab is pressed from the last", () => {
+		renderReveal();
+		const dialog = screen.getByRole("dialog");
+		const buttons = screen.getAllByRole("button");
+		const first = buttons[0];
+		const last = buttons[buttons.length - 1];
+		last.focus();
+
+		fireEvent.keyDown(dialog, { key: "Tab" });
+
+		expect(document.activeElement).toBe(first);
+	});
+
 	it("copies the token to the clipboard", async () => {
 		renderReveal();
 		fireEvent.click(screen.getByRole("button", { name: /^copy/i }));
@@ -105,8 +121,10 @@ describe("TokenReveal", () => {
 		expect(screen.getByText(MACHINE.token)).toBeDefined();
 	});
 
-	// The modal covers in-app navigation by trapping focus. Reload, back and
-	// closing the tab are the exits it cannot reach.
+	// The modal covers in-app links by trapping focus. Reload, tab close, and
+	// a Back that leaves the document are the exits `beforeunload` reaches. An
+	// in-app Back is not covered - see the component's doc comment and
+	// onlooker-1bz.
 	it("warns before the page unloads while it is open", () => {
 		const { unmount } = renderReveal();
 

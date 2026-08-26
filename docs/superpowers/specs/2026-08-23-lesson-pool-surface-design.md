@@ -369,10 +369,20 @@ exists in production to break.
 away with the token open "asks first," which reads as `useBlocker`. `main.tsx`
 mounts `BrowserRouter`, where `useBlocker` throws; it needs a data router, and
 migrating every route to `createBrowserRouter` is not this PR. A focus-trapping
-modal reaches the same requirement more directly: with the nav behind it and
-unreachable there is no in-app navigation left to intercept, and `beforeunload`
-still covers reload, back and tab close. The binding requirement was never the
-dialog — it was that nothing dismisses the token except an explicit act.
+modal reaches most of that requirement directly: with the nav behind it and
+unreachable there is no in-app link left to follow away from the page, and
+`beforeunload` covers reload, tab close, and a Back that leaves the document
+entirely. The binding requirement was never the dialog — it was that nothing
+dismisses the token except an explicit act.
+
+What neither reaches is a same-document Back: React Router handles a
+`popstate` client-side, which unmounts the page mid-reveal with no
+`beforeunload` in between, discarding an unsaved token that is recoverable
+only by revoking the machine and minting another. A history-sentinel guard
+was built and reverted during the 2026-08-25 fix wave - it broke Back
+navigation for the rest of the session for everyone who visited the page, a
+worse failure than the one it closed. `onlooker-1bz` records why and tracks
+closing the gap for real.
 
 **PRs 4 and 5 are swapped.** Machines ships first. Nothing can reach the pool
 until someone can mint a credential, so the lessons page would otherwise ship

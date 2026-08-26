@@ -81,6 +81,10 @@ export default function MachinesPage() {
 			await load();
 		} catch (error) {
 			setMintError(describeError(error, "Could not mint a token."));
+			// The server write can have landed even though this caller never saw
+			// the response - reload so a machine created but not shown is not
+			// stranded, unrevokable, until a manual refresh finds it.
+			void load();
 		} finally {
 			setMinting(false);
 		}

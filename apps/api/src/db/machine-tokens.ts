@@ -1,6 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { machine_tokens } from "@onlooker/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
 
@@ -112,7 +112,15 @@ export async function revokeMachineToken(
 	return result.length > 0;
 }
 
-/** Every machine this user has, revoked ones included. */
+/**
+ * Every machine this user has, revoked ones included, oldest first.
+ *
+ * Without an explicit order this relied on incidental SQLite behavior, while
+ * the mock returns machines in insertion order and mockMachines.test.ts pins
+ * that order (`["work laptop", "desktop"]`) - so a real backend that answered
+ * in a different order would contradict the mock without either suite
+ * catching it.
+ */
 export async function listMachineTokens(
 	db: D1Database,
 	userId: string,
@@ -126,5 +134,6 @@ export async function listMachineTokens(
 			revoked_at: machine_tokens.revoked_at,
 		})
 		.from(machine_tokens)
-		.where(eq(machine_tokens.user_id, userId));
+		.where(eq(machine_tokens.user_id, userId))
+		.orderBy(asc(machine_tokens.created_at));
 }

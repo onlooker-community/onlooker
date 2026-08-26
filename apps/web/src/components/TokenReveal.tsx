@@ -13,13 +13,19 @@ import { Button, Panel } from "./ui";
  * - The only way out is "I've saved it". Escape does not close it and neither
  *   does the backdrop, because those are the two gestures a person makes
  *   without having decided anything.
- * - Focus is trapped, so Tab cannot walk into the nav behind the modal. That
- *   is also what makes a navigation guard unnecessary: there is nothing
- *   reachable to navigate with. The spec asked for a prompt on navigating away,
- *   which reads as `useBlocker` - unavailable here, because main.tsx mounts
- *   BrowserRouter rather than a data router. See the 2026-08-25 amendment.
- * - `beforeunload` still covers reload, back, and closing the tab, which are
- *   the exits a modal cannot reach.
+ * - Focus is trapped, so Tab cannot walk into the nav behind the modal - that
+ *   closes off every in-app link while the reveal is open. The spec asked for
+ *   a prompt on navigating away, which reads as `useBlocker` - unavailable
+ *   here, because main.tsx mounts BrowserRouter rather than a data router.
+ *   See the 2026-08-25 amendment.
+ * - `beforeunload` covers reload, tab close, and a Back that leaves the
+ *   document entirely. It does not cover an in-app Back: a same-document
+ *   history pop is a `popstate`, which React Router handles client-side and
+ *   which fires no `beforeunload`, so it unmounts this dialog with no prompt
+ *   and the token is lost - recoverable only by revoking the machine and
+ *   minting another (the dialog says so below). A history-sentinel guard was
+ *   tried and reverted; onlooker-1bz has the detail and tracks closing the
+ *   gap for real.
  * - A failed copy says failed. Telling someone their only copy is on the
  *   clipboard when it is not is the worst outcome this component has.
  */

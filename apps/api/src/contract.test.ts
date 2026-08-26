@@ -739,14 +739,34 @@ describe("apps/api machine credentials", () => {
 	it("mints a token once and never shows it again", async () => {
 		const created = await mint(owner, "work laptop");
 		expect(created.status).toBe(MACHINE_LIFECYCLE.create);
-		const { token } = (await created.json()) as { token: string };
+		const createdBody = (await created.json()) as Record<string, unknown>;
+		const { token } = createdBody as { token: string };
 		expect(token.startsWith(MACHINE_LIFECYCLE.tokenPrefix)).toBe(true);
+		// Pins the create response's field names, not just its status - a
+		// rename here would blank TokenReveal's "the token for <name>" sentence
+		// while every other check in this suite stayed green. Sorted because
+		// object key order is not a promise either side has made.
+		expect(Object.keys(createdBody).sort()).toEqual(
+			[...MACHINE_LIFECYCLE.createFields].sort(),
+		);
 
 		const list = await SELF.fetch(`${BASE}/api/machines`, as(owner));
-		const body = await list.text();
-		expect(body.includes(token)).toBe(MACHINE_LIFECYCLE.tokenInList);
-		expect(body.includes(MACHINE_LIFECYCLE.tokenPrefix)).toBe(
+		const listBody = (await list.json()) as {
+			machines: Array<Record<string, unknown>>;
+		};
+		const serialized = JSON.stringify(listBody);
+		expect(serialized.includes(token)).toBe(MACHINE_LIFECYCLE.tokenInList);
+		expect(serialized.includes(MACHINE_LIFECYCLE.tokenPrefix)).toBe(
 			MACHINE_LIFECYCLE.tokenInList,
+		);
+
+		const minted = listBody.machines.find((m) => m.id === createdBody.id);
+		if (!minted) throw new Error("minted machine missing from its own list");
+		// Pins the list response's field names, not just that `machines` is an
+		// array. See MACHINE_LIFECYCLE.listFields for why nothing else in this
+		// package catches a renamed select alias in listMachineTokens.
+		expect(Object.keys(minted).sort()).toEqual(
+			[...MACHINE_LIFECYCLE.listFields].sort(),
 		);
 	});
 

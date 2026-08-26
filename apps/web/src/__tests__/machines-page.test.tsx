@@ -66,10 +66,14 @@ describe("MachinesPage", () => {
 		withMachines();
 		await renderPage();
 		// Recovery is revoke-and-mint-again and there is no other path, so the
-		// empty state says it rather than leaving it to be discovered.
+		// empty state says it rather than leaving it to be discovered. Matched
+		// on the actual sentence and not a bare "revoke" substring, which a
+		// future Revoke button elsewhere on the page would also satisfy.
 		const empty = await screen.findByText(/no machines yet/i);
 		expect(empty).toBeDefined();
-		expect(document.body.textContent).toMatch(/revoke/i);
+		expect(
+			screen.getByText(/revoke its machine here and mint another/i),
+		).toBeDefined();
 	});
 
 	it("lists machines by name", async () => {
@@ -90,6 +94,10 @@ describe("MachinesPage", () => {
 		// text, which is locale-dependent and would fail on another machine.
 		const used = document.querySelector(`time[datetime="${USED.last_used_at}"]`);
 		expect(used).not.toBeNull();
+		// The Created column, unasserted until now - nothing here would have
+		// failed if it were bound to last_used_at or revoked_at instead.
+		const created = document.querySelector(`time[datetime="${USED.created_at}"]`);
+		expect(created).not.toBeNull();
 	});
 
 	it("shows the token once and lets it go only on acknowledgement", async () => {
@@ -157,6 +165,7 @@ describe("MachinesPage", () => {
 		withMachines();
 		mocks.createMachine.mockRejectedValue(new Error("A machine needs a name"));
 		await renderPage();
+		const before = mocks.listMachines.mock.calls.length;
 
 		fireEvent.change(screen.getByLabelText(/machine name/i), {
 			target: { value: "   x" },
@@ -167,6 +176,12 @@ describe("MachinesPage", () => {
 		// point of #85.
 		expect(await screen.findByText(/a machine needs a name/i)).toBeDefined();
 		expect(screen.queryByRole("dialog")).toBeNull();
+		// A request whose response never arrives can still have written the
+		// machine. Reloading is what keeps that machine from being stranded,
+		// unrevokable, in a list nothing ever refetches.
+		await waitFor(() =>
+			expect(mocks.listMachines.mock.calls.length).toBeGreaterThan(before),
+		);
 	});
 
 	it("asks inline before revoking, and cancelling leaves the row alone", async () => {

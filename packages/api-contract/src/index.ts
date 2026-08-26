@@ -239,6 +239,29 @@ export const MACHINE_LIFECYCLE = {
 	 * exists, which is an existence oracle over other users' rows.
 	 */
 	revokeSomeoneElses: 404,
+	/**
+	 * The exact fields a listed machine carries - nothing more asserted here,
+	 * because extra fields are allowed and these five are the ones the page
+	 * reads by name (`id`, `created_at` and `last_used_at` render the row;
+	 * `name` labels it; `revoked_at` decides whether it gets a Revoke button).
+	 *
+	 * Nothing else in this package pins them: the static case below asserts
+	 * only `body: { machines: expectArray }`, and apps/api's own
+	 * machine-tokens.test.ts reads `revoked_at`/`last_used_at` as raw DB
+	 * columns via `db().prepare()`, never as JSON keys a client would see. A
+	 * select alias renamed in `listMachineTokens` could ship - every suite and
+	 * `tsc` green - while the page silently rendered "Never used" for every
+	 * machine and "Invalid Date" under Created. This is the one place that
+	 * rename fails.
+	 */
+	listFields: ["id", "name", "created_at", "last_used_at", "revoked_at"],
+	/**
+	 * The exact fields the create response carries. `name` is rendered by
+	 * `TokenReveal` ("the token for <name>") and was asserted nowhere before
+	 * this - a rename here would blank that sentence with every other check
+	 * still passing.
+	 */
+	createFields: ["id", "name", "token"],
 } as const;
 
 /**
