@@ -198,6 +198,50 @@ export const SESSION_LIFECYCLE = {
 } as const;
 
 /**
+ * Minting, listing and revoking a machine credential.
+ *
+ * Driven as a flow rather than as cases, because every step needs the id or
+ * the token the one before it returned, and a static `path` cannot say "revoke
+ * the one you just made."
+ *
+ * This surface had no contract of any kind until 2026-08-25. It was registered
+ * outside `/api/`, so no case could reach it through the mock, which made the
+ * one place in the product that mints a credential the only one outside the
+ * gate this package exists to be.
+ */
+export const MACHINE_LIFECYCLE = {
+	/** Minting answers 201 and hands back the raw token. */
+	create: 201,
+	/**
+	 * The prefix the raw token carries. Not decoration: it makes the value
+	 * recognizable in a paste and greppable by secret scanners, which is what
+	 * gets a leaked credential noticed.
+	 */
+	tokenPrefix: "onlk_",
+	/** A name that is blank or only whitespace mints nothing. */
+	blankName: 400,
+	/**
+	 * The raw token is in the create response and nowhere else, ever. The list
+	 * is where a second copy would surface if one existed, so the list is where
+	 * this is asserted.
+	 */
+	tokenInList: false,
+	/** Revoking one you own succeeds. */
+	revokeOwn: 200,
+	/**
+	 * And revoking it again answers 404, not 200. The row is already out of the
+	 * caller's reach; reporting success twice would tell a user that a second
+	 * revoke did something.
+	 */
+	revokeTwice: 404,
+	/**
+	 * Another user's machine answers 404, not 403. A 403 confirms the id
+	 * exists, which is an existence oracle over other users' rows.
+	 */
+	revokeSomeoneElses: 404,
+} as const;
+
+/**
  * The account-management surface: reading a profile, editing it, changing a
  * password, deleting an account.
  *
@@ -362,6 +406,27 @@ export function authenticatedCases(): ContractCase[] {
 				has_more: false,
 			},
 			forbidden: NO_SECRETS,
+		},
+		{
+			name: "machines list, valid token",
+			path: "/api/machines",
+			init: { method: "GET" },
+			status: 200,
+			// `machines` is an array even when the account has none. The page
+			// renders its empty state from this, and a missing key throws.
+			body: { machines: expectArray },
+			// Not the bare word "token": a machine someone names "work token
+			// laptop" would trip a substring search and fail a green suite for
+			// no reason. `onlk_` is the prefix every minted token carries and
+			// nothing else does, which makes it the exact tripwire for the one
+			// thing that must never appear in a list response.
+			forbidden: [...NO_SECRETS, "token_hash", "onlk_"],
+		},
+		{
+			name: "machine with a blank name",
+			path: "/api/machines",
+			init: json({ name: "   " }),
+			status: 400,
 		},
 		{
 			name: "an unknown lesson status is rejected",

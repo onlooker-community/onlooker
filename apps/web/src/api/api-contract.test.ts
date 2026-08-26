@@ -5,6 +5,7 @@ import {
 	type ContractCase,
 	EMAIL_FLOW_CONTRACT,
 	forbiddenPresent,
+	MACHINE_LIFECYCLE,
 	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
@@ -465,5 +466,88 @@ describe("the mock's email flows", () => {
 
 	it("refuses to resend for an unauthenticated caller", async () => {
 		expect((await post("/auth/resend-verification", {})).status).toBe(401);
+	});
+});
+
+describe("the mock's machine credentials", () => {
+	const call = createMockFetch();
+	let owner: string;
+	let stranger: string;
+
+	function as(token: string, init: RequestInit = {}): RequestInit {
+		const headers = new Headers(init.headers);
+		headers.set("Authorization", `Bearer ${token}`);
+		if (init.body) headers.set("Content-Type", "application/json");
+		return { ...init, headers };
+	}
+
+	async function mint(token: string, name: string) {
+		return call(
+			"/api/machines",
+			as(token, { method: "POST", body: JSON.stringify({ name }) }),
+		);
+	}
+
+	async function signup(email: string): Promise<string> {
+		const response = await call("/auth/signup", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email, password: SEEDED_PASSWORD, name: "Grace" }),
+		});
+		// Asserted so a broken fixture reports itself once here rather than as
+		// four confusing 401s downstream.
+		expect(response.status, `fixture signup failed for ${email}`).toBe(201);
+		return ((await response.json()) as { token: string }).token;
+	}
+
+	beforeAll(async () => {
+		// Two fresh accounts, NOT the seeded one. The mock's machine store is
+		// module state shared with the static cases above, and those run against
+		// the seeded account - so an owner who is also that account makes this
+		// block order-dependent on them. Task 2 paid for that lesson already:
+		// nine cases sharing one account counted each other's machines.
+		owner = await signup(freshEmail());
+		stranger = await signup(freshEmail());
+	});
+
+	it("mints a token once and never shows it again", async () => {
+		const created = await mint(owner, "work laptop");
+		expect(created.status).toBe(MACHINE_LIFECYCLE.create);
+		const { token } = (await created.json()) as { token: string };
+		expect(token.startsWith(MACHINE_LIFECYCLE.tokenPrefix)).toBe(true);
+
+		const body = await (await call("/api/machines", as(owner))).text();
+		expect(body.includes(token)).toBe(MACHINE_LIFECYCLE.tokenInList);
+		expect(body.includes(MACHINE_LIFECYCLE.tokenPrefix)).toBe(
+			MACHINE_LIFECYCLE.tokenInList,
+		);
+	});
+
+	it("rejects a name that is only whitespace", async () => {
+		expect((await mint(owner, "   ")).status).toBe(MACHINE_LIFECYCLE.blankName);
+	});
+
+	it("revokes once and refuses a second time", async () => {
+		const { id } = (await (await mint(owner, "stolen laptop")).json()) as {
+			id: string;
+		};
+		expect(
+			(await call(`/api/machines/${id}`, as(owner, { method: "DELETE" })))
+				.status,
+		).toBe(MACHINE_LIFECYCLE.revokeOwn);
+		expect(
+			(await call(`/api/machines/${id}`, as(owner, { method: "DELETE" })))
+				.status,
+		).toBe(MACHINE_LIFECYCLE.revokeTwice);
+	});
+
+	it("will not let one account revoke another's machine", async () => {
+		const { id } = (await (await mint(owner, "shared name")).json()) as {
+			id: string;
+		};
+		expect(
+			(await call(`/api/machines/${id}`, as(stranger, { method: "DELETE" })))
+				.status,
+		).toBe(MACHINE_LIFECYCLE.revokeSomeoneElses);
 	});
 });
