@@ -6,6 +6,7 @@ import {
 	type ContractCase,
 	EMAIL_FLOW_CONTRACT,
 	forbiddenPresent,
+	MACHINE_LIFECYCLE,
 	SESSION_LIFECYCLE,
 	shapeFailures,
 } from "@onlooker/api-contract";
@@ -695,5 +696,110 @@ describe("apps/api client error reporting", () => {
 		});
 
 		expect((await post(huge)).status).toBe(204);
+	});
+});
+
+describe("apps/api machine credentials", () => {
+	let owner: string;
+	let stranger: string;
+
+	async function signup(email: string): Promise<string> {
+		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email,
+				password: "correct-horse-battery",
+				name: "Ada",
+			}),
+		});
+		expect(res.status, `fixture signup failed for ${email}`).toBe(201);
+		return ((await res.json()) as { token: string }).token;
+	}
+
+	function as(token: string, init: RequestInit = {}): RequestInit {
+		const headers = new Headers(init.headers);
+		headers.set("Authorization", `Bearer ${token}`);
+		if (init.body) headers.set("Content-Type", "application/json");
+		return { ...init, headers };
+	}
+
+	async function mint(token: string, name: string) {
+		return SELF.fetch(
+			`${BASE}/api/machines`,
+			as(token, { method: "POST", body: JSON.stringify({ name }) }),
+		);
+	}
+
+	beforeAll(async () => {
+		owner = await signup("machine-owner@example.com");
+		stranger = await signup("machine-stranger@example.com");
+	});
+
+	it("mints a token once and never shows it again", async () => {
+		const created = await mint(owner, "work laptop");
+		expect(created.status).toBe(MACHINE_LIFECYCLE.create);
+		const createdBody = (await created.json()) as Record<string, unknown>;
+		const { token } = createdBody as { token: string };
+		expect(token.startsWith(MACHINE_LIFECYCLE.tokenPrefix)).toBe(true);
+		// Pins the create response's field names, not just its status - a
+		// rename here would blank TokenReveal's "the token for <name>" sentence
+		// while every other check in this suite stayed green. Sorted because
+		// object key order is not a promise either side has made.
+		expect(Object.keys(createdBody).sort()).toEqual(
+			[...MACHINE_LIFECYCLE.createFields].sort(),
+		);
+
+		const list = await SELF.fetch(`${BASE}/api/machines`, as(owner));
+		const listBody = (await list.json()) as {
+			machines: Array<Record<string, unknown>>;
+		};
+		const serialized = JSON.stringify(listBody);
+		expect(serialized.includes(token)).toBe(MACHINE_LIFECYCLE.tokenInList);
+		expect(serialized.includes(MACHINE_LIFECYCLE.tokenPrefix)).toBe(
+			MACHINE_LIFECYCLE.tokenInList,
+		);
+
+		const minted = listBody.machines.find((m) => m.id === createdBody.id);
+		if (!minted) throw new Error("minted machine missing from its own list");
+		// Pins the list response's field names, not just that `machines` is an
+		// array. See MACHINE_LIFECYCLE.listFields for why nothing else in this
+		// package catches a renamed select alias in listMachineTokens.
+		expect(Object.keys(minted).sort()).toEqual(
+			[...MACHINE_LIFECYCLE.listFields].sort(),
+		);
+	});
+
+	it("rejects a name that is only whitespace", async () => {
+		expect((await mint(owner, "   ")).status).toBe(MACHINE_LIFECYCLE.blankName);
+	});
+
+	it("revokes once and refuses a second time", async () => {
+		const { id } = (await (await mint(owner, "stolen laptop")).json()) as {
+			id: string;
+		};
+		const first = await SELF.fetch(
+			`${BASE}/api/machines/${id}`,
+			as(owner, { method: "DELETE" }),
+		);
+		expect(first.status).toBe(MACHINE_LIFECYCLE.revokeOwn);
+
+		const second = await SELF.fetch(
+			`${BASE}/api/machines/${id}`,
+			as(owner, { method: "DELETE" }),
+		);
+		expect(second.status).toBe(MACHINE_LIFECYCLE.revokeTwice);
+	});
+
+	it("will not let one account revoke another's machine", async () => {
+		const { id } = (await (await mint(owner, "shared name")).json()) as {
+			id: string;
+		};
+		const response = await SELF.fetch(
+			`${BASE}/api/machines/${id}`,
+			as(stranger, { method: "DELETE" }),
+		);
+		// 404 and not 403 - see MACHINE_LIFECYCLE.revokeSomeoneElses.
+		expect(response.status).toBe(MACHINE_LIFECYCLE.revokeSomeoneElses);
 	});
 });

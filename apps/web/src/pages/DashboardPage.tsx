@@ -29,6 +29,13 @@ export default function DashboardPage() {
 			<nav style={{ display: "flex", gap: "1rem", margin: "1rem 0" }}>
 				<Link to="/profile">Profile</Link>
 				<Link to="/settings">Settings</Link>
+				{/*
+				  Temporary. RequireAuth still lands here, and AppShell's nav
+				  is only reachable from a page that mounts it - so without
+				  this, minting a token requires knowing the URL. Deleted with
+				  this whole page when /lessons becomes the landing route.
+				*/}
+				<Link to="/machines">Machines</Link>
 				<a href="#recent-activity">Activity log</a>
 			</nav>
 

@@ -1,6 +1,6 @@
 # Lesson Pool Surface — Design
 
-**Status:** Approved, not yet built
+**Status:** Approved. PRs 1-3 shipped; amended 2026-08-25 (see Amendments)
 **Date:** 2026-08-23
 **Epic:** `onlooker-bmp`
 **Depends on:** [sync endpoint and hosted pool](2026-08-22-sync-endpoint-hosted-pool-design.md)
@@ -85,7 +85,7 @@ changed the design at least once.
 |---|---|---|
 | `/lessons` | session | The pool. List pane only on narrow screens. |
 | `/lessons/:id` | session | Two-pane on wide: list left, detail right. Detail only on narrow. |
-| `/settings/machines` | session | Mint, list, revoke machine tokens. |
+| `/machines` | session | Mint, list, revoke machine tokens. |
 | `/settings`, `/profile` | session | Unchanged. |
 | `/dashboard` | — | **Deleted.** `RequireAuth` lands on `/lessons`. |
 
@@ -109,7 +109,7 @@ agreement between a mock and an API about data nobody reads. Deleting it removes
 a drift surface rather than adding one.
 
 **Rejected:** rewriting it against real counts. It would need a fourth endpoint
-and its own contract cases to duplicate what `/lessons` and `/settings/machines`
+and its own contract cases to duplicate what `/lessons` and `/machines`
 already show on the page the user is already looking at.
 
 **Rejected:** turning it into a conditional setup surface that redirects once a
@@ -131,7 +131,9 @@ else, ever** — only its SHA-256 is stored. Therefore:
 - The token appears in a panel with a copy button and a plain statement that it
   will not be shown again.
 - It is dismissed by an explicit "I've saved it." Not a timeout, not a click
-  elsewhere. Navigating away with it open asks first.
+  elsewhere. Navigating away with it open asks first. *(Amended 2026-08-25: the
+  reveal is a focus-trapping modal, so there is no in-app navigation left to
+  intercept. See Amendments.)*
 - Recovery is revoke-and-mint-again, and the empty state says so rather than
   leaving the user to discover it.
 
@@ -313,12 +315,13 @@ Five PRs, each independently deployable, one cutover.
 | 1 | `onlooker-w5o` | `promoted_at` column, index, `expected-schema.ts` | No |
 | 2 | `onlooker-yj5` | Three browser routes, contract cases, mock branches | No |
 | 3 | `onlooker-j2u` | `palette.ts`, `ui.tsx`, `AppShell` | No |
-| 4 | `onlooker-yfw` | Lessons two-pane, retract, **and the dashboard deletion** | Yes |
-| 5 | `onlooker-k7w` | Machines page and the one-time reveal | Yes |
+| 4 | `onlooker-k7w` | Machines page and the one-time reveal | Yes |
+| 5 | `onlooker-yfw` | Lessons two-pane, retract, **and the dashboard deletion** | Yes |
 
-**Why the deletion rides with PR 4.** Removing `/dashboard` before `/lessons`
-exists lands `RequireAuth` on a route that isn't there. They ship together so the
-landing route always exists.
+**Why the deletion rides with the lessons PR.** Removing `/dashboard` before
+`/lessons` exists lands `RequireAuth` on a route that isn't there. They ship
+together so the landing route always exists. That pairing is why swapping 4 and
+5 was safe: the machines page carries no part of the cutover.
 
 Follow-ups, filed rather than absorbed: `onlooker-4bw` (stack filtering),
 `onlooker-mkp` (heartbeat coverage).
@@ -335,3 +338,55 @@ one that stays correct if that stops being true before the migration runs.
 **Is `limit` 50 the right default?** Chosen to fill the list pane roughly twice
 over without a scroll-to-load on first paint. Untested against a real pool,
 because no real pool exists yet.
+
+---
+
+## Amendments
+
+### 2026-08-25 — reconciling with what shipped
+
+PRs 1-3 shipped as written. Building the machines page next surfaced four
+things this document got wrong or could not have known. Recorded here rather
+than edited silently, because three of them are decisions and not typos.
+
+**The machines route is `/machines`, not `/settings/machines`.** `AppShell`
+shipped in PR 3 with a four-item top-level nav and a test pinning the href.
+Machines is a section, not a preference: it is where a credential is minted and
+revoked, which is not the same kind of act as changing a display name. The route
+table above is corrected.
+
+**The API moves under `/api/`.** The three handlers were registered at
+`/machines`, outside the prefix every other browser-authenticated route uses.
+That is not only untidy. `createMockFetch` claims `/auth/*` and `/api/*` and
+passes everything else to the network, so a call to `/machines` in development
+reaches the Vite dev server; and no `api-contract` case covered the surface at
+all. The one surface in the product that mints credentials was the one outside
+the drift gate that exists because of the blanked dashboard. Moving it costs a
+rename nothing calls yet — no browser could mint a token, so no machine token
+exists in production to break.
+
+**The reveal is a modal, not a navigation block.** This document said navigating
+away with the token open "asks first," which reads as `useBlocker`. `main.tsx`
+mounts `BrowserRouter`, where `useBlocker` throws; it needs a data router, and
+migrating every route to `createBrowserRouter` is not this PR. A focus-trapping
+modal reaches most of that requirement directly: with the nav behind it and
+unreachable there is no in-app link left to follow away from the page, and
+`beforeunload` covers reload, tab close, and a Back that leaves the document
+entirely. The binding requirement was never the dialog — it was that nothing
+dismisses the token except an explicit act.
+
+What neither reaches is a same-document Back: React Router handles a
+`popstate` client-side, which unmounts the page mid-reveal with no
+`beforeunload` in between, discarding an unsaved token that is recoverable
+only by revoking the machine and minting another. A history-sentinel guard
+was built and reverted during the 2026-08-25 fix wave - it broke Back
+navigation for the rest of the session for everyone who visited the page, a
+worse failure than the one it closed. `onlooker-1bz` records why and tracks
+closing the gap for real.
+
+**PRs 4 and 5 are swapped.** Machines ships first. Nothing can reach the pool
+until someone can mint a credential, so the lessons page would otherwise ship
+against a pool that is empty by construction, and its empty state links to a
+Machines route that would not exist. The cost is that `AppShell`'s Lessons link
+renders the 404 page for one PR, and that `/machines` needs a temporary link
+from `DashboardPage`'s nav to be reachable — deleted with that page in PR 5.

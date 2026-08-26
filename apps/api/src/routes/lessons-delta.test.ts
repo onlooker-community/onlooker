@@ -118,7 +118,7 @@ describe("GET /lessons", () => {
 		});
 		expect(before.status).toBe(200);
 
-		const revoke = await SELF.fetch(`${BASE}/machines/${machine.id}`, {
+		const revoke = await SELF.fetch(`${BASE}/api/machines/${machine.id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${machine.accessToken}` },
 		});
@@ -141,7 +141,7 @@ describe("GET /lessons", () => {
 	// Revoking a lost laptop must not sign the other machines out.
 	it("leaves the account's other machines working", async () => {
 		const lost = await mintMachine("two-machines@example.com");
-		const kept = await SELF.fetch(`${BASE}/machines`, {
+		const kept = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -151,7 +151,7 @@ describe("GET /lessons", () => {
 		});
 		const { token: keptToken } = (await kept.json()) as { token: string };
 
-		await SELF.fetch(`${BASE}/machines/${lost.id}`, {
+		await SELF.fetch(`${BASE}/api/machines/${lost.id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${lost.accessToken}` },
 		});
