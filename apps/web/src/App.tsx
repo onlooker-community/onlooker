@@ -1,11 +1,13 @@
 import { Route, Routes, useLocation } from "react-router-dom";
 import { auth } from "./auth";
+import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { reportClientError } from "./lib/reportError";
 import DashboardPage from "./pages/DashboardPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MachinesPage from "./pages/MachinesPage";
 import ProfilePage from "./pages/ProfilePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -66,6 +68,22 @@ export default function App() {
 					element={
 						<auth.RequireAuth>
 							<ProfilePage />
+						</auth.RequireAuth>
+					}
+				/>
+				{/*
+				  The first route to mount AppShell. The shell's Lessons link
+				  goes nowhere until the next PR lands /lessons; that is the
+				  accepted cost of shipping machines first, since nothing can
+				  reach the pool until somebody can mint a credential.
+				*/}
+				<Route
+					path="/machines"
+					element={
+						<auth.RequireAuth>
+							<AppShell>
+								<MachinesPage />
+							</AppShell>
 						</auth.RequireAuth>
 					}
 				/>
