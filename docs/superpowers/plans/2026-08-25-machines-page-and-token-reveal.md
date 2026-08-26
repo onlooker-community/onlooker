@@ -681,25 +681,26 @@ describe("the mock's machine credentials", () => {
 		);
 	}
 
-	beforeAll(async () => {
-		const login = await call("/auth/login", {
+	async function signup(email: string): Promise<string> {
+		const response = await call("/auth/signup", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ email: SEEDED_EMAIL, password: SEEDED_PASSWORD }),
+			body: JSON.stringify({ email, password: SEEDED_PASSWORD, name: "Grace" }),
 		});
-		expect(login.status, "fixture login failed").toBe(200);
-		owner = ((await login.json()) as { token: string }).token;
+		// Asserted so a broken fixture reports itself once here rather than as
+		// four confusing 401s downstream.
+		expect(response.status, `fixture signup failed for ${email}`).toBe(201);
+		return ((await response.json()) as { token: string }).token;
+	}
 
-		const signup = await call("/auth/signup", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				email: freshEmail(),
-				password: SEEDED_PASSWORD,
-				name: "Grace",
-			}),
-		});
-		stranger = ((await signup.json()) as { token: string }).token;
+	beforeAll(async () => {
+		// Two fresh accounts, NOT the seeded one. The mock's machine store is
+		// module state shared with the static cases above, and those run against
+		// the seeded account - so an owner who is also that account makes this
+		// block order-dependent on them. Task 2 paid for that lesson already:
+		// nine cases sharing one account counted each other's machines.
+		owner = await signup(freshEmail());
+		stranger = await signup(freshEmail());
 	});
 
 	it("mints a token once and never shows it again", async () => {
