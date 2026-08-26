@@ -69,7 +69,8 @@ export default function TokenReveal({
 		}
 		if (event.key !== "Tab") return;
 
-		const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("button");
+		const focusable =
+			dialogRef.current?.querySelectorAll<HTMLElement>("button");
 		if (!focusable || focusable.length === 0) return;
 
 		const first = focusable[0];

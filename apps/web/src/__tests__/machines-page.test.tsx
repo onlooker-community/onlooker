@@ -92,11 +92,15 @@ describe("MachinesPage", () => {
 		expect(await screen.findByText(/never used/i)).toBeDefined();
 		// Asserted on the machine-readable attribute rather than the rendered
 		// text, which is locale-dependent and would fail on another machine.
-		const used = document.querySelector(`time[datetime="${USED.last_used_at}"]`);
+		const used = document.querySelector(
+			`time[datetime="${USED.last_used_at}"]`,
+		);
 		expect(used).not.toBeNull();
 		// The Created column, unasserted until now - nothing here would have
 		// failed if it were bound to last_used_at or revoked_at instead.
-		const created = document.querySelector(`time[datetime="${USED.created_at}"]`);
+		const created = document.querySelector(
+			`time[datetime="${USED.created_at}"]`,
+		);
 		expect(created).not.toBeNull();
 	});
 
