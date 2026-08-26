@@ -153,20 +153,27 @@ const ROUTES: Route[] = [
 
 	// =========================================================================
 	// Machine tokens (subsystem 3 - credentials for non-browser clients)
+	//
+	// Under /api/ with the other session-authenticated routes, not beside the
+	// machine-authenticated /lessons ingest. The prefix is what createMockFetch
+	// claims, so a route outside it cannot be mocked in development and cannot
+	// be reached by an api-contract case - which is how this surface, the one
+	// place in the product that mints a credential, spent three PRs as the only
+	// one outside the drift gate built after the blanked dashboard.
 	// =========================================================================
 	{
 		method: "POST",
-		path: "/machines",
+		path: "/api/machines",
 		handler: handleCreateMachine,
 	},
 	{
 		method: "GET",
-		path: "/machines",
+		path: "/api/machines",
 		handler: handleListMachines,
 	},
 	{
 		method: "DELETE",
-		path: "/machines/:id",
+		path: "/api/machines/:id",
 		handler: handleRevokeMachine,
 	},
 

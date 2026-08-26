@@ -24,9 +24,9 @@ beforeEach(async () => {
 	accessToken = await signup("machines@example.com");
 });
 
-describe("POST /machines", () => {
+describe("POST /api/machines", () => {
 	it("returns the raw token exactly once", async () => {
-		const response = await SELF.fetch(`${BASE}/machines`, {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -40,14 +40,14 @@ describe("POST /machines", () => {
 		expect(created.token).toMatch(/^onlk_[0-9a-f]{64}$/);
 
 		// The list must never carry it again.
-		const list = await SELF.fetch(`${BASE}/machines`, {
+		const list = await SELF.fetch(`${BASE}/api/machines`, {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		expect(await list.text()).not.toContain(created.token);
 	});
 
 	it("rejects a request with no credential at all", async () => {
-		const response = await SELF.fetch(`${BASE}/machines`, {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: "work laptop" }),
@@ -57,7 +57,7 @@ describe("POST /machines", () => {
 	});
 
 	it("rejects a real machine token, not just a browser session", async () => {
-		const seed = await SELF.fetch(`${BASE}/machines`, {
+		const seed = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -67,7 +67,7 @@ describe("POST /machines", () => {
 		});
 		const { token: machineToken } = (await seed.json()) as { token: string };
 
-		const response = await SELF.fetch(`${BASE}/machines`, {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -80,7 +80,7 @@ describe("POST /machines", () => {
 	});
 
 	it("rejects a blank name", async () => {
-		const response = await SELF.fetch(`${BASE}/machines`, {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -93,7 +93,7 @@ describe("POST /machines", () => {
 	});
 });
 
-describe("DELETE /machines/:id", () => {
+describe("DELETE /api/machines/:id", () => {
 	// The route's PRIMARY EFFECT, which had no test at all: replacing the id
 	// extraction at machines.ts:53 with `const id = ""` left the whole suite
 	// green, because the only case covered was one that 404s anyway - and it
@@ -103,7 +103,7 @@ describe("DELETE /machines/:id", () => {
 	// leaves the credential working is the silent failure this whole subsystem
 	// is written against, so the token is used afterwards.
 	it("revokes your own machine, and the token stops working", async () => {
-		const create = await SELF.fetch(`${BASE}/machines`, {
+		const create = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -122,7 +122,7 @@ describe("DELETE /machines/:id", () => {
 		});
 		expect(before.status).toBe(200);
 
-		const revoke = await SELF.fetch(`${BASE}/machines/${id}`, {
+		const revoke = await SELF.fetch(`${BASE}/api/machines/${id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
@@ -144,7 +144,7 @@ describe("DELETE /machines/:id", () => {
 	});
 
 	it("404s for a machine that does not exist", async () => {
-		const response = await SELF.fetch(`${BASE}/machines/no-such-machine`, {
+		const response = await SELF.fetch(`${BASE}/api/machines/no-such-machine`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
@@ -153,7 +153,7 @@ describe("DELETE /machines/:id", () => {
 	});
 
 	it("will not revoke another user's machine", async () => {
-		const create = await SELF.fetch(`${BASE}/machines`, {
+		const create = await SELF.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -164,7 +164,7 @@ describe("DELETE /machines/:id", () => {
 		const { id } = (await create.json()) as { id: string };
 
 		const otherToken = await signup("other@example.com");
-		const response = await SELF.fetch(`${BASE}/machines/${id}`, {
+		const response = await SELF.fetch(`${BASE}/api/machines/${id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${otherToken}` },
 		});

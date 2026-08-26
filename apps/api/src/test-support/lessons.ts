@@ -44,7 +44,7 @@ export function lesson(overrides: Record<string, unknown> = {}) {
 
 /** Everything a test needs to use, and then revoke, one machine. */
 export interface MintedMachine {
-	/** The machine row's id, for DELETE /machines/:id. */
+	/** The machine row's id, for DELETE /api/machines/:id. */
 	id: string;
 	/** The machine credential, for the sync routes. */
 	token: string;
@@ -70,7 +70,7 @@ export async function mintMachine(email: string): Promise<MintedMachine> {
 	});
 	const { token: accessToken } = (await signup.json()) as { token: string };
 
-	const machine = await SELF.fetch(`${BASE}/machines`, {
+	const machine = await SELF.fetch(`${BASE}/api/machines`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
