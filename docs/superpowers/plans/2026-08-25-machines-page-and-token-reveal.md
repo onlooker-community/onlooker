@@ -186,11 +186,11 @@ import { createMockFetch } from "./mockApi";
 // and marked. A contract case would have to be true of apps/api too, and
 // several of these are about the mock's in-memory store specifically.
 
-const SEEDED_EMAIL = "test@example.com";
-const SEEDED_PASSWORD = "password123";
+const PASSWORD = "password123";
 
 let fetchMock: ReturnType<typeof createMockFetch>;
 let token: string;
+let accountCounter = 0;
 
 async function mint(name: string) {
 	return fetchMock("/api/machines", {
@@ -212,13 +212,27 @@ async function list() {
 
 beforeEach(async () => {
 	fetchMock = createMockFetch();
-	const login = await fetchMock("/auth/login", {
+
+	// A fresh account per test, not the shared seeded one. MACHINES is module
+	// state and vitest resets modules between FILES, not between tests, so any
+	// case asserting an exact list length has to own its account. The store is
+	// keyed by email, so this uses the mock's own isolation rather than adding
+	// a reset hook that nothing in production would ever call - and a clear()
+	// inside createMockFetch would break api-contract.test.ts, which builds a
+	// fresh mock fetch for every case.
+	accountCounter += 1;
+	const signup = await fetchMock("/auth/signup", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ email: SEEDED_EMAIL, password: SEEDED_PASSWORD }),
+		body: JSON.stringify({
+			email: `machines-${accountCounter}@example.com`,
+			password: PASSWORD,
+			name: "Ada",
+		}),
 	});
-	expect(login.status).toBe(200);
-	token = ((await login.json()) as { token: string }).token;
+	// The mock answers 201 with { token, refreshToken, user }, matching apps/api.
+	expect(signup.status).toBe(201);
+	token = ((await signup.json()) as { token: string }).token;
 });
 
 describe("the mock's machine lifecycle", () => {
