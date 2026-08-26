@@ -569,6 +569,54 @@ export async function mockAuthApi(
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
 }
 
+/**
+ * A machine as the mock holds it. Mirrors MachineTokenSummary in
+ * apps/api/src/db/machine-tokens.ts field for field - everything the browser
+ * is allowed to see, which is everything except anything that authenticates.
+ */
+interface MockMachine {
+	id: string;
+	name: string;
+	created_at: string;
+	last_used_at: string | null;
+	revoked_at: string | null;
+}
+
+/**
+ * Per-account machines, keyed by email like the rest of the mock's state.
+ *
+ * The lesson pool above is permanently empty because only a machine-
+ * authenticated push can fill it and a browser cannot make one. Machines are
+ * the opposite: a browser is the only thing that can mint one, so the mock can
+ * model the whole lifecycle - and has to, because the reveal, the "never used"
+ * treatment and revoke are otherwise unreachable in development.
+ */
+const MACHINES = new Map<string, MockMachine[]>();
+
+function machinesOf(email: string): MockMachine[] {
+	const existing = MACHINES.get(email);
+	if (existing) return existing;
+	const fresh: MockMachine[] = [];
+	MACHINES.set(email, fresh);
+	return fresh;
+}
+
+let mockMachineCounter = 0;
+
+/**
+ * `onlk_` plus 64 hex characters, the shape createMachineToken mints.
+ *
+ * Deterministic rather than random on purpose: the mock is not a security
+ * boundary, and a predictable value is assertable. The shape still matters -
+ * the contract's forbidden list greps for the prefix, so a mock minting a
+ * different one would let a leaked token through on the side the gate cannot
+ * see. The raw value is returned and then dropped; nothing here retains it.
+ */
+function mintMockMachineToken(): string {
+	mockMachineCounter += 1;
+	return `onlk_${mockMachineCounter.toString(16).padStart(64, "0")}`;
+}
+
 // ---------------------------------------------------------------------------
 // WS4 protected data endpoints backing the authenticated Profile and Dashboard
 // pages. Additive over the auth + account mocks above and sharing their user +
@@ -709,6 +757,54 @@ export async function mockDataApi(
 	) {
 		requireAuth(options);
 		throw new AuthApiError(404, "not_found", "No such lesson");
+	}
+
+	if (poolPath === "/api/machines" && (options.method ?? "GET") === "GET") {
+		const { email } = requireAuth(options);
+		return json({ machines: machinesOf(email) });
+	}
+
+	if (poolPath === "/api/machines" && options.method === "POST") {
+		const { email } = requireAuth(options);
+		const body = readBody<{ name?: unknown }>(options);
+		// Trimmed before the emptiness check, matching handleCreateMachine.
+		// A mock that accepted "   " would let a machine named nothing into
+		// the list in development and 400 in production.
+		const name = typeof body.name === "string" ? body.name.trim() : "";
+		if (!name) {
+			throw new AuthApiError(400, "invalid_name", "A machine needs a name");
+		}
+
+		mockMachineCounter += 1;
+		const id = `mock-machine-${mockMachineCounter}`;
+		machinesOf(email).push({
+			id,
+			name,
+			created_at: new Date().toISOString(),
+			last_used_at: null,
+			revoked_at: null,
+		});
+
+		// The raw token appears here and nowhere else, ever - the same promise
+		// handleCreateMachine makes. Nothing above stored it.
+		return json({ id, name, token: mintMockMachineToken() }, 201);
+	}
+
+	if (poolPath.startsWith("/api/machines/") && options.method === "DELETE") {
+		const { email } = requireAuth(options);
+		const id = poolPath.slice("/api/machines/".length);
+		const machine = machinesOf(email).find(
+			(candidate) => candidate.id === id && !candidate.revoked_at,
+		);
+		// 404 and not 403, matching handleRevokeMachine. A 403 would confirm
+		// the id exists, which is an existence oracle over other users' rows -
+		// and because the lookup is scoped to this account, "someone else's"
+		// and "never existed" are already indistinguishable here.
+		if (!machine) {
+			throw new AuthApiError(404, "not_found", "No such machine");
+		}
+		machine.revoked_at = new Date().toISOString();
+		return json({ success: true });
 	}
 
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
