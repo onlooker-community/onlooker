@@ -52,10 +52,21 @@
 
 ## Task 1: Move the machines surface under `/api/`
 
-The three handlers are registered at `/machines`, outside the prefix every other browser-authenticated route uses. `createMockFetch` claims only `/auth/*` and `/api/*` and passes everything else to the real network, so a call to `/machines` in development reaches the Vite dev server rather than the mock. Nothing in the repository calls these paths — only `router.ts` and design documents mention them — and no browser could ever mint a token, so no machine token exists in production to break.
+The three handlers are registered at `/machines`, outside the prefix every other browser-authenticated route uses. `createMockFetch` claims only `/auth/*` and `/api/*` and passes everything else to the real network, so a call to `/machines` in development reaches the Vite dev server rather than the mock. No browser could ever mint a token, so no machine token exists in production to break.
+
+**Correction, made during execution.** This section first claimed nothing in the repository called these paths. That was wrong, and wrong for an instructive reason: the grep behind it ended in `head -30`, and thirty lines of documentation matches filled the window before any code match could appear. Two test-infrastructure files call the routes and move with them:
+
+| File | What calls it |
+|---|---|
+| `apps/api/src/test-support/lessons.ts` | mints a machine token for the delta-read helpers |
+| `apps/api/src/routes/lessons-delta.test.ts` | mints and revokes directly, three call sites |
+
+Both are in scope for this task — a path move that leaves its callers behind is not finished. Stage them with the other two files.
 
 **Files:**
 - Modify: `apps/api/src/router.ts:157-171`
+- Modify: `apps/api/src/test-support/lessons.ts` — mints a machine token for the delta-read helpers
+- Modify: `apps/api/src/routes/lessons-delta.test.ts` — three call sites that mint and revoke
 - Test: `apps/api/src/routes/machines.test.ts`
 
 **Interfaces:**
@@ -129,7 +140,7 @@ In `apps/api/src/router.ts`, the machine tokens block becomes:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @onlooker/api exec vitest run src/routes/machines.test.ts`
-Expected: PASS, all nine cases.
+Expected: PASS, all seven cases.
 
 - [ ] **Step 5: Run the whole API suite**
 
