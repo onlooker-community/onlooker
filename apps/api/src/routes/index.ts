@@ -22,7 +22,7 @@ export {
 	handleSignup,
 } from "./auth";
 
-export { handleGetDashboard, handleGetUserProfile } from "./data";
+export { handleGetUserProfile } from "./data";
 export {
 	handlePushLessons,
 	handleReadLessons,

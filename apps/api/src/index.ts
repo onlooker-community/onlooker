@@ -6,7 +6,7 @@
  * - WS1: Database schema and D1 queries (not yet implemented)
  * - WS2: Account management endpoints (scaffold complete, awaiting WS1)
  * - WS3: Session management and refresh flow (frontend, not backend)
- * - WS4: Protected dashboard data (awaiting WS1 database)
+ * - WS4: Protected user data (awaiting WS1 database)
  * - WS5: Rate limiting and security (not yet implemented)
  */
 

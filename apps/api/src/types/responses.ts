@@ -19,18 +19,3 @@ export interface AuthResponse {
 	expiresIn: number;
 	user: UserProfile;
 }
-
-/**
- * Dashboard data response type.
- */
-export interface DashboardData {
-	user: UserProfile;
-	stats?: {
-		totalRequests?: number;
-		lastActive?: string;
-		totalSessions?: number;
-		activeProjects?: number;
-		unreadNotifications?: number;
-	};
-	recentActivity?: unknown[];
-}

@@ -4,9 +4,9 @@ import { auth } from "../auth";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
 
-// The chrome around every authenticated route. Until now the only navigation
-// in the app was an ad-hoc <nav> inside DashboardPage, so it existed on exactly
-// one page and disappears when that page does.
+// The chrome around every authenticated route. Before this, the only
+// navigation in the app was an ad-hoc <nav> inside DashboardPage, which
+// existed on exactly one page and disappeared with it in onlooker-yfw.
 //
 // Takes children rather than rendering an <Outlet>, so it works both as a
 // layout route and as a direct wrapper. Nothing routes through it yet.
@@ -129,9 +129,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
 			<main style={{ maxWidth: "1100px", margin: "0 auto", padding: "1.5rem" }}>
 				{/*
-				  Moved off DashboardPage, which PR 4 deletes. It warns that a
-				  silent token refresh did not work, which is not a fact about
-				  any one page.
+				  Moved off DashboardPage before onlooker-yfw deleted it. It warns
+				  that a silent token refresh did not work, which is not a fact
+				  about any one page.
 				*/}
 				<SessionExpiryBanner />
 				{children}

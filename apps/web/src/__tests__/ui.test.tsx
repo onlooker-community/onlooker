@@ -133,7 +133,8 @@ describe("EmptyState", () => {
 		expect(screen.getByText("Connect a machine.")).toBeDefined();
 	});
 
-	// This is where DashboardPage's error-and-Retry moves to.
+	// This is where DashboardPage's error-and-Retry moved to, before
+	// onlooker-yfw deleted that page.
 	it("offers its action", () => {
 		const onClick = vi.fn();
 		render(

@@ -16,12 +16,11 @@
  * | Name      | Method | Path               | Auth header | Body | Response                        |
  * | --------- | ------ | ------------------ | ----------- | ---- | ------------------------------- |
  * | me        | GET    | `/api/users/me`    | yes         | —    | `UserProfile` (`../types/api`)  |
- * | dashboard | GET    | `/api/dashboard`   | yes         | —    | `DashboardData` (`../types/api`)|
  *
  * These ride the same authenticated transport (auth header, refresh-on-401,
  * retry). They are NOT in `REFRESH_EXEMPT_PATHS`, so a 401 triggers a refresh
  * and replay like any other protected call. The real API must implement them to
- * match the `UserProfile` / `DashboardData` shapes.
+ * match the `UserProfile` shape.
  *
  * ## Token lifecycle
  *

@@ -1,6 +1,6 @@
 import { AuthApiError, decodeJwtPayload } from "@onlooker/auth-react";
 import type { User } from "../auth";
-import type { DashboardData, UserProfile } from "../types/api";
+import type { UserProfile } from "../types/api";
 import {
 	AUTH_ENDPOINTS,
 	type AuthTokenResponse,
@@ -44,7 +44,7 @@ function trackToken(
 	if (existing) existing.add(token);
 	else index.set(email, new Set([token]));
 }
-// email -> ISO timestamp of the user's most recent login (WS4 profile/dashboard).
+// email -> ISO timestamp of the user's most recent login (WS4 profile).
 const LAST_LOGIN = new Map<string, string>();
 // Tokens explicitly killed (logout / rotation / session invalidation) so a
 // still-unexpired JWT can't be replayed after its owner map entry is gone.
@@ -618,10 +618,9 @@ function mintMockMachineToken(): string {
 }
 
 // ---------------------------------------------------------------------------
-// WS4 protected data endpoints backing the authenticated Profile and Dashboard
-// pages. Additive over the auth + account mocks above and sharing their user +
-// token state. When WS1 swaps to the real API, `/api/users/me` and
-// `/api/dashboard` move server-side.
+// WS4 protected data endpoints backing the authenticated Profile page.
+// Additive over the auth + account mocks above and sharing their user + token
+// state. /api/dashboard lived here too until onlooker-yfw deleted it.
 // ---------------------------------------------------------------------------
 
 export async function mockDataApi(
@@ -638,35 +637,6 @@ export async function mockDataApi(
 			lastLoginAt: LAST_LOGIN.get(email) ?? accountMeta(email).createdAt,
 		};
 		return json(profile);
-	}
-
-	if (path === "/api/dashboard" && (options.method ?? "GET") === "GET") {
-		const { email, user } = requireAuth(options);
-		const createdAt = accountMeta(email).createdAt;
-		const lastLoginAt = LAST_LOGIN.get(email) ?? createdAt;
-		const data: DashboardData = {
-			user: { id: user.id, email: user.email, name: user.name },
-			stats: {
-				totalSessions: 42,
-				activeProjects: 3,
-				unreadNotifications: 5,
-			},
-			recentActivity: [
-				{
-					id: "act-1",
-					type: "login",
-					description: "Signed in to the web app",
-					timestamp: lastLoginAt,
-				},
-				{
-					id: "act-2",
-					type: "account",
-					description: "Account created",
-					timestamp: createdAt,
-				},
-			],
-		};
-		return json(data);
 	}
 
 	// The hosted pool, mocked. The mock has no lessons and no way to acquire

@@ -12,7 +12,6 @@ import {
 	handleCreateMachine,
 	handleDeleteAccount,
 	handleForgotPassword,
-	handleGetDashboard,
 	handleGetLesson,
 	handleGetProfile,
 	handleGetUserProfile,
@@ -129,17 +128,12 @@ const ROUTES: Route[] = [
 	},
 
 	// =========================================================================
-	// Protected data routes (WS4 - user profile, dashboard)
+	// Protected data routes (WS4 - user profile)
 	// =========================================================================
 	{
 		method: "GET",
 		path: "/api/users/me",
 		handler: handleGetUserProfile,
-	},
-	{
-		method: "GET",
-		path: "/api/dashboard",
-		handler: handleGetDashboard,
 	},
 
 	// =========================================================================
