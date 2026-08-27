@@ -1,5 +1,11 @@
 import { AuthApiError } from "@onlooker/auth-react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -372,6 +378,10 @@ describe("retract", () => {
 			await screen.findByText(/may be retracted or made active/i),
 		).toBeDefined();
 		expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+		// Not just the labeled retry: the primed destructive control itself
+		// must not survive the failure either, or the page offers exactly the
+		// one-click repeat it just said would fail again - only unlabeled.
+		expect(screen.queryByRole("button", { name: /yes, retract/i })).toBeNull();
 	});
 
 	// A human may set retracted, and may set it back. Nothing else - and the
@@ -400,5 +410,83 @@ describe("retract", () => {
 		await screen.findByRole("heading", { name: VITE.claim });
 		expect(screen.queryByRole("button", { name: /retract/i })).toBeNull();
 		expect(screen.queryByRole("button", { name: /make active/i })).toBeNull();
+	});
+
+	// LessonDetail is reconciled in place when :id changes - same route
+	// element, same position - so nothing here resets on its own unless
+	// something clears it. Without that reset, a confirm armed on one lesson
+	// stays armed under the next one the user opens, putting a live
+	// "Yes, retract" over a claim nobody asked to retract.
+	it("does not let an armed confirm follow the user to a different lesson", async () => {
+		withPool([VITE, D1]);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		expect(screen.getByRole("button", { name: /yes, retract/i })).toBeDefined();
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(screen.queryByRole("button", { name: /yes, retract/i })).toBeNull();
+		expect(
+			screen.queryByText(/stop trusting this lesson everywhere/i),
+		).toBeNull();
+		// No confirm is armed for D1, so there is nothing a stray click could
+		// fire the PATCH from.
+		expect(mocks.setLessonStatus).not.toHaveBeenCalled();
+	});
+
+	// Same root cause as the confirm above, for the error path: a failed
+	// retract on one lesson must not leave its message, or its retry control,
+	// attached to a lesson the user has since moved on to.
+	it("does not let a failed retract's error follow the user to a different lesson", async () => {
+		withPool([VITE, D1]);
+		mocks.setLessonStatus.mockRejectedValueOnce(
+			new Error("Something went wrong"),
+		);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+		expect(await screen.findByText(/something went wrong/i)).toBeDefined();
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(screen.queryByText(/something went wrong/i)).toBeNull();
+		expect(screen.queryByRole("button", { name: /yes, retract/i })).toBeNull();
+	});
+
+	// The async twin of the confirm test above: here the request is still in
+	// flight - not yet settled - when the user navigates away, so nothing can
+	// clear it on navigation because there is nothing to clear yet. The write
+	// has to be refused when it lands instead.
+	it("does not let a request in flight for one lesson write into the page for another once it settles", async () => {
+		withPool([VITE, D1]);
+		let reject: (error: unknown) => void = () => {};
+		mocks.setLessonStatus.mockImplementationOnce(
+			() =>
+				new Promise((_, rej) => {
+					reject = rej;
+				}),
+		);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		// Navigate to a different lesson while VITE's request is still
+		// outstanding.
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+
+		// The request settles only now, after the user has moved on. Without
+		// the guard this would paint VITE's error onto the page now showing
+		// D1, and re-arm D1's button as no longer pending.
+		await act(async () => {
+			reject(new Error("Something went wrong"));
+		});
+
+		expect(screen.queryByText(/something went wrong/i)).toBeNull();
 	});
 });

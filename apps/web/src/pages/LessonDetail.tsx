@@ -1,5 +1,5 @@
 import { AuthApiError } from "@onlooker/auth-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
 	type BrowserStatus,
@@ -71,7 +71,28 @@ export default function LessonDetail() {
 	const [actionError, setActionError] = useState<{
 		message: string;
 		retryable: boolean;
+		attempted: BrowserStatus;
 	} | null>(null);
+
+	// The id in scope right now, read from inside `transition`'s async
+	// continuation. A plain closure over `id` would read the value from the
+	// render the click happened in, which is exactly the value that has gone
+	// stale once the user has navigated on - this ref is what lets that
+	// continuation notice the difference.
+	const currentId = useRef(id);
+	currentId.current = id;
+
+	// LessonDetail is reconciled in place when :id changes - same route
+	// element, same position - so none of this resets on its own. An armed
+	// confirm prompt following the user onto a lesson they never opened one on
+	// puts a live "Yes, retract" over the wrong claim, and a retraction
+	// reaches every mirror on its next delta pull. Same defect fetchError had
+	// below, in the one flow here where getting it wrong is destructive.
+	useEffect(() => {
+		setConfirming(false);
+		setActionError(null);
+		setPending(false);
+	}, [id]);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -104,19 +125,27 @@ export default function LessonDetail() {
 
 	const transition = async (next: BrowserStatus) => {
 		if (!id || pending) return;
+		// Captured once, up front: `id` from `useParams` can change under this
+		// same call while it is in flight, and every write below needs to know
+		// which lesson it was actually asked to move, not which one is on
+		// screen when the promise settles.
+		const target = id;
 		setPending(true);
 		setActionError(null);
 		try {
-			await setLessonStatus(id, next);
+			await setLessonStatus(target, next);
 			// AFTER the round-trip, never before. The server returns { id, seq }
 			// rather than the lesson, but it wrote body.status and the status
 			// column together in one batch - so writing the status it just
-			// accepted is reflecting its answer, not guessing at it.
-			patchLesson(id, next);
+			// accepted is reflecting its answer, not guessing at it. Ungated by
+			// `currentId`: the server did write, so the list must carry that
+			// regardless of where the user has since navigated.
+			patchLesson(target, next);
 			setFetched((current) =>
-				current && current.id === id ? { ...current, status: next } : current,
+				current && current.id === target
+					? { ...current, status: next }
+					: current,
 			);
-			setConfirming(false);
 		} catch (error) {
 			// transitionLesson can exhaust its sequence retries, which apps/api
 			// turns into a 503 whose message says nothing was written. That is a
@@ -125,12 +154,27 @@ export default function LessonDetail() {
 			// the message, because describeError only carries the text.
 			const retryable =
 				error instanceof AuthApiError && error.code === "sequence_contention";
-			setActionError({
-				message: describeError(error, "Could not change that lesson's status."),
-				retryable,
-			});
+			// Gated: a rejection that settles after the user has moved to
+			// another lesson must not paint this one's error under that one.
+			if (currentId.current === target) {
+				setActionError({
+					message: describeError(
+						error,
+						"Could not change that lesson's status.",
+					),
+					retryable,
+					attempted: next,
+				});
+			}
 		} finally {
-			setPending(false);
+			// Gated, and true either way the round-trip went: a live "Yes,
+			// retract" surviving a failure sits directly over an error saying
+			// the same click would fail again, and a request that settles for
+			// a lesson the user has left must not touch the one now showing.
+			if (currentId.current === target) {
+				setPending(false);
+				setConfirming(false);
+			}
 		}
 	};
 
@@ -344,7 +388,13 @@ export default function LessonDetail() {
 									<Button
 										loading={pending}
 										loadingLabel="Working..."
-										onClick={() => void transition(next)}
+										// The status this same failure was raised
+										// against, not the current `next` - if the
+										// pool refetches between the failure and this
+										// click and the lesson's status has since
+										// moved, `next` would have flipped too and
+										// this would retry the opposite transition.
+										onClick={() => void transition(actionError.attempted)}
 									>
 										Try again
 									</Button>
