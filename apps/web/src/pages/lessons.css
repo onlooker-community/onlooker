@@ -8,9 +8,13 @@
  *
  * Narrow is the default and wide is the override, so the two panes are one
  * layout rather than two. Below the boundary the route picks the pane, via
- * data-pane; above it, both show and the override restores them. Vitest does
- * not process CSS, so nothing here applies under test - which is correct,
- * because what the tests assert is that both panes are in the document.
+ * data-pane; above it, both show and the override restores them. The
+ * override matches the hide rules' specificity - class + attribute + class -
+ * with a bare `[data-pane]` rather than a plain class, because a lower-
+ * specificity override loses to the hide rules regardless of source order or
+ * which media query is active. Vitest does not process CSS, so nothing here
+ * applies under test - which is correct, because what the tests assert is
+ * that both panes are in the document.
  */
 
 .lessons-layout {
@@ -33,8 +37,14 @@
 		grid-template-columns: minmax(18rem, 24rem) 1fr;
 	}
 
-	.lessons-layout > .lessons-list,
-	.lessons-layout > .lessons-detail {
+	/*
+	 * [data-pane] rather than a bare class: the hide rules above carry an
+	 * attribute selector, so a two-class override would lose to them on
+	 * specificity and both panes would never show together. Equal
+	 * specificity, later in source order, wins.
+	 */
+	.lessons-layout[data-pane] > .lessons-list,
+	.lessons-layout[data-pane] > .lessons-detail {
 		display: block;
 	}
 

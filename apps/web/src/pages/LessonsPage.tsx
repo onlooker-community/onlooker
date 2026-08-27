@@ -3,6 +3,7 @@ import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
 import { PALETTE } from "../components/palette";
 import { EmptyState, Panel, StatusBadge } from "../components/ui";
+import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import "./lessons.css";
 
@@ -35,19 +36,6 @@ const row = {
 	textDecoration: "none",
 	color: "var(--ink)",
 };
-
-/**
- * An instant, rendered so its value survives being read by a machine.
- * `toLocaleDateString` alone would make any assertion about it depend on the
- * runner's locale. Same call MachinesPage makes.
- */
-function When({ iso }: { iso: string }) {
-	return (
-		<time dateTime={iso} style={{ color: PALETTE.muted, fontSize: "0.8rem" }}>
-			{new Date(iso).toLocaleDateString()}
-		</time>
-	);
-}
 
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
@@ -138,7 +126,10 @@ export default function LessonsPage() {
 										}}
 									>
 										<StatusBadge status={lesson.status} />
-										<When iso={lesson.promoted_at} />
+										<When
+											iso={lesson.promoted_at}
+											style={{ color: PALETTE.muted, fontSize: "0.8rem" }}
+										/>
 									</span>
 								</NavLink>
 							))}
