@@ -57,15 +57,29 @@ export default class ErrorBoundary extends Component<Props, State> {
 		this.props.onError?.(error, info);
 	}
 
-	componentDidUpdate(prevProps: Props) {
+	componentDidUpdate(prevProps: Props, prevState: State) {
 		// Guarded on state.error so a navigation that never caught does no
 		// state work at all - the cost the old `key` paid on every navigation
 		// regardless. When it HAS caught, React has already unmounted the
 		// failed subtree; clearing the error here re-renders `children` fresh,
 		// which is the same outcome the key produced by remounting wholesale.
+		//
+		// prevState.error is load-bearing, not redundant with state.error: on a
+		// navigation-time throw (the target route itself throws), React commits
+		// getDerivedStateFromError and runs this componentDidUpdate BEFORE
+		// componentDidCatch - so resetKey has already changed to the new
+		// route's value and state.error is already set, both in the same
+		// update. Checking only the current state would clear an error that
+		// belongs to the route being navigated TO, `children` would re-render,
+		// the same throw would happen again, and it would be caught and
+		// reported a second time. Requiring the error to have already been set
+		// on the PREVIOUS render distinguishes "recovering from an error that
+		// belongs to the route being left" from "an error that just arrived
+		// with this update".
 		if (
 			prevProps.resetKey !== this.props.resetKey &&
-			this.state.error !== null
+			this.state.error !== null &&
+			prevState.error !== null
 		) {
 			this.setState({ error: null });
 		}

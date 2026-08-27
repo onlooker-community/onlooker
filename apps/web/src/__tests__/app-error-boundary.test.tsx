@@ -51,9 +51,9 @@ describe("App", () => {
 		expect(screen.getByText(/ProfilePage exploded/)).toBeDefined();
 	});
 
-	// The boundary is keyed by pathname in App. Without that key it stays caught
-	// forever and every later route renders the fallback too, so this navigates
-	// for real rather than trusting the key is there.
+	// App passes resetKey={location.pathname}. Without that reset the boundary
+	// stays caught forever and every later route renders the fallback too, so
+	// this navigates for real rather than trusting the reset is wired up.
 	it("recovers on navigation, rather than holding the fallback forever", () => {
 		renderAppAt("/profile");
 		expect(screen.getByRole("alert")).toBeDefined();

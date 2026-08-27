@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +24,15 @@ vi.mock("../lib/reportError", () => ({
 vi.mock("../pages/HomePage", () => ({
 	default: () => {
 		throw new Error("deliberate render failure");
+	},
+}));
+
+// A second throwing page, reached by navigating rather than mounted onto -
+// HomePage above only covers a throw the boundary catches at mount. /signup is
+// public and reachable by a real link from /login, which is not mocked.
+vi.mock("../pages/SignupPage", () => ({
+	default: () => {
+		throw new Error("SignupPage exploded");
 	},
 }));
 
@@ -79,5 +88,26 @@ describe("a render error reaches the reporter", () => {
 		>;
 		expect(report.componentStack).toEqual(expect.any(String));
 		expect(String(report.componentStack).length).toBeGreaterThan(0);
+	});
+
+	// Navigating INTO a throwing route commits differently than mounting onto
+	// one: React runs the boundary's componentDidUpdate, with resetKey already
+	// changed to the new route and the error already set, BEFORE
+	// componentDidCatch runs for it. A guard that only checks the current
+	// state clears an error that belongs to the route just arrived at, the
+	// same subtree throws again on the re-render that follows, and it is
+	// caught and reported a second time.
+	it("reports a navigation-time throw once, not twice", () => {
+		render(
+			<MemoryRouter initialEntries={["/login"]}>
+				<App />
+			</MemoryRouter>,
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		fireEvent.click(screen.getByRole("link", { name: /sign up/i }));
+
+		expect(screen.getByRole("alert")).toBeDefined();
+		expect(reportClientError).toHaveBeenCalledTimes(1);
 	});
 });

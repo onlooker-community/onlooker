@@ -76,10 +76,16 @@ describe("ErrorBoundary", () => {
 	// A boundary that has caught stays caught. Without a reset the user is stuck
 	// on the fallback for the rest of the session no matter where they navigate,
 	// which is a worse failure than the one being reported.
-	it("recovers when its key changes, so navigating away works", () => {
+	//
+	// resetKey, not a React `key`: App no longer keys ErrorBoundary at all, so
+	// a test that swapped `key` here would pass on any component - React
+	// remounts anything under a changed key, whether or not it is this
+	// boundary's own recovery logic that runs. Driving resetKey instead is
+	// what actually exercises componentDidUpdate.
+	it("recovers when resetKey changes, so navigating away works", () => {
 		const { rerender } = render(
 			<MemoryRouter>
-				<ErrorBoundary key="/broken">
+				<ErrorBoundary resetKey="/broken">
 					<Boom />
 				</ErrorBoundary>
 			</MemoryRouter>,
@@ -88,7 +94,7 @@ describe("ErrorBoundary", () => {
 
 		rerender(
 			<MemoryRouter>
-				<ErrorBoundary key="/fine">
+				<ErrorBoundary resetKey="/fine">
 					<p>a different page</p>
 				</ErrorBoundary>
 			</MemoryRouter>,
