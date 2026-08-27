@@ -82,6 +82,17 @@ export default function LessonsPage() {
 	// lesson it is already showing.
 	const [poolSettled, setPoolSettled] = useState(false);
 	const [filter, setFilter] = useState<"" | LessonStatus>("");
+	// Cleared by `load()` the moment a new query starts, not once it resolves
+	// - see the comment there. That still leaves one painted frame between a
+	// filter change and the effect that calls `load()` running, because
+	// `useEffect` is passive: React commits the `filter` state and the DOM it
+	// produces first, THEN runs effects. Closing that fully would mean
+	// storing the cursor together with the sequence number that minted it
+	// (`useState<{ value: string; seq: number } | null>`) so a stale render
+	// could be told apart from a current one without waiting on an effect at
+	// all. Considered and left out: one frame is not the hundreds of
+	// milliseconds a round-trip takes, and nothing here can be clicked
+	// without user input landing inside a real frame to begin with.
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
@@ -100,10 +111,15 @@ export default function LessonsPage() {
 	const load = useCallback(async () => {
 		const seq = ++requestSeq.current;
 		setLoadError(null);
+		setMoreError(null);
 		// A new query starts over: any in-flight loadMore belongs to the query
 		// being replaced, and any cursor left over from it names a boundary
-		// this query never established.
-		setMoreError(null);
+		// this query never established. Cleared here, synchronously, rather
+		// than waiting for this load to resolve - otherwise the OLD "Load
+		// more" button stays mounted and clickable for the whole round-trip,
+		// and a click during that window would send the NEW filter paired
+		// with the OLD cursor.
+		setCursor(null);
 		try {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			if (seq !== requestSeq.current) return;
@@ -140,6 +156,15 @@ export default function LessonsPage() {
 		// against it below is what lets a filter change - which DOES increment
 		// this - discard a page that lands after the query it belonged to has
 		// already been replaced.
+		//
+		// Defensive rather than load-bearing now that `load()` clears `cursor`
+		// synchronously: the button that starts a loadMore disappears the
+		// instant a new query begins, so no loadMore can even be INITIATED
+		// while a load() is in flight, and which of the two bumps the counter
+		// stops being something either path can observe. Left in place because
+		// it is still the semantically correct shape - loadMore continues a
+		// query, it does not start one - and because that guarantee lives in
+		// render timing, not in this function.
 		const seq = requestSeq.current;
 		setLoadingMore(true);
 		setMoreError(null);

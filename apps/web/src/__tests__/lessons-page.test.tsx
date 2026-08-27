@@ -741,12 +741,25 @@ describe("paging past the first page", () => {
 	// Changing the filter is a different query, so its first page must start
 	// from no cursor. Carrying the old one over would page through a boundary
 	// the new filter never established.
+	//
+	// Asserting only the refetch payload here would pass even if the OLD
+	// cursor were never cleared at all - load() has no cursor parameter to
+	// send regardless. What actually pins the constraint is the button: it
+	// must be gone WHILE the new filter's first page is still in flight, not
+	// merely once that page eventually answers with none of its own.
 	it("starts over when the filter changes", async () => {
 		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
 		await at("/lessons");
 		await screen.findByText(VITE.claim);
+		expect(screen.getByRole("button", { name: /load more/i })).toBeDefined();
 
-		withPool([]);
+		let resolveRefetch: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveRefetch = resolve;
+				}),
+		);
 		fireEvent.change(screen.getByLabelText(/status/i), {
 			target: { value: "retracted" },
 		});
@@ -754,6 +767,45 @@ describe("paging past the first page", () => {
 		await waitFor(() =>
 			expect(mocks.listLessons).toHaveBeenLastCalledWith({
 				statuses: ["retracted"],
+			}),
+		);
+		// The OLD cursor must be gone the moment the new query started, not
+		// once this response lands - a click here would otherwise send the
+		// NEW filter paired with a cursor minted under the OLD one.
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+
+		await act(async () => {
+			resolveRefetch({ lessons: [], cursor: null, has_more: false });
+		});
+	});
+
+	// loadMore's cursor is meaningless without the filter it was minted
+	// under - a boundary the SERVER computed within one status's ordering.
+	// Sending the cursor alone would ask the server to keep paging through
+	// whichever status the boundary actually belongs to, silently ignoring
+	// the one currently selected.
+	it("carries the active filter along with the cursor when paging", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([D1], { cursor: "Y3Vyc29yLTI=", has_more: true });
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+		await screen.findByText(D1.claim);
+
+		mocks.listLessons.mockResolvedValue({
+			lessons: [VITE],
+			cursor: null,
+			has_more: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["active"],
+				cursor: "Y3Vyc29yLTI=",
 			}),
 		);
 	});
@@ -802,5 +854,38 @@ describe("paging past the first page", () => {
 		expect(screen.queryByText(VITE.claim)).toBeNull();
 		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
 		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	// The rejection twin of the test above. A superseded loadMore does not
+	// only risk appending a stale page - it can also fail, and that failure
+	// must not raise an alert about "more lessons" over a list the failed
+	// request has nothing to do with anymore.
+	it("discards a load-more rejection that lands after the filter has moved on", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let rejectLoadMore: (error: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((_, reject) => {
+					rejectLoadMore = reject;
+				}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+
+		await act(async () => {
+			rejectLoadMore(new Error("network is down"));
+		});
+
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(screen.getByText(D1.claim)).toBeDefined();
 	});
 });
