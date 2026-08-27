@@ -79,6 +79,15 @@ const D1 = {
 	promoted_at: "2026-08-23T10:00:00.000Z",
 };
 
+// The old filter's next page, arriving after a newer filter has already
+// replaced the list. It must never be seen on screen.
+const STALE = {
+	...VITE,
+	id: "01KZ45MKAM734ZS7JK24D2DK0X",
+	claim: "This page belongs to a query nobody is displaying anymore",
+	promoted_at: "2026-08-24T10:00:00.000Z",
+};
+
 function withPool(lessons: unknown[], extra: Record<string, unknown> = {}) {
 	mocks.listLessons.mockResolvedValue({
 		lessons,
@@ -695,5 +704,103 @@ describe("a failed filter refetch does not disturb the open lesson", () => {
 			await screen.findByRole("heading", { name: VITE.claim }),
 		).toBeDefined();
 		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
+});
+
+describe("paging past the first page", () => {
+	it("appends the next page without discarding the first", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockResolvedValue({
+			lessons: [D1],
+			cursor: null,
+			has_more: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		// The cursor the FIRST page returned, echoed back untouched. Sending
+		// anything else - or nothing - restarts from the top and loops.
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				cursor: "Y3Vyc29yLTE=",
+			}),
+		);
+		expect(await screen.findByText(D1.claim)).toBeDefined();
+		expect(screen.getByText(VITE.claim)).toBeDefined();
+	});
+
+	it("stops offering more once the server says there is none", async () => {
+		withPool([VITE], { cursor: null, has_more: false });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+	});
+
+	// Changing the filter is a different query, so its first page must start
+	// from no cursor. Carrying the old one over would page through a boundary
+	// the new filter never established.
+	it("starts over when the filter changes", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["retracted"],
+			}),
+		);
+	});
+
+	// The hazard `load()`'s requestSeq guard does not cover: loadMore closes
+	// over the filter and cursor of the query it started under. If the filter
+	// changes while that request is still in flight, load() replaces `lessons`
+	// for the new filter - and loadMore's response, when it lands, must not
+	// then append the OLD filter's next page onto the NEW filter's list.
+	it("discards a load-more page that lands after the filter has moved on", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let resolveLoadMore: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveLoadMore = resolve;
+				}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+		// The new filter's own page says there is nothing more to load - if the
+		// stale response below is wrongly applied, this button would reappear.
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+
+		// The old filter's next page, arriving late. `has_more: true` here so an
+		// unguarded write would surface a fresh "Load more" button too.
+		await act(async () => {
+			resolveLoadMore({
+				lessons: [STALE],
+				cursor: "Y3Vyc29yLTI=",
+				has_more: true,
+			});
+		});
+
+		expect(screen.queryByText(STALE.claim)).toBeNull();
+		expect(screen.getByText(D1.claim)).toBeDefined();
+		expect(screen.queryByText(VITE.claim)).toBeNull();
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

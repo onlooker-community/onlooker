@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
 import { PALETTE } from "../components/palette";
-import { EmptyState, Panel, StatusBadge } from "../components/ui";
+import { Button, EmptyState, Panel, StatusBadge } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import "./lessons.css";
@@ -82,6 +82,9 @@ export default function LessonsPage() {
 	// lesson it is already showing.
 	const [poolSettled, setPoolSettled] = useState(false);
 	const [filter, setFilter] = useState<"" | LessonStatus>("");
+	const [cursor, setCursor] = useState<string | null>(null);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const [moreError, setMoreError] = useState<string | null>(null);
 
 	// Which request is newest. Two filter changes inside one round-trip issue
 	// two requests, and without this whichever SETTLES last would win rather
@@ -97,13 +100,23 @@ export default function LessonsPage() {
 	const load = useCallback(async () => {
 		const seq = ++requestSeq.current;
 		setLoadError(null);
+		// A new query starts over: any in-flight loadMore belongs to the query
+		// being replaced, and any cursor left over from it names a boundary
+		// this query never established.
+		setMoreError(null);
 		try {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			if (seq !== requestSeq.current) return;
 			setLessons(page.lessons);
+			// `has_more` and not `cursor !== null`, because those are two facts
+			// and only one of them is the question being asked. The API returns
+			// a cursor only when there is more, but reading has_more keeps this
+			// honest if that ever stops being true.
+			setCursor(page.has_more ? page.cursor : null);
 		} catch (error) {
 			if (seq !== requestSeq.current) return;
 			setLessons(null);
+			setCursor(null);
 			setLoadError(describeError(error, "Could not load the pool."));
 		} finally {
 			// Guarded too: if a superseded request settles while the newest is
@@ -118,6 +131,38 @@ export default function LessonsPage() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	const loadMore = async () => {
+		if (!cursor || loadingMore) return;
+		// Not `++requestSeq.current`: loadMore continues the query load() most
+		// recently started rather than starting a new one, so it reads the
+		// current sequence number instead of minting the next one. Comparing
+		// against it below is what lets a filter change - which DOES increment
+		// this - discard a page that lands after the query it belonged to has
+		// already been replaced.
+		const seq = requestSeq.current;
+		setLoadingMore(true);
+		setMoreError(null);
+		try {
+			// The filter travels with the cursor. A cursor is a position within
+			// ONE query's ordering, so paging with a different filter than the
+			// one that minted it walks a boundary that query never established.
+			const page = await listLessons({
+				...(filter ? { statuses: [filter] } : {}),
+				cursor,
+			});
+			if (seq !== requestSeq.current) return;
+			setLessons((current) => [...(current ?? []), ...page.lessons]);
+			setCursor(page.has_more ? page.cursor : null);
+		} catch (error) {
+			if (seq !== requestSeq.current) return;
+			// The pages already loaded stay. A failed append is a missing tail,
+			// not a reason to throw away what the person is reading.
+			setMoreError(describeError(error, "Could not load more lessons."));
+		} finally {
+			setLoadingMore(false);
+		}
+	};
 
 	const patchLesson = useCallback((id: string, status: LessonStatus) => {
 		setLessons((current) =>
@@ -255,6 +300,24 @@ export default function LessonsPage() {
 								</NavLink>
 							))}
 						</nav>
+
+						{cursor ? (
+							<div style={{ marginTop: "1rem" }}>
+								<Button
+									loading={loadingMore}
+									loadingLabel="Loading..."
+									onClick={() => void loadMore()}
+								>
+									Load more
+								</Button>
+							</div>
+						) : null}
+
+						{moreError ? (
+							<p role="alert" style={{ color: PALETTE.danger }}>
+								{moreError}
+							</p>
+						) : null}
 					</Panel>
 				)}
 			</div>
