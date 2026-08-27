@@ -3,7 +3,6 @@ import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { reportClientError } from "./lib/reportError";
-import DashboardPage from "./pages/DashboardPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
 import LessonDetail from "./pages/LessonDetail";
@@ -50,14 +49,6 @@ export default function App() {
 				<Route path="/forgot-password" element={<ForgotPasswordPage />} />
 				<Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 				<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
-				<Route
-					path="/dashboard"
-					element={
-						<auth.RequireAuth>
-							<DashboardPage />
-						</auth.RequireAuth>
-					}
-				/>
 				<Route
 					path="/settings"
 					element={

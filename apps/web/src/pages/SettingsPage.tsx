@@ -62,7 +62,7 @@ export default function SettingsPage() {
 				}}
 			>
 				<h1>Account settings</h1>
-				<FormLink to="/dashboard">Back to dashboard</FormLink>
+				<FormLink to="/lessons">Back to the pool</FormLink>
 			</div>
 
 			<ProfileOverview user={display} />

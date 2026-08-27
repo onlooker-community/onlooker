@@ -33,7 +33,7 @@ function renderLogin(entries: Array<string | object> = ["/login"]) {
 		<MemoryRouter initialEntries={entries}>
 			<Routes>
 				<Route path="/login" element={<LoginPage />} />
-				<Route path="/dashboard" element={<p>dashboard reached</p>} />
+				<Route path="/lessons" element={<p>lessons reached</p>} />
 				<Route path="/settings" element={<p>settings reached</p>} />
 			</Routes>
 		</MemoryRouter>,
@@ -69,14 +69,14 @@ describe("LoginPage", () => {
 		);
 	});
 
-	it("sends the user to the dashboard once login resolves", async () => {
+	it("sends the user to the pool once login resolves", async () => {
 		renderLogin();
 		fillAndSubmit();
-		expect(await screen.findByText("dashboard reached")).toBeDefined();
+		expect(await screen.findByText("lessons reached")).toBeDefined();
 	});
 
 	// RequireAuth stashes the blocked page in location state. Losing this sends
-	// everyone to the dashboard regardless of where they were headed, which is
+	// everyone to the pool regardless of where they were headed, which is
 	// mild enough to go unnoticed and annoying every single time.
 	it("returns the user to the page they were blocked from", async () => {
 		renderLogin([
@@ -91,7 +91,7 @@ describe("LoginPage", () => {
 		renderLogin();
 		fillAndSubmit();
 		expect(await screen.findByText("Invalid email or password")).toBeDefined();
-		expect(screen.queryByText("dashboard reached")).toBeNull();
+		expect(screen.queryByText("lessons reached")).toBeNull();
 	});
 
 	// The provider surfaces failures it handled itself - an expired session, a
