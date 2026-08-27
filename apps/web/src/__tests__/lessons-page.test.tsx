@@ -98,9 +98,21 @@ async function at(path: string) {
 	return result;
 }
 
+// What an unconfigured getLesson() call resolves to. Individual tests
+// override this with their own mockResolvedValue/mockRejectedValue; this
+// exists so a call a test did NOT expect fails on a wrong heading instead of
+// throwing `.then` of `undefined` into the error boundary and hiding what
+// actually broke.
+const UNEXPECTED_FETCH = {
+	...VITE,
+	id: "01KZ45MKAM734ZS7JK24D2DK0V",
+	claim: "getLesson should not have been called for this test",
+};
+
 beforeEach(() => {
 	mocks.listLessons.mockReset();
 	mocks.getLesson.mockReset();
+	mocks.getLesson.mockResolvedValue(UNEXPECTED_FETCH);
 	mocks.setLessonStatus.mockReset();
 });
 
@@ -547,6 +559,116 @@ describe("the status filter", () => {
 			await screen.findByRole("heading", { name: /nothing has synced yet/i }),
 		).toBeDefined();
 		expect(screen.queryByText(/no retracted lessons/i)).toBeNull();
+	});
+});
+
+describe("concurrent filter changes", () => {
+	// The bug this guards: `load` had no way to tell which of several
+	// in-flight requests was the newest, so whichever SETTLED last won,
+	// rather than whichever was ASKED last - leaving the select reading one
+	// status while the list showed rows for a different one.
+	it("keeps the list in step with the last filter asked, not the last one to answer", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let resolveFirst: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveFirst = resolve;
+				}),
+		);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+
+		// The stale "active" request answers now, after "retracted" already
+		// rendered. Its result must lose regardless of arriving last.
+		await act(async () => {
+			resolveFirst({ lessons: [VITE], cursor: null, has_more: false });
+		});
+
+		expect(screen.queryByText(VITE.claim)).toBeNull();
+		expect(screen.getByText(D1.claim)).toBeDefined();
+	});
+
+	// The rejection twin: a stale failure must not blank a list a newer
+	// request already filled, or show an error nothing is waiting on anymore.
+	it("does not let a stale rejection blank a list a newer request already filled", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let rejectFirst: (error: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((_, reject) => {
+					rejectFirst = reject;
+				}),
+		);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+
+		await act(async () => {
+			rejectFirst(new Error("network is down"));
+		});
+
+		expect(screen.getByText(D1.claim)).toBeDefined();
+		expect(screen.queryByText(/network is down/i)).toBeNull();
+		expect(
+			screen.queryByRole("heading", { name: /could not load the pool/i }),
+		).toBeNull();
+	});
+
+	// The narrower bug inside `finally`: guarding `lessons` is not enough,
+	// because a stale settle's `finally` still runs. Unguarded, it would mark
+	// the pool settled while the newest request is still in flight and
+	// `lessons` is still empty - and the detail pane would read that as
+	// "asked and absent" and fetch a lesson that is about to arrive in the
+	// response already on its way.
+	it("does not mark the pool settled from a stale request while the newest is still in flight", async () => {
+		let resolveFirst: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveFirst = resolve;
+				}),
+		);
+		// Never settles for the rest of the test - the newest request has to
+		// stay in flight for the precondition this guards against to hold.
+		mocks.listLessons.mockImplementationOnce(() => new Promise(() => {}));
+
+		render(
+			<MemoryRouter initialEntries={[`/lessons/${D1.id}`]}>
+				<App />
+			</MemoryRouter>,
+		);
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(1));
+
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+
+		await act(async () => {
+			resolveFirst({ lessons: [], cursor: null, has_more: false });
+		});
+
+		expect(mocks.getLesson).not.toHaveBeenCalled();
 	});
 });
 

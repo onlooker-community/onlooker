@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
 import { PALETTE } from "../components/palette";
@@ -72,28 +72,46 @@ const row = {
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
-	// Whether the first load attempt has finished. Set once, in `finally`, and
-	// never reset back to false on a later refetch: Task 5 re-runs `load()`
-	// when the status filter changes, and if a filter excludes the lesson the
-	// detail pane is showing, `listed` goes null - the detail should fall back
-	// to fetching it, not treat the pool as unasked again.
+	// Whether the CURRENT load attempt has settled - guarded below so a
+	// superseded request cannot flip it early, and never reset back to false
+	// once true. A status filter re-runs `load()`, and if the new filter
+	// excludes the lesson the detail pane has open, `listed` goes null - but
+	// LessonDetail mirrors that lesson into its own state the last time it
+	// WAS listed, so this staying true lets its fetch guard see that mirrored
+	// copy instead of treating the pool as unasked again and re-fetching a
+	// lesson it is already showing.
 	const [poolSettled, setPoolSettled] = useState(false);
 	const [filter, setFilter] = useState<"" | LessonStatus>("");
+
+	// Which request is newest. Two filter changes inside one round-trip issue
+	// two requests, and without this whichever SETTLES last would win rather
+	// than whichever was ASKED last - leaving the select reading one status
+	// while the list shows another. A stale rejection is worse still: it
+	// would blank a list a newer request had already filled.
+	const requestSeq = useRef(0);
 
 	// Which pane the narrow layout should show. The layout route does not
 	// receive the child's params, so the path is matched directly.
 	const detail = useMatch("/lessons/:id");
 
 	const load = useCallback(async () => {
+		const seq = ++requestSeq.current;
 		setLoadError(null);
 		try {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
+			if (seq !== requestSeq.current) return;
 			setLessons(page.lessons);
 		} catch (error) {
+			if (seq !== requestSeq.current) return;
 			setLessons(null);
 			setLoadError(describeError(error, "Could not load the pool."));
 		} finally {
-			setPoolSettled(true);
+			// Guarded too: if a superseded request settles while the newest is
+			// still in flight, flipping this to true would tell the detail pane
+			// the pool is settled while `lessons` is still empty - and it would
+			// conclude an id is absent and fetch a lesson that is about to
+			// arrive.
+			if (seq === requestSeq.current) setPoolSettled(true);
 		}
 	}, [filter]);
 
