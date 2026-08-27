@@ -148,9 +148,10 @@ describe("the list pane", () => {
 		expect(screen.getByText(D1.claim)).toBeDefined();
 	});
 
-	// One page, one request. The list returns full bodies precisely so that
-	// clicking down the left column issues nothing; a second call here would
-	// mean the page is refetching what it already holds.
+	// One page, one request per load. The click-down-the-column claim is
+	// covered separately, by "does not refetch the pool when clicking from
+	// one lesson to another" below - this test only pins the count after the
+	// initial load.
 	it("fetches exactly one page", async () => {
 		withPool([VITE, D1]);
 		await at("/lessons");
@@ -337,6 +338,16 @@ describe("retract", () => {
 				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
 			).toBe(2),
 		);
+		// `confirming` must not survive a success: the button that reappears
+		// reads "Make active" now that the status flipped, and if the confirm
+		// stayed armed it would already read "Yes, make active" - a one-click
+		// undo of the retraction nobody asked to undo.
+		expect(
+			screen.queryByRole("button", { name: /yes, make active/i }),
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: /^make active$/i }),
+		).toBeDefined();
 	});
 
 	// Nothing was marked retracted ahead of the server, so there is nothing to
@@ -887,5 +898,95 @@ describe("paging past the first page", () => {
 
 		expect(screen.queryByRole("alert")).toBeNull();
 		expect(screen.getByText(D1.claim)).toBeDefined();
+	});
+
+	// The happy-path twin of every "discards a stale ..." test above: those
+	// all assert the alert's ABSENCE, which proves nothing about whether it
+	// can appear at all - they would still pass if the alert-rendering block
+	// were deleted outright. This is the one test where the failing request
+	// is the CURRENT one, not a superseded one, so the alert is expected.
+	it("renders the alert when the current load-more request fails", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockRejectedValueOnce(new Error("network is down"));
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(/network is down/i);
+	});
+
+	// The bug: `loadingMore` was written only inside loadMore itself, so
+	// load()'s synchronous prefix - which clears `loadError`, `moreError` and
+	// `cursor` the instant a new query starts - left it untouched. A filter
+	// change made while a loadMore was outstanding would remount "Load more"
+	// already reading "Loading..." and disabled, for a request nobody
+	// watching it had started, until the stale request eventually settled.
+	it("does not leave the button stuck loading after a filter change supersedes an outstanding loadMore", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		// Never settles during this test - the stale loadMore must not decide
+		// what the button shows once the new filter's own page lands.
+		mocks.listLessons.mockImplementationOnce(() => new Promise(() => {}));
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+
+		// The new filter's own page says there is more too, so the button
+		// should remount live - not stuck on a request nobody started under
+		// this filter.
+		withPool([D1], { cursor: "Y3Vyc29yLTI=", has_more: true });
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+
+		const button = screen.getByRole("button", { name: /load more/i });
+		expect(button).toBeDefined();
+		expect((button as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	// The hazard closing the fix above reopens: once loadingMore clears on
+	// filter change, a SECOND loadMore can start under the new filter while
+	// the first, superseded one is still out there settling late. Its
+	// `finally` must not clear the second one's loading state when it does.
+	it("does not let a stale loadMore's finally clear a newer loadMore still in flight", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let resolveStale: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveStale = resolve;
+				}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		withPool([D1], { cursor: "Y3Vyc29yLTI=", has_more: true });
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(D1.claim);
+
+		// A second loadMore, started under the new filter, still outstanding.
+		mocks.listLessons.mockImplementationOnce(() => new Promise(() => {}));
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+
+		// The stale request settles now, after the second one has already
+		// started, and must not clear the second one's loading state.
+		await act(async () => {
+			resolveStale({
+				lessons: [STALE],
+				cursor: "Y3Vyc29yLTE=",
+				has_more: true,
+			});
+		});
+
+		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
 	});
 });

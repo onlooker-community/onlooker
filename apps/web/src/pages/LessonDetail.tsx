@@ -110,8 +110,8 @@ export default function LessonDetail() {
 		// even started, for every id, including ones already in the pool.
 		//
 		// `fetched?.id === id` also holds: a filter refetch can null out
-		// `listed` for the lesson currently open, and without this an already
-		// -held copy would be fetched again just because the list no longer
+		// `listed` for the lesson currently open, and without this an already-
+		// held copy would be fetched again just because the list no longer
 		// carries it.
 		if (!id || listed || !poolSettled || fetched?.id === id) return;
 
@@ -122,8 +122,11 @@ export default function LessonDetail() {
 				if (live) setFetched(lesson);
 			})
 			.catch((error) => {
+				// A fallback distinct from the EmptyState title below, so a
+				// non-Error rejection - which describeError has no way to
+				// produce today - would not print the same sentence twice.
 				if (live)
-					setFetchError(describeError(error, "Could not load that lesson."));
+					setFetchError(describeError(error, "That lesson could not be read."));
 			});
 
 		// The list pane stays mounted while the detail changes, so a slow

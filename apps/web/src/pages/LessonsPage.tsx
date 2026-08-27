@@ -22,7 +22,9 @@ import "./lessons.css";
 export interface LessonsContext {
 	lessons: Lesson[];
 	/**
-	 * Whether the first load attempt has finished - successfully or not.
+	 * Whether any load attempt has ever settled - successfully or not. Not
+	 * "the current one has settled": once true it stays true, including
+	 * while a later filter's load is still in flight.
 	 *
 	 * The distinction the detail pane needs is not "is the list empty" but
 	 * "has the list been asked yet." Without this, an id that IS in the pool
@@ -72,14 +74,15 @@ const row = {
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
-	// Whether the CURRENT load attempt has settled - guarded below so a
+	// Whether any load attempt has ever settled - guarded below so a
 	// superseded request cannot flip it early, and never reset back to false
-	// once true. A status filter re-runs `load()`, and if the new filter
-	// excludes the lesson the detail pane has open, `listed` goes null - but
-	// LessonDetail mirrors that lesson into its own state the last time it
-	// WAS listed, so this staying true lets its fetch guard see that mirrored
-	// copy instead of treating the pool as unasked again and re-fetching a
-	// lesson it is already showing.
+	// once true - so this is NOT "the current load has settled": a status
+	// filter re-runs `load()`, and if the new filter excludes the lesson the
+	// detail pane has open, `listed` goes null - but LessonDetail mirrors
+	// that lesson into its own state the last time it WAS listed, so this
+	// staying true lets its fetch guard see that mirrored copy instead of
+	// treating the pool as unasked again and re-fetching a lesson it is
+	// already showing.
 	const [poolSettled, setPoolSettled] = useState(false);
 	const [filter, setFilter] = useState<"" | LessonStatus>("");
 	// Cleared by `load()` the moment a new query starts, not once it resolves
@@ -120,14 +123,31 @@ export default function LessonsPage() {
 		// and a click during that window would send the NEW filter paired
 		// with the OLD cursor.
 		setCursor(null);
+		// `loadingMore` clears here too, for the same reason: the OLD
+		// loadMore's flight is not THIS query's concern. Without this, a
+		// filter change made while a loadMore was outstanding would remount
+		// "Load more" - once this query's own page arrives with more to give
+		// - already reading "Loading..." and disabled, for a request nobody
+		// watching it ever started. It would stay that way until the stale
+		// request finally settles, which client.ts's retries can stretch to
+		// ~45s. The matching guard lives in loadMore's `finally`, below.
+		setLoadingMore(false);
 		try {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			if (seq !== requestSeq.current) return;
 			setLessons(page.lessons);
 			// `has_more` and not `cursor !== null`, because those are two facts
-			// and only one of them is the question being asked. The API returns
-			// a cursor only when there is more, but reading has_more keeps this
-			// honest if that ever stops being true.
+			// and only one of them is the question being asked - even though,
+			// today, they always agree. `listLessonsPage` derives `hasMore` as
+			// `rows.length > limit`, which guarantees a defined `last` row
+			// whenever it is true, so the pool cannot currently answer
+			// `has_more: true` with `cursor: null`. That guarantee is asserted
+			// nowhere, though - if it ever broke, this line would silently drop
+			// the tail, since reading `page.cursor` here behaves identically to
+			// reading `cursor !== null` under exactly the disagreement this
+			// comment defends against. The fix belongs where the pairing is
+			// produced - an assertion in `listLessonsPage` - not as a client
+			// branch defending against a shape the server cannot currently send.
 			setCursor(page.has_more ? page.cursor : null);
 		} catch (error) {
 			if (seq !== requestSeq.current) return;
@@ -185,7 +205,14 @@ export default function LessonsPage() {
 			// not a reason to throw away what the person is reading.
 			setMoreError(describeError(error, "Could not load more lessons."));
 		} finally {
-			setLoadingMore(false);
+			// Guarded: `load()` clearing `loadingMore` synchronously (above)
+			// means a second loadMore can start - and set this flag true again
+			// - while THIS call, the superseded one, is still out there settling
+			// late. An unconditional clear here would end that second, genuinely
+			// in-flight request's loading state early: re-enabling the button
+			// mid-request and risking a duplicate append of the very page it is
+			// already fetching.
+			if (seq === requestSeq.current) setLoadingMore(false);
 		}
 	};
 
