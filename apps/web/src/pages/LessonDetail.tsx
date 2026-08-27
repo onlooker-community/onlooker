@@ -94,13 +94,26 @@ export default function LessonDetail() {
 		setPending(false);
 	}, [id]);
 
+	// The list can vanish underneath this pane: a failed filter refetch sets
+	// lessons back to null, and without this the pane would blank a lesson the
+	// user is reading and then re-fetch one it already had. The list query
+	// failing says nothing about the lesson on screen.
+	useEffect(() => {
+		if (listed) setFetched(listed);
+	}, [listed]);
+
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
 		// the pool has been asked at all - `listed` being null before then means
 		// "not checked yet", not "not present". Effects run child-first, so
 		// without poolSettled this fires before LessonsPage's own load() has
 		// even started, for every id, including ones already in the pool.
-		if (!id || listed || !poolSettled) return;
+		//
+		// `fetched?.id === id` also holds: a filter refetch can null out
+		// `listed` for the lesson currently open, and without this an already
+		// -held copy would be fetched again just because the list no longer
+		// carries it.
+		if (!id || listed || !poolSettled || fetched?.id === id) return;
 
 		let live = true;
 		setFetchError(null);

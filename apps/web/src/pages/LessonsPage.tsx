@@ -42,6 +42,25 @@ export interface LessonsContext {
 	patchLesson: (id: string, status: LessonStatus) => void;
 }
 
+/**
+ * Status filtering ships; stack filtering does not.
+ *
+ * Not a matter of effort. `status` is a real column with a real index, so the
+ * server can answer it across the whole pool. Stack lives inside the JSON
+ * body, and filtering it in the browser would filter one loaded page and call
+ * it the pool - which is wrong the moment a second page exists. Deferred
+ * whole rather than shipped shrunk: onlooker-4bw.
+ */
+const FILTERS: { value: "" | LessonStatus; label: string; empty?: string }[] = [
+	// "All" carries no `empty`: an unfiltered pool with nothing in it is the
+	// empty POOL, which says something else entirely.
+	{ value: "", label: "All" },
+	{ value: "active", label: "Active", empty: "No active lessons" },
+	{ value: "retracted", label: "Retracted", empty: "No retracted lessons" },
+	{ value: "refuted", label: "Refuted", empty: "No refuted lessons" },
+	{ value: "superseded", label: "Superseded", empty: "No superseded lessons" },
+];
+
 const row = {
 	display: "block",
 	padding: "0.75rem",
@@ -59,6 +78,7 @@ export default function LessonsPage() {
 	// detail pane is showing, `listed` goes null - the detail should fall back
 	// to fetching it, not treat the pool as unasked again.
 	const [poolSettled, setPoolSettled] = useState(false);
+	const [filter, setFilter] = useState<"" | LessonStatus>("");
 
 	// Which pane the narrow layout should show. The layout route does not
 	// receive the child's params, so the path is matched directly.
@@ -67,7 +87,7 @@ export default function LessonsPage() {
 	const load = useCallback(async () => {
 		setLoadError(null);
 		try {
-			const page = await listLessons();
+			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			setLessons(page.lessons);
 		} catch (error) {
 			setLessons(null);
@@ -75,7 +95,7 @@ export default function LessonsPage() {
 		} finally {
 			setPoolSettled(true);
 		}
-	}, []);
+	}, [filter]);
 
 	useEffect(() => {
 		void load();
@@ -100,6 +120,49 @@ export default function LessonsPage() {
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
 			<div className="lessons-list">
+				<div style={{ marginBottom: "1rem" }}>
+					<label
+						htmlFor="lesson-status"
+						style={{
+							display: "block",
+							marginBottom: "0.35rem",
+							fontFamily: "var(--font-display)",
+							fontSize: "12px",
+							letterSpacing: "1px",
+							textTransform: "uppercase",
+							color: PALETTE.muted,
+						}}
+					>
+						Status
+					</label>
+					{/*
+					  A native select rather than a new form primitive. One
+					  filter does not justify a SelectField in form.tsx, and the
+					  native control is what a screen reader and a keyboard
+					  already know how to drive.
+					*/}
+					<select
+						id="lesson-status"
+						value={filter}
+						onChange={(event) =>
+							setFilter(event.target.value as "" | LessonStatus)
+						}
+						style={{
+							padding: "0.4rem 0.5rem",
+							background: "var(--ground)",
+							color: "var(--ink)",
+							border: `2px solid ${PALETTE.border}`,
+							borderRadius: 0,
+							fontFamily: "var(--font-body)",
+						}}
+					>
+						{FILTERS.map((option) => (
+							<option key={option.value || "all"} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</div>
 				{loadError ? (
 					<EmptyState
 						title="Could not load the pool"
@@ -110,18 +173,33 @@ export default function LessonsPage() {
 				) : lessons === null ? (
 					<p style={{ color: PALETTE.muted }}>Loading the pool...</p>
 				) : lessons.length === 0 ? (
-					<EmptyState title="Nothing has synced yet">
-						Lessons arrive when a machine pushes them.{" "}
-						{/*
-						  A link and not EmptyState's action button. The button
-						  is for Retry; one that navigated would read as an
-						  action and be a link wearing the wrong control.
-						*/}
-						<NavLink to="/machines" style={{ color: PALETTE.accent }}>
-							Connect a machine
-						</NavLink>{" "}
-						to start.
-					</EmptyState>
+					filter ? (
+						// An empty FILTER result and an empty POOL say different
+						// things. Telling someone whose pool is full to "connect a
+						// machine" because they filtered to a status nothing holds
+						// would be a lie, and the kind that makes a person doubt
+						// everything else the page says.
+						<EmptyState
+							title={
+								FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
+							}
+						>
+							Nothing in the pool holds that status right now.
+						</EmptyState>
+					) : (
+						<EmptyState title="Nothing has synced yet">
+							Lessons arrive when a machine pushes them.{" "}
+							{/*
+							  A link and not EmptyState's action button. The button
+							  is for Retry; one that navigated would read as an
+							  action and be a link wearing the wrong control.
+							*/}
+							<NavLink to="/machines" style={{ color: PALETTE.accent }}>
+								Connect a machine
+							</NavLink>{" "}
+							to start.
+						</EmptyState>
+					)
 				) : (
 					<Panel title="The pool">
 						<nav aria-label="Lessons">

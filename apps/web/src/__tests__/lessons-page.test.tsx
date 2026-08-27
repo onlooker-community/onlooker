@@ -312,7 +312,9 @@ describe("retract", () => {
 		// Two badges: the row in the list and the heading in the detail. Both
 		// come from the same patched lesson, so both must move.
 		await waitFor(() =>
-			expect(screen.getAllByText("Retracted").length).toBe(2),
+			expect(
+				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
+			).toBe(2),
 		);
 	});
 
@@ -329,8 +331,12 @@ describe("retract", () => {
 		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
 
 		expect(await screen.findByText(/something went wrong/i)).toBeDefined();
-		expect(screen.queryByText("Retracted")).toBeNull();
-		expect(screen.getAllByText("Active").length).toBe(2);
+		expect(
+			screen.queryByText("Retracted", { selector: ":not(option)" }),
+		).toBeNull();
+		expect(
+			screen.getAllByText("Active", { selector: ":not(option)" }).length,
+		).toBe(2);
 	});
 
 	// The API went out of its way to distinguish contention from a real
@@ -355,7 +361,9 @@ describe("retract", () => {
 		mocks.setLessonStatus.mockResolvedValue({ id: VITE.id, seq: 8 });
 		fireEvent.click(screen.getByRole("button", { name: /try again/i }));
 		await waitFor(() =>
-			expect(screen.getAllByText("Retracted").length).toBe(2),
+			expect(
+				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
+			).toBe(2),
 		);
 	});
 
@@ -488,5 +496,82 @@ describe("retract", () => {
 		});
 
 		expect(screen.queryByText(/something went wrong/i)).toBeNull();
+	});
+});
+
+describe("the status filter", () => {
+	it("asks the server rather than filtering what it already has", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		// Server-side, because a client-side filter would filter ONE loaded
+		// page and call it the pool - wrong the moment a second page exists.
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["retracted"],
+			}),
+		);
+	});
+
+	// The row that matters. An empty filter result saying "connect a machine"
+	// would be a lie told to someone whose pool is full.
+	it("says something different when a filter matches nothing", async () => {
+		withPool([VITE]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		expect(
+			await screen.findByRole("heading", { name: /no retracted lessons/i }),
+		).toBeDefined();
+		expect(screen.queryByText(/nothing has synced yet/i)).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: /connect a machine/i }),
+		).toBeNull();
+	});
+
+	it("still says the pool is empty when no filter is set", async () => {
+		withPool([]);
+		await at("/lessons");
+		expect(
+			await screen.findByRole("heading", { name: /nothing has synced yet/i }),
+		).toBeDefined();
+		expect(screen.queryByText(/no retracted lessons/i)).toBeNull();
+	});
+});
+
+describe("a failed filter refetch does not disturb the open lesson", () => {
+	// The hazard the filter creates: load()'s catch sets lessons back to null,
+	// which used to only happen on the very first load, when nothing was on
+	// screen to lose. A filter change reaches it while a lesson is open -
+	// `listed` goes null, poolSettled stays true, and without a fix the detail
+	// pane would blank a lesson the user is reading and re-fetch one it
+	// already had. The list query failing says nothing about the lesson on
+	// screen.
+	it("keeps showing the open lesson when the list vanishes under it", async () => {
+		withPool([VITE, D1]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		mocks.listLessons.mockRejectedValueOnce(new Error("network is down"));
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+		expect(
+			await screen.findByRole("heading", { name: VITE.claim }),
+		).toBeDefined();
+		expect(mocks.getLesson).not.toHaveBeenCalled();
 	});
 });
