@@ -1,0 +1,45 @@
+/*
+ * The one breakpoint in the app.
+ *
+ * Inline styles cannot express a media query, and the alternative - a
+ * useMediaQuery hook over window.matchMedia - is not available: the jsdom
+ * this project tests against does not implement matchMedia at all, so such a
+ * hook would throw in every test that renders this page.
+ *
+ * Narrow is the default and wide is the override, so the two panes are one
+ * layout rather than two. Below the boundary the route picks the pane, via
+ * data-pane; above it, both show and the override restores them. Vitest does
+ * not process CSS, so nothing here applies under test - which is correct,
+ * because what the tests assert is that both panes are in the document.
+ */
+
+.lessons-layout {
+	display: grid;
+	gap: 1.5rem;
+	grid-template-columns: 1fr;
+	align-items: start;
+}
+
+.lessons-layout[data-pane="detail"] > .lessons-list {
+	display: none;
+}
+
+.lessons-layout[data-pane="list"] > .lessons-detail {
+	display: none;
+}
+
+@media (min-width: 60rem) {
+	.lessons-layout {
+		grid-template-columns: minmax(18rem, 24rem) 1fr;
+	}
+
+	.lessons-layout > .lessons-list,
+	.lessons-layout > .lessons-detail {
+		display: block;
+	}
+
+	/* Redundant beside a list that is already on screen. */
+	.lessons-back {
+		display: none;
+	}
+}

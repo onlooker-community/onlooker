@@ -6,6 +6,7 @@ import { reportClientError } from "./lib/reportError";
 import DashboardPage from "./pages/DashboardPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
+import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
 import MachinesPage from "./pages/MachinesPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -72,11 +73,22 @@ export default function App() {
 					}
 				/>
 				{/*
-				  The first route to mount AppShell. The shell's Lessons link
-				  goes nowhere until the next PR lands /lessons; that is the
-				  accepted cost of shipping machines first, since nothing can
-				  reach the pool until somebody can mint a credential.
+				  A layout route. LessonsPage fetches one page and renders the
+				  list; the :id child renders its detail out of that same
+				  in-memory list through the Outlet context, so clicking a row
+				  issues no request. Deep links fall back to GET
+				  /api/lessons/:id, which is the one case memory cannot answer.
 				*/}
+				<Route
+					path="/lessons"
+					element={
+						<auth.RequireAuth>
+							<AppShell>
+								<LessonsPage />
+							</AppShell>
+						</auth.RequireAuth>
+					}
+				/>
 				<Route
 					path="/machines"
 					element={
