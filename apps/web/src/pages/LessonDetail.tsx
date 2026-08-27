@@ -1,8 +1,14 @@
+import { AuthApiError } from "@onlooker/auth-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
-import { getLesson, type Lesson } from "../api/lessonsApi";
+import {
+	type BrowserStatus,
+	getLesson,
+	type Lesson,
+	setLessonStatus,
+} from "../api/lessonsApi";
 import { PALETTE } from "../components/palette";
-import { Chip, EmptyState, Panel, StatusBadge } from "../components/ui";
+import { Button, Chip, EmptyState, Panel, StatusBadge } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import type { LessonsContext } from "./LessonsPage";
@@ -51,7 +57,8 @@ function Chips({ values }: { values: string[] }) {
 
 export default function LessonDetail() {
 	const { id } = useParams();
-	const { lessons, poolSettled } = useOutletContext<LessonsContext>();
+	const { lessons, poolSettled, patchLesson } =
+		useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
 	// retraction written into it by patchLesson shows here without a refetch.
@@ -59,6 +66,12 @@ export default function LessonDetail() {
 
 	const [fetched, setFetched] = useState<Lesson | null>(null);
 	const [fetchError, setFetchError] = useState<string | null>(null);
+	const [confirming, setConfirming] = useState(false);
+	const [pending, setPending] = useState(false);
+	const [actionError, setActionError] = useState<{
+		message: string;
+		retryable: boolean;
+	} | null>(null);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -88,6 +101,38 @@ export default function LessonDetail() {
 	}, [id, listed, poolSettled]);
 
 	const lesson = listed ?? (fetched?.id === id ? fetched : null);
+
+	const transition = async (next: BrowserStatus) => {
+		if (!id || pending) return;
+		setPending(true);
+		setActionError(null);
+		try {
+			await setLessonStatus(id, next);
+			// AFTER the round-trip, never before. The server returns { id, seq }
+			// rather than the lesson, but it wrote body.status and the status
+			// column together in one batch - so writing the status it just
+			// accepted is reflecting its answer, not guessing at it.
+			patchLesson(id, next);
+			setFetched((current) =>
+				current && current.id === id ? { ...current, status: next } : current,
+			);
+			setConfirming(false);
+		} catch (error) {
+			// transitionLesson can exhaust its sequence retries, which apps/api
+			// turns into a 503 whose message says nothing was written. That is a
+			// guarantee no other failure here makes, and it is the difference
+			// between "press it again" and "do not". Read off `code` rather than
+			// the message, because describeError only carries the text.
+			const retryable =
+				error instanceof AuthApiError && error.code === "sequence_contention";
+			setActionError({
+				message: describeError(error, "Could not change that lesson's status."),
+				retryable,
+			});
+		} finally {
+			setPending(false);
+		}
+	};
 
 	const back = (
 		// Narrow shows one pane at a time, so this is the only way back to the
@@ -126,6 +171,18 @@ export default function LessonDetail() {
 	}
 
 	const { applies_to: appliesTo, consensus, evidence } = lesson;
+
+	// A retracted lesson can be made active again; an active one can be
+	// retracted. Those are the only two a human may assert - and apps/api
+	// enforces that with a 400 regardless of what this renders. `null` for the
+	// other two statuses, which get no control at all.
+	const next: BrowserStatus | null =
+		lesson.status === "active"
+			? "retracted"
+			: lesson.status === "retracted"
+				? "active"
+				: null;
+	const verb = next === "retracted" ? "Retract" : "Make active";
 
 	return (
 		<>
@@ -223,6 +280,79 @@ export default function LessonDetail() {
 						]}
 					/>
 				</Field>
+
+				{next ? (
+					<div style={{ marginTop: "1.5rem" }}>
+						{confirming ? (
+							<div
+								style={{
+									display: "flex",
+									gap: "0.5rem",
+									alignItems: "center",
+									flexWrap: "wrap",
+								}}
+							>
+								{/*
+								  Inline rather than window.confirm, matching
+								  MachinesPage. Retraction reaches every mirror on
+								  its next delta pull, so it is the most
+								  consequential act on this page and should not be
+								  handed to a native dialog that looks like nothing
+								  else in the app.
+								*/}
+								<span>
+									{next === "retracted"
+										? "Stop trusting this lesson everywhere?"
+										: "Trust this lesson again everywhere?"}
+								</span>
+								<Button
+									variant={next === "retracted" ? "danger" : "primary"}
+									loading={pending}
+									loadingLabel="Working..."
+									onClick={() => void transition(next)}
+								>
+									Yes, {verb.toLowerCase()}
+								</Button>
+								<Button onClick={() => setConfirming(false)} disabled={pending}>
+									Cancel
+								</Button>
+							</div>
+						) : (
+							<Button
+								variant={next === "retracted" ? "danger" : "primary"}
+								onClick={() => {
+									setActionError(null);
+									setConfirming(true);
+								}}
+							>
+								{verb}
+							</Button>
+						)}
+
+						{actionError ? (
+							<div role="alert" style={{ marginTop: "0.75rem" }}>
+								<p style={{ color: PALETTE.danger, margin: "0 0 0.5rem" }}>
+									{actionError.message}
+								</p>
+								{/*
+								  Offered only where the server promised nothing was
+								  written. A 400 would fail identically on a second
+								  press, and a button that reliably fails is worse
+								  than no button.
+								*/}
+								{actionError.retryable ? (
+									<Button
+										loading={pending}
+										loadingLabel="Working..."
+										onClick={() => void transition(next)}
+									>
+										Try again
+									</Button>
+								) : null}
+							</div>
+						) : null}
+					</div>
+				) : null}
 			</Panel>
 		</>
 	);

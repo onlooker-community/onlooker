@@ -1,3 +1,4 @@
+import { AuthApiError } from "@onlooker/auth-react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -287,5 +288,117 @@ describe("the detail pane", () => {
 		).toBeDefined();
 		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
 		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
+});
+
+describe("retract", () => {
+	it("reflects the retraction in the detail and the row once the server agrees", async () => {
+		withPool([VITE]);
+		mocks.setLessonStatus.mockResolvedValue({ id: VITE.id, seq: 7 });
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		await waitFor(() =>
+			expect(mocks.setLessonStatus).toHaveBeenCalledWith(VITE.id, "retracted"),
+		);
+		// Two badges: the row in the list and the heading in the detail. Both
+		// come from the same patched lesson, so both must move.
+		await waitFor(() =>
+			expect(screen.getAllByText("Retracted").length).toBe(2),
+		);
+	});
+
+	// Nothing was marked retracted ahead of the server, so there is nothing to
+	// roll back. A row that claimed a lesson was retracted while it was still
+	// in force is worse than a slow button - the entire point of the action is
+	// to stop trusting the claim.
+	it("leaves the lesson untouched when the server refuses", async () => {
+		withPool([VITE]);
+		mocks.setLessonStatus.mockRejectedValue(new Error("Something went wrong"));
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		expect(await screen.findByText(/something went wrong/i)).toBeDefined();
+		expect(screen.queryByText("Retracted")).toBeNull();
+		expect(screen.getAllByText("Active").length).toBe(2);
+	});
+
+	// The API went out of its way to distinguish contention from a real
+	// failure - "nothing was written, so retry" is a guarantee no other error
+	// here makes. Flattening it into one generic message would discard that
+	// distinction at the last step.
+	it("says a sequence contention is worth retrying, and offers the retry", async () => {
+		const contention = new AuthApiError(
+			503,
+			"sequence_contention",
+			"Could not assign a lesson sequence; nothing was written, so retry",
+		);
+		withPool([VITE]);
+		mocks.setLessonStatus.mockRejectedValueOnce(contention);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		expect(await screen.findByText(/nothing was written/i)).toBeDefined();
+
+		mocks.setLessonStatus.mockResolvedValue({ id: VITE.id, seq: 8 });
+		fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+		await waitFor(() =>
+			expect(screen.getAllByText("Retracted").length).toBe(2),
+		);
+	});
+
+	// A 400 is not worth retrying and must not offer a button that would fail
+	// the same way twice.
+	it("offers no retry for a failure that would repeat", async () => {
+		const refused = new AuthApiError(
+			400,
+			"status_not_allowed",
+			"A lesson may be retracted or made active again from here.",
+		);
+		withPool([VITE]);
+		mocks.setLessonStatus.mockRejectedValue(refused);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		expect(
+			await screen.findByText(/may be retracted or made active/i),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+	});
+
+	// A human may set retracted, and may set it back. Nothing else - and the
+	// two buttons the UI renders are a convenience, not the enforcement.
+	it("offers to restore a retracted lesson", async () => {
+		withPool([{ ...VITE, status: "retracted" }]);
+		mocks.setLessonStatus.mockResolvedValue({ id: VITE.id, seq: 9 });
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: /make active/i }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /yes, make active/i }));
+
+		await waitFor(() =>
+			expect(mocks.setLessonStatus).toHaveBeenCalledWith(VITE.id, "active"),
+		);
+	});
+
+	// refuted belongs to the counter-observation that produced it and
+	// superseded must name a replacement, so neither is a control this page
+	// gets to render.
+	it("offers nothing for a status the browser may not assert", async () => {
+		withPool([{ ...VITE, status: "refuted" }]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		expect(screen.queryByRole("button", { name: /retract/i })).toBeNull();
+		expect(screen.queryByRole("button", { name: /make active/i })).toBeNull();
 	});
 });
