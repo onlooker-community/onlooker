@@ -16,7 +16,13 @@ import type { LessonsContext } from "./LessonsPage";
 function Field({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div style={{ marginBottom: "1rem" }}>
-			<h3
+			{/*
+			  h2, not h3: the detail's Panel passes no title, so ui.tsx's h2
+			  never renders here, and h1 (the claim) -> h3 would skip a level.
+			  The font size is an explicit inline style below, so this is a
+			  semantic-only change - nothing here should look different.
+			*/}
+			<h2
 				style={{
 					margin: "0 0 0.35rem",
 					fontFamily: "var(--font-display)",
@@ -27,7 +33,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 				}}
 			>
 				{label}
-			</h3>
+			</h2>
 			{children}
 		</div>
 	);
@@ -96,7 +102,12 @@ export default function LessonDetail() {
 		</Link>
 	);
 
-	if (fetchError) {
+	// `!lesson` and not just `fetchError`: LessonDetail is not remounted when
+	// :id changes - same route element, same position - so an error from a
+	// previous, absent id survives in state. Once `listed` finds the new id in
+	// memory there is something to show instead, and the stale error should
+	// not win the render just because nothing has cleared it yet.
+	if (fetchError && !lesson) {
 		return (
 			<>
 				{back}

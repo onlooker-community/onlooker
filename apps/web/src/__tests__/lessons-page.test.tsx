@@ -245,4 +245,47 @@ describe("the detail pane", () => {
 		).toBeDefined();
 		expect(mocks.getLesson).toHaveBeenCalledWith(D1.id);
 	});
+
+	// LessonDetail is not remounted when :id changes - same route element, same
+	// position - so a fetch error from an absent id survives into the next
+	// lesson unless something clears it. At >=60rem the list is on screen
+	// beside the error, so this is one click away from a stale shared link.
+	it("drops a fetch error once a lesson is in memory", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockRejectedValue(new Error("No such lesson"));
+		await at("/lessons/01KZ45MKAM734ZS7JK24D2DK0T");
+		expect(await screen.findByText(/no such lesson/i)).toBeDefined();
+
+		// A RegExp, not the bare claim: getByRole's `name` option has no
+		// `exact: false` - the row link's accessible name is the claim plus
+		// its status badge and date, and only a RegExp does a partial match.
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
+
+		expect(
+			await screen.findByRole("heading", { name: VITE.claim }),
+		).toBeDefined();
+		expect(screen.queryByText(/no such lesson/i)).toBeNull();
+	});
+
+	// The plan's central premise: the list returns full bodies so that
+	// clicking down the column reads from memory instead of round-tripping.
+	// Every other test here renders at a fixed path with `at()`, so this is
+	// the only one that clicks between two lessons in a single mount - the
+	// only way this claim could actually be checked.
+	it("does not refetch the pool when clicking from one lesson to another", async () => {
+		withPool([VITE, D1]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			await screen.findByRole("heading", { name: VITE.claim }),
+		).toBeDefined();
+		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+
+		expect(
+			await screen.findByRole("heading", { name: D1.claim }),
+		).toBeDefined();
+		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
+		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
 });
