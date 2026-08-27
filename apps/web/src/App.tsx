@@ -22,13 +22,14 @@ export default function App() {
 	// Inside the router, so the fallback's links work and a broken page does not
 	// strand the session - BrowserRouter lives in main.tsx, above this.
 	//
-	// Keyed by pathname because a boundary that has caught stays caught. Without
-	// the key the user would be held on the fallback for the rest of the session
-	// no matter where they navigated, which is a worse failure than whatever
-	// threw. Changing the path remounts it clean.
+	// resetKey, not key: a boundary that has caught stays caught, so it still
+	// needs to clear on navigation - but a React `key` remounted every page on
+	// every navigation, whether or not anything had thrown, which is what made
+	// a lesson click refetch the whole pool instead of reading it from memory.
+	// resetKey only resets state that is already set; see ErrorBoundary.
 	return (
 		<ErrorBoundary
-			key={location.pathname}
+			resetKey={location.pathname}
 			// The prop existed and nothing passed it, so a render throw in
 			// production left a trace in exactly one place: the console of the
 			// person it broke for. That is where the blank dashboard went.

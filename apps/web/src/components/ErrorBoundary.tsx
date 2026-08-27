@@ -5,6 +5,12 @@ interface Props {
 	children: ReactNode;
 	/** Called with anything caught. Wire this to reporting when there is any. */
 	onError?: (error: Error, info: ErrorInfo) => void;
+	/**
+	 * Changing this clears a caught error. App passes the pathname, so
+	 * navigating away recovers - see the class comment for why that has to
+	 * happen without remounting `children`.
+	 */
+	resetKey?: string;
 }
 
 interface State {
@@ -27,10 +33,15 @@ interface State {
  *
  * 1. It sits INSIDE the router, so the fallback's links are live and a broken
  *    page does not strand the session.
- * 2. It is keyed by pathname. A boundary that has caught stays caught, so
- *    without that the user would be stuck on this fallback for the rest of the
- *    session no matter where they navigated - a worse failure than the one
- *    being reported.
+ * 2. App passes `resetKey={location.pathname}`. A boundary that has caught
+ *    stays caught, so without a reset the user would be stuck on this
+ *    fallback for the rest of the session no matter where they navigated - a
+ *    worse failure than the one being reported. This used to be done with a
+ *    React `key` instead, which "worked" but remounted every page on every
+ *    navigation, whether or not anything had thrown - which is what made a
+ *    lesson click refetch the whole pool instead of reading it from memory.
+ *    `resetKey` only clears state when there is an error to clear; it costs
+ *    nothing on a navigation that never caught.
  */
 export default class ErrorBoundary extends Component<Props, State> {
 	state: State = { error: null };
@@ -44,6 +55,20 @@ export default class ErrorBoundary extends Component<Props, State> {
 		// looks exactly like a page that rendered nothing on purpose.
 		console.error("Unhandled render error:", error, info.componentStack);
 		this.props.onError?.(error, info);
+	}
+
+	componentDidUpdate(prevProps: Props) {
+		// Guarded on state.error so a navigation that never caught does no
+		// state work at all - the cost the old `key` paid on every navigation
+		// regardless. When it HAS caught, React has already unmounted the
+		// failed subtree; clearing the error here re-renders `children` fresh,
+		// which is the same outcome the key produced by remounting wholesale.
+		if (
+			prevProps.resetKey !== this.props.resetKey &&
+			this.state.error !== null
+		) {
+			this.setState({ error: null });
+		}
 	}
 
 	render() {
