@@ -132,7 +132,6 @@ All endpoints are documented in `src/api/types.ts`. Here's a quick reference:
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/users/me` | Get user profile (includes metadata) |
-| GET | `/api/dashboard` | Get user dashboard data (stats, activity) |
 
 ## Testing Integration
 
@@ -144,14 +143,14 @@ Before committing changes to the API client, verify the integration locally. Her
 - [ ] Submit form
 - [ ] Verify success response (JWT tokens received)
 - [ ] Verify tokens in localStorage (`auth_token`, `auth_refresh_token`)
-- [ ] Verify automatic redirect to dashboard or onboarding
+- [ ] Verify automatic redirect to /lessons or onboarding
 
 ### Login Flow
 - [ ] Load `http://localhost:5173/login`
 - [ ] Enter email and password of an existing user
 - [ ] Submit form
 - [ ] Verify success response (JWT tokens received)
-- [ ] Verify automatic redirect to dashboard
+- [ ] Verify automatic redirect to /lessons
 
 ### Token Refresh
 - [ ] Login successfully
@@ -282,7 +281,6 @@ If it happens anyway, check:
 
 - `src/pages/LoginPage.tsx` — Login form
 - `src/pages/SignupPage.tsx` — Signup form
-- `src/pages/DashboardPage.tsx` — Protected dashboard (authenticated)
 - `src/pages/ProfilePage.tsx` — User profile (authenticated)
 - `src/pages/SettingsPage.tsx` — Settings including password change
 
@@ -290,7 +288,7 @@ If it happens anyway, check:
 
 - **Email Service (WS2):** Queue and send emails (verification, password reset)
 - **Session Management (WS3):** Proactive token refresh, cross-tab sync
-- **Protected Resources (WS4):** User profiles, dashboards, activity logs
+- **Protected Resources (WS4):** User profiles, activity logs
 - **Testing & Security (WS5):** End-to-end tests, penetration testing, threat model
 
 ## References

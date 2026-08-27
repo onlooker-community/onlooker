@@ -210,7 +210,6 @@ POST   /auth/forgot-password
 GET    /auth/reset-password/verify
 POST   /auth/reset-password
 GET    /api/users/me
-GET    /api/dashboard
 ```
 
 ## Error Handling
