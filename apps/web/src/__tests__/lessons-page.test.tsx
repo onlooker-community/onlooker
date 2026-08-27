@@ -159,3 +159,90 @@ describe("the list pane", () => {
 		expect(await screen.findByText(VITE.claim)).toBeDefined();
 	});
 });
+
+describe("the detail pane", () => {
+	// The whole reason the list returns full bodies. If this ever issues a
+	// request, the in-memory read has quietly stopped working and every click
+	// down the column costs a round-trip again.
+	it("renders from memory without fetching", async () => {
+		withPool([VITE, D1]);
+		await at(`/lessons/${D1.id}`);
+		expect(
+			await screen.findByRole("heading", { name: D1.claim }),
+		).toBeDefined();
+		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
+
+	it("leads with the claim, then the rationale and what it applies to", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			await screen.findByRole("heading", { name: VITE.claim }),
+		).toBeDefined();
+		expect(screen.getByText(VITE.rationale)).toBeDefined();
+		expect(screen.getByText("vite")).toBeDefined();
+		expect(screen.getByText(/3 of 3/)).toBeDefined();
+		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
+	});
+
+	// A pasted link to a lesson outside the loaded pages. This is the one case
+	// memory cannot answer, and the only reason GET /api/lessons/:id exists.
+	it("fetches a lesson the loaded page does not hold", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue(D1);
+		await at(`/lessons/${D1.id}`);
+		expect(
+			await screen.findByRole("heading", { name: D1.claim }),
+		).toBeDefined();
+		expect(mocks.getLesson).toHaveBeenCalledWith(D1.id);
+	});
+
+	// A deep link to an id nobody holds answers 404, and the pane says so
+	// rather than sitting on a spinner forever.
+	it("says so when the id resolves to nothing", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockRejectedValue(new Error("No such lesson"));
+		await at("/lessons/01KZ45MKAM734ZS7JK24D2DK0T");
+		expect(await screen.findByText(/no such lesson/i)).toBeDefined();
+	});
+
+	// Narrow shows one pane at a time, so the detail carries the only way back
+	// to the list. The CSS hides it above the breakpoint, where the list is
+	// already on screen.
+	it("offers a way back to the list", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			(await screen.findByRole("link", { name: /all lessons/i })).getAttribute(
+				"href",
+			),
+		).toBe("/lessons");
+	});
+
+	// The bug this guards: `lessons` is empty on the first render because the
+	// pool has not loaded yet, and effects run child-first, so the detail asks
+	// before the list has even started. Reading that emptiness as "not present"
+	// fired a fallback fetch for every cold deep link to a lesson that was in
+	// the pool all along.
+	it("waits for the pool before deciding an id is absent", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			await screen.findByRole("heading", { name: VITE.claim }),
+		).toBeDefined();
+		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
+
+	// poolSettled is true even when the load failed, so a deep link still
+	// resolves through GET /api/lessons/:id instead of hanging on a pool that
+	// never arrived.
+	it("still fetches a deep link when the pool itself failed to load", async () => {
+		mocks.listLessons.mockRejectedValue(new Error("network is down"));
+		mocks.getLesson.mockResolvedValue(D1);
+		await at(`/lessons/${D1.id}`);
+		expect(
+			await screen.findByRole("heading", { name: D1.claim }),
+		).toBeDefined();
+		expect(mocks.getLesson).toHaveBeenCalledWith(D1.id);
+	});
+});

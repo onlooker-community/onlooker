@@ -6,6 +6,7 @@ import { reportClientError } from "./lib/reportError";
 import DashboardPage from "./pages/DashboardPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
+import LessonDetail from "./pages/LessonDetail";
 import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
 import MachinesPage from "./pages/MachinesPage";
@@ -88,7 +89,9 @@ export default function App() {
 							</AppShell>
 						</auth.RequireAuth>
 					}
-				/>
+				>
+					<Route path=":id" element={<LessonDetail />} />
+				</Route>
 				<Route
 					path="/machines"
 					element={
