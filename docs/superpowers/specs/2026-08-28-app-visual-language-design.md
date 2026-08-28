@@ -11,20 +11,27 @@ only things still genuinely undecided.
 
 ## Boundary
 
-**In scope:** `packages/brand` (scales, icon-name type), the shared layer in
-`apps/web` (`AppShell`, `ui.tsx`, a new `Icon`, a new `ConfirmAction`), and the
-two authenticated screens — `/lessons` (both panes) and `/machines`.
+**In scope:** `packages/brand` (scales, icon-name type, two corrections to the
+2026-08-11 brand design), the shared layer in `apps/web` (`AppShell`, `ui.tsx`, a
+new `Icon`, a new `ConfirmAction`), and the two authenticated screens —
+`/lessons` (both panes) and `/machines`.
 
-**Out of scope:** `apps/website`. The auth pages (`login`, `signup`, forgot and
-reset password, verify email) — they already have `AuthCard` and answer a
-different job. `SettingsPage` and `ProfilePage` — low-traffic surfaces that would
-roughly double the work. The 16-bit direction itself, which was re-confirmed
-rather than reopened.
+**Also in scope, but for the display-face correction only:** every remaining file
+that sets `--font-display` at an illegal size — `form.tsx`, `ErrorBoundary.tsx`,
+`SessionExpiryBanner.tsx`, `SettingsPage.tsx`, `ResetPasswordPage.tsx`. These get
+their type corrected and nothing else. No layout change, no icons, no
+restructuring. A blurred pixel face is a defect wherever it appears, and shipping
+two corrected screens beside seven uncorrected ones would make the app look
+*more* inconsistent than leaving it alone.
+
+**Out of scope:** `apps/website`. The full visual treatment of the auth pages,
+`SettingsPage` and `ProfilePage` — they get the font fix and keep their current
+design. The 16-bit direction itself, which was re-confirmed rather than reopened.
 
 The auth pages are the actual first impression and `LoginPage` is hand-rolled
-without even using `TextField`, so leaving them out is a real cost, accepted
-deliberately: the language has to exist before it can be applied, and it is
-cheaper to prove it on two screens than on nine.
+without even using `TextField`, so leaving their layout untouched is a real cost,
+accepted deliberately: the language has to exist before it can be applied, and it
+is cheaper to prove it on two screens than on nine.
 
 ---
 
@@ -137,11 +144,21 @@ each app wraps the shared assets in its own component; this is `apps/web`'s.
 | `MagnifyingGlass` | search | the status filter, the "applies to" panel |
 | `Key` | — | machine tokens |
 | `Trashbin` | — | retracted status |
+| `Restart` | — | superseded status |
 | `Sleep` | — | a machine that has never been used |
 | `Gear` | — | Settings nav |
 
-The last four are extensions consistent with the doc's spirit rather than
-entries from it.
+The last five are extensions consistent with the doc's spirit rather than
+entries from it. `Restart` covers `superseded`, which the brand doc's mapping
+omitted — a lesson replaced by a newer one is the claim being run again, not
+thrown away, which is why it is not `Trashbin`.
+
+**These extensions are written back into `docs/superpowers/specs/2026-08-11-brand-16bit-design.md`.**
+An icon mapping that lives only in the consuming app is the drift the brand
+package was created to make structurally impossible. The same edit records the
+measured design size from Section 1, since the brand doc currently says "their
+design size" without naming it — which is precisely why the app could violate the
+rule in nine files without anyone noticing.
 
 `Sleep` for "never used" is a deliberate upgrade on the current text chip.
 Minting a token and never pointing a plugin at it is the likeliest first-run
@@ -249,8 +266,18 @@ in a README nobody renders."
 
 `apps/web` has no about surface and ships no attribution. **The first rendered
 icon creates an obligation that is currently unmet**, so the credit surface is in
-scope for this work and not a follow-up. Minimum: the attribution text and a link
-to the license, reachable from the app shell.
+scope for this work and not a follow-up.
+
+**It goes in a footer on `AppShell`.** The credit then appears on every
+authenticated page for as long as the icons are on screen, which is what "wherever
+the icons ship" asks for, and it needs no new route to maintain.
+
+**Rejected: its own `/about` route.** A page nobody visits satisfies the letter
+of the condition and not much else, and it is one more route to keep alive.
+
+**Rejected: inside Settings.** Settings only gets the font correction in this
+pass, and burying a license condition two clicks deep in a low-traffic screen is
+the same mistake as putting it in a README.
 
 ---
 
@@ -274,6 +301,13 @@ Known at risk, and what each would mean:
 - **`getByRole("button", { name: /retract/i })`.** Extracting `ConfirmAction`
   must not change the accessible names of either control.
 
+**The display-face correction is invisible to the suite.** Checked on
+2026-08-28: no test in `apps/web/src/__tests__` or `packages/brand` asserts on
+`fontSize` or `fontFamily`. That is convenient for landing piece 2 and it is also
+the reason the app could render its pixel face at five illegal sizes across nine
+files without a single test noticing. The correction ships unguarded; the thing
+that keeps it correct afterwards is the scale token, not a test.
+
 New tests required, not optional: focus is retained when a pending button is
 activated; focus moves to the confirm button when armed and returns to the
 trigger on cancel; the confirm question is associated with its button.
@@ -287,17 +321,18 @@ consumes it.
 
 | # | What | Visible? |
 |---|---|---|
-| 1 | Scales in `tokens.css`; `index.ts` icon union; `Icon.tsx` | No |
-| 2 | The display-face correction across the shared layer | Yes, subtly |
+| 1 | Scales in `tokens.css`; `index.ts` icon union; `Icon.tsx`; the two brand-doc corrections | No |
+| 2 | The display-face correction, everywhere it is wrong | Yes, subtly |
 | 3 | `ConfirmAction`, the `aria-busy` pending change, live regions | Behavior only |
-| 4 | Attribution surface | Yes |
+| 4 | Attribution footer on `AppShell` | Yes |
 | 5 | `/lessons` — both panes | Yes |
 | 6 | `/machines` — rows and the reveal | Yes |
 
-Piece 2 is its own step rather than folded into 5 and 6 because it touches
-`ui.tsx`, `AppShell` and `SessionExpiryBanner` — shared surfaces both screens
-inherit — and because it is the one change that improves the app on its own
-merits even if everything after it were abandoned.
+Piece 2 is its own step rather than folded into 5 and 6 because it reaches nine
+files, five of which get no other change, and because it is the one piece that
+improves the app on its own merits even if everything after it were abandoned. It
+is also the only piece that touches the auth pages, so a regression there is
+attributable to one commit rather than buried in a redesign.
 
 Piece 4 lands before 5 and 6 because it is what makes rendering an icon lawful.
 Pieces 5 and 6 could swap; lessons first because it is the surface the complaint
@@ -307,21 +342,14 @@ was about.
 
 ## Open questions
 
-**`superseded` has no icon.** The brand doc maps active, refuted and the pool but
-not this one. `Restart` is the closest fit — a lesson replaced by a newer one —
-but the mapping is an extension rather than something the doc sanctioned, and it
-is worth a look before it becomes precedent.
+None. The three carried out of the design conversation were settled on
+2026-08-28: `Restart` takes `superseded` and the mapping is written back into the
+brand doc (Section 2); the display-face correction covers every file that
+violates it rather than only the two redesigned screens (Boundary, Section 1);
+and the attribution lives in an `AppShell` footer (Section 6).
 
-**How far the display-face correction reaches.** Section 1 settles that the face
-is legal at 16/32/48 only and that small labels move to `--font-data`. Inside
-this pass's scope that is a bounded change. But the audit found the same
-violation in `form.tsx` (14, 24px), `ErrorBoundary.tsx` (14, 24px),
-`SettingsPage.tsx`, `ResetPasswordPage.tsx` and `SessionExpiryBanner.tsx` — all
-outside it. Those either ship visibly inconsistent with the corrected screens, or
-the scope grows. Worth deciding before implementation rather than discovering
-mid-plan.
-
-**Where the attribution surface lives.** Section 6 settles that one is required
-and what it must contain, not whether it is a footer in `AppShell`, a route, or
-part of Settings. Settings is out of scope for this pass, which argues against
-putting it there.
+One thing to watch during implementation rather than decide now: the font
+correction touches five files whose visual design is otherwise untouched. If
+correcting a label's face there changes its size enough to disturb layout, that
+is a signal the label was load-bearing at an illegal size — worth reporting, not
+worth silently compensating for with a spacing tweak.
