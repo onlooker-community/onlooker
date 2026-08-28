@@ -46,7 +46,7 @@
 | `docs/superpowers/specs/2026-08-11-brand-16bit-design.md` | Record `Restart` for superseded and the measured 16px design size. |
 | `apps/web/src/vite-env.d.ts` | Type `import.meta.glob`. |
 | `apps/web/src/components/ui.tsx` | Legal type sizes; `Button` pending stops using `disabled`; `StatusBadge` gains an icon. |
-| `apps/web/src/components/AppShell.tsx` | Legal type sizes; nav icons; attribution footer. |
+| `apps/web/src/components/AppShell.tsx` | Legal type sizes (Task 3); attribution footer (Task 5); wordmark and nav icons (Task 6 Step 4b). |
 | `apps/web/src/components/form.tsx`, `ErrorBoundary.tsx`, `SessionExpiryBanner.tsx`, `TokenReveal.tsx` | Display-face correction only. |
 | `apps/web/src/pages/SettingsPage.tsx`, `ResetPasswordPage.tsx` | Display-face correction only. |
 | `apps/web/src/pages/LessonsPage.tsx`, `LessonDetail.tsx`, `MachinesPage.tsx` | Full treatment. |
@@ -1083,6 +1083,41 @@ Replace the flat stack of eight `Field` blocks with:
 6. `ConfirmAction` last.
 
 Keep `Field` for the labels inside each panel; it becomes a panel-internal label rather than the page's whole structure. Its heading level stays `h2`, which keeps the document order `h1 → h2` with no skip.
+
+- [ ] **Step 4b: Give the shell its icons**
+
+`apps/web/src/components/AppShell.tsx`. The spec requires the nav to carry 16px icons and the wordmark to carry `Eye`; without this the two restyled screens sit inside chrome that still looks untouched.
+
+`Eye` at 16 beside the `Onlooker` wordmark — it is both the logo and the active state in the brand mapping. Then one 16px icon per nav link, inside the existing `NavLink`, before the label:
+
+| Link | Icon |
+|---|---|
+| Lessons | `ChestTreasure` — the approved pool |
+| Machines | `Key` |
+| Settings | `Gear` |
+| Profile | `CatHead` |
+
+All decorative — the visible label is right beside each, so pass no `label` and let `Icon` render `alt=""` with `role="presentation"`.
+
+`CatHead` is an extension, not a brand-doc entry: the set has no person icon, and it is the most person-like thing in it. Write it into the brand doc's mapping alongside `Restart` and `Sleep`, the same way Task 1 recorded those.
+
+**While you are in this file, fix a false comment.** Its header still ends "Nothing routes through it yet." That has been untrue since `/machines` shipped — `App.tsx` wraps both `/lessons` and `/machines` in `AppShell`. Correct it to say what is true now.
+
+Add to `app-shell.test.tsx`:
+
+```tsx
+	// The nav is four identical links plus a wordmark; the icons are what make
+	// them scannable at a glance rather than a column of same-shaped words.
+	it("gives the wordmark and every nav link an icon", () => {
+		renderShell();
+		const icons = document.querySelectorAll("img.pixel-icon");
+		expect(icons.length).toBe(5);
+		for (const img of icons) {
+			expect(img.getAttribute("width")).toBe("16");
+			expect(img.getAttribute("src")).toBeTruthy();
+		}
+	});
+```
 
 - [ ] **Step 5: Restructure the list rows**
 
