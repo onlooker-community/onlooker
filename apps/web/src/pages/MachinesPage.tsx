@@ -6,10 +6,11 @@ import {
 	type MintedMachine,
 	revokeMachine,
 } from "../api/machinesApi";
+import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
 import TokenReveal from "../components/TokenReveal";
-import { Button, Chip, EmptyState, Panel } from "../components/ui";
+import { Chip, EmptyState, Panel } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 
@@ -32,7 +33,6 @@ export default function MachinesPage() {
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
 	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
-	const [confirming, setConfirming] = useState<string | null>(null);
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 
@@ -87,7 +87,6 @@ export default function MachinesPage() {
 		setRevokeError(null);
 		try {
 			await revokeMachine(id);
-			setConfirming(null);
 			await load();
 		} catch (error) {
 			// Nothing was marked revoked ahead of the server, so there is
@@ -101,53 +100,21 @@ export default function MachinesPage() {
 
 	const action = (machine: Machine) => {
 		// A revoked machine keeps its row - that is how a person sees that they
-		// revoked it - but there is nothing left to do to it.
+		// revoked it - but there is nothing left to do to it. The row losing its
+		// ConfirmAction here is also what disarms a confirm after a successful
+		// revoke: there is no row left to hold the armed state.
 		if (machine.revoked_at) return null;
 
-		if (confirming !== machine.id) {
-			return (
-				<Button
-					variant="danger"
-					onClick={() => {
-						setRevokeError(null);
-						setConfirming(machine.id);
-					}}
-				>
-					Revoke
-				</Button>
-			);
-		}
-
 		return (
-			<div
-				style={{
-					display: "flex",
-					gap: "0.5rem",
-					alignItems: "center",
-					flexWrap: "wrap",
-				}}
-			>
-				{/*
-				  Inline rather than window.confirm. Revocation is the most
-				  destructive act on this page, and the app should not hand it
-				  to a native dialog that looks like nothing else in it.
-				*/}
-				<span>Revoke {machine.name}?</span>
-				<Button
-					variant="danger"
-					loading={revoking === machine.id}
-					loadingLabel="Revoking..."
-					onClick={() => void revoke(machine.id)}
-				>
-					Yes, revoke
-				</Button>
-				<Button
-					onClick={() => setConfirming(null)}
-					disabled={revoking === machine.id}
-				>
-					Cancel
-				</Button>
-			</div>
+			<ConfirmAction
+				trigger="Revoke"
+				question={`Revoke ${machine.name}?`}
+				confirmLabel="Yes, revoke"
+				pendingLabel="Revoking..."
+				variant="danger"
+				pending={revoking === machine.id}
+				onConfirm={() => void revoke(machine.id)}
+			/>
 		);
 	};
 

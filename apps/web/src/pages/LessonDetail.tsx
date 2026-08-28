@@ -7,6 +7,7 @@ import {
 	type Lesson,
 	setLessonStatus,
 } from "../api/lessonsApi";
+import { ConfirmAction } from "../components/ConfirmAction";
 import { PALETTE } from "../components/palette";
 import { Button, Chip, EmptyState, Panel, StatusBadge } from "../components/ui";
 import { When } from "../components/When";
@@ -66,13 +67,18 @@ export default function LessonDetail() {
 
 	const [fetched, setFetched] = useState<Lesson | null>(null);
 	const [fetchError, setFetchError] = useState<string | null>(null);
-	const [confirming, setConfirming] = useState(false);
 	const [pending, setPending] = useState(false);
 	const [actionError, setActionError] = useState<{
 		message: string;
 		retryable: boolean;
 		attempted: BrowserStatus;
 	} | null>(null);
+	// Bumped whenever a transition settles for the lesson still on screen -
+	// success or failure alike. ConfirmAction owns "armed" internally now, so
+	// this is what stands in for the old `setConfirming(false)`: folded into
+	// ConfirmAction's key below, it forces a fresh, unarmed instance the same
+	// way a lesson change does.
+	const [settleCount, setSettleCount] = useState(0);
 
 	// The id in scope right now, read from inside `transition`'s async
 	// continuation. A plain closure over `id` would read the value from the
@@ -89,7 +95,6 @@ export default function LessonDetail() {
 	// reaches every mirror on its next delta pull. Same defect fetchError had
 	// below, in the one flow here where getting it wrong is destructive.
 	useEffect(() => {
-		setConfirming(false);
 		setActionError(null);
 		setPending(false);
 	}, [id]);
@@ -189,7 +194,7 @@ export default function LessonDetail() {
 			// a lesson the user has left must not touch the one now showing.
 			if (currentId.current === target) {
 				setPending(false);
-				setConfirming(false);
+				setSettleCount((count) => count + 1);
 			}
 		}
 	};
@@ -343,51 +348,26 @@ export default function LessonDetail() {
 
 				{next ? (
 					<div style={{ marginTop: "1.5rem" }}>
-						{confirming ? (
-							<div
-								style={{
-									display: "flex",
-									gap: "0.5rem",
-									alignItems: "center",
-									flexWrap: "wrap",
-								}}
-							>
-								{/*
-								  Inline rather than window.confirm, matching
-								  MachinesPage. Retraction reaches every mirror on
-								  its next delta pull, so it is the most
-								  consequential act on this page and should not be
-								  handed to a native dialog that looks like nothing
-								  else in the app.
-								*/}
-								<span>
-									{next === "retracted"
-										? "Stop trusting this lesson everywhere?"
-										: "Trust this lesson again everywhere?"}
-								</span>
-								<Button
-									variant={next === "retracted" ? "danger" : "primary"}
-									loading={pending}
-									loadingLabel="Working..."
-									onClick={() => void transition(next)}
-								>
-									Yes, {verb.toLowerCase()}
-								</Button>
-								<Button onClick={() => setConfirming(false)} disabled={pending}>
-									Cancel
-								</Button>
-							</div>
-						) : (
-							<Button
-								variant={next === "retracted" ? "danger" : "primary"}
-								onClick={() => {
-									setActionError(null);
-									setConfirming(true);
-								}}
-							>
-								{verb}
-							</Button>
-						)}
+						{/*
+						  key composes the lesson id with settleCount: a new
+						  lesson or a settled round-trip on this one both need a
+						  fresh, unarmed instance, and neither reaches ConfirmAction's
+						  internal "armed" state any other way now that this page
+						  no longer holds it.
+						*/}
+						<ConfirmAction
+							key={`${id}:${settleCount}`}
+							trigger={verb}
+							question={
+								next === "retracted"
+									? "Stop trusting this lesson everywhere?"
+									: "Trust this lesson again everywhere?"
+							}
+							confirmLabel={`Yes, ${verb.toLowerCase()}`}
+							variant={next === "retracted" ? "danger" : "primary"}
+							pending={pending}
+							onConfirm={() => void transition(next)}
+						/>
 
 						{actionError ? (
 							<div role="alert" style={{ marginTop: "0.75rem" }}>

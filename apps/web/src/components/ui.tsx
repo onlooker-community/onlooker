@@ -168,6 +168,7 @@ export function Button({
 	loading,
 	loadingLabel,
 	disabled,
+	describedBy,
 }: {
 	children: ReactNode;
 	onClick: () => void;
@@ -175,27 +176,40 @@ export function Button({
 	loading?: boolean;
 	loadingLabel?: string;
 	disabled?: boolean;
+	/** Wired to aria-describedby. ConfirmAction uses it to name the question. */
+	describedBy?: string;
 }) {
-	// Pending is disabled, not merely labelled. Retract round-trips instead of
-	// updating optimistically, so the button is live for as long as the request
-	// takes and a second press would transition a lesson already moving.
-	const isDisabled = loading || disabled;
+	// Pending is announced, not disabled. Setting the `disabled` attribute here
+	// - which this did - moves focus to <body> the instant the button the user
+	// just pressed goes inert, and it does it in the middle of a destructive
+	// round-trip. aria-busy says the same thing to assistive tech, aria-disabled
+	// says it to everyone, and the handler guard below is what actually stops a
+	// second press. The reason for the original treatment still holds: retract
+	// round-trips rather than updating optimistically, so the control is live
+	// for as long as the request takes and a second press would transition a
+	// lesson already moving. Only the mechanism changed.
+	const inert = loading || disabled;
 	const plate = variant === "danger" ? PALETTE.plateRed : PALETTE.plateTeal;
 	return (
 		<button
 			type="button"
-			disabled={isDisabled}
-			onClick={onClick}
+			aria-busy={loading ? true : undefined}
+			aria-disabled={inert || undefined}
+			aria-describedby={describedBy}
+			onClick={() => {
+				if (inert) return;
+				onClick();
+			}}
 			style={{
 				padding: "0.5rem 1rem",
-				background: isDisabled ? "var(--panel)" : plate,
-				color: isDisabled ? "var(--ink)" : PALETTE.plateInk,
-				border: isDisabled
+				background: inert ? "var(--panel)" : plate,
+				color: inert ? "var(--ink)" : PALETTE.plateInk,
+				border: inert
 					? "2px solid var(--ink-dim)"
 					: `2px solid ${PALETTE.plateInk}`,
-				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
+				boxShadow: inert ? "none" : "4px 4px 0 var(--shadow)",
 				borderRadius: 0,
-				cursor: isDisabled ? "not-allowed" : "pointer",
+				cursor: inert ? "not-allowed" : "pointer",
 				fontFamily: "var(--font-data)",
 				fontSize: "var(--text-data-md)",
 				letterSpacing: "1px",
