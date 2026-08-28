@@ -490,6 +490,12 @@ import { describe, expect, it } from "vitest";
 const SRC = new URL("../", import.meta.url).pathname;
 const LEGAL = ["var(--text-display-md)", "var(--text-display-lg)", "var(--text-display-xl)"];
 
+// components/ and pages/ only, deliberately. Scanning all of src/ would sweep
+// in this file, whose own source contains both the string it greps for and a
+// `fontSize:` regex two lines later - so the guard would report itself as an
+// offender at a size it invented from its own source code.
+const ROOTS = ["components", "pages"];
+
 function sources(dir: string): string[] {
 	return readdirSync(dir).flatMap((entry) => {
 		const p = join(dir, entry);
@@ -501,7 +507,7 @@ function sources(dir: string): string[] {
 describe("the display face", () => {
 	it("is never paired with a size that is not an integer multiple of 16px", () => {
 		const offenders: string[] = [];
-		for (const file of sources(SRC)) {
+		for (const file of ROOTS.flatMap((r) => sources(join(SRC, r)))) {
 			const text = readFileSync(file, "utf8");
 			const lines = text.split("\n");
 			lines.forEach((line, i) => {
@@ -547,18 +553,20 @@ For each site below, replace `fontFamily: "var(--font-display)"` with `fontFamil
 | `AppShell.tsx` | nav links (13px) | `var(--text-data-md)` |
 | `AppShell.tsx` | sign-out button (13px) | `var(--text-data-md)` |
 | `SessionExpiryBanner.tsx` | banner label (12px) | `var(--text-data-md)` |
-| `form.tsx` | `AuthCard` heading (24px) | `var(--text-data-md)` — see note |
+| `form.tsx` | `AuthCard` heading (24px) | `var(--text-body-lg)` — see note |
 | `form.tsx` | `SubmitButton` label (14px) | `var(--text-data-md)` |
-| `ErrorBoundary.tsx` | fallback heading (24px) | `var(--text-data-md)` — see note |
+| `ErrorBoundary.tsx` | fallback heading (24px) | `var(--text-body-lg)` — see note |
 | `ErrorBoundary.tsx` | two labels (14px, ×2) | `var(--text-data-md)` |
 | `SettingsPage.tsx` | two section headings (14px, ×2) | `var(--text-data-md)` |
 | `ResetPasswordPage.tsx` | heading (14px) | `var(--text-data-md)` |
 | `LessonsPage.tsx` | filter label (12px) | `var(--text-data-sm)` |
 | `LessonDetail.tsx` | `Field` label (12px) | `var(--text-data-sm)` |
 
-**The two 24px headings are the judgment call in this task.** `AuthCard`'s title and `ErrorBoundary`'s fallback heading are the largest display type in the app and the closest thing either surface has to a voice. 24px is 1.5× and illegal; the nearest legal step *up* is 32px, which is large but correct, and the nearest legal step *down* is 16px, which is smaller than the body text around it.
+**The two 24px headings were decided rather than left to you.** `AuthCard`'s title and `ErrorBoundary`'s fallback heading are the largest display type in the app. 24px is 1.5× the design size and illegal; the nearest legal display steps are 32px (large for a login card we agreed not to redesign) and 16px (which would drop a page heading below its own body copy and invert the hierarchy).
 
-Move both to `--font-data` at `--text-data-md` **and report it as a concern**, because it visibly softens two surfaces that are out of this pass's design scope. If either looks wrong, `var(--text-display-lg)` at 32px with the display face is the alternative, and that is a design decision to escalate rather than make.
+Both move to **`var(--font-body)` at `var(--text-body-lg)`** — 1.25rem, 20px. Closest to what is there now, still unmistakably a heading, and in rem so it follows the reader's font-size preference. They lose the pixel face, and that is the intended trade: the login screen is the first thing anyone reads and the error screen is read under stress, which is exactly where the brand doc says a pixel face is the wrong choice.
+
+Set `fontFamily: "var(--font-body)"` on these two, not `--font-data`. Drop their `letterSpacing` and `textTransform` if present — those belong to the uppercase chrome register, not to a sentence-case heading.
 
 - [ ] **Step 5: Run the guard and the full suite**
 
