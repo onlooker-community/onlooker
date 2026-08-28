@@ -136,6 +136,42 @@ export default function AppShell({ children }: { children: ReactNode }) {
 				<SessionExpiryBanner />
 				{children}
 			</main>
+			{/*
+			  A license condition, not a courtesy. CC BY 4.0 requires credit
+			  wherever the icons ship, and the brand doc is explicit that a line
+			  in a README nobody renders does not satisfy it. On the shell rather
+			  than an /about route so it is present on every page the icons are.
+			*/}
+			<footer
+				style={{
+					maxWidth: "1100px",
+					margin: "0 auto",
+					padding: "var(--space-5) var(--space-5) var(--space-6)",
+					color: PALETTE.muted,
+					fontSize: "var(--text-body-sm)",
+					borderTop: `2px solid ${PALETTE.border}`,
+				}}
+			>
+				Icons by{" "}
+				<a
+					href="https://crusenho.itch.io"
+					style={{ color: PALETTE.accent }}
+					target="_blank"
+					rel="noreferrer"
+				>
+					Crusenho Agus Hennihuno
+				</a>
+				, licensed{" "}
+				<a
+					href="https://creativecommons.org/licenses/by/4.0/"
+					style={{ color: PALETTE.accent }}
+					target="_blank"
+					rel="noreferrer"
+				>
+					CC BY 4.0
+				</a>
+				.
+			</footer>
 		</div>
 	);
 }

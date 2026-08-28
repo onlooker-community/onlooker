@@ -121,4 +121,17 @@ describe("AppShell", () => {
 		renderShell();
 		expect(screen.getByText(/someone@example\.com/)).toBeDefined();
 	});
+
+	// CC BY 4.0 requires credit wherever the icons ship. A footer on the shell puts
+	// it on every authenticated page for as long as the icons are on screen, which
+	// is what the condition asks for and what an /about route nobody visits does
+	// not.
+	it("credits the icon set and links its license", () => {
+		renderShell();
+		const footer = screen.getByRole("contentinfo");
+		expect(footer.textContent).toContain("Crusenho Agus Hennihuno");
+		expect(
+			screen.getByRole("link", { name: /CC BY 4\.0/i }).getAttribute("href"),
+		).toBe("https://creativecommons.org/licenses/by/4.0/");
+	});
 });
