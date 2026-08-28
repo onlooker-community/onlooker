@@ -11,7 +11,7 @@ export default function HomePage() {
 			{authState.user ? (
 				<>
 					<p>Logged in as {authState.user.email}</p>
-					<Link to="/dashboard">Go to Dashboard</Link>
+					<Link to="/lessons">Go to the pool</Link>
 				</>
 			) : (
 				<Link to="/login">Log In</Link>

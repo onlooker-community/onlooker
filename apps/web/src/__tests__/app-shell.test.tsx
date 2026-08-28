@@ -65,8 +65,8 @@ describe("AppShell", () => {
 		expect(screen.getByText("page body")).toBeDefined();
 	});
 
-	// The nav is the only way to reach the other surfaces once /dashboard and
-	// its ad-hoc <nav> are deleted.
+	// The nav is the only way to reach the other surfaces now that /dashboard
+	// and its ad-hoc <nav> are gone.
 	it("links to every authenticated surface", () => {
 		renderShell();
 		const href = (name: RegExp) =>
@@ -100,9 +100,9 @@ describe("AppShell", () => {
 		await waitFor(() => expect(screen.getByText("home reached")).toBeDefined());
 	});
 
-	// The banner lived on DashboardPage, which PR 4 deletes. If it does not move
-	// into the shell it disappears with the page, and the only warning that a
-	// silent token refresh failed goes with it.
+	// The banner used to live on DashboardPage. Moving it into the shell before
+	// onlooker-yfw deleted that page is why the only warning that a silent
+	// token refresh failed didn't disappear with it.
 	it("carries the session expiry warning", () => {
 		mocks.state.sessionExpiresAt = Date.now() + 90_000;
 		mocks.state.sessionExpiringSoon = true;

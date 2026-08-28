@@ -1,0 +1,55 @@
+/*
+ * The one breakpoint in the app.
+ *
+ * Inline styles cannot express a media query, and the alternative - a
+ * useMediaQuery hook over window.matchMedia - is not available: the jsdom
+ * this project tests against does not implement matchMedia at all, so such a
+ * hook would throw in every test that renders this page.
+ *
+ * Narrow is the default and wide is the override, so the two panes are one
+ * layout rather than two. Below the boundary the route picks the pane, via
+ * data-pane; above it, both show and the override restores them. The
+ * override matches the hide rules' specificity - class + attribute + class -
+ * with a bare `[data-pane]` rather than a plain class, because a lower-
+ * specificity override loses to the hide rules regardless of source order or
+ * which media query is active. Vitest does not process CSS, so nothing here
+ * applies under test - which is correct, because what the tests assert is
+ * that both panes are in the document.
+ */
+
+.lessons-layout {
+	display: grid;
+	gap: 1.5rem;
+	grid-template-columns: 1fr;
+	align-items: start;
+}
+
+.lessons-layout[data-pane="detail"] > .lessons-list {
+	display: none;
+}
+
+.lessons-layout[data-pane="list"] > .lessons-detail {
+	display: none;
+}
+
+@media (min-width: 60rem) {
+	.lessons-layout {
+		grid-template-columns: minmax(18rem, 24rem) 1fr;
+	}
+
+	/*
+	 * [data-pane] rather than a bare class: the hide rules above carry an
+	 * attribute selector, so a two-class override would lose to them on
+	 * specificity and both panes would never show together. Equal
+	 * specificity, later in source order, wins.
+	 */
+	.lessons-layout[data-pane] > .lessons-list,
+	.lessons-layout[data-pane] > .lessons-detail {
+		display: block;
+	}
+
+	/* Redundant beside a list that is already on screen. */
+	.lessons-back {
+		display: none;
+	}
+}

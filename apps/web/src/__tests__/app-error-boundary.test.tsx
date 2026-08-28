@@ -51,9 +51,9 @@ describe("App", () => {
 		expect(screen.getByText(/ProfilePage exploded/)).toBeDefined();
 	});
 
-	// The boundary is keyed by pathname in App. Without that key it stays caught
-	// forever and every later route renders the fallback too, so this navigates
-	// for real rather than trusting the key is there.
+	// App passes resetKey={location.pathname}. Without that reset the boundary
+	// stays caught forever and every later route renders the fallback too, so
+	// this navigates for real rather than trusting the reset is wired up.
 	it("recovers on navigation, rather than holding the fallback forever", () => {
 		renderAppAt("/profile");
 		expect(screen.getByRole("alert")).toBeDefined();
@@ -67,6 +67,26 @@ describe("App", () => {
 	it("leaves routes that do not throw alone", () => {
 		renderAppAt("/login");
 
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	// The keyed boundary existed because a boundary that has caught stays
+	// caught. Replacing the key with resetKey has to keep that: catching on
+	// one route and navigating away must clear it, or the user is stranded on
+	// the fallback for the rest of the session.
+	it("stays clear and keeps routing usable after the boundary has recovered", () => {
+		renderAppAt("/profile");
+		expect(screen.getByRole("alert")).toBeDefined();
+
+		fireEvent.click(screen.getByRole("link", { name: /home/i }));
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		// A second hop, not just "no alert": proves the recovered subtree is
+		// genuinely live rather than merely blank, and exercises a second
+		// resetKey change while state.error is already null - the case the
+		// guard in componentDidUpdate has to no-op on.
+		fireEvent.click(screen.getByRole("link", { name: /log in/i }));
+		expect(screen.getByRole("heading", { name: /login/i })).toBeDefined();
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

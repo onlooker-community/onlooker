@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardData, UserProfile } from "../types/api";
+import type { UserProfile } from "../types/api";
 import { createMockFetch, mockAuthApi, mockDataApi } from "./mockApi";
 
 async function loginToken(): Promise<string> {
@@ -36,19 +36,6 @@ describe("mockDataApi", () => {
 		await expect(
 			mockDataApi("/api/users/me", { method: "GET" }),
 		).rejects.toMatchObject({ status: 401 });
-	});
-
-	it("returns dashboard data with stats and recent activity", async () => {
-		const token = await loginToken();
-
-		const response = await mockDataApi("/api/dashboard", authGet(token));
-		expect(response.status).toBe(200);
-
-		const data = (await response.json()) as DashboardData;
-		expect(data.user.email).toBe("test@example.com");
-		expect(typeof data.stats.totalSessions).toBe("number");
-		expect(Array.isArray(data.recentActivity)).toBe(true);
-		expect(data.recentActivity.length).toBeGreaterThan(0);
 	});
 
 	it("routes /api/* through createMockFetch and returns 401 as a Response", async () => {

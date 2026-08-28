@@ -115,12 +115,6 @@ WHERE u.id = ?
 #### `handleGetUserProfile` - GET /api/users/me
 **Returns:** UserProfile with creation date and last login timestamp
 
-#### `handleGetDashboard` - GET /api/dashboard
-**Aggregates:**
-- User info
-- Session/activity statistics
-- Recent activity log (last 10 events)
-
 ## Database Schema Requirements
 
 ### Users Table
@@ -234,11 +228,6 @@ CREATE TABLE reset_tokens (
    - Implement `PasswordResetTokenStore`
    - Implement forgot-password flow
    - Test reset-password flow
-
-5. **Phase 5 - Dashboard Data:**
-   - Add activity tracking to login/logout/profile updates
-   - Implement dashboard statistics queries
-   - Test GET /api/dashboard
 
 ## Type References
 

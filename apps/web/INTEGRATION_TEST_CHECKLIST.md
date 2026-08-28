@@ -14,7 +14,7 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] Enter password (8+ characters)
 - [ ] Enter optional name
 - [ ] Submit form
-- [ ] ✅ Success: JWT tokens in localStorage, redirected to dashboard
+- [ ] ✅ Success: JWT tokens in localStorage, redirected to /lessons
 - [ ] ✅ DevTools: POST /auth/signup returns 200 with token + refreshToken
 - [ ] ✅ Browser: Check Application tab → localStorage has auth_token and auth_refresh_token
 
@@ -23,7 +23,7 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] Enter existing user email
 - [ ] Enter correct password
 - [ ] Submit form
-- [ ] ✅ Success: JWT tokens in localStorage, redirected to dashboard
+- [ ] ✅ Success: JWT tokens in localStorage, redirected to /lessons
 - [ ] ✅ DevTools: POST /auth/login returns 200 with token + refreshToken
 - [ ] ✅ Profile page loads with user name and email
 
@@ -31,7 +31,7 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] While logged in, click Logout button
 - [ ] ✅ Tokens cleared from localStorage
 - [ ] ✅ Redirected to home/login page
-- [ ] ✅ Attempting to access /dashboard redirects to /login
+- [ ] ✅ Attempting to access /lessons redirects to /login
 
 ## Token Management
 
@@ -65,15 +65,6 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] ✅ User data displayed (name, email, createdAt, lastLoginAt)
 - [ ] ✅ DevTools: GET /api/users/me includes Authorization header
 - [ ] ✅ DevTools: Response status 200, correct user data returned
-
-### Dashboard Page
-- [ ] Login successfully
-- [ ] Navigate to http://localhost:5173/dashboard
-- [ ] ✅ Page loads without errors
-- [ ] ✅ Stats displayed (total sessions, active projects, unread notifications)
-- [ ] ✅ Recent activity section loads (if any activity exists)
-- [ ] ✅ DevTools: GET /api/dashboard includes Authorization header
-- [ ] ✅ DevTools: Response status 200, correct dashboard data returned
 
 ## Account Management
 
@@ -141,11 +132,9 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 
 ### Page Reload
 - [ ] Login successfully
-- [ ] Navigate to /dashboard
 - [ ] Reload page (F5)
 - [ ] ✅ Tokens persisted in localStorage
 - [ ] ✅ Session restored automatically
-- [ ] ✅ Dashboard loads without re-login
 
 ### Tab Sync (WS3)
 - [ ] Login in Tab A
@@ -172,7 +161,7 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 
 ### Very Short Token Lifetime
 - [ ] Set `ACCESS_TOKEN_TTL_SECONDS` to 10 seconds in mock or backend
-- [ ] Login and stay on dashboard
+- [ ] Login and stay on /lessons
 - [ ] ✅ Token auto-refreshes at ~9 seconds (proactive refresh from WS3)
 - [ ] ✅ No interruption to user experience
 

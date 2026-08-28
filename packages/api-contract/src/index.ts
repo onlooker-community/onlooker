@@ -23,6 +23,10 @@ export { redactSecrets } from "./redact";
  * Note the first was a SHAPE bug, not a status code: every response involved was
  * a 200 before and after. Status alone would not have caught it, which is why
  * `body` carries as much weight here as `status`.
+ *
+ * /api/dashboard itself was deleted in onlooker-yfw - it served three numbers
+ * invented for a scaffold. The incident that named it is why this table exists,
+ * so the account above is kept rather than edited out with the route.
  */
 
 /** A field that must be present and hold an object. */
@@ -134,12 +138,6 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 		{
 			name: "me, no token",
 			path: "/auth/me",
-			init: { method: "GET" },
-			status: 401,
-		},
-		{
-			name: "dashboard, no token",
-			path: "/api/dashboard",
 			init: { method: "GET" },
 			status: 401,
 		},
@@ -367,20 +365,6 @@ export function authenticatedCases(): ContractCase[] {
 			init: { method: "GET" },
 			status: 200,
 			body: { user: expectObject },
-			forbidden: NO_SECRETS,
-		},
-		{
-			name: "dashboard, valid token",
-			path: "/api/dashboard",
-			init: { method: "GET" },
-			status: 200,
-			// Bare, with no { success, data } wrapper. This is the exact assertion
-			// the blanked-dashboard incident needed and did not have.
-			body: {
-				user: expectObject,
-				stats: expectObject,
-				recentActivity: expectArray,
-			},
 			forbidden: NO_SECRETS,
 		},
 		{

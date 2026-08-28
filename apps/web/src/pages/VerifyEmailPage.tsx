@@ -43,8 +43,8 @@ export default function VerifyEmailPage() {
 			<AuthCard
 				title="Email verified"
 				footer={
-					<FormLink to={user ? "/dashboard" : "/login"}>
-						{user ? "Go to dashboard" : "Go to login"}
+					<FormLink to={user ? "/lessons" : "/login"}>
+						{user ? "Go to the pool" : "Go to login"}
 					</FormLink>
 				}
 			>

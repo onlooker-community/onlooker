@@ -58,7 +58,7 @@ export default function ProfilePage() {
 			)}
 
 			<nav style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
-				<Link to="/dashboard">Back to dashboard</Link>
+				<Link to="/lessons">Back to the pool</Link>
 				<Link to="/settings">Settings</Link>
 			</nav>
 		</div>

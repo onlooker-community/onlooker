@@ -45,7 +45,7 @@ src/
 ├── routes/
 │   ├── auth.ts           # WS1: Login, signup, refresh, logout, /auth/me
 │   ├── account.ts        # WS2: Profile, password, email verification, account deletion
-│   ├── data.ts           # WS4: Protected dashboard and user profile data
+│   ├── data.ts           # WS4: Protected user profile data
 │   └── index.ts          # Route exports
 └── db/
     └── index.ts          # Database abstraction layer stubs for WS1 integration
@@ -79,7 +79,6 @@ src/
 
 ### Protected Data (require access token)
 - `GET /api/users/me` - User profile with timestamps
-- `GET /api/dashboard` - Dashboard with stats and activity
 
 ## Local database
 

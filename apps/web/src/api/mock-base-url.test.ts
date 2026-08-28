@@ -66,7 +66,7 @@ describe("createMockFetch with a base URL", () => {
 		});
 		const { token } = (await login.json()) as { token: string };
 
-		const response = await call(`${BASE}/api/dashboard`, {
+		const response = await call(`${BASE}/api/users/me`, {
 			method: "GET",
 			headers: { Authorization: `Bearer ${token}` },
 		});

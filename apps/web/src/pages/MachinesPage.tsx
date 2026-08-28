@@ -10,6 +10,7 @@ import { SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
 import TokenReveal from "../components/TokenReveal";
 import { Button, Chip, EmptyState, Panel } from "../components/ui";
+import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 
 // Machine credentials, from the browser. POST /api/machines is browser-
@@ -23,15 +24,6 @@ const cell = {
 	textAlign: "left" as const,
 	verticalAlign: "top" as const,
 };
-
-/**
- * An instant, rendered so its value survives being read by a machine.
- * `toLocaleDateString` alone would make any assertion about it depend on the
- * runner's locale.
- */
-function When({ iso }: { iso: string }) {
-	return <time dateTime={iso}>{new Date(iso).toLocaleDateString()}</time>;
-}
 
 export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
