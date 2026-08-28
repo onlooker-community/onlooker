@@ -89,11 +89,11 @@ export default function LessonDetail() {
 	currentId.current = id;
 
 	// LessonDetail is reconciled in place when :id changes - same route
-	// element, same position - so none of this resets on its own. An armed
-	// confirm prompt following the user onto a lesson they never opened one on
-	// puts a live "Yes, retract" over the wrong claim, and a retraction
-	// reaches every mirror on its next delta pull. Same defect fetchError had
-	// below, in the one flow here where getting it wrong is destructive.
+	// element, same position - so neither of these resets on its own. A stale
+	// error or a stuck "Working..." from the previous id must not bleed into
+	// this one. Same defect fetchError had below, in the one flow here where
+	// getting it wrong is destructive. ConfirmAction's armed state used to be
+	// reset here too; it now disarms itself through `resetToken` below.
 	useEffect(() => {
 		setActionError(null);
 		setPending(false);
@@ -348,15 +348,7 @@ export default function LessonDetail() {
 
 				{next ? (
 					<div style={{ marginTop: "1.5rem" }}>
-						{/*
-						  key composes the lesson id with settleCount: a new
-						  lesson or a settled round-trip on this one both need a
-						  fresh, unarmed instance, and neither reaches ConfirmAction's
-						  internal "armed" state any other way now that this page
-						  no longer holds it.
-						*/}
 						<ConfirmAction
-							key={`${id}:${settleCount}`}
 							trigger={verb}
 							question={
 								next === "retracted"
@@ -366,6 +358,17 @@ export default function LessonDetail() {
 							confirmLabel={`Yes, ${verb.toLowerCase()}`}
 							variant={next === "retracted" ? "danger" : "primary"}
 							pending={pending}
+							// LessonDetail is reconciled in place when :id changes - same
+							// route element, same position - so nothing here resets on its
+							// own. An armed confirm prompt following the user onto a
+							// lesson they never opened one on puts a live "Yes, retract"
+							// over the wrong claim, and a retraction reaches every mirror
+							// on its next delta pull. `id` covers navigating to a new
+							// lesson; `settleCount` covers a round trip settling - success
+							// or failure alike - for the one still on screen, which needs
+							// the same disarm and used to live here as
+							// `setConfirming(false)` in `transition`'s finally.
+							resetToken={`${id}:${settleCount}`}
 							onConfirm={() => void transition(next)}
 						/>
 

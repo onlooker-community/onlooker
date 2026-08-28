@@ -47,6 +47,10 @@ describe("ConfirmAction", () => {
 			/>,
 		);
 		expect(document.activeElement, "focus escaped to the body").toBe(confirm);
+		// jsdom does not blur on disable, so activeElement alone cannot catch a
+		// revert to the disabled attribute - which is the exact regression this
+		// test exists to prevent. Assert the mechanism, not just its effect.
+		expect(confirm.hasAttribute("disabled")).toBe(false);
 		expect(confirm.getAttribute("aria-busy")).toBe("true");
 	});
 
