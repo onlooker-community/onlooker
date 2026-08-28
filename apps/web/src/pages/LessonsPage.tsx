@@ -241,8 +241,8 @@ export default function LessonsPage() {
 						style={{
 							display: "block",
 							marginBottom: "0.35rem",
-							fontFamily: "var(--font-display)",
-							fontSize: "12px",
+							fontFamily: "var(--font-data)",
+							fontSize: "var(--text-data-sm)",
 							letterSpacing: "1px",
 							textTransform: "uppercase",
 							color: PALETTE.muted,

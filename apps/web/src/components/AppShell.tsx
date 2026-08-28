@@ -46,7 +46,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 				<span
 					style={{
 						fontFamily: "var(--font-display)",
-						fontSize: "16px",
+						fontSize: "var(--text-display-md)",
 						letterSpacing: "2px",
 						textTransform: "uppercase",
 					}}
@@ -70,8 +70,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 								// header's ground, and accents are the tokens
 								// that shift with the theme to stay readable.
 								color: isActive ? PALETTE.accent : PALETTE.muted,
-								fontFamily: "var(--font-display)",
-								fontSize: "13px",
+								fontFamily: "var(--font-data)",
+								fontSize: "var(--text-data-md)",
 								letterSpacing: "1px",
 								textTransform: "uppercase",
 								textDecoration: "none",
@@ -116,8 +116,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 							padding: 0,
 							color: PALETTE.accent,
 							cursor: "pointer",
-							fontFamily: "var(--font-display)",
-							fontSize: "13px",
+							fontFamily: "var(--font-data)",
+							fontSize: "var(--text-data-md)",
 							letterSpacing: "1px",
 							textTransform: "uppercase",
 						}}

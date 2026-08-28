@@ -31,8 +31,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 			<h2
 				style={{
 					margin: "0 0 0.35rem",
-					fontFamily: "var(--font-display)",
-					fontSize: "12px",
+					fontFamily: "var(--font-data)",
+					fontSize: "var(--text-data-sm)",
 					letterSpacing: "1px",
 					textTransform: "uppercase",
 					color: PALETTE.muted,

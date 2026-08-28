@@ -105,10 +105,9 @@ export default class ErrorBoundary extends Component<Props, State> {
 					style={{
 						marginTop: 0,
 						marginBottom: "1rem",
-						fontFamily: "var(--font-display)",
+						fontFamily: "var(--font-body)",
 						color: "var(--ink-hi)",
-						fontSize: "24px",
-						letterSpacing: "0.5px",
+						fontSize: "var(--text-body-lg)",
 					}}
 				>
 					Something went wrong
@@ -143,8 +142,8 @@ export default class ErrorBoundary extends Component<Props, State> {
 							boxShadow: "4px 4px 0 var(--shadow)",
 							borderRadius: 0,
 							cursor: "pointer",
-							fontFamily: "var(--font-display)",
-							fontSize: "14px",
+							fontFamily: "var(--font-data)",
+							fontSize: "var(--text-data-md)",
 							letterSpacing: "1px",
 							textTransform: "uppercase",
 						}}
@@ -160,8 +159,8 @@ export default class ErrorBoundary extends Component<Props, State> {
 							border: "2px solid var(--ink-dim)",
 							borderRadius: 0,
 							textDecoration: "none",
-							fontFamily: "var(--font-display)",
-							fontSize: "14px",
+							fontFamily: "var(--font-data)",
+							fontSize: "var(--text-data-md)",
 							letterSpacing: "1px",
 							textTransform: "uppercase",
 						}}

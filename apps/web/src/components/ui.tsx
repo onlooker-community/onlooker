@@ -39,8 +39,8 @@ export function StatusBadge({ status }: { status: LessonStatus }) {
 				border: `2px solid ${PALETTE.plateInk}`,
 				borderRadius: 0,
 				padding: "0.15rem 0.5rem",
-				fontFamily: "var(--font-display)",
-				fontSize: "11px",
+				fontFamily: "var(--font-data)",
+				fontSize: "var(--text-data-sm)",
 				letterSpacing: "1px",
 				textTransform: "uppercase",
 				whiteSpace: "nowrap",
@@ -98,8 +98,8 @@ export function Panel({
 				<h2
 					style={{
 						margin: "0 0 0.75rem",
-						fontFamily: "var(--font-display)",
-						fontSize: "14px",
+						fontFamily: "var(--font-data)",
+						fontSize: "var(--text-data-md)",
 						letterSpacing: "1px",
 						textTransform: "uppercase",
 					}}
@@ -139,7 +139,7 @@ export function EmptyState({
 				style={{
 					margin: "0 0 0.5rem",
 					fontFamily: "var(--font-display)",
-					fontSize: "16px",
+					fontSize: "var(--text-display-md)",
 					letterSpacing: "1px",
 				}}
 			>
@@ -196,8 +196,8 @@ export function Button({
 				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
 				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
-				fontFamily: "var(--font-display)",
-				fontSize: "13px",
+				fontFamily: "var(--font-data)",
+				fontSize: "var(--text-data-md)",
 				letterSpacing: "1px",
 				textTransform: "uppercase",
 			}}

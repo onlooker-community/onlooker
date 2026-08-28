@@ -47,10 +47,9 @@ export function AuthCard({
 			<h1
 				style={{
 					marginBottom: subtitle ? "0.25rem" : "1rem",
-					fontFamily: "var(--font-display)",
+					fontFamily: "var(--font-body)",
 					color: "var(--ink-hi)",
-					fontSize: "24px",
-					letterSpacing: "0.5px",
+					fontSize: "var(--text-body-lg)",
 				}}
 			>
 				{title}
@@ -229,8 +228,8 @@ export function SubmitButton({
 				boxShadow: isDisabled ? "none" : "4px 4px 0 var(--shadow)",
 				borderRadius: 0,
 				cursor: isDisabled ? "not-allowed" : "pointer",
-				fontFamily: "var(--font-display)",
-				fontSize: "14px",
+				fontFamily: "var(--font-data)",
+				fontSize: "var(--text-data-md)",
 				letterSpacing: "1px",
 				textTransform: "uppercase",
 			}}

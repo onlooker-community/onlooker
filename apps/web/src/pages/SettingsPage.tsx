@@ -411,8 +411,8 @@ function DeleteAccountSection({
 						borderRadius: 0,
 						background: "transparent",
 						cursor: "pointer",
-						fontFamily: "var(--font-display)",
-						fontSize: "14px",
+						fontFamily: "var(--font-data)",
+						fontSize: "var(--text-data-md)",
 						letterSpacing: "1px",
 						textTransform: "uppercase",
 					}}
@@ -457,8 +457,8 @@ function DeleteAccountSection({
 								borderRadius: 0,
 								background: "transparent",
 								cursor: "pointer",
-								fontFamily: "var(--font-display)",
-								fontSize: "14px",
+								fontFamily: "var(--font-data)",
+								fontSize: "var(--text-data-md)",
 								letterSpacing: "1px",
 								textTransform: "uppercase",
 							}}

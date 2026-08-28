@@ -135,7 +135,7 @@ export default function TokenReveal({
 						style={{
 							margin: "0 0 0.75rem",
 							fontFamily: "var(--font-display)",
-							fontSize: "16px",
+							fontSize: "var(--text-display-md)",
 							letterSpacing: "1px",
 						}}
 					>
