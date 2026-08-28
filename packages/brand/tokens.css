@@ -26,6 +26,44 @@
 	--plate-red: #ff8a8a;
 	--plate-ink: #221f38;
 
+	/* Scales. Declared once on :root and never inside a theme block - a step is
+	 * a measurement, not a color, and nothing about it changes when the sun
+	 * comes up. Same rule the plates follow, for a different reason. */
+
+	/* 4px base, shared with the icon grid so a 16px icon lands on a step
+	 * rather than near one. */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+	--space-7: 48px;
+
+	/* Abaddon's design size is 16px: unitsPerEm is 1024 and the greatest
+	 * common divisor of every glyph coordinate is 64, so one pixel is 64
+	 * units. A pixel face renders crisply only at its design size and integer
+	 * multiples, so these three are the only legal display sizes - there is
+	 * deliberately no smaller step. Small chrome uses --text-data-* instead.
+	 *
+	 * px rather than rem, and that is a real tradeoff: rem would follow a
+	 * reader's font-size preference and land the face on a fractional
+	 * multiple, which is the one thing that destroys it. Browser zoom still
+	 * scales these; a root font-size preference does not. */
+	--text-display-md: 16px;
+	--text-display-lg: 32px;
+	--text-display-xl: 48px;
+
+	/* Body copy in rem, so it does follow the reader's preference. */
+	--text-body-sm: 0.8rem;
+	--text-body-md: 0.95rem;
+	--text-body-lg: 1.25rem;
+
+	/* Monospace, for the small uppercase chrome the display face is too large
+	 * for. Also rem. */
+	--text-data-sm: 0.7rem;
+	--text-data-md: 0.8rem;
+
 	/* night, the default */
 	--ground: #221f38;
 	--panel: #464074;

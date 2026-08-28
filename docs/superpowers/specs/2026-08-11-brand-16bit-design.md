@@ -281,6 +281,14 @@ design size and integer multiples, and are measurably harder to read at length �
 materially so for low-vision and dyslexic readers. The plugin documentation is
 real documentation and must not become hostile to read.
 
+**Abaddon's design size is 16px.** Measured from the font: `unitsPerEm` is 1024
+and the greatest common divisor of every glyph coordinate across 95 sampled
+glyphs is 64, so one pixel is 64 units. The face is therefore legal at **16, 32
+and 48 only** — the same grid the icons sit on. This was left unnamed in the
+original draft, which is how `apps/web` came to use the face at 24, 14, 13, 12
+and 11px across nine files without anything noticing. Corrected in
+`onlooker-ss1`.
+
 Self-host; do not link a CDN. Use `font-display: block` for display type so
 headings do not visibly reflow — a pixel face swapping in is far more jarring
 than a normal webfont swap.
@@ -304,7 +312,8 @@ build dependency to reclaim it is not worth it. Revisit only if the font set gro
 Mapping that carries meaning rather than decoration: **Eye** is the logo and the
 active state; MagnifyingGlass is search; Lightbulb is a lesson; Locked/Unlocked
 is visibility; Team is org scope; Skull is a failure; ChestTreasure is the
-approved pool; Trophy is promotion.
+approved pool; Trophy is promotion; Restart is a superseded lesson — the claim
+run again rather than thrown away, which is why it is not Trashbin.
 
 ### Attribution is a license condition
 
