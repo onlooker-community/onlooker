@@ -313,6 +313,76 @@ describe("MachinesPage", () => {
 		expect(screen.queryByText(/^revoked$/i)).toBeNull();
 	});
 
+	// The machine is still live, so there is nothing to announce and nowhere new
+	// to stand: the confirm button the person is on is still there. Moving focus
+	// or announcing a revoke here would both say the opposite of what happened.
+	it("announces nothing and moves no focus when a revoke fails", async () => {
+		withMachines(USED);
+		mocks.revokeMachine.mockRejectedValue(new Error("No such machine"));
+		await renderPage();
+
+		fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+		fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
+
+		expect(await screen.findByText(/no such machine/i)).toBeDefined();
+		expect(screen.getByRole("status").textContent).toBe("");
+		expect(
+			(document.activeElement as HTMLElement | null)?.dataset.machineRow,
+		).toBeUndefined();
+	});
+
+	// Revoking and reloading are two separate failures with opposite meanings.
+	// Only a failed revoke means the credential is still live, and only it may
+	// say so - telling someone a machine is still live when it is in fact
+	// revoked sends them back to revoke it again.
+	//
+	// **If you are here because you changed `load`, this is why these broke.**
+	// `revoke` wraps both `revokeMachine` and `load` in one try/catch whose
+	// message is "Could not revoke that machine." That is safe today for one
+	// reason only: `load` catches its own errors, sets `loadError`, and always
+	// resolves, so a failed reload can never reach that catch. Make `load`
+	// reject - or move the `await load()` out from under its own try - and a
+	// successful revoke starts reporting itself as failed. Split the two
+	// failures in `revoke` rather than relaxing this test.
+	it("does not call a revoke failed when only the reload after it fails", async () => {
+		withMachines(USED);
+		mocks.revokeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+
+		fireEvent.click(await screen.findByRole("button", { name: /^revoke$/i }));
+		mocks.listMachines.mockRejectedValue(new Error("Network unreachable"));
+		fireEvent.click(screen.getByRole("button", { name: /yes, revoke/i }));
+
+		// The reload's own failure, with its own retry - not the revoke's.
+		expect(await screen.findByText(/network unreachable/i)).toBeDefined();
+		expect(screen.queryByText(/could not revoke that machine/i)).toBeNull();
+		// The revoke landed, so it is still announced.
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toMatch(
+				new RegExp(USED.name, "i"),
+			),
+		);
+	});
+
+	// Same path, the focus half. A failed reload replaces the whole list with an
+	// error state, so the row this would have focused unmounted with it and its
+	// ref was deleted - the focus call found nothing and focus fell to <body>,
+	// the exact defect Task 4 exists to prevent, one branch over.
+	it("keeps focus in the page when the reload after a revoke fails", async () => {
+		withMachines(USED);
+		mocks.revokeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+
+		fireEvent.click(await screen.findByRole("button", { name: /^revoke$/i }));
+		mocks.listMachines.mockRejectedValue(new Error("Network unreachable"));
+		fireEvent.click(screen.getByRole("button", { name: /yes, revoke/i }));
+
+		expect(await screen.findByText(/network unreachable/i)).toBeDefined();
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole("status")),
+		);
+	});
+
 	it("keeps a revoked machine visible and gives it nothing to do", async () => {
 		withMachines(REVOKED);
 		await renderPage();

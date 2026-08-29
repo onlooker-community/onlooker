@@ -55,6 +55,7 @@ export default function MachinesPage() {
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 	const [revokedName, setRevokedName] = useState("");
 	const rowRefs = useRef(new Map<string, HTMLLIElement>());
+	const statusRef = useRef<HTMLParagraphElement>(null);
 
 	const load = useCallback(async () => {
 		setLoadError(null);
@@ -112,7 +113,19 @@ export default function MachinesPage() {
 			// The row element survives the refetch - revoked machines keep their
 			// row - so this ref is still the same node the person was standing
 			// on when the confirm button under their focus unmounted.
-			rowRefs.current.get(machine.id)?.focus();
+			//
+			// Unless the refetch failed. `load` swaps the whole list for an error
+			// state, so the row unmounted, its ref callback ran with null, and
+			// this found nothing - dropping focus to <body>, which is the defect
+			// the line above exists to prevent. The status region is the fallback:
+			// always mounted, and it now reads "Revoked <name>." - the outcome of
+			// what they just did, sitting directly above the error and its Retry.
+			//
+			// Retry itself would be the better landing spot, but it is rendered by
+			// EmptyState through a plain `action` prop, and Button is not a
+			// forwardRef component under React 18 - reaching it would mean
+			// threading a ref through two shared components for one caller.
+			(rowRefs.current.get(machine.id) ?? statusRef.current)?.focus();
 		} catch (error) {
 			// Nothing was marked revoked ahead of the server, so there is
 			// nothing to undo. A row that claimed a credential was dead while
@@ -152,7 +165,15 @@ export default function MachinesPage() {
 			  that appears at the same moment as its text is the shape screen
 			  readers skip.
 			*/}
-			<p role="status" style={{ margin: 0 }}>
+			<p
+				ref={statusRef}
+				role="status"
+				// Focusable only by script, like the rows. This is where focus
+				// goes when a revoke succeeds but the reload after it fails and
+				// takes the row with it.
+				tabIndex={-1}
+				style={{ margin: 0 }}
+			>
 				{revokedName ? `Revoked ${revokedName}.` : ""}
 			</p>
 			<Panel title="Mint a machine token">
