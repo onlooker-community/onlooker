@@ -313,10 +313,12 @@ Mapping that carries meaning rather than decoration: **Eye** is the logo and the
 active state; MagnifyingGlass is search; Lightbulb is a lesson; Locked/Unlocked
 is visibility; Team is org scope; Skull is a failure; ChestTreasure is the
 approved pool; Trophy is promotion; Restart is a superseded lesson — the claim
-run again rather than thrown away, which is why it is not Trashbin. **CatHead**
-is the person — an extension of the set rather than one of its own entries, since
-it has no dedicated person icon and CatHead is the most person-like thing in it.
-Used for the nav's Profile link.
+run again rather than thrown away, which is why it is not Trashbin. **Key** is a
+machine token, live or revoked; **Sleep** is a machine that has never used
+its token — still live, just idle, which is why it is not Key in a dimmer
+plate. **CatHead** is the person — an extension of the set rather than one of
+its own entries, since it has no dedicated person icon and CatHead is the most
+person-like thing in it. Used for the nav's Profile link.
 
 ### Attribution is a license condition
 

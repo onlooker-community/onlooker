@@ -254,4 +254,29 @@ describe("MachinesPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 		expect(await screen.findByText("work laptop")).toBeDefined();
 	});
+
+	// Minting a token and never pointing a plugin at it is the likeliest first-run
+	// failure in the product. A sleeping key says that faster than a word does -
+	// and the word stays, because the icon alone would be a puzzle.
+	it("marks a machine that has never been used with its own icon", async () => {
+		withMachines(NEVER_USED);
+		await renderPage();
+		expect(await screen.findByText(/never used/i)).toBeDefined();
+		// Array.from, not a bare spread: the project's `lib` has no
+		// DOM.Iterable, so NodeListOf<Element> is not directly iterable under
+		// this tsconfig.
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		expect(
+			icons.some((i) => (i.getAttribute("src") ?? "").includes("Sleep")),
+		).toBe(true);
+	});
+
+	it("renders every icon at a legal size", async () => {
+		withMachines(USED, NEVER_USED, REVOKED);
+		await renderPage();
+		await screen.findByText(USED.name);
+		for (const img of Array.from(document.querySelectorAll("img.pixel-icon"))) {
+			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
+		}
+	});
 });

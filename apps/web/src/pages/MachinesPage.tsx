@@ -1,4 +1,11 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import type { IconName } from "@onlooker/brand";
+import {
+	type CSSProperties,
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useState,
+} from "react";
 import {
 	createMachine,
 	listMachines,
@@ -8,6 +15,7 @@ import {
 } from "../api/machinesApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
+import { Icon } from "../components/Icon";
 import { PALETTE } from "../components/palette";
 import TokenReveal from "../components/TokenReveal";
 import { Chip, EmptyState, Panel } from "../components/ui";
@@ -19,12 +27,42 @@ import { describeError } from "../lib/apiErrors";
 // stolen laptop actually revokes it - and until this page existed nothing in
 // the browser called it, which meant nobody could turn the sync protocol on.
 
-const cell = {
+const row: CSSProperties = {
+	display: "flex",
+	gap: "var(--space-3)",
+	alignItems: "center",
+	padding: "var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
-	padding: "0.5rem",
-	textAlign: "left" as const,
-	verticalAlign: "top" as const,
 };
+
+/**
+ * The row's leading marker, at the same 28px scale as LessonsPage's
+ * statusPlate: teal for a live key, red for one that has been revoked. A
+ * never-used machine is still live - the plate says so - it just hasn't
+ * spoken yet, which is what the Sleep icon inside it says instead.
+ */
+function machinePlate(machine: Machine): CSSProperties {
+	return {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		flex: "none",
+		width: "28px",
+		height: "28px",
+		background: machine.revoked_at ? PALETTE.plateRed : PALETTE.plateTeal,
+		border: `2px solid ${PALETTE.plateInk}`,
+	};
+}
+
+/**
+ * Key for a live or revoked machine, Sleep for one that has never phoned
+ * home. Revoked wins over never-used when both are true - a dead credential
+ * is the more important fact to lead with than one that was merely idle.
+ */
+function machineIcon(machine: Machine): IconName {
+	if (!machine.revoked_at && !machine.last_used_at) return "Sleep";
+	return "Key";
+}
 
 export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
@@ -168,61 +206,47 @@ export default function MachinesPage() {
 					</EmptyState>
 				) : (
 					<Panel title="Your machines">
-						<table style={{ width: "100%", borderCollapse: "collapse" }}>
-							<thead>
-								<tr>
-									<th scope="col" style={cell}>
-										Name
-									</th>
-									<th scope="col" style={cell}>
-										Created
-									</th>
-									<th scope="col" style={cell}>
-										Last used
-									</th>
-									<th scope="col" style={cell}>
-										<span
-											style={{
-												position: "absolute",
-												width: 1,
-												height: 1,
-												overflow: "hidden",
-												clip: "rect(0 0 0 0)",
-											}}
-										>
-											Actions
-										</span>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{machines.map((machine) => (
-									<tr key={machine.id}>
-										<th scope="row" style={cell}>
-											<span style={{ marginRight: "0.5rem" }}>
-												{machine.name}
-											</span>
-											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-										</th>
-										<td style={cell}>
-											<When iso={machine.created_at} />
-										</td>
-										<td style={cell}>
-											{machine.last_used_at ? (
-												<When iso={machine.last_used_at} />
-											) : (
-												// Not a dash. Minting a token and never pointing
-												// a plugin at it is the likeliest first-run
-												// failure in the product, and a blank cell does
-												// not say that - it reads as missing data.
-												<Chip>Never used</Chip>
-											)}
-										</td>
-										<td style={cell}>{action(machine)}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
+						{machines.map((machine) => (
+							<div key={machine.id} style={row}>
+								<span style={machinePlate(machine)}>
+									<Icon name={machineIcon(machine)} />
+								</span>
+								<span style={{ minWidth: 0, flex: 1 }}>
+									<span
+										style={{
+											display: "block",
+											marginBottom: "var(--space-1)",
+											fontSize: "var(--text-body-md)",
+										}}
+									>
+										{machine.name}
+									</span>
+									<span
+										style={{
+											display: "flex",
+											gap: "var(--space-2)",
+											alignItems: "center",
+											flexWrap: "wrap",
+											color: PALETTE.muted,
+											fontSize: "var(--text-body-sm)",
+										}}
+									>
+										{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+										<When iso={machine.created_at} />
+										{machine.last_used_at ? (
+											<When iso={machine.last_used_at} />
+										) : (
+											// Not a dash. Minting a token and never pointing
+											// a plugin at it is the likeliest first-run
+											// failure in the product, and a blank line does
+											// not say that - it reads as missing data.
+											<Chip>Never used</Chip>
+										)}
+									</span>
+								</span>
+								<span style={{ flex: "none" }}>{action(machine)}</span>
+							</div>
+						))}
 
 						{revokeError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>
