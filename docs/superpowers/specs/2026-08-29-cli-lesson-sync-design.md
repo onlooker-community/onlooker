@@ -178,9 +178,16 @@ expected one until promotion ships, telling it apart from the first two is the
 difference between "nothing to sync yet" and "your install is wrong."
 
 **The sync is stateless.** No SQLite, no cursor, no watermark, no local record of
-what has been sent. `createLessonsWithFeed` returns `created` or `taken` per
-lesson, so an id already pushed comes back `taken` rather than erroring, and
-re-pushing is free. A crashed run just re-runs.
+what has been sent. `POST /lessons` answers per lesson rather than failing the
+whole request, so an id already pushed comes back `noop` rather than erroring,
+and re-pushing is free. A crashed run just re-runs.
+
+The wire contract is five outcomes, not two: `created`, `noop`, `conflict`,
+`invalid` and `error`. `taken` is `createLessonsWithFeed`'s own return value and
+never crosses HTTP — the route translates it. The distinction matters to the
+client, because the route's source warns that `invalid` means "this will never
+be accepted, stop sending it" while `error` means retry: a CLI that collapses
+the two either drops a lesson permanently or retries one forever.
 
 That is most of the old CLI's machinery deleted, and with it the defect in
 `onlooker-33i`: there is no buffer to fill silently, because there is no buffer.
@@ -201,6 +208,7 @@ network for two months. This one separates them:
 | 401 | The token is bad or revoked. Say so, and name `onlooker link`. |
 | 404 | The endpoint is gone. Name the URL that 404'd — this is the failure that hid. |
 | 400 | The batch was rejected. Surface the API's message; the contract error names the field. |
+| 429 | Transient. It is the one 4xx that succeeds on a retry, so it sits with the 5xx family rather than its 4xx neighbors. |
 | 5xx, timeout, connection refused | Transient. Say it will succeed on a retry. |
 
 Only the last is worth retrying, and since the command is on-demand, "retry"

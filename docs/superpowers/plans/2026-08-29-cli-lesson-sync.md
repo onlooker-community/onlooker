@@ -16,7 +16,7 @@
 - Never `git add -A` or `git add .` — stage intentionally.
 - **A machine token authenticates exactly three routes:** `POST /lessons`, `GET /lessons`, `POST /lessons/:id/status`. It does **not** authenticate `/api/lessons`, which is the browser's session route.
 - **`MAX_BATCH` is 100.** No request may carry more lessons than that.
-- **The sync is stateless.** No buffer, no cursor, no watermark, no record of what was sent. The server returns `created` or `taken` per lesson.
+- **The sync is stateless.** No buffer, no cursor, no watermark, no record of what was sent. `POST /lessons` answers per lesson with one of **five** outcomes — `created`, `noop`, `conflict`, `invalid`, `error` — so an id the server already holds comes back `noop` and re-running is free. `taken` is `createLessonsWithFeed`'s internal value and never crosses HTTP; a client that treats the contract as two outcomes will report a lesson that failed to store as one that synced.
 - **A 4xx that cannot succeed on a retry must be distinguishable from one that can** — in the exit code and in the message. This is the entire lesson of `onlooker-33i`.
 - **The token is a credential.** Prompted, never an argument; written `0600`; never logged, never echoed.
 - Gates from the repo root: `pnpm test`, `pnpm typecheck`, `pnpm lint`. All three green before every commit.
@@ -1134,11 +1134,12 @@ export interface SyncDeps {
 /**
  * Push every approved lesson to the pool.
  *
- * Stateless on purpose. `createLessonsWithFeed` answers `created` or `taken` per
- * lesson, so an id the server already holds comes back `taken` rather than as an
- * error - which means re-running is free and a crashed run just runs again. That
- * removes the buffer, the cursor and the watermark the retired CLI carried, and
- * with them the failure where a dead endpoint filled a database forever.
+ * Stateless on purpose. `POST /lessons` answers `created`, `noop`, `conflict`,
+ * `invalid` or `error` per lesson rather than failing the whole request, so an
+ * id the server already holds comes back `noop` rather than as an error - which
+ * means re-running is free and a crashed run just runs again. That removes the
+ * buffer, the cursor and the watermark the retired CLI carried, and with them
+ * the failure where a dead endpoint filled a database forever.
  */
 export async function sync({
 	env = process.env,
