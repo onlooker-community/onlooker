@@ -1,9 +1,19 @@
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
+import { useReveal } from "../reveal";
 import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
+
+declare module "react" {
+	interface HTMLAttributes<T> {
+		// React 18 has no typing for `inert`; React 19 adds it. Declared here
+		// rather than cast at the use site so there is one place to delete when
+		// this workspace moves to 19.
+		inert?: "";
+	}
+}
 
 // The chrome around every authenticated route. Before this, the only
 // navigation in the app was an ad-hoc <nav> inside DashboardPage, which
@@ -27,6 +37,7 @@ const SECTIONS = [
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
 	const navigate = useNavigate();
+	const { revealed } = useReveal();
 
 	const handleLogout = async () => {
 		await logout();
@@ -34,7 +45,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	};
 
 	return (
-		<div style={{ minHeight: "100vh", fontFamily: "var(--font-body)" }}>
+		<div
+			// Written as a string, not a boolean. React 18.3.1 renders `inert=""`
+			// and silently drops `inert={true}` - so `inert={Boolean(revealed)}`
+			// would leave this looking correct and doing nothing. Measured, not
+			// assumed.
+			inert={revealed ? "" : undefined}
+			style={{ minHeight: "100vh", fontFamily: "var(--font-body)" }}
+		>
 			<header
 				style={{
 					display: "flex",
