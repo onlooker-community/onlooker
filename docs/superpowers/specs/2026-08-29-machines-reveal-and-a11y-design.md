@@ -179,7 +179,14 @@ announce — the same defect corrected on `LessonDetail` during `onlooker-yfw`.
 
 ## Section 5 — List semantics *(approved)*
 
-`role="list"` on the machines container, `role="listitem"` on each row.
+A `<ul>` around the machines, one `<li>` per row.
+
+**Corrected during implementation.** This section as approved said `role="list"`
+on the container and `role="listitem"` on each row. What shipped in `473f62f`
+uses the semantic elements instead. They expose the same two roles, and unlike a
+`role` attribute they cannot quietly lose them — an attribute is one careless
+refactor away from being dropped or overwritten on an element that still looks
+right, while a `<li>` is a `<li>`. `rowRefs` is typed `HTMLLIElement` to match.
 
 **Not a restored `<table>`.** The markup was a table before the visual-language
 pass, with four `th scope=col` and a `th scope=row` per machine. But

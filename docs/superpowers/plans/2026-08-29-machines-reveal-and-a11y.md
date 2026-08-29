@@ -251,73 +251,69 @@ Body: why the token cannot stay in the page, and why the hook throws rather than
 
 Add to `apps/web/src/__tests__/reveal.test.tsx`:
 
-```tsx
-// Logout is the one thing that must end a reveal and does NOT come free from
-// the provider's placement: AuthProvider sits above it, so nothing propagates
-// down. A credential left on screen after a deliberate sign-out is not
-// acceptable, and this is the only test that would notice.
-it("clears the reveal when the user is no longer signed in", () => {
-	function Harness({ signedIn }: { signedIn: boolean }) {
-		return (
-			<RevealProvider signedIn={signedIn}>
-				<Driver />
-			</RevealProvider>
-		);
-	}
-	const { rerender } = render(<Harness signedIn={true} />);
-	act(() => { screen.getByText("mint").click(); });
-	expect(screen.getByTestId("state").textContent).toBe("open");
-	rerender(<Harness signedIn={false} />);
-	expect(screen.getByTestId("state").textContent).toBe("closed");
-});
+**Corrected from what this plan first said.** The original Steps 1, 3 and 4 gave
+`RevealProvider` an optional `signedIn` prop and an effect that cleared the
+reveal when it went false, with `App.tsx` passing `signedIn={Boolean(user)}`.
+That was implemented, and review caught that it reintroduced the bug §2 exists
+to prevent. `user` is nulled by a session expiry through the same code path a
+deliberate logout takes:
+
 ```
+setUnauthorizedHandler (apps/web/src/auth.ts)
+  → auth.expireSession()   (packages/auth-react/src/index.tsx)
+  → requestLocalLogout()
+  → performLogout({callApi:false}) → resetState() → user: null
+```
+
+So nothing inside the provider can tell a sign-out from an expiry, and the
+effect fired on the exact signal that must never end a reveal. What follows is
+the approach that shipped: the provider watches no auth state, and the two call
+sites that deliberately end a session dismiss the reveal themselves.
+
+The test belongs against the real `App` tree, not a synthetic harness — a
+provider-level test cannot see the difference this is about. In a new
+`apps/web/src/__tests__/reveal-across-the-app.test.tsx`, mock `../api/client`
+so `setUnauthorizedHandler` captures the callback `auth.ts` registers, render
+`<MemoryRouter><auth.AuthProvider><App /></auth.AuthProvider></MemoryRouter>`
+at `/machines`, mint a token, then:
+
+```tsx
+act(() => { capturedUnauthorizedHandler(); });
+// RequireAuth really did redirect...
+expect(await screen.findByRole("heading", { name: /login/i })).toBeTruthy();
+// ...and the token is still on screen.
+expect(screen.getByRole("dialog").textContent).toContain(MINTED.token);
+```
+
+Cover the other half at both call sites: signing out of `AppShell`, and
+deleting the account from `SettingsPage`, each with a reveal open.
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `pnpm --filter @onlooker/web exec vitest run src/__tests__/reveal.test.tsx`
-Expected: FAIL — `RevealProvider` takes no `signedIn` prop, so the reveal stays open.
+Run: `pnpm --filter @onlooker/web exec vitest run src/__tests__/reveal-across-the-app.test.tsx`
+Expected: FAIL — the reveal is gone once the session expires.
 
-- [ ] **Step 3: Teach the provider about sign-out**
+- [ ] **Step 3: Leave the provider knowing nothing about auth**
 
-In `apps/web/src/reveal.tsx`, change the signature and add the effect:
+`RevealProvider` takes only `children`. No prop, no effect, no `useAuth`.
 
-```tsx
-export function RevealProvider({
-	children,
-	signedIn = true,
-}: {
-	children: ReactNode;
-	/**
-	 * Passed in rather than read from `useAuth` so the provider can be tested
-	 * without an auth context, and so the dependency points one way.
-	 */
-	signedIn?: boolean;
-}) {
-	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
+Instead, dismiss at the two places that deliberately end a session — read
+`dismiss` from `useReveal()` and call it before `logout()`:
 
-	// AuthProvider is above this one, so a sign-out does not reach the state
-	// below it on its own. Without this, a deliberate logout would leave a live
-	// credential on screen.
-	useEffect(() => {
-		if (!signedIn) setRevealed(null);
-	}, [signedIn]);
+- `apps/web/src/components/AppShell.tsx` — the Sign out button.
+- `apps/web/src/pages/SettingsPage.tsx` — `DeleteAccountSection`'s `onDeleted`.
 
-	const value = useMemo<RevealValue>(
-		() => ({ revealed, reveal: setRevealed, dismiss: () => setRevealed(null) }),
-		[revealed],
-	);
-	return <RevealContext.Provider value={value}>{children}</RevealContext.Provider>;
-}
-```
-
-Add `useEffect` to the React import.
+Both are needed. `/settings` renders without `AppShell`, so nothing there is
+`inert` and a person really can reach that flow with a reveal open; `AppShell`'s
+own button is out of reach behind `inert` on any browser that implements it, and
+live on one that does not.
 
 - [ ] **Step 4: Mount it in `App.tsx`**
 
 Wrap the existing `<Routes>` — which currently sits inside `<ErrorBoundary>` — and render the host beside it:
 
 ```tsx
-<RevealProvider signedIn={Boolean(user)}>
+<RevealProvider>
 	<Routes>
 		{/* unchanged */}
 	</Routes>
@@ -539,8 +535,13 @@ Add state and a ref map:
 
 ```tsx
 const [revokedName, setRevokedName] = useState("");
-const rowRefs = useRef(new Map<string, HTMLDivElement>());
+const rowRefs = useRef(new Map<string, HTMLLIElement>());
 ```
+
+`HTMLLIElement`, not `HTMLDivElement` as this plan first said: Task 5 turns the
+row into an `<li>`, and typing it that way here saves retyping the map one task
+later. If you are running Task 4 on its own against a row that is still a
+`<div>`, use `HTMLDivElement` and let Task 5 correct it.
 
 `revoke` currently takes `(id: string)`, so neither the machine's name nor the
 machine itself is in scope inside it. **Change its signature to take the
@@ -646,23 +647,30 @@ There is **no container today** — `{machines.map(...)}` sits directly inside
 `<Panel title="Your machines">`. Add one around the map:
 
 ```tsx
-<div role="list">
+<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
 	{machines.map((machine) => (
 		/* ...unchanged... */
 	))}
-</div>
+</ul>
 ```
 
-Put it here rather than on `Panel`'s own `<section>`: that section also holds
-the panel heading, and a `role="list"` containing a heading is a list with a
+**Corrected from what this plan first said.** The original text here was a
+`<div role="list">` with `role="listitem"` on each row. Use the semantic
+elements instead. They expose the same two roles, and they cannot lose them:
+a `role` attribute survives only as long as nobody drops or overwrites it
+while moving the markup around, and an element that has lost it still looks
+correct. A `<li>` is a `<li>`. The reset of `list-style`, `margin` and
+`padding` is what keeps the rows looking exactly as they did.
+
+Put the wrapper here rather than on `Panel`'s own `<section>`: that section
+also holds the panel heading, and a list containing a heading is a list with a
 non-`listitem` child. The map is the only thing inside this Panel, so the new
 wrapper contains rows and nothing else — which is what makes the list valid.
 
-On each row `<div>`, alongside the attributes Task 4 added:
-
-```tsx
-role="listitem"
-```
+Then change each row from a `<div>` to an `<li>`, keeping the attributes Task 4
+added (`data-machine-row`, the `ref` callback, `tabIndex={-1}`) and its `style`
+unchanged. Retype the ref map to `HTMLLIElement` if Task 4 left it as
+`HTMLDivElement`.
 
 Not a restored `<table>`: only the row boundaries and the item count are
 missing, and a list restores exactly those without undoing a styling decision
@@ -710,11 +718,13 @@ After merge, close `onlooker-kxe`, `onlooker-1bz`, `onlooker-aky` and `onlooker-
 | §3 `inert` on `AppShell` | 3 |
 | §4 focus the row after revoke | 4 |
 | §4 status region mounted before it has content | 4 |
-| §5 `role="list"` / `role="listitem"` | 5 |
+| §5 `<ul>` / `<li>` (spec said `role="list"` / `role="listitem"`) | 5 |
 | §6 attribute tests must be able to fail | 3 Step 5 |
 
 **Placeholder scan.** No TBDs. Every code step carries its code. Two steps ask the implementer to report rather than decide: Task 2 Step 7 (test counts) and Task 3 Step 5 (the revert check).
 
-**Type consistency.** `MintedMachine`, `RevealProvider`, `RevealHost`, `useReveal` are defined in Task 1 and used under those names in 2 and 3. `RevealProvider` gains an optional `signedIn` prop in Task 2; Task 1's tests omit it, which is why it defaults to `true`. `rowRefs` and `data-machine-row` are introduced in Task 4 and reused by Task 5's `role="listitem"` on the same element.
+**Type consistency.** `MintedMachine`, `RevealProvider`, `RevealHost`, `useReveal` are defined in Task 1 and used under those names in 2 and 3. `rowRefs` and `data-machine-row` are introduced in Task 4 and carried onto the `<li>` Task 5 turns that row into.
+
+The `signedIn` prop this plan gave `RevealProvider` in Task 2 was removed after review: a session expiry nulls `user` through the same code path a logout does, so an effect keyed on it ended the reveal on the one signal §2 says must not end it. The two deliberate-logout call sites call `dismiss()` instead. `RevealProvider` takes only `children`.
 
 **One risk worth naming.** Task 2 changes `MachinesPage`'s mint guard to read `revealed` from the provider rather than local state. If a second mint is somehow started while a reveal is open, the provider's `reveal()` would replace the displayed token with the new one — losing the first without a prompt. The guard prevents it today, and Task 2 keeps the guard, but nothing tests that path. Worth a follow-up bead rather than scope here.
