@@ -262,6 +262,23 @@ export default function LessonsPage() {
 		patchLesson,
 	};
 
+	// The live region's whole text, computed once rather than duplicated
+	// between the region and whatever branch below happens to be showing -
+	// the two can say the same thing (an empty state's title, a count) without
+	// being the same JSX, since the region has to exist even when the branch
+	// it is summarizing does not render its own heading (the loading paragraph,
+	// the row list).
+	const resultSummary = loadError
+		? "Could not load the pool"
+		: lessons === null
+			? "Loading the pool..."
+			: lessons.length === 0
+				? filter
+					? (FILTERS.find((option) => option.value === filter)?.empty ??
+						"No lessons")
+					: "Nothing has synced yet"
+				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`;
+
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
 			<div className="lessons-list">
@@ -312,57 +329,68 @@ export default function LessonsPage() {
 					</select>
 				</div>
 				{/*
-				  loadError, the loading paragraph and both empty states are each
-				  short and bounded, so wrapping them announces cleanly. The
-				  success branch below is deliberately NOT wrapped: a `role`
-				  that already matched before the filter changed would let
-				  `findByRole("status")` resolve against the stale element
-				  before the new one lands, and fifty row labels read aloud on
-				  every change would be worse than the silence this replaces.
+				  One persistent region, present in every branch below, rather
+				  than a role appearing only on the branches that need it. A
+				  screen reader reliably announces content CHANGING inside a
+				  region that is already there; a region that appears at the
+				  same moment as its own text is not something NVDA, JAWS and
+				  VoiceOver agree on. Panel and its <nav> of rows stay outside
+				  this element entirely - the region carries a short summary
+				  (a count, or the state's own title), never the rows, so a
+				  fifty-row pool does not read every claim aloud on a filter
+				  change.
 				*/}
+				<p
+					role="status"
+					aria-live="polite"
+					style={{
+						margin: "0 0 var(--space-2)",
+						fontFamily: "var(--font-data)",
+						fontSize: "var(--text-data-sm)",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
+						color: PALETTE.muted,
+					}}
+				>
+					{resultSummary}
+				</p>
 				{loadError ? (
-					<div role="status" aria-live="polite">
-						<EmptyState
-							title="Could not load the pool"
-							action={{ label: "Retry", onClick: () => void load() }}
-						>
-							{loadError}
-						</EmptyState>
-					</div>
+					<EmptyState
+						title="Could not load the pool"
+						action={{ label: "Retry", onClick: () => void load() }}
+					>
+						{loadError}
+					</EmptyState>
 				) : lessons === null ? (
-					<p role="status" aria-live="polite" style={{ color: PALETTE.muted }}>
-						Loading the pool...
-					</p>
+					<p style={{ color: PALETTE.muted }}>Loading the pool...</p>
 				) : lessons.length === 0 ? (
-					<div role="status" aria-live="polite">
-						{filter ? (
-							// An empty FILTER result and an empty POOL say different
-							// things. Telling someone whose pool is full to "connect a
-							// machine" because they filtered to a status nothing holds
-							// would be a lie, and the kind that makes a person doubt
-							// everything else the page says.
-							<EmptyState
-								title={
-									FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
-								}
-							>
-								Nothing in the pool holds that status right now.
-							</EmptyState>
-						) : (
-							<EmptyState title="Nothing has synced yet" icon="ChestTreasure">
-								Lessons arrive when a machine pushes them.{" "}
-								{/*
-								  A link and not EmptyState's action button. The button
-								  is for Retry; one that navigated would read as an
-								  action and be a link wearing the wrong control.
-								*/}
-								<NavLink to="/machines" style={{ color: PALETTE.accent }}>
-									Connect a machine
-								</NavLink>{" "}
-								to start.
-							</EmptyState>
-						)}
-					</div>
+					filter ? (
+						// An empty FILTER result and an empty POOL say different
+						// things. Telling someone whose pool is full to "connect a
+						// machine" because they filtered to a status nothing holds
+						// would be a lie, and the kind that makes a person doubt
+						// everything else the page says.
+						<EmptyState
+							title={
+								FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
+							}
+						>
+							Nothing in the pool holds that status right now.
+						</EmptyState>
+					) : (
+						<EmptyState title="Nothing has synced yet" icon="ChestTreasure">
+							Lessons arrive when a machine pushes them.{" "}
+							{/*
+							  A link and not EmptyState's action button. The button
+							  is for Retry; one that navigated would read as an
+							  action and be a link wearing the wrong control.
+							*/}
+							<NavLink to="/machines" style={{ color: PALETTE.accent }}>
+								Connect a machine
+							</NavLink>{" "}
+							to start.
+						</EmptyState>
+					)
 				) : (
 					<Panel title="The pool">
 						<nav aria-label="Lessons">

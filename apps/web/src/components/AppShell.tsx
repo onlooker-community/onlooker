@@ -1,4 +1,3 @@
-import type { IconName } from "@onlooker/brand";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
@@ -14,7 +13,7 @@ import SessionExpiryBanner from "./SessionExpiryBanner";
 // layout route and as a direct wrapper. /lessons and /machines route through
 // it today; /settings and /profile do not yet.
 
-const SECTIONS: { to: string; label: string; icon: IconName }[] = [
+const SECTIONS = [
 	// ChestTreasure: the approved pool, in the brand doc's own mapping.
 	{ to: "/lessons", label: "Lessons", icon: "ChestTreasure" },
 	{ to: "/machines", label: "Machines", icon: "Key" },
@@ -23,7 +22,7 @@ const SECTIONS: { to: string; label: string; icon: IconName }[] = [
 	// entries - the set has no person icon, and it is the most person-like
 	// thing in it. See the doc's Icons section.
 	{ to: "/profile", label: "Profile", icon: "CatHead" },
-];
+] as const;
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();

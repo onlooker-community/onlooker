@@ -19,14 +19,15 @@ const STATUS_LABELS: Record<LessonStatus, string> = {
 };
 
 /**
- * Status is readable before a word is read. The plate says whether the claim is
- * in force; the icon says what happened; the word remains for anyone the first
- * two do not reach.
- *
  * `Restart` for superseded - the claim run again rather than thrown away, which
  * is why it is not Trashbin. Recorded in the brand doc with the rest of the
- * mapping. Exported so the list row's leading square can share the same
- * mapping rather than re-deriving it.
+ * mapping.
+ *
+ * Exported rather than kept local to `StatusBadge`: the list row's leading
+ * plate and the detail pane's header both render this same icon themselves,
+ * beside the badge rather than inside it - see the note on `StatusBadge`
+ * below for why. One mapping, three renderers, so none of them can drift on
+ * what a status means.
  */
 export const STATUS_ICONS: Record<LessonStatus, IconName> = {
 	active: "Lightbulb",
@@ -39,15 +40,19 @@ export const STATUS_ICONS: Record<LessonStatus, IconName> = {
  * The plate says whether the claim is in force; the word says why not. Three
  * plates for four statuses would invite the reader to decode a color that
  * carries no more than the label already does.
+ *
+ * No icon in here: everywhere this renders, it already sits beside another
+ * status icon - the row's plate, the detail header's - and a third copy
+ * inside the badge would state the same fact a fourth way (plate hue, plate
+ * icon, badge icon, badge word) without adding anything a screen reader or
+ * a glance needs that the other three do not already carry.
  */
 export function StatusBadge({ status }: { status: LessonStatus }) {
 	const inForce = status === "active";
 	return (
 		<span
 			style={{
-				display: "inline-flex",
-				alignItems: "center",
-				gap: "var(--space-1)",
+				display: "inline-block",
 				// A filled badge needs a plate, not an accent: accents shift per
 				// theme and no constant label ink reads on a ground that moves
 				// under it. plate-ink holds at 8.32 on teal and 7.00 on red in
@@ -67,8 +72,6 @@ export function StatusBadge({ status }: { status: LessonStatus }) {
 				whiteSpace: "nowrap",
 			}}
 		>
-			{/* Decorative: the label right beside it carries the meaning. */}
-			<Icon name={STATUS_ICONS[status]} />
 			{STATUS_LABELS[status]}
 		</span>
 	);

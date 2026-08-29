@@ -1049,6 +1049,12 @@ describe("the visual language", () => {
 	// Changing the filter replaces the list with no navigation and no focus
 	// change, so without a live region a screen-reader user hears nothing at
 	// all - not the new count, not an empty result, not a failure.
+	//
+	// waitFor + getByRole, not findByRole: the region is a single node
+	// present from the first render onward, so a query that only waits for
+	// the NODE to exist would resolve immediately, against whatever it said
+	// before the filter changed. Waiting for its TEXT is what actually pins
+	// the announcement to the new state.
 	it("announces the pool's state when the filter changes it", async () => {
 		withPool([VITE, D1]);
 		await at("/lessons");
@@ -1059,7 +1065,30 @@ describe("the visual language", () => {
 			target: { value: "retracted" },
 		});
 
-		const status = await screen.findByRole("status");
-		expect(status.textContent).toMatch(/no retracted lessons/i);
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toMatch(
+				/no retracted lessons/i,
+			),
+		);
+	});
+
+	// The case the region exists specifically to cover and the test above does
+	// not: neither the loading paragraph nor either EmptyState renders when a
+	// filter change lands on a DIFFERENT non-empty result, so without a count
+	// living in the region itself, this transition stays exactly as silent as
+	// it was before Step 6.
+	it("announces a new count when the filter changes to a different non-empty set", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toMatch(/1 lesson/i),
+		);
 	});
 });
