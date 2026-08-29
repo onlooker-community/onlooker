@@ -8,8 +8,16 @@ import {
 	setLessonStatus,
 } from "../api/lessonsApi";
 import { ConfirmAction } from "../components/ConfirmAction";
+import { Icon } from "../components/Icon";
 import { PALETTE } from "../components/palette";
-import { Button, Chip, EmptyState, Panel, StatusBadge } from "../components/ui";
+import {
+	Button,
+	Chip,
+	EmptyState,
+	Panel,
+	STATUS_ICONS,
+	StatusBadge,
+} from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import type { LessonsContext } from "./LessonsPage";
@@ -24,10 +32,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div style={{ marginBottom: "1rem" }}>
 			{/*
-			  h2, not h3: the detail's Panel passes no title, so ui.tsx's h2
-			  never renders here, and h1 (the claim) -> h3 would skip a level.
-			  The font size is an explicit inline style below, so this is a
-			  semantic-only change - nothing here should look different.
+			  h2, not h3: the two panels wrapping this each carry their own h2
+			  title (Applies to / Why it was trusted), so this stays a sibling
+			  h2 rather than nesting under it - h1 (the claim) -> h2 throughout,
+			  in both panels, with no skip. The font size is an explicit inline
+			  style below, so this is a semantic-only change - nothing here
+			  should look different.
 			*/}
 			<h2
 				style={{
@@ -230,7 +240,9 @@ export default function LessonDetail() {
 		return (
 			<>
 				{back}
-				<p style={{ color: PALETTE.muted }}>Loading that lesson...</p>
+				<p role="status" style={{ color: PALETTE.muted }}>
+					Loading that lesson...
+				</p>
 			</>
 		);
 	}
@@ -252,157 +264,205 @@ export default function LessonDetail() {
 	return (
 		<>
 			{back}
-			<Panel>
-				{/*
-				  The claim leads, because it is the thing being trusted or
-				  not. Everything below it exists to justify or qualify it.
-				*/}
-				<h1 style={{ marginTop: "0.5rem", fontSize: "1.25rem" }}>
-					{lesson.claim}
-				</h1>
-				<div
+			{/*
+			  Judgment above the rule, facts below. Status, then the claim -
+			  the one thing here that must be read carefully, so it stays
+			  unboxed and leads - then the rationale that justifies it. A rule
+			  separates that judgment from the two panels answering the two
+			  questions the remaining six facts actually split into. Retract
+			  sits last, beneath both: it reaches every mirror on its next
+			  delta pull, so the evidence is passed on the way to the button,
+			  not after it.
+			*/}
+			<div
+				style={{
+					display: "flex",
+					gap: "var(--space-4)",
+					alignItems: "center",
+					flexWrap: "wrap",
+					marginBottom: "var(--space-3)",
+				}}
+			>
+				<span
 					style={{
 						display: "flex",
-						gap: "0.5rem",
 						alignItems: "center",
-						marginBottom: "1.25rem",
+						gap: "var(--space-1)",
 					}}
 				>
+					<Icon name={STATUS_ICONS[lesson.status]} />
 					<StatusBadge status={lesson.status} />
+				</span>
+				<span
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: "var(--space-1)",
+					}}
+				>
+					<Icon name="Trophy" />
 					<time dateTime={lesson.promoted_at} style={{ color: PALETTE.muted }}>
 						Promoted {new Date(lesson.promoted_at).toLocaleDateString()}
 					</time>
-				</div>
+				</span>
+			</div>
 
-				<Field label="Rationale">
-					<p style={{ margin: 0 }}>{lesson.rationale}</p>
-				</Field>
+			{/*
+			  The claim leads, because it is the thing being trusted or not -
+			  and it stays in the readable face. It is a sentence, not chrome,
+			  and pixel type is measurably harder to read at length: it leads
+			  by size and weight here, not by face.
+			*/}
+			<h1
+				style={{
+					margin: "0 0 var(--space-3)",
+					fontFamily: "var(--font-body)",
+					fontSize: "var(--text-body-lg)",
+				}}
+			>
+				{lesson.claim}
+			</h1>
 
-				<Field label="Stack">
-					<Chips values={appliesTo.stack} />
-				</Field>
+			<p style={{ margin: "0 0 var(--space-4)" }}>{lesson.rationale}</p>
 
-				<Field label="Scope">
-					{appliesTo.scope.kind === "versioned" ? (
+			<hr
+				style={{
+					border: "none",
+					borderTop: `2px solid ${PALETTE.border}`,
+					margin: "0 0 var(--space-4)",
+				}}
+			/>
+
+			<div className="lessons-detail-panels">
+				<Panel title="Applies to" icon="MagnifyingGlass">
+					<Field label="Stack">
+						<Chips values={appliesTo.stack} />
+					</Field>
+
+					<Field label="Scope">
+						{appliesTo.scope.kind === "versioned" ? (
+							<Chips
+								values={Object.entries(appliesTo.scope.versions).map(
+									([name, range]) => `${name} ${range}`,
+								)}
+							/>
+						) : (
+							// The justification is the point of this branch: a lesson
+							// with no version constraint never expires, so the reason
+							// is judged rather than assumed.
+							<p style={{ margin: 0 }}>{appliesTo.scope.justification}</p>
+						)}
+					</Field>
+
+					{appliesTo.file_patterns.length > 0 ? (
+						<Field label="Files">
+							<Chips values={appliesTo.file_patterns} />
+						</Field>
+					) : null}
+
+					{appliesTo.task_kinds.length > 0 ? (
+						<Field label="Tasks">
+							<Chips values={appliesTo.task_kinds} />
+						</Field>
+					) : null}
+				</Panel>
+
+				<Panel title="Why it was trusted" icon="Trophy">
+					<Field label="Consensus">
+						<p style={{ margin: 0 }}>
+							{consensus.agreed} of {consensus.judges} judges agreed on{" "}
+							<When iso={consensus.decided_at} />
+						</p>
+					</Field>
+
+					<Field label="What was observed">
+						<p style={{ margin: 0 }}>{evidence.resolution}</p>
+						<p style={{ margin: "0.35rem 0 0", color: PALETTE.muted }}>
+							<When iso={evidence.observed_at} />
+							{" · "}
+							{evidence.session_ids.length} session
+							{evidence.session_ids.length === 1 ? "" : "s"}
+							{" · "}
+							{evidence.artifact_ids.length} artifact
+							{evidence.artifact_ids.length === 1 ? "" : "s"}
+						</p>
+					</Field>
+
+					<Field label="Provenance">
+						{/*
+						  project_key and author_key are opaque by design - the
+						  mapping to a repository lives only in a local manifest,
+						  and author_key carries the unlinkability guarantee. They
+						  are shown because they are what a person correlates two
+						  lessons by, not because they mean anything on their own.
+						*/}
 						<Chips
-							values={Object.entries(appliesTo.scope.versions).map(
-								([name, range]) => `${name} ${range}`,
-							)}
+							values={[
+								`source: ${lesson.source}`,
+								`visibility: ${lesson.visibility}`,
+								`project: ${evidence.project_key}`,
+							]}
 						/>
-					) : (
-						// The justification is the point of this branch: a lesson
-						// with no version constraint never expires, so the reason
-						// is judged rather than assumed.
-						<p style={{ margin: 0 }}>{appliesTo.scope.justification}</p>
-					)}
-				</Field>
-
-				{appliesTo.file_patterns.length > 0 ? (
-					<Field label="Files">
-						<Chips values={appliesTo.file_patterns} />
 					</Field>
-				) : null}
+				</Panel>
+			</div>
 
-				{appliesTo.task_kinds.length > 0 ? (
-					<Field label="Tasks">
-						<Chips values={appliesTo.task_kinds} />
-					</Field>
-				) : null}
-
-				<Field label="Consensus">
-					<p style={{ margin: 0 }}>
-						{consensus.agreed} of {consensus.judges} judges agreed on{" "}
-						<When iso={consensus.decided_at} />
-					</p>
-				</Field>
-
-				<Field label="What was observed">
-					<p style={{ margin: 0 }}>{evidence.resolution}</p>
-					<p style={{ margin: "0.35rem 0 0", color: PALETTE.muted }}>
-						<When iso={evidence.observed_at} />
-						{" · "}
-						{evidence.session_ids.length} session
-						{evidence.session_ids.length === 1 ? "" : "s"}
-						{" · "}
-						{evidence.artifact_ids.length} artifact
-						{evidence.artifact_ids.length === 1 ? "" : "s"}
-					</p>
-				</Field>
-
-				<Field label="Provenance">
-					{/*
-					  project_key and author_key are opaque by design - the
-					  mapping to a repository lives only in a local manifest,
-					  and author_key carries the unlinkability guarantee. They
-					  are shown because they are what a person correlates two
-					  lessons by, not because they mean anything on their own.
-					*/}
-					<Chips
-						values={[
-							`source: ${lesson.source}`,
-							`visibility: ${lesson.visibility}`,
-							`project: ${evidence.project_key}`,
-						]}
+			{next ? (
+				<div>
+					<ConfirmAction
+						trigger={verb}
+						question={
+							next === "retracted"
+								? "Stop trusting this lesson everywhere?"
+								: "Trust this lesson again everywhere?"
+						}
+						confirmLabel={`Yes, ${verb.toLowerCase()}`}
+						variant={next === "retracted" ? "danger" : "primary"}
+						pending={pending}
+						// LessonDetail is reconciled in place when :id changes - same
+						// route element, same position - so nothing here resets on its
+						// own. An armed confirm prompt following the user onto a
+						// lesson they never opened one on puts a live "Yes, retract"
+						// over the wrong claim, and a retraction reaches every mirror
+						// on its next delta pull. `id` covers navigating to a new
+						// lesson; `settleCount` covers a round trip settling - success
+						// or failure alike - for the one still on screen, which needs
+						// the same disarm and used to live here as
+						// `setConfirming(false)` in `transition`'s finally.
+						resetToken={`${id}:${settleCount}`}
+						onConfirm={() => void transition(next)}
 					/>
-				</Field>
 
-				{next ? (
-					<div style={{ marginTop: "1.5rem" }}>
-						<ConfirmAction
-							trigger={verb}
-							question={
-								next === "retracted"
-									? "Stop trusting this lesson everywhere?"
-									: "Trust this lesson again everywhere?"
-							}
-							confirmLabel={`Yes, ${verb.toLowerCase()}`}
-							variant={next === "retracted" ? "danger" : "primary"}
-							pending={pending}
-							// LessonDetail is reconciled in place when :id changes - same
-							// route element, same position - so nothing here resets on its
-							// own. An armed confirm prompt following the user onto a
-							// lesson they never opened one on puts a live "Yes, retract"
-							// over the wrong claim, and a retraction reaches every mirror
-							// on its next delta pull. `id` covers navigating to a new
-							// lesson; `settleCount` covers a round trip settling - success
-							// or failure alike - for the one still on screen, which needs
-							// the same disarm and used to live here as
-							// `setConfirming(false)` in `transition`'s finally.
-							resetToken={`${id}:${settleCount}`}
-							onConfirm={() => void transition(next)}
-						/>
-
-						{actionError ? (
-							<div role="alert" style={{ marginTop: "0.75rem" }}>
-								<p style={{ color: PALETTE.danger, margin: "0 0 0.5rem" }}>
-									{actionError.message}
-								</p>
-								{/*
-								  Offered only where the server promised nothing was
-								  written. A 400 would fail identically on a second
-								  press, and a button that reliably fails is worse
-								  than no button.
-								*/}
-								{actionError.retryable ? (
-									<Button
-										loading={pending}
-										loadingLabel="Working..."
-										// The status this same failure was raised
-										// against, not the current `next` - if the
-										// pool refetches between the failure and this
-										// click and the lesson's status has since
-										// moved, `next` would have flipped too and
-										// this would retry the opposite transition.
-										onClick={() => void transition(actionError.attempted)}
-									>
-										Try again
-									</Button>
-								) : null}
-							</div>
-						) : null}
-					</div>
-				) : null}
-			</Panel>
+					{actionError ? (
+						<div role="alert" style={{ marginTop: "0.75rem" }}>
+							<p style={{ color: PALETTE.danger, margin: "0 0 0.5rem" }}>
+								{actionError.message}
+							</p>
+							{/*
+							  Offered only where the server promised nothing was
+							  written. A 400 would fail identically on a second
+							  press, and a button that reliably fails is worse
+							  than no button.
+							*/}
+							{actionError.retryable ? (
+								<Button
+									loading={pending}
+									loadingLabel="Working..."
+									// The status this same failure was raised
+									// against, not the current `next` - if the
+									// pool refetches between the failure and this
+									// click and the lesson's status has since
+									// moved, `next` would have flipped too and
+									// this would retry the opposite transition.
+									onClick={() => void transition(actionError.attempted)}
+								>
+									Try again
+								</Button>
+							) : null}
+						</div>
+					) : null}
+				</div>
+			) : null}
 		</>
 	);
 }

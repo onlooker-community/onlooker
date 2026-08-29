@@ -1,8 +1,17 @@
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
+import { Icon } from "../components/Icon";
 import { PALETTE } from "../components/palette";
-import { Button, EmptyState, Panel, StatusBadge } from "../components/ui";
+import {
+	Button,
+	Chip,
+	EmptyState,
+	Panel,
+	STATUS_ICONS,
+	StatusBadge,
+} from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import "./lessons.css";
@@ -64,12 +73,33 @@ const FILTERS: { value: "" | LessonStatus; label: string; empty?: string }[] = [
 ];
 
 const row = {
-	display: "block",
-	padding: "0.75rem",
+	display: "flex",
+	gap: "var(--space-3)",
+	alignItems: "center",
+	padding: "var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
 	textDecoration: "none",
 	color: "var(--ink)",
 };
+
+/**
+ * The row's leading marker: a 28px plate, teal for in-force and red for not -
+ * the same in-force/not distinction StatusBadge's own plate makes, just at
+ * the row's scale rather than the badge's. Status is readable before the
+ * claim beside it is.
+ */
+function statusPlate(status: LessonStatus): CSSProperties {
+	return {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		flex: "none",
+		width: "28px",
+		height: "28px",
+		background: status === "active" ? PALETTE.plateTeal : PALETTE.plateRed,
+		border: `2px solid ${PALETTE.plateInk}`,
+	};
+}
 
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
@@ -239,7 +269,9 @@ export default function LessonsPage() {
 					<label
 						htmlFor="lesson-status"
 						style={{
-							display: "block",
+							display: "flex",
+							alignItems: "center",
+							gap: "var(--space-1)",
 							marginBottom: "0.35rem",
 							fontFamily: "var(--font-data)",
 							fontSize: "var(--text-data-sm)",
@@ -248,6 +280,7 @@ export default function LessonsPage() {
 							color: PALETTE.muted,
 						}}
 					>
+						<Icon name="MagnifyingGlass" />
 						Status
 					</label>
 					{/*
@@ -278,43 +311,58 @@ export default function LessonsPage() {
 						))}
 					</select>
 				</div>
+				{/*
+				  loadError, the loading paragraph and both empty states are each
+				  short and bounded, so wrapping them announces cleanly. The
+				  success branch below is deliberately NOT wrapped: a `role`
+				  that already matched before the filter changed would let
+				  `findByRole("status")` resolve against the stale element
+				  before the new one lands, and fifty row labels read aloud on
+				  every change would be worse than the silence this replaces.
+				*/}
 				{loadError ? (
-					<EmptyState
-						title="Could not load the pool"
-						action={{ label: "Retry", onClick: () => void load() }}
-					>
-						{loadError}
-					</EmptyState>
-				) : lessons === null ? (
-					<p style={{ color: PALETTE.muted }}>Loading the pool...</p>
-				) : lessons.length === 0 ? (
-					filter ? (
-						// An empty FILTER result and an empty POOL say different
-						// things. Telling someone whose pool is full to "connect a
-						// machine" because they filtered to a status nothing holds
-						// would be a lie, and the kind that makes a person doubt
-						// everything else the page says.
+					<div role="status" aria-live="polite">
 						<EmptyState
-							title={
-								FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
-							}
+							title="Could not load the pool"
+							action={{ label: "Retry", onClick: () => void load() }}
 						>
-							Nothing in the pool holds that status right now.
+							{loadError}
 						</EmptyState>
-					) : (
-						<EmptyState title="Nothing has synced yet">
-							Lessons arrive when a machine pushes them.{" "}
-							{/*
-							  A link and not EmptyState's action button. The button
-							  is for Retry; one that navigated would read as an
-							  action and be a link wearing the wrong control.
-							*/}
-							<NavLink to="/machines" style={{ color: PALETTE.accent }}>
-								Connect a machine
-							</NavLink>{" "}
-							to start.
-						</EmptyState>
-					)
+					</div>
+				) : lessons === null ? (
+					<p role="status" aria-live="polite" style={{ color: PALETTE.muted }}>
+						Loading the pool...
+					</p>
+				) : lessons.length === 0 ? (
+					<div role="status" aria-live="polite">
+						{filter ? (
+							// An empty FILTER result and an empty POOL say different
+							// things. Telling someone whose pool is full to "connect a
+							// machine" because they filtered to a status nothing holds
+							// would be a lie, and the kind that makes a person doubt
+							// everything else the page says.
+							<EmptyState
+								title={
+									FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
+								}
+							>
+								Nothing in the pool holds that status right now.
+							</EmptyState>
+						) : (
+							<EmptyState title="Nothing has synced yet" icon="ChestTreasure">
+								Lessons arrive when a machine pushes them.{" "}
+								{/*
+								  A link and not EmptyState's action button. The button
+								  is for Retry; one that navigated would read as an
+								  action and be a link wearing the wrong control.
+								*/}
+								<NavLink to="/machines" style={{ color: PALETTE.accent }}>
+									Connect a machine
+								</NavLink>{" "}
+								to start.
+							</EmptyState>
+						)}
+					</div>
 				) : (
 					<Panel title="The pool">
 						<nav aria-label="Lessons">
@@ -333,21 +381,39 @@ export default function LessonsPage() {
 											: "4px solid transparent",
 									})}
 								>
-									<span style={{ display: "block", marginBottom: "0.35rem" }}>
-										{lesson.claim}
+									<span style={statusPlate(lesson.status)}>
+										<Icon name={STATUS_ICONS[lesson.status]} />
 									</span>
-									<span
-										style={{
-											display: "flex",
-											gap: "0.5rem",
-											alignItems: "center",
-										}}
-									>
-										<StatusBadge status={lesson.status} />
-										<When
-											iso={lesson.promoted_at}
-											style={{ color: PALETTE.muted, fontSize: "0.8rem" }}
-										/>
+									<span style={{ minWidth: 0, flex: 1 }}>
+										<span
+											style={{
+												display: "block",
+												marginBottom: "var(--space-1)",
+												fontSize: "var(--text-body-md)",
+											}}
+										>
+											{lesson.claim}
+										</span>
+										<span
+											style={{
+												display: "flex",
+												gap: "var(--space-2)",
+												alignItems: "center",
+												flexWrap: "wrap",
+											}}
+										>
+											<StatusBadge status={lesson.status} />
+											{lesson.applies_to.stack[0] ? (
+												<Chip>{lesson.applies_to.stack[0]}</Chip>
+											) : null}
+											<When
+												iso={lesson.promoted_at}
+												style={{
+													color: PALETTE.muted,
+													fontSize: "var(--text-body-sm)",
+												}}
+											/>
+										</span>
 									</span>
 								</NavLink>
 							))}

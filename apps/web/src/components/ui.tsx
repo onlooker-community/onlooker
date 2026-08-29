@@ -1,4 +1,6 @@
+import type { IconName } from "@onlooker/brand";
 import type { ReactNode } from "react";
+import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 
 // The display half of the split form.tsx anticipated with "until a design
@@ -17,6 +19,23 @@ const STATUS_LABELS: Record<LessonStatus, string> = {
 };
 
 /**
+ * Status is readable before a word is read. The plate says whether the claim is
+ * in force; the icon says what happened; the word remains for anyone the first
+ * two do not reach.
+ *
+ * `Restart` for superseded - the claim run again rather than thrown away, which
+ * is why it is not Trashbin. Recorded in the brand doc with the rest of the
+ * mapping. Exported so the list row's leading square can share the same
+ * mapping rather than re-deriving it.
+ */
+export const STATUS_ICONS: Record<LessonStatus, IconName> = {
+	active: "Lightbulb",
+	retracted: "Trashbin",
+	refuted: "Skull",
+	superseded: "Restart",
+};
+
+/**
  * The plate says whether the claim is in force; the word says why not. Three
  * plates for four statuses would invite the reader to decode a color that
  * carries no more than the label already does.
@@ -26,7 +45,9 @@ export function StatusBadge({ status }: { status: LessonStatus }) {
 	return (
 		<span
 			style={{
-				display: "inline-block",
+				display: "inline-flex",
+				alignItems: "center",
+				gap: "var(--space-1)",
 				// A filled badge needs a plate, not an accent: accents shift per
 				// theme and no constant label ink reads on a ground that moves
 				// under it. plate-ink holds at 8.32 on teal and 7.00 on red in
@@ -46,6 +67,8 @@ export function StatusBadge({ status }: { status: LessonStatus }) {
 				whiteSpace: "nowrap",
 			}}
 		>
+			{/* Decorative: the label right beside it carries the meaning. */}
+			<Icon name={STATUS_ICONS[status]} />
 			{STATUS_LABELS[status]}
 		</span>
 	);
@@ -77,12 +100,19 @@ export function Chip({ children }: { children: ReactNode }) {
 	);
 }
 
-/** A bordered grouping. Untitled panels group without adding to the outline. */
+/**
+ * A bordered grouping. Untitled panels group without adding to the outline.
+ *
+ * `icon` is decorative - the title text right beside it carries the meaning,
+ * and an `<img alt="">` contributes nothing to the heading's accessible name.
+ */
 export function Panel({
 	title,
+	icon,
 	children,
 }: {
 	title?: string;
+	icon?: IconName;
 	children: ReactNode;
 }) {
 	return (
@@ -97,6 +127,9 @@ export function Panel({
 			{title ? (
 				<h2
 					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: "var(--space-1)",
 						margin: "0 0 0.75rem",
 						fontFamily: "var(--font-data)",
 						fontSize: "var(--text-data-md)",
@@ -104,6 +137,7 @@ export function Panel({
 						textTransform: "uppercase",
 					}}
 				>
+					{icon ? <Icon name={icon} /> : null}
 					{title}
 				</h2>
 			) : null}
@@ -120,10 +154,13 @@ export function Panel({
  */
 export function EmptyState({
 	title,
+	icon,
 	children,
 	action,
 }: {
 	title: string;
+	/** Decorative - the title right beside it already says what's empty. */
+	icon?: IconName;
 	children?: ReactNode;
 	action?: { label: string; onClick: () => void };
 }) {
@@ -135,6 +172,11 @@ export function EmptyState({
 				fontFamily: "var(--font-body)",
 			}}
 		>
+			{icon ? (
+				<div style={{ display: "flex", justifyContent: "center" }}>
+					<Icon name={icon} size={48} />
+				</div>
+			) : null}
 			<h2
 				style={{
 					margin: "0 0 0.5rem",

@@ -209,7 +209,11 @@ describe("the detail pane", () => {
 			await screen.findByRole("heading", { name: VITE.claim }),
 		).toBeDefined();
 		expect(screen.getByText(VITE.rationale)).toBeDefined();
-		expect(screen.getByText("vite")).toBeDefined();
+		// Twice, not once: the row's meta-line chip and the detail's Applies to
+		// panel both carry the stack tag now, so a single-match query is no
+		// longer the right shape for this assertion - the row growing a stack
+		// Chip of its own is Step 5, not a divergence between the two.
+		expect(screen.getAllByText("vite").length).toBe(2);
 		expect(screen.getByText(/3 of 3/)).toBeDefined();
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
 	});
@@ -988,5 +992,74 @@ describe("paging past the first page", () => {
 		});
 
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+	});
+});
+
+describe("the visual language", () => {
+	it("gives every row a status icon", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		// Two rows in the list, plus the detail pane's placeholder shows none.
+		const icons = document.querySelectorAll("img.pixel-icon");
+		expect(icons.length).toBeGreaterThanOrEqual(2);
+		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
+		// so NodeListOf<Element> is not directly iterable under this tsconfig.
+		for (const img of Array.from(icons)) {
+			expect(img.getAttribute("src")).toBeTruthy();
+		}
+	});
+
+	// Every icon in the app is 16, 32 or 48. Anything else is mush.
+	it("renders every icon at a legal size", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		for (const img of Array.from(document.querySelectorAll("img.pixel-icon"))) {
+			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
+		}
+	});
+
+	it("splits the detail's facts into what it applies to and why it was trusted", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			await screen.findByRole("heading", { name: /applies to/i }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: /why it was trusted/i }),
+		).toBeDefined();
+	});
+
+	// Retraction reaches every mirror on its next delta pull, so the evidence
+	// should be passed on the way to the button rather than after it.
+	it("puts the retract control after the evidence in document order", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		const trusted = await screen.findByRole("heading", {
+			name: /why it was trusted/i,
+		});
+		const retract = screen.getByRole("button", { name: /^retract$/i });
+		expect(
+			trusted.compareDocumentPosition(retract) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	// Changing the filter replaces the list with no navigation and no focus
+	// change, so without a live region a screen-reader user hears nothing at
+	// all - not the new count, not an empty result, not a failure.
+	it("announces the pool's state when the filter changes it", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		const status = await screen.findByRole("status");
+		expect(status.textContent).toMatch(/no retracted lessons/i);
 	});
 });

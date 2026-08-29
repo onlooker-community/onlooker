@@ -32,9 +32,26 @@
 	display: none;
 }
 
+/*
+ * The detail pane's two fact panels - Applies to, Why it was trusted.
+ * Stacked by default for the same reason .lessons-layout is: Vitest does not
+ * process CSS, so the test suite only ever sees the stacked, single-column
+ * order, and the two-question split it asserts on has to hold there too.
+ */
+.lessons-detail-panels {
+	display: grid;
+	gap: var(--space-4);
+	grid-template-columns: 1fr;
+	margin-bottom: var(--space-4);
+}
+
 @media (min-width: 60rem) {
 	.lessons-layout {
 		grid-template-columns: minmax(18rem, 24rem) 1fr;
+	}
+
+	.lessons-detail-panels {
+		grid-template-columns: 1fr 1fr;
 	}
 
 	/*

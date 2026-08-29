@@ -1,6 +1,8 @@
+import type { IconName } from "@onlooker/brand";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
+import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
 
@@ -9,14 +11,19 @@ import SessionExpiryBanner from "./SessionExpiryBanner";
 // existed on exactly one page and disappeared with it in onlooker-yfw.
 //
 // Takes children rather than rendering an <Outlet>, so it works both as a
-// layout route and as a direct wrapper. Nothing routes through it yet.
+// layout route and as a direct wrapper. /lessons and /machines route through
+// it today; /settings and /profile do not yet.
 
-const SECTIONS = [
-	{ to: "/lessons", label: "Lessons" },
-	{ to: "/machines", label: "Machines" },
-	{ to: "/settings", label: "Settings" },
-	{ to: "/profile", label: "Profile" },
-] as const;
+const SECTIONS: { to: string; label: string; icon: IconName }[] = [
+	// ChestTreasure: the approved pool, in the brand doc's own mapping.
+	{ to: "/lessons", label: "Lessons", icon: "ChestTreasure" },
+	{ to: "/machines", label: "Machines", icon: "Key" },
+	{ to: "/settings", label: "Settings", icon: "Gear" },
+	// CatHead is an extension of the brand doc's mapping, not one of its
+	// entries - the set has no person icon, and it is the most person-like
+	// thing in it. See the doc's Icons section.
+	{ to: "/profile", label: "Profile", icon: "CatHead" },
+];
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
@@ -45,12 +52,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
 			>
 				<span
 					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: "var(--space-1)",
 						fontFamily: "var(--font-display)",
 						fontSize: "var(--text-display-md)",
 						letterSpacing: "2px",
 						textTransform: "uppercase",
 					}}
 				>
+					{/* Eye: the logo and the active state, in the brand doc's own mapping. */}
+					<Icon name="Eye" />
 					Onlooker
 				</span>
 
@@ -66,6 +78,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 							key={section.to}
 							to={section.to}
 							style={({ isActive }) => ({
+								display: "inline-flex",
+								alignItems: "center",
+								gap: "var(--space-1)",
 								// An accent, not a plate - this is ink on the
 								// header's ground, and accents are the tokens
 								// that shift with the theme to stay readable.
@@ -83,6 +98,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 								paddingBottom: "0.15rem",
 							})}
 						>
+							{/* Decorative: the visible label right beside it carries
+							    the meaning, same as StatusBadge's icon. */}
+							<Icon name={section.icon} />
 							{section.label}
 						</NavLink>
 					))}
