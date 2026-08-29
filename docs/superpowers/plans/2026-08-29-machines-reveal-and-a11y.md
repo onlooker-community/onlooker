@@ -496,30 +496,34 @@ Include `Refs: onlooker-aky`.
 // focus and the next Tab restarts at the top of the document. The row is a
 // stable target precisely because revoked rows persist.
 it("moves focus to the row after a revoke instead of dropping it", async () => {
-	renderPage();
+	// Each test in this file picks its own machines; renderPage() is async.
+	withMachines(USED);
+	await renderPage();
 	fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
 	fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
 	await waitFor(() => {
 		expect(document.activeElement).not.toBe(document.body);
 	});
-	expect((document.activeElement as HTMLElement).dataset.machineRow).toBe("m1");
+	expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(USED.id);
 });
 
 // The live region is rendered on every pass, empty until it has something to
 // say. A region mounted together with its message is the shape screen readers
 // do not reliably announce.
-it("keeps a status region mounted before it has anything to announce", () => {
-	renderPage();
+it("keeps a status region mounted before it has anything to announce", async () => {
+	withMachines(USED);
+	await renderPage();
 	expect(screen.getByRole("status")).toBeTruthy();
 	expect(screen.getByRole("status").textContent).toBe("");
 });
 
 it("names the machine it revoked", async () => {
-	renderPage();
+	withMachines(USED);
+	await renderPage();
 	fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
 	fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
 	await waitFor(() => {
-		expect(screen.getByRole("status").textContent).toMatch(/work laptop/i);
+		expect(screen.getByRole("status").textContent).toMatch(new RegExp(USED.name, "i"));
 	});
 });
 ```
