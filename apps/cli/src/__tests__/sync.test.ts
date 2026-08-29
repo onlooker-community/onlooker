@@ -29,17 +29,34 @@ function withLessons(env: NodeJS.ProcessEnv, count: number): void {
 		cpSync(FIXTURE, join(dir, `lesson-${i}.json`));
 }
 
-const accepts = () =>
-	vi.fn().mockResolvedValue({
+/**
+ * A 200 that answers for every lesson it was sent, the way the API does: one
+ * result per lesson, carrying the id that was actually pushed.
+ *
+ * The outcomes are applied in order and anything past the end of the list comes
+ * back `created`. Echoing the sent ids rather than inventing them is what makes
+ * these stubs honest - a stub that answers for lessons nobody sent, or answers
+ * for none of them, is now a failure, and it should be.
+ */
+const pushes = (outcomes: Array<{ outcome: string; error?: string }> = []) =>
+	vi.fn().mockImplementation(async (_url, init) => ({
 		ok: true,
 		status: 200,
-		json: async () => ({ results: [] }),
-	});
+		json: async () => ({
+			results: (JSON.parse(init.body).lessons as Array<{ id: string }>).map(
+				(lesson, index) => ({
+					id: lesson.id,
+					outcome: outcomes[index]?.outcome ?? "created",
+					error: outcomes[index]?.error,
+				}),
+			),
+		}),
+	}));
 
-/** A 200 whose body carries the given per-lesson outcomes. */
-const pushes = (
-	results: Array<{ id: string; outcome: string; error?: string }>,
-) =>
+const accepts = () => pushes();
+
+/** A 200 whose body is `{ results: [...] }` verbatim, whatever was sent. */
+const answers = (results: unknown) =>
 	vi.fn().mockResolvedValue({
 		ok: true,
 		status: 200,
@@ -101,10 +118,7 @@ describe("sync", () => {
 	it("distinguishes newly created lessons from ones already held", async () => {
 		const env = linked();
 		withLessons(env, 2);
-		const fetchImpl = pushes([
-			{ id: "a", outcome: "created" },
-			{ id: "b", outcome: "noop" },
-		]);
+		const fetchImpl = pushes([{ outcome: "created" }, { outcome: "noop" }]);
 		const message = await sync({ env, fetchImpl });
 		expect(message).toMatch(/1 new/);
 		expect(message).toMatch(/1 already/);
@@ -119,11 +133,7 @@ describe("sync", () => {
 		const env = linked();
 		withLessons(env, 1);
 		const fetchImpl = pushes([
-			{
-				id: "c",
-				outcome: "error",
-				error: "The lesson was not stored; retry it",
-			},
+			{ outcome: "error", error: "The lesson was not stored; retry it" },
 		]);
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(/retry/i);
 	});
@@ -135,11 +145,7 @@ describe("sync", () => {
 		const env = linked();
 		withLessons(env, 1);
 		const fetchImpl = pushes([
-			{
-				id: "01KZ45MKAM734ZS7JK24D2DK0R",
-				outcome: "invalid",
-				error: "id must be a ULID",
-			},
+			{ outcome: "invalid", error: "id must be a ULID" },
 		]);
 		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
 			failure: { kind: "rejected" },
@@ -154,17 +160,14 @@ describe("sync", () => {
 	it("surfaces a conflict rather than counting it as synced", async () => {
 		const env = linked();
 		withLessons(env, 1);
-		const fetchImpl = pushes([{ id: "d", outcome: "conflict" }]);
+		const fetchImpl = pushes([{ outcome: "conflict" }]);
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(
 			/conflict|different/i,
 		);
 	});
 
-	// A file the contract rejects is reported and skipped. Aborting the run would
-	// let one malformed lesson block every valid one behind it.
-	it("skips an invalid lesson and pushes the rest", async () => {
-		const env = linked();
-		withLessons(env, 1);
+	/** Writes a file the lesson contract will refuse. */
+	function withMalformed(env: NodeJS.ProcessEnv, name: string): void {
 		const dir = join(
 			env.ONLOOKER_DIR as string,
 			"librarian",
@@ -172,10 +175,91 @@ describe("sync", () => {
 			"lessons",
 			"approved",
 		);
-		require("node:fs").writeFileSync(join(dir, "zz-bad.json"), "{}");
+		mkdirSync(dir, { recursive: true });
+		require("node:fs").writeFileSync(join(dir, name), "{}");
+	}
+
+	// A file the contract rejects is still skipped rather than aborting the run -
+	// one malformed lesson must not block every valid one behind it - but the run
+	// as a whole did not do what was asked, so it does not report success. The
+	// valid lessons go up first; only then does it complain.
+	it("pushes the valid lessons and still fails on the skipped one", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		withMalformed(env, "zz-bad.json");
 		const fetchImpl = accepts();
-		const message = await sync({ env, fetchImpl });
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "rejected" },
+		});
 		expect(JSON.parse(fetchImpl.mock.calls[0][1].body).lessons).toHaveLength(1);
-		expect(message).toMatch(/1 skipped/);
+	});
+
+	// The report has to survive the throw. Someone told only that a file was
+	// skipped, with no word on the lessons that did go up, cannot tell whether
+	// re-running is safe.
+	it("carries both the counts and the skipped file into the failure", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		withMalformed(env, "zz-bad.json");
+		await expect(sync({ env, fetchImpl: accepts() })).rejects.toThrow(
+			/1 new[\s\S]*zz-bad\.json/,
+		);
+	});
+
+	// Nothing was pushed, so exiting 0 would tell a script the run succeeded. A
+	// malformed file does not fix itself on a retry, which is why this is
+	// `rejected` (go look) and not `transient` (try again).
+	it("fails when every lesson on disk is malformed", async () => {
+		const env = linked();
+		withMalformed(env, "a-bad.json");
+		withMalformed(env, "b-bad.json");
+		const fetchImpl = accepts();
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "rejected" },
+		});
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	// The moved-endpoint class of event, one level down from a 404: a 200 whose
+	// body is not the shape the CLI expects. Counting only what came back would
+	// print "Synced 3 lessons: 0 new, 0 already in the pool." and exit 0.
+	it("does not call a lesson synced when the API never answered for it", async () => {
+		const env = linked();
+		withLessons(env, 3);
+		await expect(sync({ env, fetchImpl: answers([]) })).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+	});
+
+	// `api.ts` casts the body instead of validating it, so `results` can be
+	// anything. Iterating a string would walk it character by character and
+	// invent one nonsense failure per letter; the lesson that went unanswered is
+	// the thing worth naming.
+	it("does not read a results field that is not an array", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		await expect(sync({ env, fetchImpl: answers("oops") })).rejects.toThrow(
+			/01KZ45MKAM734ZS7JK24D2DK0R: the API did not answer/,
+		);
+	});
+
+	// A lesson that fails every time must not hide behind one that fails
+	// intermittently. Reporting only the transient error leaves someone running
+	// `sync` forever while the permanent problem is never named.
+	it("names the terminal failure even when a retryable one is thrown", async () => {
+		const env = linked();
+		withLessons(env, 2);
+		const fetchImpl = pushes([
+			{ outcome: "error", error: "storage was busy" },
+			{ outcome: "invalid", error: "id must be a ULID" },
+		]);
+		// `transient` so the exit code still says retry, with the refusal in the
+		// message so the retry is not the only thing the user learns.
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(
+			/storage was busy[\s\S]*id must be a ULID/,
+		);
 	});
 });

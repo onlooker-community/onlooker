@@ -1,3 +1,4 @@
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { ApiError, createClient } from "../api";
 import { readConfig } from "../config";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
@@ -39,13 +40,14 @@ export async function sync({
 		return "Nothing to sync: no approved lessons yet.";
 	}
 
-	const lessons = [];
+	const lessons: TLesson[] = [];
 	const skipped: string[] = [];
 	for (const file of found.files) {
 		const parsed = parseLesson(file);
 		// One malformed file does not stop the run. Aborting would let a single
 		// bad lesson block every valid one behind it, and the file name plus the
-		// failing field is enough to go fix it.
+		// failing field is enough to go fix it. Skipping is not succeeding,
+		// though: the list is reported as a failure at the end.
 		if (parsed.ok) lessons.push(parsed.lesson);
 		else skipped.push(`${parsed.file}: ${parsed.error}`);
 	}
@@ -65,7 +67,10 @@ export async function sync({
 
 	for (const chunk of batch(lessons, MAX_BATCH)) {
 		const response = await client.push(chunk);
-		for (const result of response.results ?? []) {
+		// `api.ts` casts the response body rather than validating it, so this is
+		// the first place a body that is not the promised shape can be noticed.
+		const results = Array.isArray(response.results) ? response.results : [];
+		for (const result of results) {
 			switch (result.outcome) {
 				case "created":
 					created++;
@@ -94,32 +99,67 @@ export async function sync({
 					);
 			}
 		}
+
+		// Every lesson sent has to come back named. A 200 that answers for fewer
+		// lessons than it was given is what a moved or reshaped endpoint looks
+		// like from this side, and tallying only what came back would print
+		// "Synced 3 lessons: 0 new, 0 already in the pool." and exit 0 -
+		// arithmetic that contradicts itself, reported as success.
+		//
+		// Unanswered goes in with the retryable, the same safe direction the
+		// `error` outcome takes: retrying a lesson the server already holds costs
+		// one deduped request, while assuming it landed loses it.
+		const answered = new Set(results.map((result) => result.id));
+		for (const lesson of chunk) {
+			if (!answered.has(lesson.id)) {
+				retryable.push(`${lesson.id}: the API did not answer for it; retry it`);
+			}
+		}
 	}
 
 	const counts = [`${created} new`, `${unchanged} already in the pool`];
 	if (skipped.length > 0) counts.push(`${skipped.length} skipped`);
-	const summary = `Synced ${lessons.length} lessons: ${counts.join(", ")}.`;
+	const pushed = lessons.length;
+	const summary = `Synced ${pushed} lesson${pushed === 1 ? "" : "s"}: ${counts.join(", ")}.`;
+
+	// Every kind of trouble in one report, not whichever kind came first. A
+	// lesson that fails permanently must not hide behind one that fails
+	// intermittently: throwing only the transient error leaves someone running
+	// `sync` again forever while the real problem sits there, never named.
+	const problems: string[] = [];
+	if (retryable.length > 0) {
+		problems.push(
+			`${retryable.length} lesson(s) were not stored. Run sync again.`,
+			...retryable,
+		);
+	}
+	if (terminal.length > 0) {
+		problems.push(`${terminal.length} lesson(s) were refused.`, ...terminal);
+	}
+	if (skipped.length > 0) {
+		problems.push(
+			`${skipped.length} file(s) could not be read as a lesson.`,
+			...skipped,
+		);
+	}
 
 	// A lesson the server did not store must never be reported as one it did.
 	// Counting every non-`created` outcome as "already in the pool" is exactly
-	// how the retired CLI turned a failure into a success message.
-	if (retryable.length > 0) {
+	// how the retired CLI turned a failure into a success message - and so is
+	// returning normally because the trouble happened on disk, before the
+	// request, rather than on the wire during it. Throwing is what puts the
+	// whole report on stderr and a non-zero code on the process.
+	if (problems.length > 0) {
 		throw new ApiError({
-			kind: "transient",
-			message: [
-				`${retryable.length} lesson(s) were not stored. Run sync again.`,
-				...retryable,
-			].join("\n"),
-		});
-	}
-	if (terminal.length > 0) {
-		throw new ApiError({
-			kind: "rejected",
-			message: [`${terminal.length} lesson(s) were refused.`, ...terminal].join(
-				"\n",
-			),
+			// `transient` the moment anything is worth retrying, so the exit code
+			// still says "run it again" while the terminal detail rides along in
+			// the message. Otherwise `rejected`: a file the contract refuses and a
+			// lesson the pool refuses are both unchanged by waiting, and telling
+			// someone to retry costs them the time it takes to find that out.
+			kind: retryable.length > 0 ? "transient" : "rejected",
+			message: [summary, ...problems].join("\n"),
 		});
 	}
 
-	return [summary, ...skipped].join("\n");
+	return summary;
 }
