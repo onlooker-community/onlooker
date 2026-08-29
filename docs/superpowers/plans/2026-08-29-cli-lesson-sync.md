@@ -6,7 +6,7 @@
 
 **Architecture:** A TypeScript CLI in the monorepo with three commands and no background process. It imports `ZLesson` from `packages/lesson-contract`, so it validates exactly what the API validates. The sync is stateless because the server dedupes by lesson id. It bundles to a single JS file with esbuild and ships through Homebrew with `depends_on "node"`.
 
-**Tech Stack:** Node ≥20.19 (global `fetch`, `readline/promises`), TypeScript with `moduleResolution: "bundler"`, zod via `@onlooker-community/lesson-contract`, esbuild 0.28.1 for bundling, Vitest, pnpm + turbo.
+**Tech Stack:** Node ≥20.19 (global `fetch`, callback `readline` — **not** `readline/promises`, see Task 6), TypeScript with `moduleResolution: "bundler"`, zod via `@onlooker-community/lesson-contract`, esbuild 0.28.1 for bundling, Vitest, pnpm + turbo.
 
 ## Global Constraints
 
@@ -1394,7 +1394,7 @@ export async function status({
 `apps/cli/src/main.ts`:
 
 ```ts
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline";
 import { ApiError } from "./api";
 import { link } from "./commands/link";
 import { status } from "./commands/status";
@@ -1410,11 +1410,37 @@ const USAGE = `onlooker - push approved lessons to app.onlooker.dev
 `;
 
 /**
+ * Stop readline echoing what is typed, and say whether that worked.
+ *
+ * `_writeToOutput` is readline's internal line-refresh hook rather than public
+ * API, so its presence is checked instead of assumed - and checked *before* the
+ * assignment, because assigning it would make any later check pass no matter
+ * what. That ordering is the whole point: this prompt shipped once against
+ * `node:readline/promises`, whose Interface has no such hook, and the override
+ * landed as an own property nothing ever called. The token went to the screen
+ * in clear text and the code that meant to hide it looked correct.
+ */
+function suppressEcho(rl: Interface): boolean {
+	const internals = rl as unknown as {
+		_writeToOutput?: (text: string) => void;
+	};
+	if (typeof internals._writeToOutput !== "function") return false;
+	internals._writeToOutput = () => {};
+	return true;
+}
+
+/**
  * Read a credential without putting it on screen.
  *
  * A pasted machine token is shown once and recoverable only by revoking the
  * machine, so it should not survive in the scrollback. Reading stdin when it is
  * not a TTY also lets `echo "$TOKEN" | onlooker link` work in a script.
+ *
+ * The callback `node:readline` deliberately, not `node:readline/promises`: only
+ * the callback Interface consults `_writeToOutput`, so only it can be told not
+ * to echo. Task 6's tests hold that down - they drive a `terminal: true`
+ * interface, assert the typed characters never reach the output, and carry a
+ * control that proves they do reach it without the override.
  */
 async function promptForToken(): Promise<string> {
 	if (!process.stdin.isTTY) {
@@ -1424,27 +1450,29 @@ async function promptForToken(): Promise<string> {
 	}
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	// Suppress the echo of typed characters while still writing the prompt.
-	//
-	// `_writeToOutput` is readline's internal line-refresh hook, not public API.
-	// Verified present on the Interface prototype in Node 24.13.0, and verified
-	// under a real PTY that assigning it on the instance does suppress the echo.
-	// The prompt is written first, deliberately: after the override nothing
-	// reaches the terminal, including the prompt itself.
-	const internals = rl as unknown as { _writeToOutput?: (s: string) => void };
+	// The prompt is written before the override, deliberately: readline's own
+	// prompt rendering goes through the hook this is about to silence.
 	process.stdout.write("Machine token: ");
-	internals._writeToOutput = () => {};
+	if (!suppressEcho(rl)) {
+		// A visible warning is survivable; a silent leak is not. Someone told the
+		// token is on screen can revoke it. Someone not told cannot.
+		process.stdout.write(
+			"\nWarning: this Node build cannot hide typed input - your token will be " +
+				"visible.\nMachine token: ",
+		);
+	}
+
 	try {
-		return await rl.question("");
-	} catch (error) {
-		// Ctrl+D rejects the question with an AbortError. That is a person saying
-		// "never mind" at a credential prompt - one of the two normal ways to back
-		// out - and letting it propagate prints a Node stack trace instead.
-		// Returning empty routes it into the same "No token entered" message an
-		// empty paste gets. Confirmed against Node 24.13.0, which rejects with
-		// `AbortError: Aborted with Ctrl+D`.
-		if ((error as Error)?.name === "AbortError") return "";
-		throw error;
+		return await new Promise<string>((resolve) => {
+			// Ctrl+D is a person saying "never mind" at a credential prompt - one of
+			// the two normal ways to back out - and on the callback API it arrives
+			// as `close` with the question never answered. Resolving "" routes it
+			// into the same "No token entered" message an empty paste gets, rather
+			// than a Node stack trace. Whichever listener fires first wins; the
+			// other resolve is a no-op.
+			rl.on("close", () => resolve(""));
+			rl.question("", resolve);
+		});
 	} finally {
 		rl.close();
 		process.stdout.write("\n");
@@ -1800,16 +1828,36 @@ After merge, and only then:
 
 **Type consistency.** `CliConfig`, `configPath`, `readConfig`, `writeConfig`, `onlookerDir` are defined in Task 1 and used under those names in 3, 4, 5 and 6. `Failure`, `ApiError`, `classify`, `createClient`, `ApiClient`, `PushResponse` are defined in Task 2 and used in 3, 5 and 6. `Discovery`, `discoverApproved`, `Parsed`, `parseLesson`, `batch`, `MAX_BATCH` are defined in Task 4 and used in 5 and 6. Every command takes a single deps object and returns the string to print, so Task 6's dispatcher treats all three identically.
 
-**The risk named in this plan's first draft has now been tested.** `promptForToken`
-reaches into `readline`'s internals to suppress echo, which is not documented API.
-Measured on Node 24.13.0 before Task 6 was dispatched: `_writeToOutput` exists on
-the Interface prototype, assigning it on the instance shadows it, and under a real
-PTY the typed characters are genuinely not echoed. The same probe found that Ctrl+D
-rejects with `AbortError: Aborted with Ctrl+D` and, unhandled, prints a stack trace
-at a credential prompt — so the code above catches it and routes it into the same
-"No token entered" path an empty paste takes.
+**The risk named in this plan's first draft was tested, and the test was wrong.**
+`promptForToken` reaches into `readline`'s internals to suppress echo, which is not
+documented API. Every draft of this plan up to and including the one Task 6 was
+implemented from claimed the hook was "verified present on the Interface prototype
+in Node 24.13.0" — while the code beside that claim built its interface with
+`node:readline/promises`. Those are two different classes, and the probe had been
+run against the other one. On Node 24.13.0:
+
+| `createInterface` from | `typeof rl._writeToOutput` | on the prototype chain |
+| --- | --- | --- |
+| `node:readline` | `function` | `Interface`, own prototype |
+| `node:readline/promises` | `undefined` | absent entirely |
+
+So the override landed on the promises interface as an own property nothing ever
+consulted, echo suppression was a no-op, and the pasted machine token went to the
+screen in clear text — under a comment citing verification. The code above is the
+corrected version, and the correction is in two parts: the callback `readline`, and
+a `suppressEcho` that checks for the hook **before** assigning it. Checking after
+would pass unconditionally, since the assignment is what it would be checking. When
+the check fails the prompt says out loud that the token will be visible — a warning
+is survivable, a silent leak is not.
+
+Ctrl+D differs between the two APIs as well, so the handling had to change with
+them. The promises `question` rejects with `AbortError: Aborted with Ctrl+D`; the
+callback one emits `close` with the question never answered. Hence the `close`
+listener above rather than a `catch`, routing it into the same "No token entered"
+path an empty paste takes instead of a Node stack trace.
 
 It remains undocumented API. It is still guarded by the non-TTY path, so piping a
-token in works regardless; if a future Node breaks it, the honest fallback is to
-warn that the token will be visible and read it normally, never to silently echo a
-credential.
+token in works regardless; if a future Node removes the hook, the fallback is the
+warning above, never to silently echo a credential. The lesson worth keeping is the
+one that cost the most here: a claim of verification is not verification, and a
+hook that is silently absent is exactly how this shipped the first time.
