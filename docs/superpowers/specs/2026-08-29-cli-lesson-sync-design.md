@@ -79,9 +79,37 @@ both the mock and the real API.
 ```
 
 One JSON file per lesson, named by its ULID — which is the id the server dedupes
-on. `librarian` also ships subschemas for `applies_to` and `evidence` and an
-author-key script, so what it writes is contract-shaped rather than something
-needing a transform.
+on. The full path, verified on a real machine on 2026-08-29, is
+`$ONLOOKER_DIR/librarian/<12-hex project key>/lessons/`, with one directory per
+project.
+
+**Nothing writes to `approved/` yet, and that is the largest fact in this
+document.** `librarian_lesson_storage_init` creates the directory, but the
+storage script marks the promotion step as *"written by 4z8.4"* — an unbuilt
+issue in the ecosystem repository. Measured on the same machine: sixteen project
+directories, exactly one with a `lessons/` subtree, containing `proposals/` only.
+Two proposals, zero approved lessons.
+
+A proposal is also not a lesson. It is a wrapper:
+
+```
+{ id, artifact_id, confirmed_at, status, visibility,
+  candidate: { claim, rationale, applies_to, evidence } }
+```
+
+Against `ZLesson` it lacks `author_key`, `consensus`, `promoted_at`,
+`schema_version`, `source` and `superseded_by`, and its `id` is a short slug
+rather than the 26-character ULID the contract requires. Promotion is therefore
+real work — judge the candidate to produce `consensus`, derive the author key,
+mint a ULID, stamp `promoted_at` — even though `librarian-lesson-judge.sh` and
+`librarian-author-key.sh` already exist to help.
+
+**The consequence, accepted deliberately:** this CLI will sync zero lessons until
+`4z8.4` ships, and the pool will stay empty. It is built now anyway because it is
+small, correct, and ready the moment promotion lands; because it is verifiable
+end-to-end today against a hand-written fixture (Section 7); and because the
+alternative is blocking a self-contained piece of work in this repository on a
+shell plugin in another one.
 
 ---
 
@@ -136,9 +164,18 @@ with tests. Worth revisiting once lessons are flowing; not worth blocking on.
 
 ## Section 3 — Sync *(approved)*
 
-`onlooker sync` globs `$ONLOOKER_DIR/**/lessons/approved/*.json`, parses each
-file, validates it against `ZLesson`, and `POST`s to `/lessons` in batches of at
-most 100 — the server's `MAX_BATCH`.
+`onlooker sync` reads `$ONLOOKER_DIR/librarian/*/lessons/approved/*.json`, parses
+each file, validates it against `ZLesson`, and `POST`s to `/lessons` in batches of
+at most 100 — the server's `MAX_BATCH`.
+
+**An explicit path, not a recursive glob.** The old CLI tails any `*.jsonl` under
+the root recursively, which is right for events because plugins write them in
+several places. Lessons have exactly one home, and naming it lets `status`
+distinguish three states a recursive glob collapses into one silent zero: no
+`$ONLOOKER_DIR` at all, an `$ONLOOKER_DIR` with no `librarian/` directory, and a
+real `approved/` that happens to be empty. Given that the third state is the
+expected one until promotion ships, telling it apart from the first two is the
+difference between "nothing to sync yet" and "your install is wrong."
 
 **The sync is stateless.** No SQLite, no cursor, no watermark, no local record of
 what has been sent. `createLessonsWithFeed` returns `created` or `taken` per
@@ -241,8 +278,11 @@ working. Deleting or renaming 404s those URLs.
 Archiving happens **after** the formula flips, so there is no window where the
 formula points at a repository in an unexpected state.
 
-No final release is cut from it. Section 5's formula replacement reaches its
-users through `brew upgrade`, which makes a farewell release redundant.
+No final release is cut from it, and no deprecation notice is needed. **The old
+CLI was never publicly released** — confirmed on 2026-08-29 — so there is nobody
+to migrate and nothing owed. Section 5's formula replacement still keeps the
+`onlooker` name, but for tidiness rather than migration: it is the name the tool
+should have, and there is no installed base competing for it.
 
 ---
 
@@ -261,6 +301,18 @@ users through `brew upgrade`, which makes a farewell release redundant.
   second run reports them as already present rather than as new.
 - **The formula.** Its generated version and `sha256` match the release artifact.
   A formula that installs the wrong bytes fails in a way no unit test sees.
+- **End-to-end, against a fixture.** Since `approved/` has no producer yet
+  (Section 0), the only way to prove the whole path works is to hand-write one
+  contract-valid lesson into `approved/` and watch it reach the pool: `link`,
+  `sync`, then the lesson visible at `/lessons` in the browser. That fixture is
+  also the thing that will catch a promotion step, when it lands, emitting
+  something `ZLesson` rejects — so it belongs in the repository rather than in
+  someone's notes.
+- **The empty case is a first-class outcome, not an edge.** Until promotion
+  ships, zero approved lessons is what every real run returns. `sync` reporting
+  "nothing to sync" and exiting successfully is the common path and deserves a
+  test saying so, distinct from the three states Section 3 asks `status` to tell
+  apart.
 
 ---
 
@@ -284,21 +336,27 @@ per Section 6.
 
 ## Open questions
 
-**Are there real users of the old CLI?** It was never established. Section 5's
-migration reaches anyone who runs `brew upgrade`, and Section 6 needs no farewell
-release — but if there are users who never upgrade, they stay broken silently and
-nothing in this design reaches them. Worth knowing before archiving, because
-after that the only lever left is the tap.
+None. The three carried out of the design conversation were settled on
+2026-08-29.
 
-**Where exactly `$ONLOOKER_DIR` puts each project's lessons.** The layout under
-`<project>/lessons/` is established; the prefix above it is partitioned by
-project key and was not traced. Section 3's recursive glob sidesteps needing to
-know, which is also how the old CLI handles JSONL — but a glob that matches
-nothing looks identical to having no lessons, so `status` should distinguish "no
-lessons found" from "no `$ONLOOKER_DIR`".
+**Users of the old CLI:** there are none. It was never publicly released, which
+removes the only argument for a farewell release and simplifies Section 6 to a
+plain archive.
 
-**Whether `sync` should be invoked by a hook.** An ecosystem `SessionEnd` hook
-calling it after `librarian` writes an approved lesson would mean lessons flow
-without anyone remembering to run anything. That is a change in a different
-repository, which is why it is not in this scope — but it is the difference
-between a CLI that works and a CLI that gets used.
+**Where `$ONLOOKER_DIR` puts lessons:** `librarian/<12-hex project key>/lessons/`,
+verified against a real installation rather than inferred. Section 3 names the
+path explicitly instead of globbing recursively, and Section 0 records the
+sixteen project directories it was measured against.
+
+**Whether a `SessionEnd` hook should call `sync`:** not yet, and the trigger was
+wrong anyway. Sync has something to do only after a proposal is *promoted*, which
+`SessionEnd` does not do and which nothing currently does at all (Section 0). A
+hook belongs with the promotion step, in the ecosystem repository, once `4z8.4`
+exists — attaching one now would fire on every session end to find an empty
+directory.
+
+One thing to watch during implementation rather than decide now: the fixture in
+Section 7 is a hand-written lesson, so it encodes one person's reading of
+`ZLesson` at one moment. If the promotion step later emits something the fixture
+does not resemble, the fixture was the guess and the promotion step is the
+evidence — update the fixture, not the contract.
