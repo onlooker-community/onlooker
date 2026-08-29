@@ -13,6 +13,7 @@
 - **`inert` must be written as `inert={open ? "" : undefined}`, never `inert={open}`.** Measured on React 18.3.1: the string form renders the attribute, the **boolean form is silently dropped**. `inert={isOpen}` is the natural thing to write, produces no attribute, and leaves the accessibility fix looking implemented while doing nothing.
 - **The revealed token is held in memory only.** Never `sessionStorage`, never `localStorage`, never a URL. A reload losing it is expected and already covered by `beforeunload`.
 - **Do not reattempt a `popstate` history guard.** One was written and reverted during `onlooker-k7w` for leaving orphan history entries that broke Back for the whole session. `useBlocker` is unavailable — `main.tsx` mounts `BrowserRouter`, not a data router.
+- **`@testing-library/jest-dom` is NOT set up in this workspace.** `toHaveTextContent`, `toBeInTheDocument` and friends do not exist. Assert with plain DOM: `expect(el.textContent).toBe(...)`, `.toMatch(...)`, `expect(el).toBeTruthy()`. See `token-reveal.test.tsx:38` for the house style. Do not add the dependency to make a matcher work.
 - **American English** in every comment, identifier and user-facing string.
 - Commits: `<type>(<scope>): <subject> :emoji:`, **subject ≤72 characters including the emoji**, body wrapped at 80, why-focused, ending with a `Refs:` line naming the beads that task closes.
 - Never `git add -A` or `git add .` — stage intentionally.
@@ -58,7 +59,7 @@
 - Create: `apps/web/src/reveal.tsx`, `apps/web/src/__tests__/reveal.test.tsx`
 
 **Interfaces:**
-- Produces: `interface MintedMachine { id: string; name: string; token: string }`, `RevealProvider({ children }: { children: ReactNode })`, `useReveal(): { revealed: MintedMachine | null; reveal: (m: MintedMachine) => void; dismiss: () => void }`, `RevealHost()`. Tasks 2–4 consume these.
+- Produces: `MintedMachine` (re-exported from `./api/machinesApi`, which already owns it), `RevealProvider({ children }: { children: ReactNode })`, `useReveal(): { revealed: MintedMachine | null; reveal: (m: MintedMachine) => void; dismiss: () => void }`, `RevealHost()`. Tasks 2–4 consume these.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -86,15 +87,15 @@ function Driver() {
 describe("reveal provider", () => {
 	it("starts with nothing revealed", () => {
 		render(<RevealProvider><Driver /></RevealProvider>);
-		expect(screen.getByTestId("state")).toHaveTextContent("closed");
+		expect(screen.getByTestId("state").textContent).toBe("closed");
 	});
 
 	it("holds a minted machine until dismissed", () => {
 		render(<RevealProvider><Driver /></RevealProvider>);
 		act(() => { screen.getByText("mint").click(); });
-		expect(screen.getByTestId("state")).toHaveTextContent("open");
+		expect(screen.getByTestId("state").textContent).toBe("open");
 		act(() => { screen.getByText("drop").click(); });
-		expect(screen.getByTestId("state")).toHaveTextContent("closed");
+		expect(screen.getByTestId("state").textContent).toBe("closed");
 	});
 
 	// The whole point of the provider. A component that unmounts and remounts -
@@ -107,7 +108,7 @@ describe("reveal provider", () => {
 		const { rerender } = render(<Swapper show={true} />);
 		act(() => { screen.getAllByText("mint")[0].click(); });
 		rerender(<Swapper show={false} />);
-		expect(screen.getByTestId("state")).toHaveTextContent("open");
+		expect(screen.getByTestId("state").textContent).toBe("open");
 	});
 
 	// Using the hook outside its provider is a wiring mistake that would
@@ -148,14 +149,14 @@ Expected: FAIL — `Failed to resolve import "../reveal"`.
 ```tsx
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import type { MintedMachine } from "./api/machinesApi";
 import TokenReveal from "./components/TokenReveal";
 
-/** What the mint endpoint hands back, and the only thing worth revealing. */
-export interface MintedMachine {
-	id: string;
-	name: string;
-	token: string;
-}
+// Re-exported, not redeclared. `api/machinesApi.ts` already owns this shape as
+// `createMachine`'s return type, and both TokenReveal and MachinesPage import
+// it from there. A structurally-identical second copy would typecheck happily
+// and drift the moment the API grows a field.
+export type { MintedMachine } from "./api/machinesApi";
 
 interface RevealValue {
 	revealed: MintedMachine | null;
@@ -263,9 +264,9 @@ it("clears the reveal when the user is no longer signed in", () => {
 	}
 	const { rerender } = render(<Harness signedIn={true} />);
 	act(() => { screen.getByText("mint").click(); });
-	expect(screen.getByTestId("state")).toHaveTextContent("open");
+	expect(screen.getByTestId("state").textContent).toBe("open");
 	rerender(<Harness signedIn={false} />);
-	expect(screen.getByTestId("state")).toHaveTextContent("closed");
+	expect(screen.getByTestId("state").textContent).toBe("closed");
 });
 ```
 
@@ -507,8 +508,8 @@ it("moves focus to the row after a revoke instead of dropping it", async () => {
 // do not reliably announce.
 it("keeps a status region mounted before it has anything to announce", () => {
 	renderPage();
-	expect(screen.getByRole("status")).toBeInTheDocument();
-	expect(screen.getByRole("status")).toHaveTextContent("");
+	expect(screen.getByRole("status")).toBeTruthy();
+	expect(screen.getByRole("status").textContent).toBe("");
 });
 
 it("names the machine it revoked", async () => {
@@ -516,7 +517,7 @@ it("names the machine it revoked", async () => {
 	fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
 	fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
 	await waitFor(() => {
-		expect(screen.getByRole("status")).toHaveTextContent(/work laptop/i);
+		expect(screen.getByRole("status").textContent).toMatch(/work laptop/i);
 	});
 });
 ```
