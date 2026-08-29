@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PALETTE } from "../components/palette";
-import { Button, Chip, EmptyState, Panel, StatusBadge } from "../components/ui";
+import {
+	Button,
+	Chip,
+	EmptyState,
+	Panel,
+	Plate,
+	StatusBadge,
+} from "../components/ui";
 
 // The display half of the split form.tsx anticipated. These are the primitives
 // the lessons and machines pages are built from; the assertions here are the
@@ -98,6 +105,32 @@ describe("StatusBadge", () => {
 	});
 });
 
+describe("Plate", () => {
+	it("fills with the teal plate, not red, for a live-tone icon", () => {
+		const { container } = render(<Plate tone="teal" icon="Key" />);
+		expect((container.firstElementChild as HTMLElement).style.background).toBe(
+			PALETTE.plateTeal,
+		);
+	});
+
+	it("fills with the red plate for a not-live-tone icon", () => {
+		const { container } = render(<Plate tone="red" icon="Key" />);
+		expect((container.firstElementChild as HTMLElement).style.background).toBe(
+			PALETTE.plateRed,
+		);
+	});
+
+	// The box a bordered plate actually occupies is its declared width PLUS
+	// the border - nothing in this project sets box-sizing: border-box - so a
+	// 16px icon's plate is 28px of fill, not the 32px total box it renders in.
+	it("sizes its fill to the icon plus 12px, regardless of the border", () => {
+		const { container } = render(<Plate tone="teal" icon="Key" size={48} />);
+		const plate = container.firstElementChild as HTMLElement;
+		expect(plate.style.width).toBe("60px");
+		expect(plate.style.height).toBe("60px");
+	});
+});
+
 describe("Chip", () => {
 	it("renders its label", () => {
 		render(<Chip>typescript</Chip>);
@@ -153,5 +186,24 @@ describe("EmptyState", () => {
 	it("renders no button when it has no action", () => {
 		render(<EmptyState title="No retracted lessons" />);
 		expect(screen.queryByRole("button")).toBeNull();
+	});
+
+	// `icon` alone renders bare - the illustration's own color is assumed
+	// legible. `tone` opts into a `Plate` instead, for the icons that measure
+	// below 3:1 against `--ground` on their own. Without a plate an icon this
+	// large is a dark smudge in the default theme, not an illustration.
+	it("plates its icon when a tone is given", () => {
+		const { container } = render(
+			<EmptyState
+				title="Nothing has synced yet"
+				icon="ChestTreasure"
+				tone="teal"
+			>
+				Connect a machine.
+			</EmptyState>,
+		);
+		const plate = container.querySelector("span");
+		expect(plate).not.toBeNull();
+		expect((plate as HTMLElement).style.background).toBe(PALETTE.plateTeal);
 	});
 });

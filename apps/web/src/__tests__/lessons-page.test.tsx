@@ -1000,8 +1000,13 @@ describe("the visual language", () => {
 		withPool([VITE, D1]);
 		await at("/lessons");
 		await screen.findByText(VITE.claim);
-		// Two rows in the list, plus the detail pane's placeholder shows none.
-		const icons = document.querySelectorAll("img.pixel-icon");
+		// Scoped to the rows' own <nav>, not the whole document: `at()` mounts
+		// the real App, and AppShell alone renders 5 chrome icons unconditionally
+		// - a count taken off `document` would still pass even with every row
+		// plate deleted.
+		const icons = screen
+			.getByRole("navigation", { name: "Lessons" })
+			.querySelectorAll("img.pixel-icon");
 		expect(icons.length).toBeGreaterThanOrEqual(2);
 		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
 		// so NodeListOf<Element> is not directly iterable under this tsconfig.
@@ -1015,7 +1020,10 @@ describe("the visual language", () => {
 		withPool([VITE]);
 		await at(`/lessons/${VITE.id}`);
 		await screen.findByRole("heading", { name: VITE.claim });
-		for (const img of Array.from(document.querySelectorAll("img.pixel-icon"))) {
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		// Without this the loop below passes vacuously if nothing rendered.
+		expect(icons.length).toBeGreaterThan(0);
+		for (const img of icons) {
 			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
 		}
 	});
@@ -1029,6 +1037,27 @@ describe("the visual language", () => {
 		expect(
 			screen.getByRole("heading", { name: /why it was trusted/i }),
 		).toBeDefined();
+	});
+
+	// h1 -> h2 -> h3, not h1 -> h2 -> h2: without this, everything a panel is
+	// grouping - Stack, Scope, Consensus, Provenance - reads as a SIBLING of
+	// the panel titling it rather than something inside it, reproducing the
+	// flatness this restructure exists to fix, one level down.
+	it("nests the detail pane's headings without a skip", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			(await screen.findByRole("heading", { name: VITE.claim })).tagName,
+		).toBe("H1");
+		expect(screen.getByRole("heading", { name: /applies to/i }).tagName).toBe(
+			"H2",
+		);
+		expect(
+			screen.getByRole("heading", { name: /why it was trusted/i }).tagName,
+		).toBe("H2");
+		expect(screen.getByRole("heading", { name: /^stack$/i }).tagName).toBe(
+			"H3",
+		);
 	});
 
 	// Retraction reaches every mirror on its next delta pull, so the evidence

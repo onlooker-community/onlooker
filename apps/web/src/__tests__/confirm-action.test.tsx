@@ -84,11 +84,35 @@ describe("ConfirmAction", () => {
 		);
 	});
 
-	it("does not fire while pending", () => {
-		const { onConfirm } = setup({ pending: true });
+	// Arms while NOT pending, then rerenders pending true - not `setup({
+	// pending: true })`, which starts pending before anything is armed. That
+	// leaves the trigger disabled and the confirm button never mounted, so
+	// the click below would find nothing to press and the assertion would
+	// hold without ever exercising the guard it names.
+	it("does not fire when the confirm button is clicked while pending", () => {
+		const onConfirm = vi.fn();
+		const { rerender } = render(
+			<ConfirmAction
+				trigger="Retract"
+				question="Sure?"
+				confirmLabel="Yes, retract"
+				onConfirm={onConfirm}
+				pending={false}
+			/>,
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Retract" }));
-		const confirm = screen.queryByRole("button", { name: "Yes, retract" });
-		if (confirm) fireEvent.click(confirm);
+		const confirm = screen.getByRole("button", { name: "Yes, retract" });
+
+		rerender(
+			<ConfirmAction
+				trigger="Retract"
+				question="Sure?"
+				confirmLabel="Yes, retract"
+				onConfirm={onConfirm}
+				pending={true}
+			/>,
+		);
+		fireEvent.click(confirm);
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
 });

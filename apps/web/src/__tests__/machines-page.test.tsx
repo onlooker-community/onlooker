@@ -285,7 +285,10 @@ describe("MachinesPage", () => {
 		withMachines(USED, NEVER_USED, REVOKED);
 		await renderPage();
 		await screen.findByText(USED.name);
-		for (const img of Array.from(document.querySelectorAll("img.pixel-icon"))) {
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		// Without this the loop below passes vacuously if nothing rendered.
+		expect(icons.length).toBeGreaterThan(0);
+		for (const img of icons) {
 			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
 		}
 	});
