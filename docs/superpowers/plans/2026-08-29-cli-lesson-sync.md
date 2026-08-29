@@ -1251,10 +1251,39 @@ Body: why the sync keeps no state, why an invalid lesson is skipped rather than 
 
 **Files:**
 - Create: `apps/cli/src/commands/status.ts`, `apps/cli/src/main.ts`, `apps/cli/src/__tests__/status.test.ts`
+- Modify: `apps/cli/tsconfig.json` (add `target`; see Step 0)
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–5.
 - Produces: `status(deps: StatusDeps): Promise<string>`; `main.ts` as the bundle's entry point.
+
+- [ ] **Step 0: Give the package a compile target**
+
+`main.ts` ends with `process.exitCode = await run(process.argv)` — a top-level
+await. The shared base config sets no `target`, so `tsc` defaults to ES5 and
+rejects it:
+
+```
+error TS1378: Top-level 'await' expressions are only allowed when the 'module'
+option is set to 'es2022', 'esnext', ... and the 'target' option is set to
+'es2017' or higher.
+```
+
+Measured before this task was written, not predicted. Add one line to
+`apps/cli/tsconfig.json`, above `"module"`:
+
+```json
+		"target": "ES2023",
+```
+
+`ES2023` rather than the `es2017` minimum, because `lib` already says `ES2023`
+and the esbuild build targets `node20` — a lower `target` would let `tsc` accept
+syntax the bundle then has to down-level for no reason. Verified: with this line
+the same file typechecks clean.
+
+Do not instead rewrite `main.ts` to avoid the top-level await. The await is how
+the exit code gets set before the process ends, and an IIFE wrapper would hide
+that behind a floating promise.
 
 - [ ] **Step 1: Write the failing test**
 
