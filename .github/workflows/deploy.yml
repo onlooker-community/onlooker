@@ -329,6 +329,16 @@ jobs:
             echo "deployable=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A force-push to main names a real-looking commit in
+          # `github.event.before` that no longer exists in this clone. `git
+          # diff` against a missing object is a hard error, and under `bash -e`
+          # that fails the step and blocks every deploy behind it - the one
+          # outcome this filter is supposed to prevent. An unreachable base gets
+          # the same answer as a missing one: deploy rather than guess.
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
           echo "$CHANGED"
           if echo "$CHANGED" | grep -qE '^(apps/(api|web|website)/|packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml)'; then

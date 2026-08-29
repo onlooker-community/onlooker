@@ -26,6 +26,15 @@ jobs:
       # first third-party dependency.
       - run: npm install -g pnpm@11.0.9
       - run: pnpm install --frozen-lockfile
+
+      # A tag can point at any commit, including one that never passed
+      # deploy.yml. What ships from here is a Homebrew formula, so an untested
+      # build lands on users' machines and stays there until someone notices.
+      # The whole workspace, not just the CLI: it bundles the lesson contract,
+      # and a break in that surfaces here as a lesson the API refuses.
+      - name: Test
+        run: pnpm test
+
       - run: pnpm --filter @onlooker/cli build
 
       - name: Package
