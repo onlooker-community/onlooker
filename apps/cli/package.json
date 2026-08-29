@@ -1,0 +1,25 @@
+{
+	"name": "@onlooker/cli",
+	"version": "2.0.0",
+	"private": true,
+	"type": "module",
+	"bin": { "onlooker": "./dist/onlooker.mjs" },
+	"scripts": {
+		"build": "esbuild src/main.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/onlooker.mjs --banner:js='#!/usr/bin/env node'",
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"clean": "rimraf dist node_modules .turbo"
+	},
+	"dependencies": {
+		"@onlooker-community/lesson-contract": "workspace:*"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"esbuild": "0.28.1",
+		"typescript": "^5.6.3",
+		"vitest": "^4.1.9"
+	}
+}

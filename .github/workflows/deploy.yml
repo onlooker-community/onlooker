@@ -301,15 +301,69 @@ jobs:
         run: pnpm test
 
   # ============================================================================
+  # WHICH SURFACES CHANGED
+  # ============================================================================
+  changes:
+    name: Which surfaces changed
+    runs-on: ubuntu-latest
+    outputs:
+      deployable: ${{ steps.filter.outputs.deployable }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Needed to diff against the pre-push commit; the default shallow
+          # fetch does not have it.
+          fetch-depth: 0
+
+      - name: Decide whether anything deployable changed
+        id: filter
+        run: |
+          # A plain diff rather than a third-party paths-filter action: every
+          # other action in this workflow is an official actions/* one, and
+          # this is a dozen lines of shell.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to the branch, or a force-push with no usable base.
+            # Deploy rather than guess: a redundant deploy is cheap, a skipped
+            # one ships nothing.
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A force-push to main names a real-looking commit in
+          # `github.event.before` that no longer exists in this clone. `git
+          # diff` against a missing object is a hard error, and under `bash -e`
+          # that fails the step and blocks every deploy behind it - the one
+          # outcome this filter is supposed to prevent. An unreachable base gets
+          # the same answer as a missing one: deploy rather than guess.
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '^(apps/(api|web|website)/|packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml)'; then
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deployable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ============================================================================
   # DEPLOY TO STAGING
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, changes]
     # Staging tracks main. There is no long-lived staging branch to keep in sync,
     # and production below will not run unless this succeeds first.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    #
+    # `changes.deployable` keeps a CLI-only merge from redeploying the API, web
+    # and website with identical code - which matters because
+    # concurrency.cancel-in-progress can cancel a deploy already in flight.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event_name == 'push'
+      && needs.changes.outputs.deployable == 'true'
     environment:
       name: staging
       url: https://app-staging.onlooker.dev

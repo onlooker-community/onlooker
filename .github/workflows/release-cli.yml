@@ -1,0 +1,68 @@
+name: Release CLI
+
+# Tag-driven and separate from deploy.yml on purpose: shipping the CLI must
+# never start a Cloudflare deploy, and a Cloudflare deploy must never cut a
+# CLI release.
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # pnpm is installed the way deploy.yml installs it, not via
+      # pnpm/action-setup. Every action in this repository is an official
+      # actions/* one, and a release workflow is a poor place to introduce the
+      # first third-party dependency.
+      - run: npm install -g pnpm@11.0.9
+      - run: pnpm install --frozen-lockfile
+
+      # A tag can point at any commit, including one that never passed
+      # deploy.yml. What ships from here is a Homebrew formula, so an untested
+      # build lands on users' machines and stays there until someone notices.
+      # The whole workspace, not just the CLI: it bundles the lesson contract,
+      # and a break in that surfaces here as a lesson the API refuses.
+      - name: Test
+        run: pnpm test
+
+      - run: pnpm --filter @onlooker/cli build
+
+      - name: Package
+        id: package
+        run: |
+          VERSION="${GITHUB_REF_NAME#cli-v}"
+          tar -czf "onlooker-${VERSION}.tar.gz" -C apps/cli/dist onlooker.mjs
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 "onlooker-${VERSION}.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "onlooker-${{ steps.package.outputs.version }}.tar.gz" \
+            --title "CLI ${{ steps.package.outputs.version }}" \
+            --notes "Push approved lessons to app.onlooker.dev."
+
+      - name: Write the formula
+        run: |
+          node scripts/write-formula.mjs \
+            "${{ steps.package.outputs.version }}" \
+            "https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/onlooker-${{ steps.package.outputs.version }}.tar.gz" \
+            "${{ steps.package.outputs.sha256 }}" > onlooker.rb
+          cat onlooker.rb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formula
+          path: onlooker.rb
