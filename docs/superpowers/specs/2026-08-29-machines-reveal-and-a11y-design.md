@@ -94,8 +94,11 @@ rather than inline in the page. The portal is what makes Section 3 possible.
 `App` wraps `<Routes>` in an `ErrorBoundary` that takes `resetKey={location.pathname}`
 rather than `key={location.pathname}`. `resetKey` clears caught state without
 remounting; `key` would remount the whole subtree on every navigation — which
-would unmount the provider and bring `onlooker-1bz` straight back, with every
-test below still passing except the route-change one. That `key` → `resetKey`
+would unmount the provider and bring `onlooker-1bz` straight back. Measured on
+2026-08-29: a revert to `key=` fails exactly one test, and it is not one of
+this design's — it is `"does not refetch the pool when clicking from one lesson
+to another"` in `lessons-page.test.tsx`, from unrelated earlier work. The
+dependency is therefore guarded only coincidentally, from another feature. That `key` → `resetKey`
 change was made during `onlooker-yfw` for an unrelated reason. Anyone reverting
 it breaks this. Verified on 2026-08-29 that `App.tsx:31` still reads `resetKey`.
 

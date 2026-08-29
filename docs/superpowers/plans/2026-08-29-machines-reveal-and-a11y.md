@@ -47,7 +47,9 @@
 
 **`inert={isOpen}` will pass review and do nothing.** See Global Constraints. If you write it the natural way, the attribute never renders and Task 3's test is the only thing standing between that and a shipped no-op. Do not weaken that test to make it pass.
 
-**The provider's placement depends on something unrelated.** `App` wraps `<Routes>` in an `ErrorBoundary` using `resetKey={location.pathname}` rather than `key=`. With `key=`, the subtree remounts on every navigation, the provider goes with it, and `onlooker-1bz` returns with every test green except one. That was verified on 2026-08-29 at `App.tsx:31`. If you find `key=` there, stop and say so — the plan is built on `resetKey`.
+**The provider's placement depends on something unrelated.** `App` wraps `<Routes>` in an `ErrorBoundary` using `resetKey={location.pathname}` rather than `key=`. With `key=`, the subtree remounts on every navigation, the provider goes with it, and `onlooker-1bz` returns. Verified on 2026-08-29 at `App.tsx:31`. If you find `key=` there, stop and say so — the plan is built on `resetKey`.
+
+**Measured, because the first draft of this plan guessed wrong about it:** reverting to `key=` today fails exactly one test — `"does not refetch the pool when clicking from one lesson to another"` in `lessons-page.test.tsx`, from unrelated earlier work. **No test in this plan catches it.** The reveal route-change test uses its own harness rather than the real `App` tree, so it cannot. The dependency is guarded, but only coincidentally and from another feature; if that lessons test ever goes, this becomes unguarded and nothing here would notice.
 
 **Existing tests render `<MachinesPage />` bare.** Once the page reads from the provider they need wrapping. Wrap them; do not add a fallback to local state so they keep passing. A component that works without its provider is a component whose provider can be silently removed.
 
