@@ -1,5 +1,5 @@
 /**
- * The hosted API, and the four things going wrong can mean.
+ * The hosted API, and the four things a failure can mean.
  *
  * The CLI this replaces mapped every status >= 400 to one error string and let
  * its caller retry on all of them. A 404 was therefore indistinguishable from a
@@ -43,7 +43,13 @@ export function classify(status: number, url: string, body: unknown): Failure {
 	if (status === 429 || status >= 500) {
 		return {
 			kind: "transient",
-			message: `The API answered ${status}. Nothing was lost - run the command again.`,
+			// The API's own explanation, when it gave one. "Retry in 30s" and
+			// "upstream database unavailable" are both a 429 or a 503, and
+			// dropping the sentence that tells them apart leaves the user with a
+			// number to look up.
+			message: detail
+				? `The API answered ${status}: ${detail}. Nothing was lost - run the command again.`
+				: `The API answered ${status}. Nothing was lost - run the command again.`,
 		};
 	}
 	if (status === 404) {

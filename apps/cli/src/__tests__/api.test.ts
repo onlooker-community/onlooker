@@ -42,6 +42,19 @@ describe("classify", () => {
 	it("calls 429 transient rather than terminal", () => {
 		expect(classify(429, URL_, {}).kind).toBe("transient");
 	});
+
+	// The `rejected` branch surfaces the API's own sentence and the transient
+	// one used to drop it, leaving a bare status code to go look up. "Retry
+	// after 30s" and "upstream database unavailable" are both a retry, but they
+	// are not the same wait.
+	it("surfaces the API's own message on a transient failure too", () => {
+		const f = classify(429, URL_, {
+			error: { code: "rate_limited", message: "Retry after 30s" },
+		});
+		expect(f.kind).toBe("transient");
+		expect(f.message).toContain("Retry after 30s");
+		expect(f.message).toMatch(/again/i);
+	});
 });
 
 describe("createClient", () => {
