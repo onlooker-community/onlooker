@@ -150,6 +150,52 @@ export function Panel({
 }
 
 /**
+ * The safe ground for an icon: a filled square, teal or red, behind it. A
+ * plate's fill is one of exactly two colors and neither shifts with the
+ * theme, which is what makes it a reliable ground for an icon whose own
+ * dominant color does not - measured - clear 3:1 against `--ground` or
+ * `--panel` in every theme. See the design spec's icon-ground rule. Row
+ * plates (status, live/revoked) and a plated empty-state illustration are
+ * the same shape at different scales, which is why this is one component
+ * rather than three copies of the same four facts.
+ *
+ * `size` names the ICON, not the plate: the plate is `size + 12`px inside
+ * its 2px `plateInk` border, so a 16px icon sits inside a 32px box and a
+ * 48px icon inside a 64px box - both land on the 4px spacing grid. Nothing
+ * in `apps/web` or `packages/brand` sets `box-sizing: border-box`, so that
+ * border ADDS to the declared width rather than eating into it - the box a
+ * 16px icon renders in is 28px of fill plus a 2px border on each side, 32px
+ * total, not the 28px its own inner width alone would suggest.
+ */
+export function Plate({
+	tone,
+	icon,
+	size = 16,
+}: {
+	tone: "teal" | "red";
+	icon: IconName;
+	size?: 16 | 32 | 48;
+}) {
+	const inner = `${size + 12}px`;
+	return (
+		<span
+			style={{
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				flex: "none",
+				width: inner,
+				height: inner,
+				background: tone === "teal" ? PALETTE.plateTeal : PALETTE.plateRed,
+				border: `2px solid ${PALETTE.plateInk}`,
+			}}
+		>
+			<Icon name={icon} size={size} />
+		</span>
+	);
+}
+
+/**
  * The state the pool is in at launch, and the one it returns to whenever a
  * fetch fails. Designed rather than defaulted: an empty filter result and an
  * empty pool say different things, so the caller supplies both the title and
@@ -158,12 +204,20 @@ export function Panel({
 export function EmptyState({
 	title,
 	icon,
+	tone,
 	children,
 	action,
 }: {
 	title: string;
 	/** Decorative - the title right beside it already says what's empty. */
 	icon?: IconName;
+	/**
+	 * Render `icon` on a `Plate` of this tone instead of bare. Needed
+	 * whenever the icon's own dominant color does not clear 3:1 against the
+	 * page - see `Plate`'s doc comment and the design spec's icon-ground
+	 * rule - which a 48px illustration is large enough to fail on its own.
+	 */
+	tone?: "teal" | "red";
 	children?: ReactNode;
 	action?: { label: string; onClick: () => void };
 }) {
@@ -177,7 +231,11 @@ export function EmptyState({
 		>
 			{icon ? (
 				<div style={{ display: "flex", justifyContent: "center" }}>
-					<Icon name={icon} size={48} />
+					{tone ? (
+						<Plate tone={tone} icon={icon} size={48} />
+					) : (
+						<Icon name={icon} size={48} />
+					)}
 				</div>
 			) : null}
 			<h2

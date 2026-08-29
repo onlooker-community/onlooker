@@ -15,10 +15,9 @@ import {
 } from "../api/machinesApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
-import { Icon } from "../components/Icon";
 import { PALETTE } from "../components/palette";
 import TokenReveal from "../components/TokenReveal";
-import { Chip, EmptyState, Panel } from "../components/ui";
+import { Chip, EmptyState, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 
@@ -34,25 +33,6 @@ const row: CSSProperties = {
 	padding: "var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
 };
-
-/**
- * The row's leading marker, at the same 28px scale as LessonsPage's
- * statusPlate: teal for a live key, red for one that has been revoked. A
- * never-used machine is still live - the plate says so - it just hasn't
- * spoken yet, which is what the Sleep icon inside it says instead.
- */
-function machinePlate(machine: Machine): CSSProperties {
-	return {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		flex: "none",
-		width: "28px",
-		height: "28px",
-		background: machine.revoked_at ? PALETTE.plateRed : PALETTE.plateTeal,
-		border: `2px solid ${PALETTE.plateInk}`,
-	};
-}
 
 /**
  * Key for a live or revoked machine, Sleep for one that has never phoned
@@ -208,9 +188,10 @@ export default function MachinesPage() {
 					<Panel title="Your machines">
 						{machines.map((machine) => (
 							<div key={machine.id} style={row}>
-								<span style={machinePlate(machine)}>
-									<Icon name={machineIcon(machine)} />
-								</span>
+								<Plate
+									tone={machine.revoked_at ? "red" : "teal"}
+									icon={machineIcon(machine)}
+								/>
 								<span style={{ minWidth: 0, flex: 1 }}>
 									<span
 										style={{

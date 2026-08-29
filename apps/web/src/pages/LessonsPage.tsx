@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
@@ -9,6 +8,7 @@ import {
 	Chip,
 	EmptyState,
 	Panel,
+	Plate,
 	STATUS_ICONS,
 	StatusBadge,
 } from "../components/ui";
@@ -81,25 +81,6 @@ const row = {
 	textDecoration: "none",
 	color: "var(--ink)",
 };
-
-/**
- * The row's leading marker: a 28px plate, teal for in-force and red for not -
- * the same in-force/not distinction StatusBadge's own plate makes, just at
- * the row's scale rather than the badge's. Status is readable before the
- * claim beside it is.
- */
-function statusPlate(status: LessonStatus): CSSProperties {
-	return {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		flex: "none",
-		width: "28px",
-		height: "28px",
-		background: status === "active" ? PALETTE.plateTeal : PALETTE.plateRed,
-		border: `2px solid ${PALETTE.plateInk}`,
-	};
-}
 
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
@@ -378,7 +359,11 @@ export default function LessonsPage() {
 							Nothing in the pool holds that status right now.
 						</EmptyState>
 					) : (
-						<EmptyState title="Nothing has synced yet" icon="ChestTreasure">
+						<EmptyState
+							title="Nothing has synced yet"
+							icon="ChestTreasure"
+							tone="teal"
+						>
 							Lessons arrive when a machine pushes them.{" "}
 							{/*
 							  A link and not EmptyState's action button. The button
@@ -409,9 +394,10 @@ export default function LessonsPage() {
 											: "4px solid transparent",
 									})}
 								>
-									<span style={statusPlate(lesson.status)}>
-										<Icon name={STATUS_ICONS[lesson.status]} />
-									</span>
+									<Plate
+										tone={lesson.status === "active" ? "teal" : "red"}
+										icon={STATUS_ICONS[lesson.status]}
+									/>
 									<span style={{ minWidth: 0, flex: 1 }}>
 										<span
 											style={{

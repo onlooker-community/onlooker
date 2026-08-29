@@ -32,14 +32,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div style={{ marginBottom: "1rem" }}>
 			{/*
-			  h2, not h3: the two panels wrapping this each carry their own h2
-			  title (Applies to / Why it was trusted), so this stays a sibling
-			  h2 rather than nesting under it - h1 (the claim) -> h2 throughout,
-			  in both panels, with no skip. The font size is an explicit inline
-			  style below, so this is a semantic-only change - nothing here
-			  should look different.
+			  h3, not h2: `Field` only ever renders inside a titled `Panel`
+			  (Applies to / Why it was trusted), and that title is itself the
+			  h2. Nesting this under it as an h3 is correct document order -
+			  h1 (the claim) -> h2 (the panel) -> h3 (the field) - not a skip.
+			  The font size is an explicit inline style below, so this is a
+			  semantic-only change - nothing here should look different.
 			*/}
-			<h2
+			<h3
 				style={{
 					margin: "0 0 0.35rem",
 					fontFamily: "var(--font-data)",
@@ -50,7 +50,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 				}}
 			>
 				{label}
-			</h2>
+			</h3>
 			{children}
 		</div>
 	);
@@ -85,9 +85,15 @@ export default function LessonDetail() {
 	} | null>(null);
 	// Bumped whenever a transition settles for the lesson still on screen -
 	// success or failure alike. ConfirmAction owns "armed" internally now, so
-	// this is what stands in for the old `setConfirming(false)`: folded into
-	// ConfirmAction's key below, it forces a fresh, unarmed instance the same
-	// way a lesson change does.
+	// this is what stands in for the old `setConfirming(false)`: paired with
+	// `id` into `resetToken` below, a change in either disarms ConfirmAction
+	// without remounting it - `resetToken` exists precisely so the instance
+	// stays alive and focus lands back on the trigger, rather than being
+	// destroyed and rebuilt the way a fresh `key` would. Counts settlements
+	// across the whole page's lifetime, not per lesson: it is never reset
+	// when `id` changes, so a stale count from a previous lesson can share a
+	// value with a fresh one on a new lesson - `id` is the other half of the
+	// pairing precisely because this alone cannot disambiguate that case.
 	const [settleCount, setSettleCount] = useState(0);
 
 	// The id in scope right now, read from inside `transition`'s async

@@ -90,7 +90,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 								textTransform: "uppercase",
 								textDecoration: "none",
 								// Underline rather than color alone, so the
-								// current section is not signalled only by hue.
+								// current section is not signaled only by hue.
 								borderBottom: isActive
 									? `2px solid ${PALETTE.accent}`
 									: "2px solid transparent",
