@@ -85,8 +85,12 @@ project.
 
 **Nothing writes to `approved/` yet, and that is the largest fact in this
 document.** `librarian_lesson_storage_init` creates the directory, but the
-storage script marks the promotion step as *"written by 4z8.4"* — an unbuilt
-issue in the ecosystem repository. Measured on the same machine: sixteen project
+storage script marks the promotion step as *"written by 4z8.4"*, which this
+spec misread as an unbuilt issue. **It shipped on 2026-08-13** in ecosystem
+PR #146: `librarian-lesson-promote.sh` exists and `librarian-cli.sh` exposes
+`judge`, `promote`, `accept` and `reject`. Promotion is manual rather than
+automatic, and nothing has been judged yet - which is a different problem, and
+a much smaller one. Measured on the same machine: sixteen project
 directories, exactly one with a `lessons/` subtree, containing `proposals/` only.
 Two proposals, zero approved lessons.
 
@@ -105,7 +109,8 @@ mint a ULID, stamp `promoted_at` — even though `librarian-lesson-judge.sh` and
 `librarian-author-key.sh` already exist to help.
 
 **The consequence, accepted deliberately:** this CLI will sync zero lessons until
-`4z8.4` ships, and the pool will stay empty. It is built now anyway because it is
+someone judges and promotes a real lesson - not until code is written, as this
+spec first assumed. It is built now because it is
 small, correct, and ready the moment promotion lands; because it is verifiable
 end-to-end today against a hand-written fixture (Section 7); and because the
 alternative is blocking a self-contained piece of work in this repository on a
@@ -359,8 +364,8 @@ sixteen project directories it was measured against.
 **Whether a `SessionEnd` hook should call `sync`:** not yet, and the trigger was
 wrong anyway. Sync has something to do only after a proposal is *promoted*, which
 `SessionEnd` does not do and which nothing currently does at all (Section 0). A
-hook belongs with the promotion step, in the ecosystem repository, once `4z8.4`
-exists — attaching one now would fire on every session end to find an empty
+hook belongs with the promotion step, in the ecosystem repository, alongside
+the `promote` command that already exists — attaching one now would fire on every session end to find an empty
 directory.
 
 One thing to watch during implementation rather than decide now: the fixture in
