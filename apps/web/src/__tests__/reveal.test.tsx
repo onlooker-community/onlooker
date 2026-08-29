@@ -103,24 +103,9 @@ describe("reveal provider", () => {
 		expect(container.contains(dialog)).toBe(false);
 	});
 
-	// Logout is the one thing that must end a reveal and does NOT come free from
-	// the provider's placement: AuthProvider sits above it, so nothing propagates
-	// down. A credential left on screen after a deliberate sign-out is not
-	// acceptable, and this is the only test that would notice.
-	it("clears the reveal when the user is no longer signed in", () => {
-		function Harness({ signedIn }: { signedIn: boolean }) {
-			return (
-				<RevealProvider signedIn={signedIn}>
-					<Driver />
-				</RevealProvider>
-			);
-		}
-		const { rerender } = render(<Harness signedIn={true} />);
-		act(() => {
-			screen.getByText("mint").click();
-		});
-		expect(screen.getByTestId("state").textContent).toBe("open");
-		rerender(<Harness signedIn={false} />);
-		expect(screen.getByTestId("state").textContent).toBe("closed");
-	});
+	// A logout must end a reveal and a session expiry must not, but the provider
+	// cannot tell them apart - both null `user` through the same code path - so
+	// it is deliberately not the thing that decides. The two deliberate-logout
+	// call sites dismiss it themselves, and reveal-across-the-app.test.tsx is
+	// where both halves are held, against the real App tree rather than here.
 });

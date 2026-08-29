@@ -18,7 +18,6 @@ import { RevealHost, RevealProvider } from "./reveal";
 
 export default function App() {
 	const location = useLocation();
-	const { user } = auth.useAuth();
 
 	// Inside the router, so the fallback's links work and a broken page does not
 	// strand the session - BrowserRouter lives in main.tsx, above this.
@@ -45,12 +44,15 @@ export default function App() {
 			}
 		>
 			{/*
-			  Below AuthProvider, above Routes: below so a logout can clear a
-			  reveal, above so neither a route change nor RequireAuth's
+			  Above Routes, so neither a route change nor RequireAuth's
 			  session-expiry redirect can unmount it and take the token with
-			  it. See reveal.tsx for the full story.
+			  it. It reads no auth state at all: session expiry nulls `user`
+			  through the same path a logout does, so the two are
+			  indistinguishable from here, and only one of them may end a
+			  reveal. The Sign out buttons dismiss it themselves. See
+			  reveal.tsx for the full story.
 			*/}
-			<RevealProvider signedIn={Boolean(user)}>
+			<RevealProvider>
 				<Routes>
 					<Route path="/" element={<HomePage />} />
 					<Route path="/login" element={<LoginPage />} />

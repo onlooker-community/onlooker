@@ -37,9 +37,18 @@ const SECTIONS = [
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
 	const navigate = useNavigate();
-	const { revealed } = useReveal();
+	const { revealed, dismiss } = useReveal();
 
 	const handleLogout = async () => {
+		// Explicitly, and before the logout lands. The provider deliberately
+		// watches no auth state - it cannot tell a sign-out from a session
+		// expiry, and only this one may take a live credential off the screen.
+		//
+		// `inert` below puts this button out of reach while a reveal is open,
+		// so on a browser that implements inert this is defense in depth. On
+		// one that does not - it ignores the attribute rather than failing -
+		// the button is live and this is the only thing that clears the token.
+		dismiss();
 		await logout();
 		navigate("/");
 	};

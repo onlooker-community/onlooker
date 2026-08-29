@@ -2,7 +2,6 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
-	useEffect,
 	useMemo,
 	useState,
 } from "react";
@@ -27,35 +26,31 @@ const RevealContext = createContext<RevealValue | null>(null);
 /**
  * Holds the one machine token that has been revealed but not yet dismissed.
  *
- * Mounted below `AuthProvider` and above `<Routes>`, deliberately. Below, so a
- * logout can clear it; above, so neither a route change nor `RequireAuth`'s
- * redirect on session expiry can unmount it. The token was previously held in
- * `MachinesPage`, which meant any of those destroyed it - a credential shown
- * exactly once, recoverable only by revoking the machine and minting another.
+ * Mounted above `<Routes>`, deliberately: neither a route change nor
+ * `RequireAuth`'s redirect on session expiry can unmount it. The token was
+ * previously held in `MachinesPage`, which meant any of those destroyed it - a
+ * credential shown exactly once, recoverable only by revoking the machine and
+ * minting another.
+ *
+ * Nothing here watches the auth state, and that is the point. A session expiry
+ * nulls `user` through the very same code path a deliberate logout takes -
+ * `expireSession` -> `requestLocalLogout` -> `performLogout({callApi:false})`
+ * -> `resetState` - so an effect keyed on "is someone signed in" cannot tell
+ * the two apart, and would end the reveal on the one signal that must never
+ * end it: the proactive refresh failing while the person is in their password
+ * manager, taking the token off a screen nobody touched.
+ *
+ * A deliberate sign-out does have to clear it, so the two places that call
+ * `logout()` - `AppShell`'s Sign out and `SettingsPage`'s account deletion -
+ * call `dismiss()` first. An explicit call at a deliberate gesture, rather
+ * than an inference from state that has two causes.
  *
  * In memory only. A reload still loses it, and `beforeunload` warns first;
  * writing a live credential to storage to avoid a warning the user has already
  * seen would be a worse trade than the bug this fixes.
  */
-export function RevealProvider({
-	children,
-	signedIn = true,
-}: {
-	children: ReactNode;
-	/**
-	 * Passed in rather than read from `useAuth` so the provider can be tested
-	 * without an auth context, and so the dependency points one way.
-	 */
-	signedIn?: boolean;
-}) {
+export function RevealProvider({ children }: { children: ReactNode }) {
 	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
-
-	// AuthProvider is above this one, so a sign-out does not reach the state
-	// below it on its own. Without this, a deliberate logout would leave a live
-	// credential on screen.
-	useEffect(() => {
-		if (!signedIn) setRevealed(null);
-	}, [signedIn]);
 
 	const value = useMemo<RevealValue>(
 		() => ({
