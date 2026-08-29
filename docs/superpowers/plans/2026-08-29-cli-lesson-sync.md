@@ -1684,15 +1684,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '11.0.9'
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'pnpm'
 
+      # pnpm is installed the way deploy.yml installs it, not via
+      # pnpm/action-setup. Every action in this repository is an official
+      # actions/* one, and a release workflow is a poor place to introduce the
+      # first third-party dependency.
+      - run: npm install -g pnpm@11.0.9
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @onlooker/cli build
 
