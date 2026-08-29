@@ -6,17 +6,30 @@ import { createInterface, type Interface } from "node:readline";
  * `_writeToOutput` is readline's internal line-refresh hook rather than public
  * API, so its presence is checked instead of assumed - and checked *before* the
  * assignment, because assigning it would make any later check pass no matter
- * what. That ordering is the whole point: this prompt shipped once against
+ * what. The prompt has to be passed in because the hook is the only thing that
+ * can redraw it after readline's own clear. That ordering is the whole point: this prompt shipped once against
  * `node:readline/promises`, whose Interface has no such hook, and the override
  * landed as an own property nothing ever called. The token went to the screen
  * in clear text and the code that meant to hide it looked correct.
  */
-export function suppressEcho(rl: Interface): boolean {
+export function suppressEcho(rl: Interface, prompt: string): boolean {
 	const internals = rl as unknown as {
 		_writeToOutput?: (text: string) => void;
 	};
 	if (typeof internals._writeToOutput !== "function") return false;
-	internals._writeToOutput = () => {};
+	internals._writeToOutput = (text: string) => {
+		// Readline clears the whole line before every full refresh, and that
+		// clear goes straight to the output stream rather than through this
+		// hook. Swallowing everything therefore hides the typed characters and
+		// the prompt with them, leaving a person staring at a blank line with
+		// no idea the command is waiting - which is exactly what shipped in
+		// 2.0.0. A full refresh passes `prompt + input`, so redrawing just the
+		// prompt puts back what the clear removed. Anything else is the
+		// per-keystroke echo, which is the thing being hidden.
+		if (typeof text === "string" && text.startsWith(prompt)) {
+			process.stdout.write(prompt);
+		}
+	};
 	return true;
 }
 
@@ -31,6 +44,8 @@ export function suppressEcho(rl: Interface): boolean {
  * the callback Interface consults `_writeToOutput`, so only it can be told not
  * to echo. Verified under a pty on Node 24.13.0.
  */
+const PROMPT = "Machine token: ";
+
 export async function promptForToken(): Promise<string> {
 	if (!process.stdin.isTTY) {
 		const chunks: Buffer[] = [];
@@ -39,10 +54,10 @@ export async function promptForToken(): Promise<string> {
 	}
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	// The prompt is written before the override, deliberately: readline's own
-	// prompt rendering goes through the hook this is about to silence.
-	process.stdout.write("Machine token: ");
-	if (!suppressEcho(rl)) {
+	// The prompt goes to `question` rather than being written here, so readline
+	// knows it and passes it to the hook on every refresh. Writing it directly
+	// does not survive: readline clears the line before drawing.
+	if (!suppressEcho(rl, PROMPT)) {
 		// A visible warning is survivable; a silent leak is not. Someone told the
 		// token is on screen can revoke it. Someone not told cannot.
 		process.stdout.write(
@@ -60,7 +75,7 @@ export async function promptForToken(): Promise<string> {
 			// than a Node stack trace. Whichever listener fires first wins; the
 			// other resolve is a no-op.
 			rl.on("close", () => resolve(""));
-			rl.question("", resolve);
+			rl.question(PROMPT, resolve);
 		});
 	} finally {
 		rl.close();

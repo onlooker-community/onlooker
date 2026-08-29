@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { createInterface as createPromisesInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { suppressEcho } from "../prompt";
 
 /**
@@ -39,7 +39,7 @@ describe("suppressEcho", () => {
 
 	it("keeps typed characters off the output", async () => {
 		const h = harness(createInterface);
-		expect(suppressEcho(h.rl)).toBe(true);
+		expect(suppressEcho(h.rl, "Token: ")).toBe(true);
 		expect(await h.ask()).toBe("hunter2");
 		h.rl.close();
 		expect(h.seen()).not.toContain("hunter2");
@@ -54,8 +54,42 @@ describe("suppressEcho", () => {
 		const output = new PassThrough();
 		const rl = createPromisesInterface({ input, output, terminal: true });
 		expect(
-			suppressEcho(rl as unknown as ReturnType<typeof createInterface>),
+			suppressEcho(
+				rl as unknown as ReturnType<typeof createInterface>,
+				"Token: ",
+			),
 		).toBe(false);
 		rl.close();
+	});
+
+	// The 2.0.0 bug, in the shape that would have caught it. Readline clears the
+	// line before a full refresh, and that clear bypasses this hook - so a hook
+	// that swallows everything erases the prompt along with the typed text, and
+	// `onlooker link` sits there looking like it is doing nothing. Asserting the
+	// prompt is *still drawn* is the difference between hiding a credential and
+	// hiding the fact that the command wants one.
+	it("redraws the prompt that readline's clear removes", () => {
+		const written: string[] = [];
+		const fake = {
+			_writeToOutput: () => {},
+		} as unknown as ReturnType<typeof createInterface>;
+		const spy = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation((chunk: string | Uint8Array) => {
+				written.push(String(chunk));
+				return true;
+			});
+		try {
+			expect(suppressEcho(fake, "Token: ")).toBe(true);
+			const hook = (fake as unknown as { _writeToOutput: (s: string) => void })
+				._writeToOutput;
+			// A full refresh: prompt plus what has been typed so far.
+			hook("Token: hunter2");
+			// A per-keystroke echo, which must stay hidden.
+			hook("h");
+		} finally {
+			spy.mockRestore();
+		}
+		expect(written).toEqual(["Token: "]);
 	});
 });
