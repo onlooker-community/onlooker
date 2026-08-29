@@ -164,6 +164,16 @@ rule in nine files without anyone noticing.
 Minting a token and never pointing a plugin at it is the likeliest first-run
 failure in the product, and a sleeping key says that faster than a word does.
 
+**An icon's ground matters as much as its size.** The rules above govern
+size; they say nothing about the surface an icon sits on, which is how a
+48px illustration reached production at 1.42 contrast against `--ground` in
+the default theme - measurably legible in day mode, a dark smudge in night.
+The rule: an icon's dominant color must clear 3:1 against whatever it
+renders on. If it does not, put it on a `Plate` rather than choosing a
+different icon - a plate's fill is one of exactly two colors and neither
+shifts with the theme, which is what makes it a safe ground regardless of
+which theme is active.
+
 ---
 
 ## Section 3 — `/lessons` *(approved)*

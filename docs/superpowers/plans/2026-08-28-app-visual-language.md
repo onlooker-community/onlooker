@@ -1082,7 +1082,7 @@ Replace the flat stack of eight `Field` blocks with:
    - **Why it was trusted** (`Trophy`): consensus, what was observed, provenance.
 6. `ConfirmAction` last.
 
-Keep `Field` for the labels inside each panel; it becomes a panel-internal label rather than the page's whole structure. Its heading level stays `h2`, which keeps the document order `h1 → h2` with no skip.
+Keep `Field` for the labels inside each panel; it becomes a panel-internal label rather than the page's whole structure. Its heading level is `h3`, not `h2`: each `Panel` here carries a title, and that title renders as the `h2` — `Field`'s label then nests correctly beneath it as an `h3`, rather than sitting beside it as a sibling. (A skip is a level jumped over going down, e.g. `h1` straight to `h3` with no `h2` between; `h2` to `h3` is ordinary nesting, not one.)
 
 - [ ] **Step 4b: Give the shell its icons**
 
