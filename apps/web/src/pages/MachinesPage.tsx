@@ -10,16 +10,15 @@ import {
 	createMachine,
 	listMachines,
 	type Machine,
-	type MintedMachine,
 	revokeMachine,
 } from "../api/machinesApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
-import TokenReveal from "../components/TokenReveal";
 import { Chip, EmptyState, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
+import { useReveal } from "../reveal";
 
 // Machine credentials, from the browser. POST /api/machines is browser-
 // authenticated by design - a machine token cannot mint another, so revoking a
@@ -50,7 +49,7 @@ export default function MachinesPage() {
 	const [name, setName] = useState("");
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
-	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
+	const { revealed, reveal } = useReveal();
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 
@@ -86,7 +85,7 @@ export default function MachinesPage() {
 			// throws, the person still has their token on screen - losing the
 			// only copy to a failed GET would be the one unrecoverable failure
 			// this page is capable of.
-			setRevealed(created);
+			reveal(created);
 			setName("");
 			await load();
 		} catch (error) {
@@ -138,10 +137,6 @@ export default function MachinesPage() {
 
 	return (
 		<>
-			{revealed ? (
-				<TokenReveal machine={revealed} onDismiss={() => setRevealed(null)} />
-			) : null}
-
 			<Panel title="Mint a machine token">
 				<p style={{ marginTop: 0 }}>
 					A machine token is how a plugin pushes lessons to the pool. It is

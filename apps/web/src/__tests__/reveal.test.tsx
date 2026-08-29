@@ -102,4 +102,25 @@ describe("reveal provider", () => {
 		// silently - the shell would inert its own dialog.
 		expect(container.contains(dialog)).toBe(false);
 	});
+
+	// Logout is the one thing that must end a reveal and does NOT come free from
+	// the provider's placement: AuthProvider sits above it, so nothing propagates
+	// down. A credential left on screen after a deliberate sign-out is not
+	// acceptable, and this is the only test that would notice.
+	it("clears the reveal when the user is no longer signed in", () => {
+		function Harness({ signedIn }: { signedIn: boolean }) {
+			return (
+				<RevealProvider signedIn={signedIn}>
+					<Driver />
+				</RevealProvider>
+			);
+		}
+		const { rerender } = render(<Harness signedIn={true} />);
+		act(() => {
+			screen.getByText("mint").click();
+		});
+		expect(screen.getByTestId("state").textContent).toBe("open");
+		rerender(<Harness signedIn={false} />);
+		expect(screen.getByTestId("state").textContent).toBe("closed");
+	});
 });

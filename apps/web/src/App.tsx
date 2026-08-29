@@ -14,9 +14,11 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SettingsPage from "./pages/SettingsPage";
 import SignupPage from "./pages/SignupPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
+import { RevealHost, RevealProvider } from "./reveal";
 
 export default function App() {
 	const location = useLocation();
+	const { user } = auth.useAuth();
 
 	// Inside the router, so the fallback's links work and a broken page does not
 	// strand the session - BrowserRouter lives in main.tsx, above this.
@@ -42,60 +44,72 @@ export default function App() {
 				})
 			}
 		>
-			<Routes>
-				<Route path="/" element={<HomePage />} />
-				<Route path="/login" element={<LoginPage />} />
-				<Route path="/signup" element={<SignupPage />} />
-				<Route path="/forgot-password" element={<ForgotPasswordPage />} />
-				<Route path="/reset-password/:token" element={<ResetPasswordPage />} />
-				<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
-				<Route
-					path="/settings"
-					element={
-						<auth.RequireAuth>
-							<SettingsPage />
-						</auth.RequireAuth>
-					}
-				/>
-				<Route
-					path="/profile"
-					element={
-						<auth.RequireAuth>
-							<ProfilePage />
-						</auth.RequireAuth>
-					}
-				/>
-				{/*
-				  A layout route. LessonsPage fetches one page and renders the
-				  list; the :id child renders its detail out of that same
-				  in-memory list through the Outlet context, so clicking a row
-				  issues no request. Deep links fall back to GET
-				  /api/lessons/:id, which is the one case memory cannot answer.
-				*/}
-				<Route
-					path="/lessons"
-					element={
-						<auth.RequireAuth>
-							<AppShell>
-								<LessonsPage />
-							</AppShell>
-						</auth.RequireAuth>
-					}
-				>
-					<Route path=":id" element={<LessonDetail />} />
-				</Route>
-				<Route
-					path="/machines"
-					element={
-						<auth.RequireAuth>
-							<AppShell>
-								<MachinesPage />
-							</AppShell>
-						</auth.RequireAuth>
-					}
-				/>
-				<Route path="*" element={<div>404 Not Found</div>} />
-			</Routes>
+			{/*
+			  Below AuthProvider, above Routes: below so a logout can clear a
+			  reveal, above so neither a route change nor RequireAuth's
+			  session-expiry redirect can unmount it and take the token with
+			  it. See reveal.tsx for the full story.
+			*/}
+			<RevealProvider signedIn={Boolean(user)}>
+				<Routes>
+					<Route path="/" element={<HomePage />} />
+					<Route path="/login" element={<LoginPage />} />
+					<Route path="/signup" element={<SignupPage />} />
+					<Route path="/forgot-password" element={<ForgotPasswordPage />} />
+					<Route
+						path="/reset-password/:token"
+						element={<ResetPasswordPage />}
+					/>
+					<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+					<Route
+						path="/settings"
+						element={
+							<auth.RequireAuth>
+								<SettingsPage />
+							</auth.RequireAuth>
+						}
+					/>
+					<Route
+						path="/profile"
+						element={
+							<auth.RequireAuth>
+								<ProfilePage />
+							</auth.RequireAuth>
+						}
+					/>
+					{/*
+					  A layout route. LessonsPage fetches one page and renders the
+					  list; the :id child renders its detail out of that same
+					  in-memory list through the Outlet context, so clicking a row
+					  issues no request. Deep links fall back to GET
+					  /api/lessons/:id, which is the one case memory cannot answer.
+					*/}
+					<Route
+						path="/lessons"
+						element={
+							<auth.RequireAuth>
+								<AppShell>
+									<LessonsPage />
+								</AppShell>
+							</auth.RequireAuth>
+						}
+					>
+						<Route path=":id" element={<LessonDetail />} />
+					</Route>
+					<Route
+						path="/machines"
+						element={
+							<auth.RequireAuth>
+								<AppShell>
+									<MachinesPage />
+								</AppShell>
+							</auth.RequireAuth>
+						}
+					/>
+					<Route path="*" element={<div>404 Not Found</div>} />
+				</Routes>
+				<RevealHost />
+			</RevealProvider>
 		</ErrorBoundary>
 	);
 }

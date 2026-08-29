@@ -2,6 +2,7 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useMemo,
 	useState,
 } from "react";
@@ -36,8 +37,26 @@ const RevealContext = createContext<RevealValue | null>(null);
  * writing a live credential to storage to avoid a warning the user has already
  * seen would be a worse trade than the bug this fixes.
  */
-export function RevealProvider({ children }: { children: ReactNode }) {
+export function RevealProvider({
+	children,
+	signedIn = true,
+}: {
+	children: ReactNode;
+	/**
+	 * Passed in rather than read from `useAuth` so the provider can be tested
+	 * without an auth context, and so the dependency points one way.
+	 */
+	signedIn?: boolean;
+}) {
 	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
+
+	// AuthProvider is above this one, so a sign-out does not reach the state
+	// below it on its own. Without this, a deliberate logout would leave a live
+	// credential on screen.
+	useEffect(() => {
+		if (!signedIn) setRevealed(null);
+	}, [signedIn]);
+
 	const value = useMemo<RevealValue>(
 		() => ({
 			revealed,

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RevealHost, RevealProvider } from "../reveal";
 
 // machinesApi is the seam, matching login-page.test.tsx: stubbing the three
 // functions drives every failure path without standing up an API client, and
@@ -66,7 +67,12 @@ beforeEach(() => {
 });
 
 async function renderPage() {
-	const result = render(<MachinesPage />);
+	const result = render(
+		<RevealProvider>
+			<MachinesPage />
+			<RevealHost />
+		</RevealProvider>,
+	);
 	await waitFor(() => expect(mocks.listMachines).toHaveBeenCalled());
 	return result;
 }
