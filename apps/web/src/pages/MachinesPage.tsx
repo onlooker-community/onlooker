@@ -119,7 +119,9 @@ export default function MachinesPage() {
 			// this found nothing - dropping focus to <body>, which is the defect
 			// the line above exists to prevent. The status region is the fallback:
 			// always mounted, and it now reads "Revoked <name>." - the outcome of
-			// what they just did, sitting directly above the error and its Retry.
+			// what they just did. It sits at the top of the page rather than
+			// beside the error, with the mint form in between, so Tab reaches
+			// Retry after the form rather than immediately.
 			//
 			// Retry itself would be the better landing spot, but it is rendered by
 			// EmptyState through a plain `action` prop, and Button is not a

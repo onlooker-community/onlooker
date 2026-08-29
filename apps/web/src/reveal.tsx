@@ -2,10 +2,18 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useMemo,
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+// The leaf config module, not `./api/client`. This needs one string - the
+// localStorage key the session lives under - and `api/config` is env constants
+// with no side effects, where importing the client would pull the whole
+// transport layer, its mock fetch and its retry machinery into a component
+// that makes no requests. `client.ts` builds `activeApiConfig` from this same
+// object, so the key is identical to the one `auth.ts` hands auth-react.
+import { apiConfig } from "./api/config";
 import type { MintedMachine } from "./api/machinesApi";
 import TokenReveal from "./components/TokenReveal";
 
@@ -43,7 +51,16 @@ const RevealContext = createContext<RevealValue | null>(null);
  * A deliberate sign-out does have to clear it, so the two places that call
  * `logout()` - `AppShell`'s Sign out and `SettingsPage`'s account deletion -
  * call `dismiss()` first. An explicit call at a deliberate gesture, rather
- * than an inference from state that has two causes.
+ * than an inference from state that has two causes. The `storage` listener
+ * below is the third case, which neither button can see.
+ *
+ * **What the `storage` listener cannot tell apart.** It sees another tab
+ * clearing the session, and a deliberate sign-out and a failed refresh clear
+ * the same key. So with two tabs open, a background tab's expiry does end a
+ * reveal in this one - the guarantee above is a single-tab guarantee. The
+ * trade was made knowingly: the alternative leaves a live credential on a
+ * screen its owner believes is signed out. Narrowing it further needs a signal
+ * that says *why* the token went away, which localStorage does not carry.
  *
  * In memory only. A reload still loses it, and `beforeunload` warns first;
  * writing a live credential to storage to avoid a warning the user has already
@@ -51,6 +68,36 @@ const RevealContext = createContext<RevealValue | null>(null);
  */
 export function RevealProvider({ children }: { children: ReactNode }) {
 	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
+
+	// Signing out in another tab is a third kind of logout, and the two
+	// dismiss() call sites cannot see it: auth-react handles a cross-tab
+	// sign-out by calling resetState() directly, never through expireSession
+	// and never through either button. This tab just redirects to /login - with
+	// the credential still on screen, until this listener.
+	useEffect(() => {
+		const onStorage = (event: StorageEvent) => {
+			// A `storage` event never fires in the tab that caused the write. So
+			// this tab's own expiry is silence here and the reveal survives it,
+			// which is the discrimination `signedIn` could not make. See the
+			// doc comment above for what this still cannot tell apart.
+			//
+			// Both conditions mirror auth-react's own cross-tab handler
+			// (packages/auth-react/src/index.tsx). A null key is
+			// `localStorage.clear()`, which it also treats as a sign-out; if the
+			// two disagreed about what ends a session, the disagreement would
+			// look exactly like the bug this exists to fix.
+			if (event.key !== null && event.key !== apiConfig.tokenStorageKey) {
+				return;
+			}
+			// Another tab signing in, or finishing a refresh, writes a *new*
+			// token to this same key. That event proves the session is healthy,
+			// so only a cleared value counts.
+			if (event.newValue !== null) return;
+			setRevealed(null);
+		};
+		window.addEventListener("storage", onStorage);
+		return () => window.removeEventListener("storage", onStorage);
+	}, []);
 
 	const value = useMemo<RevealValue>(
 		() => ({

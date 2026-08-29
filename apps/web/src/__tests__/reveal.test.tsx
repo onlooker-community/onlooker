@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { apiConfig } from "../api/config";
 import { RevealHost, RevealProvider, useReveal } from "../reveal";
 
 const MACHINE = {
@@ -104,8 +105,68 @@ describe("reveal provider", () => {
 	});
 
 	// A logout must end a reveal and a session expiry must not, but the provider
-	// cannot tell them apart - both null `user` through the same code path - so
-	// it is deliberately not the thing that decides. The two deliberate-logout
-	// call sites dismiss it themselves, and reveal-across-the-app.test.tsx is
-	// where both halves are held, against the real App tree rather than here.
+	// cannot tell them apart from `user` alone - both null it through the same
+	// code path - so it is deliberately not the thing that decides. The two
+	// deliberate-logout call sites dismiss it themselves, and
+	// reveal-across-the-app.test.tsx is where both halves are held, against the
+	// real App tree rather than here.
+});
+
+// The third logout, and the one neither of those call sites can see. A
+// sign-out in another tab reaches this one through `storage`, and auth-react
+// handles it by calling `resetState()` directly - never through
+// `expireSession`, never through either dismiss() button. Without the listener
+// below, that redirects this tab to /login with the credential still on screen.
+describe("reveal provider and another tab", () => {
+	function openReveal() {
+		render(
+			<RevealProvider>
+				<Driver />
+			</RevealProvider>,
+		);
+		act(() => {
+			screen.getByText("mint").click();
+		});
+		expect(screen.getByTestId("state").textContent).toBe("open");
+	}
+
+	function fromAnotherTab(key: string | null, newValue: string | null) {
+		act(() => {
+			window.dispatchEvent(new StorageEvent("storage", { key, newValue }));
+		});
+	}
+
+	const state = () => screen.getByTestId("state").textContent;
+
+	it("dismisses when another tab clears the access token", () => {
+		openReveal();
+		fromAnotherTab(apiConfig.tokenStorageKey, null);
+		expect(state()).toBe("closed");
+	});
+
+	// `localStorage.clear()` fires with a null key. auth-react treats that as a
+	// sign-out too, so this has to agree with it - a tab redirected to /login
+	// while still showing a credential is the whole defect.
+	it("dismisses when another tab clears all of storage", () => {
+		openReveal();
+		fromAnotherTab(null, null);
+		expect(state()).toBe("closed");
+	});
+
+	// A listener that fired on any storage event would end a reveal because
+	// something unrelated wrote to localStorage in another tab.
+	it("ignores another tab writing an unrelated key", () => {
+		openReveal();
+		fromAnotherTab("theme-preference", null);
+		expect(state()).toBe("open");
+	});
+
+	// Another tab signing in, or completing a token refresh, writes a *new*
+	// value to this same key. Keying on the key alone would end the reveal on
+	// the one event that proves the session is healthy.
+	it("ignores another tab writing a new token to the same key", () => {
+		openReveal();
+		fromAnotherTab(apiConfig.tokenStorageKey, "a-fresher-token");
+		expect(state()).toBe("open");
+	});
 });

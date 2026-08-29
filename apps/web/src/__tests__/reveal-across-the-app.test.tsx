@@ -32,10 +32,9 @@ const mocks = vi.hoisted(() => ({
 	deleteAccount: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
-	activeApiConfig: { tokenStorageKey: "auth_token" },
+vi.mock("../api/client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/client")>()),
 	apiClient: { get: mocks.get, post: mocks.post },
-	authenticatedFetch: vi.fn(),
 	refreshTokens: vi.fn(),
 	setUnauthorizedHandler: (handler: (() => void) | null) => {
 		mocks.unauthorized = handler;
@@ -62,9 +61,12 @@ vi.mock("../api/client", () => ({
 	},
 }));
 
-// Spread the originals rather than list every export: these two modules are
+// Spread the originals rather than list every export: these modules are
 // imported by pages all over the route table, and a mock that names only the
 // functions used here breaks the ones that are merely in the import graph.
+// `../api/client` above gets the same treatment - `activeApiConfig` and
+// `authenticatedFetch` come through real, and `reveal.tsx` now reads the
+// storage key from that config.
 vi.mock("../api/machinesApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../api/machinesApi")>()),
 	listMachines: mocks.listMachines,
