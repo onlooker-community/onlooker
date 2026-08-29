@@ -286,7 +286,7 @@ Body: why the config sits under `$ONLOOKER_DIR`, why the mode is set at write ti
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: `type Failure`, `class ApiError extends Error { readonly failure: Failure }`, `classify(status: number, url: string, body: unknown): Failure`, `createClient(baseUrl: string, token: string): ApiClient`, `interface ApiClient { verify(): Promise<void>; push(lessons: unknown[]): Promise<PushResponse> }`, `interface PushResponse { results: Array<{ id: string; outcome: string }> }`. Tasks 3, 4 and 5 consume all of these.
+- Produces: `type Failure`, `class ApiError extends Error { readonly failure: Failure }`, `classify(status: number, url: string, body: unknown): Failure`, `createClient(baseUrl: string, token: string): ApiClient`, `interface ApiClient { verify(): Promise<void>; push(lessons: unknown[]): Promise<PushResponse> }`, `type Outcome = "created" | "noop" | "conflict" | "invalid" | "error"`, `interface PushResult { id: string; outcome: Outcome; seq?: number; error?: string }`, `interface PushResponse { results: PushResult[] }`. Tasks 3, 4 and 5 consume all of these.
 
 **This task is the point of the whole plan.** The retired CLI mapped every status ≥ 400 to one generic error and retried forever, which is why a 404 read as a flaky network for two months while the local buffer grew. Classification is not a nicety here; it is the defect being fixed.
 
@@ -464,8 +464,26 @@ export function classify(status: number, url: string, body: unknown): Failure {
 	};
 }
 
+/**
+ * The five answers `POST /lessons` gives per lesson, named exactly as the API
+ * names them.
+ *
+ * Not a boolean and not a loose string. The route's own source warns that
+ * `invalid` means "this lesson will never be accepted, stop sending it" while
+ * `error` means retry - so a client that collapses them either drops a lesson
+ * permanently or retries one forever.
+ */
+export type Outcome = "created" | "noop" | "conflict" | "invalid" | "error";
+
+export interface PushResult {
+	id: string;
+	outcome: Outcome;
+	seq?: number;
+	error?: string;
+}
+
 export interface PushResponse {
-	results: Array<{ id: string; outcome: string }>;
+	results: PushResult[];
 }
 
 export interface ApiClient {
@@ -932,7 +950,7 @@ Body: why three discovery outcomes rather than an array, why `proposals/` is nev
 
 **Interfaces:**
 - Consumes: `readConfig` from `../config`; `createClient`, `ApiError` from `../api`; `discoverApproved`, `parseLesson`, `batch`, `MAX_BATCH` from `../lessons`.
-- Produces: `sync(deps: SyncDeps): Promise<string>` where `interface SyncDeps { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }`. Task 6's dispatcher calls it.
+- Produces: `sync(deps: SyncDeps): Promise<string>` — resolves with the report when every lesson landed, and throws an `ApiError` when any did not. where `interface SyncDeps { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }`. Task 6's dispatcher calls it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -962,6 +980,10 @@ function withLessons(env: NodeJS.ProcessEnv, count: number): void {
 
 const accepts = () =>
 	vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) });
+
+/** A 200 whose body carries the given per-lesson outcomes. */
+const pushes = (results: Array<{ id: string; outcome: string; error?: string }>) =>
+	vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ results }) });
 
 describe("sync", () => {
 	it("refuses to run before the machine is linked", async () => {
@@ -1006,25 +1028,57 @@ describe("sync", () => {
 		}
 	});
 
-	// Re-running is free because the server dedupes by id. Reporting `taken`
+	// Re-running is free because the server dedupes by id. Reporting `noop`
 	// separately is what tells the user that, rather than leaving a second run
 	// looking like it did the same work twice.
 	it("distinguishes newly created lessons from ones already held", async () => {
 		const env = linked();
 		withLessons(env, 2);
-		const fetchImpl = vi.fn().mockResolvedValue({
-			ok: true,
-			status: 200,
-			json: async () => ({
-				results: [
-					{ id: "a", outcome: "created" },
-					{ id: "b", outcome: "taken" },
-				],
-			}),
-		});
+		const fetchImpl = pushes([
+			{ id: "a", outcome: "created" },
+			{ id: "b", outcome: "noop" },
+		]);
 		const message = await sync({ env, fetchImpl });
 		expect(message).toMatch(/1 new/);
 		expect(message).toMatch(/1 already/);
+	});
+
+	// The API answers with five outcomes, not two, and its own source warns
+	// that conflating them loses lessons: `invalid` means stop sending this,
+	// `error` means retry it. Counting anything that is not `created` as
+	// "already in the pool" would report a lesson that failed to store as one
+	// that synced - the exact defect this CLI exists to remove.
+	it("does not report a failed lesson as one already in the pool", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const fetchImpl = pushes([
+			{ id: "c", outcome: "error", error: "The lesson was not stored; retry it" },
+		]);
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(/retry/i);
+	});
+
+	// `invalid` will never succeed, so it must not be reported as retryable.
+	// The dispatcher turns a transient failure into exit 2 and everything else
+	// into exit 1; getting this wrong tells a script to retry forever.
+	it("reports an invalid lesson as terminal, naming the lesson", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const fetchImpl = pushes([
+			{ id: "01KZ45MKAM734ZS7JK24D2DK0R", outcome: "invalid", error: "id must be a ULID" },
+		]);
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "rejected" },
+		});
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(/01KZ45MKAM734ZS7JK24D2DK0R/);
+	});
+
+	// A conflict means the pool holds a different version under the same id.
+	// Silently counting it as synced would hide a real divergence.
+	it("surfaces a conflict rather than counting it as synced", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const fetchImpl = pushes([{ id: "d", outcome: "conflict" }]);
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(/conflict|different/i);
 	});
 
 	// A file the contract rejects is reported and skipped. Aborting the run would
@@ -1052,7 +1106,7 @@ Expected: FAIL — `Failed to resolve import "../commands/sync"`.
 `apps/cli/src/commands/sync.ts`:
 
 ```ts
-import { createClient } from "../api";
+import { ApiError, createClient } from "../api";
 import { readConfig } from "../config";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 
@@ -1105,18 +1159,63 @@ export async function sync({
 
 	const client = createClient(config.apiBaseUrl, config.machineToken, fetchImpl);
 	let created = 0;
-	let taken = 0;
+	let unchanged = 0;
+	// Split rather than lumped, because the API distinguishes "never send this
+	// again" from "send it again in a minute" and the exit code has to carry
+	// that difference out to whatever called us.
+	const terminal: string[] = [];
+	const retryable: string[] = [];
+
 	for (const chunk of batch(lessons, MAX_BATCH)) {
 		const response = await client.push(chunk);
 		for (const result of response.results ?? []) {
-			if (result.outcome === "created") created++;
-			else taken++;
+			switch (result.outcome) {
+				case "created":
+					created++;
+					break;
+				case "noop":
+					unchanged++;
+					break;
+				case "conflict":
+					// Same id, different content. Not a failure to store, but not a
+					// success either - the pool and this machine disagree, and only a
+					// person can say which is right.
+					terminal.push(`${result.id}: the pool holds a different version`);
+					break;
+				case "invalid":
+					terminal.push(`${result.id}: rejected - ${result.error ?? "no reason given"}`);
+					break;
+				default:
+					// `error`, and anything a future API adds. Treated as retryable
+					// because that is the safe direction to be wrong in: retrying a
+					// lesson the server already holds costs one deduped request, while
+					// discarding one the server never stored loses it for good.
+					retryable.push(`${result.id}: ${result.error ?? "not stored; retry it"}`);
+			}
 		}
 	}
 
-	const parts = [`${created} new`, `${taken} already in the pool`];
-	if (skipped.length > 0) parts.push(`${skipped.length} skipped`);
-	return [`Synced ${lessons.length} lessons: ${parts.join(", ")}.`, ...skipped].join("\n");
+	const counts = [`${created} new`, `${unchanged} already in the pool`];
+	if (skipped.length > 0) counts.push(`${skipped.length} skipped`);
+	const summary = `Synced ${lessons.length} lessons: ${counts.join(", ")}.`;
+
+	// A lesson the server did not store must never be reported as one it did.
+	// Counting every non-`created` outcome as "already in the pool" is exactly
+	// how the retired CLI turned a failure into a success message.
+	if (retryable.length > 0) {
+		throw new ApiError({
+			kind: "transient",
+			message: [`${retryable.length} lesson(s) were not stored. Run sync again.`, ...retryable].join("\n"),
+		});
+	}
+	if (terminal.length > 0) {
+		throw new ApiError({
+			kind: "rejected",
+			message: [`${terminal.length} lesson(s) were refused.`, ...terminal].join("\n"),
+		});
+	}
+
+	return [summary, ...skipped].join("\n");
 }
 ```
 
@@ -1611,6 +1710,7 @@ After merge, and only then:
 | §2 verify against `GET /lessons`, never `/api/lessons` | 2 (pinned by test) |
 | §3 explicit path, three discovery outcomes | 4 |
 | §3 stateless sync, batches of ≤100 | 5 |
+| all five `POST /lessons` outcomes handled distinctly | 2 (type), 5 (handling) |
 | §3 error classification, four kinds | 2 |
 | §4 TypeScript importing `ZLesson`; esbuild bundle | 1, 4 |
 | §4 formula declares `depends_on "node"` | 7 |
