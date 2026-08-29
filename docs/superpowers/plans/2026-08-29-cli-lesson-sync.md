@@ -47,7 +47,7 @@
 
 | File | Change |
 |---|---|
-| `.github/workflows/deploy.yml` | Add path filters so a CLI-only commit does not deploy the API and web. |
+| `.github/workflows/deploy.yml` | Add a `changes` job and gate `deploy-staging` on it, so a CLI-only commit runs CI but does not deploy. Triggers stay unfiltered. |
 | `homebrew-tap/Formula/onlooker.rb` | Regenerated: node dependency, no service block, caveat. *(Separate repository — Task 7.)* |
 
 **Not touched:** `apps/api`, `apps/web`, `packages/lesson-contract`. The CLI consumes the contract; it does not change it.
@@ -1358,39 +1358,80 @@ Body: why exit code 2 means retryable, why the token prompt suppresses echo, and
 
 - [ ] **Step 1: Stop a CLI commit from deploying production**
 
-`.github/workflows/deploy.yml` triggers on every push and pull request against `main` with no path filter, and `concurrency` has `cancel-in-progress: true`. Once `apps/cli` exists, a CLI-only commit starts an API and web production deploy — and can cancel one already running.
+`.github/workflows/deploy.yml` is the repository's **only** CI workflow. Its
+`quality` job runs lint, typecheck and four shell test suites; its `test` job
+runs `pnpm build` and `pnpm test`. So the triggers must stay unfiltered — every
+change, including a CLI-only one, has to keep running CI.
 
-Add paths to both triggers, keeping the workflow file itself in the list so a change to the pipeline still exercises it:
+What must not happen is the *deploy*. `deploy-staging` and `deploy-production`
+run `wrangler deploy` for the API, web and website; a CLI-only merge would
+redeploy identical code, and `concurrency.cancel-in-progress: true` means it can
+cancel a deploy already in flight.
+
+So gate the jobs, not the trigger. **Leave `on:` exactly as it is.** Add a
+`changes` job before `deploy-staging`:
 
 ```yaml
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/api/**"
-      - "apps/web/**"
-      - "apps/website/**"
-      - "packages/**"
-      - ".github/workflows/deploy.yml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "turbo.json"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "apps/api/**"
-      - "apps/web/**"
-      - "apps/website/**"
-      - "packages/**"
-      - ".github/workflows/deploy.yml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "turbo.json"
+  changes:
+    name: Which surfaces changed
+    runs-on: ubuntu-latest
+    outputs:
+      deployable: ${{ steps.filter.outputs.deployable }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Needed to diff against the pre-push commit; the default shallow
+          # fetch does not have it.
+          fetch-depth: 0
+
+      - name: Decide whether anything deployable changed
+        id: filter
+        run: |
+          # A plain diff rather than a third-party paths-filter action: every
+          # other action in this workflow is an official actions/* one, and
+          # this is a dozen lines of shell.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to the branch, or a force-push with no usable base.
+            # Deploy rather than guess: a redundant deploy is cheap, a skipped
+            # one ships nothing.
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '^(apps/(api|web|website)/|packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml)'; then
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deployable=false" >> "$GITHUB_OUTPUT"
+          fi
 ```
 
-`packages/**` stays in the list: the CLI shares `lesson-contract` with the API, so a contract change must still deploy.
+`packages/**` counts as deployable: the CLI shares `lesson-contract` with the
+API, so a contract change must still reach production.
+
+Then change `deploy-staging`'s two lines — currently `needs: test` and its `if:`
+— to depend on both jobs and require a deployable change:
+
+```yaml
+    needs: [test, changes]
+    # Staging tracks main. There is no long-lived staging branch to keep in sync,
+    # and production below will not run unless this succeeds first.
+    #
+    # `changes.deployable` keeps a CLI-only merge from redeploying the API, web
+    # and website with identical code - which matters because
+    # concurrency.cancel-in-progress can cancel a deploy already in flight.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event_name == 'push'
+      && needs.changes.outputs.deployable == 'true'
+```
+
+**Leave `deploy-production` alone.** It already declares `needs: deploy-staging`
+rather than `needs: test`, and GitHub skips a job whose dependency was skipped.
+Gating staging therefore gates production, through the mechanism the existing
+comment on that job already describes. Adding a second copy of the condition
+would be duplication that can drift.
 
 - [ ] **Step 2: Write the formula generator**
 
@@ -1537,7 +1578,7 @@ Report the three counts. The middle one is the point: the retired formula's serv
 - [ ] **Step 5: Run the full gates, then commit**
 
 Subject: `feat(cli): build, release and a formula that needs no daemon :package:`
-Body: why `deploy.yml` needed path filters before this could land, why the formula is generated rather than goreleased, and why the caveat exists.
+Body: why `deploy.yml` gates the deploy job rather than the trigger, why the formula is generated rather than goreleased, and why the caveat exists.
 
 ---
 
@@ -1575,7 +1616,7 @@ After merge, and only then:
 | §4 formula declares `depends_on "node"` | 7 |
 | §5 formula keeps the name, drops the service block, gains a caveat | 7 |
 | §5 version starts at 2.0.0 | 1, 7 |
-| §5 `deploy.yml` path filter | 7 |
+| §5 a CLI commit must not deploy production | 7 (deploy jobs gated; triggers unfiltered so CI still runs) |
 | §6 archive the old repo after the formula flips | Closing out |
 | §7 validation parity, batching, error classification, idempotence | 2, 4, 5 |
 | §7 formula version and sha256 match the artifact | 7 |
