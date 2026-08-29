@@ -199,80 +199,96 @@ export default function MachinesPage() {
 					</EmptyState>
 				) : (
 					<Panel title="Your machines">
-						{machines.map((machine) => (
-							<div
-								key={machine.id}
-								data-machine-row={machine.id}
-								ref={(el) => {
-									if (el) rowRefs.current.set(machine.id, el);
-									else rowRefs.current.delete(machine.id);
-								}}
-								// Focusable only by script. The row is not a control, but
-								// it is where a person was standing when the control under
-								// their focus unmounted.
-								tabIndex={-1}
-								style={row}
-							>
-								<Plate
-									tone={machine.revoked_at ? "red" : "teal"}
-									icon={machineIcon(machine)}
-								/>
-								<span style={{ minWidth: 0, flex: 1 }}>
-									<span
-										style={{
-											display: "block",
-											marginBottom: "var(--space-1)",
-											fontSize: "var(--text-body-md)",
-										}}
-									>
-										{machine.name}
-									</span>
-									<span
-										style={{
-											display: "flex",
-											gap: "var(--space-2)",
-											alignItems: "center",
-											flexWrap: "wrap",
-											color: PALETTE.muted,
-											fontSize: "var(--text-body-sm)",
-										}}
-									>
-										{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-										{/*
-										  Labeled, not bare. LessonsPage's own meta line gets
-										  away with an unlabeled date because it only ever
-										  shows one - this row shows two, and the table it
-										  replaced had "Created"/"Last used" column headers
-										  doing the disambiguating work. Wrapped together so
-										  the label and its date wrap as one unit rather than
-										  splitting across lines at narrow widths.
-										*/}
+						{/*
+						  Not a restored table: the visible Created/Last used labels
+						  already recover what the column headers did, so only the row
+						  boundaries and the item count were missing. A list restores
+						  exactly that. This wrapper holds rows and nothing else - the
+						  panel heading lives on Panel's own <section>, one level up,
+						  so a role="list" here has no non-listitem child.
+						*/}
+						{/* biome-ignore lint/a11y/useSemanticElements: div keeps the row's flex styling; ul/li would need a list-style reset to look the same */}
+						<div role="list">
+							{machines.map((machine) => (
+								// biome-ignore lint/a11y/useSemanticElements: same as the wrapper above - div keeps the existing flex row styling
+								<div
+									key={machine.id}
+									role="listitem"
+									data-machine-row={machine.id}
+									ref={(el) => {
+										if (el) rowRefs.current.set(machine.id, el);
+										else rowRefs.current.delete(machine.id);
+									}}
+									// Focusable only by script. The row is not a control, but
+									// it is where a person was standing when the control under
+									// their focus unmounted.
+									tabIndex={-1}
+									style={row}
+								>
+									<Plate
+										tone={machine.revoked_at ? "red" : "teal"}
+										icon={machineIcon(machine)}
+									/>
+									<span style={{ minWidth: 0, flex: 1 }}>
 										<span
-											style={{ display: "inline-flex", gap: "var(--space-1)" }}
+											style={{
+												display: "block",
+												marginBottom: "var(--space-1)",
+												fontSize: "var(--text-body-md)",
+											}}
 										>
-											Created <When iso={machine.created_at} />
+											{machine.name}
 										</span>
-										{machine.last_used_at ? (
+										<span
+											style={{
+												display: "flex",
+												gap: "var(--space-2)",
+												alignItems: "center",
+												flexWrap: "wrap",
+												color: PALETTE.muted,
+												fontSize: "var(--text-body-sm)",
+											}}
+										>
+											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+											{/*
+											  Labeled, not bare. LessonsPage's own meta line gets
+											  away with an unlabeled date because it only ever
+											  shows one - this row shows two, and the table it
+											  replaced had "Created"/"Last used" column headers
+											  doing the disambiguating work. Wrapped together so
+											  the label and its date wrap as one unit rather than
+											  splitting across lines at narrow widths.
+											*/}
 											<span
 												style={{
 													display: "inline-flex",
 													gap: "var(--space-1)",
 												}}
 											>
-												Last used <When iso={machine.last_used_at} />
+												Created <When iso={machine.created_at} />
 											</span>
-										) : (
-											// Not a dash. Minting a token and never pointing
-											// a plugin at it is the likeliest first-run
-											// failure in the product, and a blank line does
-											// not say that - it reads as missing data.
-											<Chip>Never used</Chip>
-										)}
+											{machine.last_used_at ? (
+												<span
+													style={{
+														display: "inline-flex",
+														gap: "var(--space-1)",
+													}}
+												>
+													Last used <When iso={machine.last_used_at} />
+												</span>
+											) : (
+												// Not a dash. Minting a token and never pointing
+												// a plugin at it is the likeliest first-run
+												// failure in the product, and a blank line does
+												// not say that - it reads as missing data.
+												<Chip>Never used</Chip>
+											)}
+										</span>
 									</span>
-								</span>
-								<span style={{ flex: "none" }}>{action(machine)}</span>
-							</div>
-						))}
+									<span style={{ flex: "none" }}>{action(machine)}</span>
+								</div>
+							))}
+						</div>
 
 						{revokeError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>

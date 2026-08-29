@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RevealHost, RevealProvider } from "../reveal";
 
@@ -97,6 +103,17 @@ describe("MachinesPage", () => {
 		await renderPage();
 		expect(await screen.findByText("work laptop")).toBeDefined();
 		expect(screen.getByText("desktop")).toBeDefined();
+	});
+
+	// The markup was a table before the visual-language pass, with column and
+	// row headers. The visible Created/Last used labels already recover what
+	// the column headers did; what was lost is the boundary between machines
+	// and the count. A screen reader currently hears one continuous run.
+	it("exposes the machines as a list with one item per machine", async () => {
+		withMachines(USED, NEVER_USED);
+		await renderPage();
+		const list = await screen.findByRole("list");
+		expect(within(list).getAllByRole("listitem")).toHaveLength(2);
 	});
 
 	// A dash in a column does not say "you minted this and never pointed a
