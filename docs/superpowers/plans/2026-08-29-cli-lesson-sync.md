@@ -1379,11 +1379,26 @@ async function promptForToken(): Promise<string> {
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	// Suppress the echo of typed characters while still writing the prompt.
-	const output = rl as unknown as { output: NodeJS.WriteStream; _writeToOutput?: (s: string) => void };
+	//
+	// `_writeToOutput` is readline's internal line-refresh hook, not public API.
+	// Verified present on the Interface prototype in Node 24.13.0, and verified
+	// under a real PTY that assigning it on the instance does suppress the echo.
+	// The prompt is written first, deliberately: after the override nothing
+	// reaches the terminal, including the prompt itself.
+	const internals = rl as unknown as { _writeToOutput?: (s: string) => void };
 	process.stdout.write("Machine token: ");
-	output._writeToOutput = () => {};
+	internals._writeToOutput = () => {};
 	try {
 		return await rl.question("");
+	} catch (error) {
+		// Ctrl+D rejects the question with an AbortError. That is a person saying
+		// "never mind" at a credential prompt - one of the two normal ways to back
+		// out - and letting it propagate prints a Node stack trace instead.
+		// Returning empty routes it into the same "No token entered" message an
+		// empty paste gets. Confirmed against Node 24.13.0, which rejects with
+		// `AbortError: Aborted with Ctrl+D`.
+		if ((error as Error)?.name === "AbortError") return "";
+		throw error;
 	} finally {
 		rl.close();
 		process.stdout.write("\n");
@@ -1727,4 +1742,16 @@ After merge, and only then:
 
 **Type consistency.** `CliConfig`, `configPath`, `readConfig`, `writeConfig`, `onlookerDir` are defined in Task 1 and used under those names in 3, 4, 5 and 6. `Failure`, `ApiError`, `classify`, `createClient`, `ApiClient`, `PushResponse` are defined in Task 2 and used in 3, 5 and 6. `Discovery`, `discoverApproved`, `Parsed`, `parseLesson`, `batch`, `MAX_BATCH` are defined in Task 4 and used in 5 and 6. Every command takes a single deps object and returns the string to print, so Task 6's dispatcher treats all three identically.
 
-**One risk worth naming before starting.** Task 6's `promptForToken` reaches into `readline`'s internals to suppress echo, which is not a documented API and could break on a Node upgrade. It is guarded by the non-TTY path — piping a token in works regardless — but if it misbehaves, the honest fallback is to print a warning that the token will be visible and read it normally, rather than to silently echo a credential.
+**The risk named in this plan's first draft has now been tested.** `promptForToken`
+reaches into `readline`'s internals to suppress echo, which is not documented API.
+Measured on Node 24.13.0 before Task 6 was dispatched: `_writeToOutput` exists on
+the Interface prototype, assigning it on the instance shadows it, and under a real
+PTY the typed characters are genuinely not echoed. The same probe found that Ctrl+D
+rejects with `AbortError: Aborted with Ctrl+D` and, unhandled, prints a stack trace
+at a credential prompt — so the code above catches it and routes it into the same
+"No token entered" path an empty paste takes.
+
+It remains undocumented API. It is still guarded by the non-TTY path, so piping a
+token in works regardless; if a future Node breaks it, the honest fallback is to
+warn that the token will be visible and read it normally, never to silently echo a
+credential.
