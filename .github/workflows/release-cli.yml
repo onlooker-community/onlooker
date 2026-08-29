@@ -19,6 +19,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+          # setup-node enables package-manager caching by default: it finds
+          # pnpm-lock.yaml and shells out to pnpm to resolve the store path,
+          # which fails because pnpm is installed two steps below. Every
+          # setup-node in deploy.yml disables it for the same reason.
+          package-manager-cache: false
 
       # pnpm is installed the way deploy.yml installs it, not via
       # pnpm/action-setup. Every action in this repository is an official
