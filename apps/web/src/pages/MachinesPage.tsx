@@ -232,9 +232,29 @@ export default function MachinesPage() {
 										}}
 									>
 										{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-										<When iso={machine.created_at} />
+										{/*
+										  Labeled, not bare. LessonsPage's own meta line gets
+										  away with an unlabeled date because it only ever
+										  shows one - this row shows two, and the table it
+										  replaced had "Created"/"Last used" column headers
+										  doing the disambiguating work. Wrapped together so
+										  the label and its date wrap as one unit rather than
+										  splitting across lines at narrow widths.
+										*/}
+										<span
+											style={{ display: "inline-flex", gap: "var(--space-1)" }}
+										>
+											Created <When iso={machine.created_at} />
+										</span>
 										{machine.last_used_at ? (
-											<When iso={machine.last_used_at} />
+											<span
+												style={{
+													display: "inline-flex",
+													gap: "var(--space-1)",
+												}}
+											>
+												Last used <When iso={machine.last_used_at} />
+											</span>
 										) : (
 											// Not a dash. Minting a token and never pointing
 											// a plugin at it is the likeliest first-run
