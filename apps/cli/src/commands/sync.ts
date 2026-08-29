@@ -100,20 +100,44 @@ export async function sync({
 			}
 		}
 
-		// Every lesson sent has to come back named. A 200 that answers for fewer
-		// lessons than it was given is what a moved or reshaped endpoint looks
-		// like from this side, and tallying only what came back would print
+		// Every lesson sent has to come back named, and counted. A 200 that answers
+		// for fewer lessons than it was given is what a moved or reshaped endpoint
+		// looks like from this side, and tallying only what came back would print
 		// "Synced 3 lessons: 0 new, 0 already in the pool." and exit 0 -
 		// arithmetic that contradicts itself, reported as success.
+		//
+		// By id *and* by count, because ids are not unique across the files on
+		// disk: `discoverApproved` walks every project key, so one lesson approved
+		// under two of them is two files carrying one id. A set of answered ids
+		// would let a single result stand in for every copy - three sent, one
+		// answered, reported as three synced - so each result is spent on one
+		// lesson and then gone.
 		//
 		// Unanswered goes in with the retryable, the same safe direction the
 		// `error` outcome takes: retrying a lesson the server already holds costs
 		// one deduped request, while assuming it landed loses it.
-		const answered = new Set(results.map((result) => result.id));
+		const unspent = new Map<string, number>();
+		for (const result of results) {
+			unspent.set(result.id, (unspent.get(result.id) ?? 0) + 1);
+		}
 		for (const lesson of chunk) {
-			if (!answered.has(lesson.id)) {
+			const left = unspent.get(lesson.id) ?? 0;
+			if (left === 0) {
 				retryable.push(`${lesson.id}: the API did not answer for it; retry it`);
+			} else {
+				unspent.set(lesson.id, left - 1);
 			}
+		}
+
+		// The mirror case: more results than lessons. Those extras were tallied
+		// into the counts above before anything noticed they answer for nothing
+		// that was sent, so the summary claims more lessons stored than the run
+		// pushed - "Synced 1 lesson: 2 new" - which is the same self-contradicting
+		// arithmetic from the other side.
+		if (results.length > chunk.length) {
+			retryable.push(
+				`the API answered for ${results.length} lessons in a batch of ${chunk.length}; retry them`,
+			);
 		}
 	}
 

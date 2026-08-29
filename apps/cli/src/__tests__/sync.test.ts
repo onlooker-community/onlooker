@@ -231,6 +231,42 @@ describe("sync", () => {
 		});
 	});
 
+	// Lesson ids are not unique across the files on disk: `discoverApproved`
+	// walks every project key, so one lesson approved under two of them is two
+	// files carrying one id - and the batch-ceiling test above pushes 150 copies
+	// of a single id, so this is the suite's normal case, not an exotic one.
+	// Reconciling by id alone lets one result stand in for every copy: three
+	// sent, one answered, "Synced 3 lessons: 1 new" at exit 0.
+	it("does not let one result answer for three copies of an id", async () => {
+		const env = linked();
+		withLessons(env, 3);
+		const fetchImpl = answers([
+			{ id: "01KZ45MKAM734ZS7JK24D2DK0R", outcome: "created" },
+		]);
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+		// Two of the three, not one: the count has to be as honest as the throw.
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(
+			/2 lesson\(s\) were not stored/,
+		);
+	});
+
+	// The mirror case. Extra results are tallied into the counts before anything
+	// notices they answer for nothing, so the summary claims more lessons stored
+	// than the run pushed - "Synced 1 lesson: 2 new", exit 0.
+	it("does not accept more results than the batch it sent", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const fetchImpl = answers([
+			{ id: "01KZ45MKAM734ZS7JK24D2DK0R", outcome: "created" },
+			{ id: "01KZ45MKAM734ZS7JK24D2DK0R", outcome: "created" },
+		]);
+		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+	});
+
 	// `api.ts` casts the body instead of validating it, so `results` can be
 	// anything. Iterating a string would walk it character by character and
 	// invent one nonsense failure per letter; the lesson that went unanswered is
