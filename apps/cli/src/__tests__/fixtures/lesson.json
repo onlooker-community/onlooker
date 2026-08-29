@@ -1,0 +1,30 @@
+{
+	"id": "01KZ45MKAM734ZS7JK24D2DK0R",
+	"schema_version": 2,
+	"claim": "Vite 5 drops a top-level await in a worker entry",
+	"rationale": "esbuild lowers it to a promise the worker runtime never awaits.",
+	"evidence": {
+		"artifact_ids": ["01KZ45MKAM734ZS7JK24D2DK1A"],
+		"session_ids": ["sess-1"],
+		"project_key": "4c1de90ab372",
+		"observed_at": "2026-08-20T10:00:00.000Z",
+		"resolution": "Moved the await inside the fetch handler."
+	},
+	"applies_to": {
+		"stack": ["vite"],
+		"scope": { "kind": "versioned", "versions": { "vite": "<6" } },
+		"file_patterns": ["src/worker.ts"],
+		"task_kinds": ["build"]
+	},
+	"visibility": "private",
+	"consensus": {
+		"judges": 3,
+		"agreed": 3,
+		"decided_at": "2026-08-21T10:00:00.000Z"
+	},
+	"status": "active",
+	"superseded_by": null,
+	"source": "local",
+	"author_key": "9f2c41ba7d5e08c3b6a1f470d2e95c8b",
+	"promoted_at": "2026-08-22T10:00:00.000Z"
+}
