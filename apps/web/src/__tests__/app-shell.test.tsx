@@ -121,4 +121,31 @@ describe("AppShell", () => {
 		renderShell();
 		expect(screen.getByText(/someone@example\.com/)).toBeDefined();
 	});
+
+	// CC BY 4.0 requires credit wherever the icons ship. A footer on the shell puts
+	// it on every authenticated page for as long as the icons are on screen, which
+	// is what the condition asks for and what an /about route nobody visits does
+	// not.
+	it("credits the icon set and links its license", () => {
+		renderShell();
+		const footer = screen.getByRole("contentinfo");
+		expect(footer.textContent).toContain("Crusenho Agus Hennihuno");
+		expect(
+			screen.getByRole("link", { name: /CC BY 4\.0/i }).getAttribute("href"),
+		).toBe("https://creativecommons.org/licenses/by/4.0/");
+	});
+
+	// The nav is four identical links plus a wordmark; the icons are what make
+	// them scannable at a glance rather than a column of same-shaped words.
+	it("gives the wordmark and every nav link an icon", () => {
+		renderShell();
+		const icons = document.querySelectorAll("img.pixel-icon");
+		expect(icons.length).toBe(5);
+		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
+		// so NodeListOf<Element> is not directly iterable under this tsconfig.
+		for (const img of Array.from(icons)) {
+			expect(img.getAttribute("width")).toBe("16");
+			expect(img.getAttribute("src")).toBeTruthy();
+		}
+	});
 });

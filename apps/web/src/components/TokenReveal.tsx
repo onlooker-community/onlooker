@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { MintedMachine } from "../api/machinesApi";
+import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import { Button, Panel } from "./ui";
 
@@ -133,12 +134,16 @@ export default function TokenReveal({
 					<h2
 						id="token-reveal-title"
 						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: "var(--space-2)",
 							margin: "0 0 0.75rem",
 							fontFamily: "var(--font-display)",
-							fontSize: "16px",
+							fontSize: "var(--text-display-md)",
 							letterSpacing: "1px",
 						}}
 					>
+						<Icon name="Key" size={48} />
 						Save this token now
 					</h2>
 

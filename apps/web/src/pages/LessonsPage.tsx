@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
+import { Icon } from "../components/Icon";
 import { PALETTE } from "../components/palette";
-import { Button, EmptyState, Panel, StatusBadge } from "../components/ui";
+import {
+	Button,
+	Chip,
+	EmptyState,
+	Panel,
+	Plate,
+	STATUS_ICONS,
+	StatusBadge,
+} from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import "./lessons.css";
@@ -64,8 +73,10 @@ const FILTERS: { value: "" | LessonStatus; label: string; empty?: string }[] = [
 ];
 
 const row = {
-	display: "block",
-	padding: "0.75rem",
+	display: "flex",
+	gap: "var(--space-3)",
+	alignItems: "center",
+	padding: "var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
 	textDecoration: "none",
 	color: "var(--ink)",
@@ -232,6 +243,23 @@ export default function LessonsPage() {
 		patchLesson,
 	};
 
+	// The live region's whole text, computed once rather than duplicated
+	// between the region and whatever branch below happens to be showing -
+	// the two can say the same thing (an empty state's title, a count) without
+	// being the same JSX, since the region has to exist even when the branch
+	// it is summarizing does not render its own heading (the loading paragraph,
+	// the row list).
+	const resultSummary = loadError
+		? "Could not load the pool"
+		: lessons === null
+			? "Loading the pool..."
+			: lessons.length === 0
+				? filter
+					? (FILTERS.find((option) => option.value === filter)?.empty ??
+						"No lessons")
+					: "Nothing has synced yet"
+				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`;
+
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
 			<div className="lessons-list">
@@ -239,15 +267,18 @@ export default function LessonsPage() {
 					<label
 						htmlFor="lesson-status"
 						style={{
-							display: "block",
+							display: "flex",
+							alignItems: "center",
+							gap: "var(--space-1)",
 							marginBottom: "0.35rem",
-							fontFamily: "var(--font-display)",
-							fontSize: "12px",
+							fontFamily: "var(--font-data)",
+							fontSize: "var(--text-data-sm)",
 							letterSpacing: "1px",
 							textTransform: "uppercase",
 							color: PALETTE.muted,
 						}}
 					>
+						<Icon name="MagnifyingGlass" />
 						Status
 					</label>
 					{/*
@@ -278,6 +309,32 @@ export default function LessonsPage() {
 						))}
 					</select>
 				</div>
+				{/*
+				  One persistent region, present in every branch below, rather
+				  than a role appearing only on the branches that need it. A
+				  screen reader reliably announces content CHANGING inside a
+				  region that is already there; a region that appears at the
+				  same moment as its own text is not something NVDA, JAWS and
+				  VoiceOver agree on. Panel and its <nav> of rows stay outside
+				  this element entirely - the region carries a short summary
+				  (a count, or the state's own title), never the rows, so a
+				  fifty-row pool does not read every claim aloud on a filter
+				  change.
+				*/}
+				<p
+					role="status"
+					aria-live="polite"
+					style={{
+						margin: "0 0 var(--space-2)",
+						fontFamily: "var(--font-data)",
+						fontSize: "var(--text-data-sm)",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
+						color: PALETTE.muted,
+					}}
+				>
+					{resultSummary}
+				</p>
 				{loadError ? (
 					<EmptyState
 						title="Could not load the pool"
@@ -302,7 +359,11 @@ export default function LessonsPage() {
 							Nothing in the pool holds that status right now.
 						</EmptyState>
 					) : (
-						<EmptyState title="Nothing has synced yet">
+						<EmptyState
+							title="Nothing has synced yet"
+							icon="ChestTreasure"
+							tone="teal"
+						>
 							Lessons arrive when a machine pushes them.{" "}
 							{/*
 							  A link and not EmptyState's action button. The button
@@ -333,21 +394,40 @@ export default function LessonsPage() {
 											: "4px solid transparent",
 									})}
 								>
-									<span style={{ display: "block", marginBottom: "0.35rem" }}>
-										{lesson.claim}
-									</span>
-									<span
-										style={{
-											display: "flex",
-											gap: "0.5rem",
-											alignItems: "center",
-										}}
-									>
-										<StatusBadge status={lesson.status} />
-										<When
-											iso={lesson.promoted_at}
-											style={{ color: PALETTE.muted, fontSize: "0.8rem" }}
-										/>
+									<Plate
+										tone={lesson.status === "active" ? "teal" : "red"}
+										icon={STATUS_ICONS[lesson.status]}
+									/>
+									<span style={{ minWidth: 0, flex: 1 }}>
+										<span
+											style={{
+												display: "block",
+												marginBottom: "var(--space-1)",
+												fontSize: "var(--text-body-md)",
+											}}
+										>
+											{lesson.claim}
+										</span>
+										<span
+											style={{
+												display: "flex",
+												gap: "var(--space-2)",
+												alignItems: "center",
+												flexWrap: "wrap",
+											}}
+										>
+											<StatusBadge status={lesson.status} />
+											{lesson.applies_to.stack[0] ? (
+												<Chip>{lesson.applies_to.stack[0]}</Chip>
+											) : null}
+											<When
+												iso={lesson.promoted_at}
+												style={{
+													color: PALETTE.muted,
+													fontSize: "var(--text-body-sm)",
+												}}
+											/>
+										</span>
 									</span>
 								</NavLink>
 							))}

@@ -79,8 +79,8 @@ export default function SessionExpiryBanner() {
 					borderRadius: 0,
 					backgroundColor: "transparent",
 					color: "var(--plate-ink)",
-					fontFamily: "var(--font-display)",
-					fontSize: "12px",
+					fontFamily: "var(--font-data)",
+					fontSize: "var(--text-data-md)",
 					letterSpacing: "1px",
 					textTransform: "uppercase",
 				}}

@@ -317,3 +317,66 @@ describe("rejected values", () => {
 			expect(m[1], "#db3a3a is non-text only").toBe("--mark");
 	});
 });
+
+/** Scale tokens carry lengths, not hex, so `tokens()` above cannot see them. */
+function lengths(body: string): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const m of body.matchAll(
+		/(--[a-z-]+(?:-[a-z0-9]+)?)\s*:\s*([0-9.]+(?:px|rem))/g,
+	)) {
+		out[m[1]] = m[2];
+	}
+	return out;
+}
+
+describe("scales", () => {
+	const root = lengths(block(":root"));
+
+	it("declares a 4px spacing scale", () => {
+		expect(
+			Object.entries(root).filter(([k]) => k.startsWith("--space-")),
+		).toEqual([
+			["--space-1", "4px"],
+			["--space-2", "8px"],
+			["--space-3", "12px"],
+			["--space-4", "16px"],
+			["--space-5", "24px"],
+			["--space-6", "32px"],
+			["--space-7", "48px"],
+		]);
+	});
+
+	// The whole point. Abaddon's design size is 16px - unitsPerEm 1024, and the
+	// GCD of every glyph coordinate is 64, so one pixel is 64 units. A pixel
+	// face renders crisply only at its design size and integer multiples, so
+	// these three are the only legal display sizes and there must be no fourth.
+	it("offers exactly three display steps, all integer multiples of 16px", () => {
+		const display = Object.entries(root).filter(([k]) =>
+			k.startsWith("--text-display-"),
+		);
+		expect(display).toHaveLength(3);
+		for (const [name, value] of display) {
+			const px = Number.parseInt(value, 10);
+			expect(value, `${name} must be px, not rem`).toMatch(/px$/);
+			expect(px % 16, `${name} is ${value}, not a multiple of 16px`).toBe(0);
+		}
+	});
+
+	// Body copy is the opposite case: it must respect a reader's font-size
+	// preference, which px would ignore.
+	it("sizes body and data copy in rem", () => {
+		for (const [name, value] of Object.entries(root)) {
+			if (name.startsWith("--text-body-") || name.startsWith("--text-data-")) {
+				expect(value, `${name} must be rem, not px`).toMatch(/rem$/);
+			}
+		}
+	});
+
+	it("keeps the scales off the theme blocks", () => {
+		for (const sel of THEME_SELECTORS) {
+			const body = block(sel);
+			expect(body).not.toMatch(/--space-/);
+			expect(body).not.toMatch(/--text-/);
+		}
+	});
+});

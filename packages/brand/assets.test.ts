@@ -70,3 +70,18 @@ describe("attribution", () => {
 		expect(doc).toContain("creativecommons.org/licenses/by/3.0");
 	});
 });
+
+import { ICON_NAMES } from "./index";
+
+// The union exists so a typo fails at compile time instead of 404ing at
+// runtime. That only holds while it matches what is actually on disk, and
+// nothing else would notice a file being added or renamed.
+describe("the icon name union", () => {
+	it("lists exactly the files in the directory", () => {
+		const onDisk = readdirSync(iconDir)
+			.filter((f) => f.endsWith(".png"))
+			.map((f) => f.replace(/\.png$/, ""))
+			.sort();
+		expect([...ICON_NAMES].sort()).toEqual(onDisk);
+	});
+});

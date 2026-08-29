@@ -40,6 +40,16 @@ const REVOKED = {
 	last_used_at: "2026-08-04T10:00:00.000Z",
 	revoked_at: "2026-08-05T10:00:00.000Z",
 };
+// revoked_at and last_used_at are independently nullable columns - a machine
+// minted and revoked before a plugin ever used it is a real state, not a
+// hypothetical one.
+const REVOKED_NEVER_USED = {
+	id: "m4",
+	name: "unused burner",
+	created_at: "2026-08-06T10:00:00.000Z",
+	last_used_at: null,
+	revoked_at: "2026-08-07T10:00:00.000Z",
+};
 
 function withMachines(...machines: unknown[]) {
 	mocks.listMachines.mockResolvedValue({ machines });
@@ -253,5 +263,50 @@ describe("MachinesPage", () => {
 		withMachines(USED);
 		fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 		expect(await screen.findByText("work laptop")).toBeDefined();
+	});
+
+	// Minting a token and never pointing a plugin at it is the likeliest first-run
+	// failure in the product. A sleeping key says that faster than a word does -
+	// and the word stays, because the icon alone would be a puzzle.
+	it("marks a machine that has never been used with its own icon", async () => {
+		withMachines(NEVER_USED);
+		await renderPage();
+		expect(await screen.findByText(/never used/i)).toBeDefined();
+		// Array.from, not a bare spread: the project's `lib` has no
+		// DOM.Iterable, so NodeListOf<Element> is not directly iterable under
+		// this tsconfig.
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		expect(
+			icons.some((i) => (i.getAttribute("src") ?? "").includes("Sleep")),
+		).toBe(true);
+	});
+
+	it("renders every icon at a legal size", async () => {
+		withMachines(USED, NEVER_USED, REVOKED);
+		await renderPage();
+		await screen.findByText(USED.name);
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		// Without this the loop below passes vacuously if nothing rendered.
+		expect(icons.length).toBeGreaterThan(0);
+		for (const img of icons) {
+			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
+		}
+	});
+
+	// A machine can be revoked before a plugin ever touches it - revoked_at and
+	// last_used_at are independent columns. Pinning the choice: a dead
+	// credential is the more important fact to lead with, so it keeps the Key
+	// icon rather than switching to Sleep.
+	it("prefers the revoked icon over the never-used icon when both apply", async () => {
+		withMachines(REVOKED_NEVER_USED);
+		await renderPage();
+		expect(await screen.findByText(/never used/i)).toBeDefined();
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		expect(
+			icons.some((i) => (i.getAttribute("src") ?? "").includes("Sleep")),
+		).toBe(false);
+		expect(
+			icons.some((i) => (i.getAttribute("src") ?? "").includes("Key")),
+		).toBe(true);
 	});
 });

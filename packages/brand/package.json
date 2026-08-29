@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		".": "./index.ts",
 		"./tokens.css": "./tokens.css",
 		"./assets.css": "./assets.css",
 		"./icons/*": "./icons/*",

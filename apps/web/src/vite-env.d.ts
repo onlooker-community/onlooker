@@ -16,4 +16,13 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
 	readonly env: ImportMetaEnv;
+	/**
+	 * Declared narrowly here rather than by pulling in `vite/client`, whose
+	 * ImportMetaEnv conflicts with the hand-rolled one above on MODE's
+	 * optionality.
+	 */
+	glob<T = unknown>(
+		pattern: string,
+		options?: { eager?: boolean; query?: string; import?: string },
+	): Record<string, T>;
 }

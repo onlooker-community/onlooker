@@ -1,4 +1,11 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import type { IconName } from "@onlooker/brand";
+import {
+	type CSSProperties,
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useState,
+} from "react";
 import {
 	createMachine,
 	listMachines,
@@ -6,10 +13,11 @@ import {
 	type MintedMachine,
 	revokeMachine,
 } from "../api/machinesApi";
+import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
 import TokenReveal from "../components/TokenReveal";
-import { Button, Chip, EmptyState, Panel } from "../components/ui";
+import { Chip, EmptyState, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 
@@ -18,12 +26,23 @@ import { describeError } from "../lib/apiErrors";
 // stolen laptop actually revokes it - and until this page existed nothing in
 // the browser called it, which meant nobody could turn the sync protocol on.
 
-const cell = {
+const row: CSSProperties = {
+	display: "flex",
+	gap: "var(--space-3)",
+	alignItems: "center",
+	padding: "var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
-	padding: "0.5rem",
-	textAlign: "left" as const,
-	verticalAlign: "top" as const,
 };
+
+/**
+ * Key for a live or revoked machine, Sleep for one that has never phoned
+ * home. Revoked wins over never-used when both are true - a dead credential
+ * is the more important fact to lead with than one that was merely idle.
+ */
+function machineIcon(machine: Machine): IconName {
+	if (!machine.revoked_at && !machine.last_used_at) return "Sleep";
+	return "Key";
+}
 
 export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
@@ -32,7 +51,6 @@ export default function MachinesPage() {
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
 	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
-	const [confirming, setConfirming] = useState<string | null>(null);
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 
@@ -87,7 +105,6 @@ export default function MachinesPage() {
 		setRevokeError(null);
 		try {
 			await revokeMachine(id);
-			setConfirming(null);
 			await load();
 		} catch (error) {
 			// Nothing was marked revoked ahead of the server, so there is
@@ -101,53 +118,21 @@ export default function MachinesPage() {
 
 	const action = (machine: Machine) => {
 		// A revoked machine keeps its row - that is how a person sees that they
-		// revoked it - but there is nothing left to do to it.
+		// revoked it - but there is nothing left to do to it. The row losing its
+		// ConfirmAction here is also what disarms a confirm after a successful
+		// revoke: there is no row left to hold the armed state.
 		if (machine.revoked_at) return null;
 
-		if (confirming !== machine.id) {
-			return (
-				<Button
-					variant="danger"
-					onClick={() => {
-						setRevokeError(null);
-						setConfirming(machine.id);
-					}}
-				>
-					Revoke
-				</Button>
-			);
-		}
-
 		return (
-			<div
-				style={{
-					display: "flex",
-					gap: "0.5rem",
-					alignItems: "center",
-					flexWrap: "wrap",
-				}}
-			>
-				{/*
-				  Inline rather than window.confirm. Revocation is the most
-				  destructive act on this page, and the app should not hand it
-				  to a native dialog that looks like nothing else in it.
-				*/}
-				<span>Revoke {machine.name}?</span>
-				<Button
-					variant="danger"
-					loading={revoking === machine.id}
-					loadingLabel="Revoking..."
-					onClick={() => void revoke(machine.id)}
-				>
-					Yes, revoke
-				</Button>
-				<Button
-					onClick={() => setConfirming(null)}
-					disabled={revoking === machine.id}
-				>
-					Cancel
-				</Button>
-			</div>
+			<ConfirmAction
+				trigger="Revoke"
+				question={`Revoke ${machine.name}?`}
+				confirmLabel="Yes, revoke"
+				pendingLabel="Revoking..."
+				variant="danger"
+				pending={revoking === machine.id}
+				onConfirm={() => void revoke(machine.id)}
+			/>
 		);
 	};
 
@@ -201,61 +186,68 @@ export default function MachinesPage() {
 					</EmptyState>
 				) : (
 					<Panel title="Your machines">
-						<table style={{ width: "100%", borderCollapse: "collapse" }}>
-							<thead>
-								<tr>
-									<th scope="col" style={cell}>
-										Name
-									</th>
-									<th scope="col" style={cell}>
-										Created
-									</th>
-									<th scope="col" style={cell}>
-										Last used
-									</th>
-									<th scope="col" style={cell}>
+						{machines.map((machine) => (
+							<div key={machine.id} style={row}>
+								<Plate
+									tone={machine.revoked_at ? "red" : "teal"}
+									icon={machineIcon(machine)}
+								/>
+								<span style={{ minWidth: 0, flex: 1 }}>
+									<span
+										style={{
+											display: "block",
+											marginBottom: "var(--space-1)",
+											fontSize: "var(--text-body-md)",
+										}}
+									>
+										{machine.name}
+									</span>
+									<span
+										style={{
+											display: "flex",
+											gap: "var(--space-2)",
+											alignItems: "center",
+											flexWrap: "wrap",
+											color: PALETTE.muted,
+											fontSize: "var(--text-body-sm)",
+										}}
+									>
+										{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+										{/*
+										  Labeled, not bare. LessonsPage's own meta line gets
+										  away with an unlabeled date because it only ever
+										  shows one - this row shows two, and the table it
+										  replaced had "Created"/"Last used" column headers
+										  doing the disambiguating work. Wrapped together so
+										  the label and its date wrap as one unit rather than
+										  splitting across lines at narrow widths.
+										*/}
 										<span
-											style={{
-												position: "absolute",
-												width: 1,
-												height: 1,
-												overflow: "hidden",
-												clip: "rect(0 0 0 0)",
-											}}
+											style={{ display: "inline-flex", gap: "var(--space-1)" }}
 										>
-											Actions
+											Created <When iso={machine.created_at} />
 										</span>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{machines.map((machine) => (
-									<tr key={machine.id}>
-										<th scope="row" style={cell}>
-											<span style={{ marginRight: "0.5rem" }}>
-												{machine.name}
+										{machine.last_used_at ? (
+											<span
+												style={{
+													display: "inline-flex",
+													gap: "var(--space-1)",
+												}}
+											>
+												Last used <When iso={machine.last_used_at} />
 											</span>
-											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-										</th>
-										<td style={cell}>
-											<When iso={machine.created_at} />
-										</td>
-										<td style={cell}>
-											{machine.last_used_at ? (
-												<When iso={machine.last_used_at} />
-											) : (
-												// Not a dash. Minting a token and never pointing
-												// a plugin at it is the likeliest first-run
-												// failure in the product, and a blank cell does
-												// not say that - it reads as missing data.
-												<Chip>Never used</Chip>
-											)}
-										</td>
-										<td style={cell}>{action(machine)}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
+										) : (
+											// Not a dash. Minting a token and never pointing
+											// a plugin at it is the likeliest first-run
+											// failure in the product, and a blank line does
+											// not say that - it reads as missing data.
+											<Chip>Never used</Chip>
+										)}
+									</span>
+								</span>
+								<span style={{ flex: "none" }}>{action(machine)}</span>
+							</div>
+						))}
 
 						{revokeError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>

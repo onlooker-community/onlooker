@@ -209,7 +209,11 @@ describe("the detail pane", () => {
 			await screen.findByRole("heading", { name: VITE.claim }),
 		).toBeDefined();
 		expect(screen.getByText(VITE.rationale)).toBeDefined();
-		expect(screen.getByText("vite")).toBeDefined();
+		// Twice, not once: the row's meta-line chip and the detail's Applies to
+		// panel both carry the stack tag now, so a single-match query is no
+		// longer the right shape for this assertion - the row growing a stack
+		// Chip of its own is Step 5, not a divergence between the two.
+		expect(screen.getAllByText("vite").length).toBe(2);
 		expect(screen.getByText(/3 of 3/)).toBeDefined();
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
 	});
@@ -988,5 +992,132 @@ describe("paging past the first page", () => {
 		});
 
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+	});
+});
+
+describe("the visual language", () => {
+	it("gives every row a status icon", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		// Scoped to the rows' own <nav>, not the whole document: `at()` mounts
+		// the real App, and AppShell alone renders 5 chrome icons unconditionally
+		// - a count taken off `document` would still pass even with every row
+		// plate deleted.
+		const icons = screen
+			.getByRole("navigation", { name: "Lessons" })
+			.querySelectorAll("img.pixel-icon");
+		expect(icons.length).toBeGreaterThanOrEqual(2);
+		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
+		// so NodeListOf<Element> is not directly iterable under this tsconfig.
+		for (const img of Array.from(icons)) {
+			expect(img.getAttribute("src")).toBeTruthy();
+		}
+	});
+
+	// Every icon in the app is 16, 32 or 48. Anything else is mush.
+	it("renders every icon at a legal size", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		const icons = Array.from(document.querySelectorAll("img.pixel-icon"));
+		// Without this the loop below passes vacuously if nothing rendered.
+		expect(icons.length).toBeGreaterThan(0);
+		for (const img of icons) {
+			expect(["16", "32", "48"]).toContain(img.getAttribute("width"));
+		}
+	});
+
+	it("splits the detail's facts into what it applies to and why it was trusted", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			await screen.findByRole("heading", { name: /applies to/i }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: /why it was trusted/i }),
+		).toBeDefined();
+	});
+
+	// h1 -> h2 -> h3, not h1 -> h2 -> h2: without this, everything a panel is
+	// grouping - Stack, Scope, Consensus, Provenance - reads as a SIBLING of
+	// the panel titling it rather than something inside it, reproducing the
+	// flatness this restructure exists to fix, one level down.
+	it("nests the detail pane's headings without a skip", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		expect(
+			(await screen.findByRole("heading", { name: VITE.claim })).tagName,
+		).toBe("H1");
+		expect(screen.getByRole("heading", { name: /applies to/i }).tagName).toBe(
+			"H2",
+		);
+		expect(
+			screen.getByRole("heading", { name: /why it was trusted/i }).tagName,
+		).toBe("H2");
+		expect(screen.getByRole("heading", { name: /^stack$/i }).tagName).toBe(
+			"H3",
+		);
+	});
+
+	// Retraction reaches every mirror on its next delta pull, so the evidence
+	// should be passed on the way to the button rather than after it.
+	it("puts the retract control after the evidence in document order", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		const trusted = await screen.findByRole("heading", {
+			name: /why it was trusted/i,
+		});
+		const retract = screen.getByRole("button", { name: /^retract$/i });
+		expect(
+			trusted.compareDocumentPosition(retract) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	// Changing the filter replaces the list with no navigation and no focus
+	// change, so without a live region a screen-reader user hears nothing at
+	// all - not the new count, not an empty result, not a failure.
+	//
+	// waitFor + getByRole, not findByRole: the region is a single node
+	// present from the first render onward, so a query that only waits for
+	// the NODE to exist would resolve immediately, against whatever it said
+	// before the filter changed. Waiting for its TEXT is what actually pins
+	// the announcement to the new state.
+	it("announces the pool's state when the filter changes it", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toMatch(
+				/no retracted lessons/i,
+			),
+		);
+	});
+
+	// The case the region exists specifically to cover and the test above does
+	// not: neither the loading paragraph nor either EmptyState renders when a
+	// filter change lands on a DIFFERENT non-empty result, so without a count
+	// living in the region itself, this transition stays exactly as silent as
+	// it was before Step 6.
+	it("announces a new count when the filter changes to a different non-empty set", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([D1]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toMatch(/1 lesson/i),
+		);
 	});
 });
