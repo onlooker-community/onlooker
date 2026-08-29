@@ -62,8 +62,26 @@ export function classify(status: number, url: string, body: unknown): Failure {
 	};
 }
 
+/**
+ * The five answers `POST /lessons` gives per lesson, named exactly as the API
+ * names them.
+ *
+ * Not a boolean and not a loose string. The route's own source warns that
+ * `invalid` means "this lesson will never be accepted, stop sending it" while
+ * `error` means retry - so a client that collapses them either drops a lesson
+ * permanently or retries one forever.
+ */
+export type Outcome = "created" | "noop" | "conflict" | "invalid" | "error";
+
+export interface PushResult {
+	id: string;
+	outcome: Outcome;
+	seq?: number;
+	error?: string;
+}
+
 export interface PushResponse {
-	results: Array<{ id: string; outcome: string }>;
+	results: PushResult[];
 }
 
 export interface ApiClient {
