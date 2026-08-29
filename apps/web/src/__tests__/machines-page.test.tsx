@@ -236,7 +236,49 @@ describe("MachinesPage", () => {
 		await waitFor(() =>
 			expect(mocks.listMachines.mock.calls.length).toBeGreaterThan(before),
 		);
-		expect(await screen.findByText(/revoked/i)).toBeDefined();
+		// Exact match on the Chip's own text - a loose /revoked/i also matches
+		// the "Revoked work laptop." status announcement now mounted on the
+		// page, which is a different element making a different claim.
+		expect(await screen.findByText("Revoked")).toBeDefined();
+	});
+
+	// A revoked machine keeps its row, but the ConfirmAction inside it returns
+	// null once revoked_at is set - so the confirm button unmounts while
+	// holding focus and the next Tab restarts at the top of the document. The
+	// row is a stable target precisely because revoked rows persist.
+	it("moves focus to the row after a revoke instead of dropping it", async () => {
+		withMachines(USED);
+		await renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+		fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
+		await waitFor(() => {
+			expect(document.activeElement).not.toBe(document.body);
+		});
+		expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(
+			USED.id,
+		);
+	});
+
+	// The live region is rendered on every pass, empty until it has something
+	// to say. A region mounted together with its message is the shape screen
+	// readers do not reliably announce.
+	it("keeps a status region mounted before it has anything to announce", async () => {
+		withMachines(USED);
+		await renderPage();
+		expect(screen.getByRole("status")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toBe("");
+	});
+
+	it("names the machine it revoked", async () => {
+		withMachines(USED);
+		await renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+		fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
+		await waitFor(() => {
+			expect(screen.getByRole("status").textContent).toMatch(
+				new RegExp(USED.name, "i"),
+			);
+		});
 	});
 
 	// No optimistic update, so there is nothing to roll back - and nothing on

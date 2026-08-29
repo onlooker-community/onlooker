@@ -4,6 +4,7 @@ import {
 	type FormEvent,
 	useCallback,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -52,6 +53,8 @@ export default function MachinesPage() {
 	const { revealed, reveal } = useReveal();
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
+	const [revokedName, setRevokedName] = useState("");
+	const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
 	const load = useCallback(async () => {
 		setLoadError(null);
@@ -99,16 +102,23 @@ export default function MachinesPage() {
 		}
 	};
 
-	const revoke = async (id: string) => {
-		setRevoking(id);
+	const revoke = async (machine: Machine) => {
+		setRevoking(machine.id);
 		setRevokeError(null);
 		try {
-			await revokeMachine(id);
+			await revokeMachine(machine.id);
 			await load();
+			setRevokedName(machine.name);
+			// The row element survives the refetch - revoked machines keep their
+			// row - so this ref is still the same node the person was standing
+			// on when the confirm button under their focus unmounted.
+			rowRefs.current.get(machine.id)?.focus();
 		} catch (error) {
 			// Nothing was marked revoked ahead of the server, so there is
 			// nothing to undo. A row that claimed a credential was dead while
-			// it was still live is worse than a slow button.
+			// it was still live is worse than a slow button. For the same
+			// reason, a failed revoke does not move focus or announce
+			// anything - the machine is still live.
 			setRevokeError(describeError(error, "Could not revoke that machine."));
 		} finally {
 			setRevoking(null);
@@ -130,13 +140,21 @@ export default function MachinesPage() {
 				pendingLabel="Revoking..."
 				variant="danger"
 				pending={revoking === machine.id}
-				onConfirm={() => void revoke(machine.id)}
+				onConfirm={() => void revoke(machine)}
 			/>
 		);
 	};
 
 	return (
 		<>
+			{/*
+			  Always mounted, empty until it has something to say. A live region
+			  that appears at the same moment as its text is the shape screen
+			  readers skip.
+			*/}
+			<p role="status" style={{ margin: 0 }}>
+				{revokedName ? `Revoked ${revokedName}.` : ""}
+			</p>
 			<Panel title="Mint a machine token">
 				<p style={{ marginTop: 0 }}>
 					A machine token is how a plugin pushes lessons to the pool. It is
@@ -182,7 +200,19 @@ export default function MachinesPage() {
 				) : (
 					<Panel title="Your machines">
 						{machines.map((machine) => (
-							<div key={machine.id} style={row}>
+							<div
+								key={machine.id}
+								data-machine-row={machine.id}
+								ref={(el) => {
+									if (el) rowRefs.current.set(machine.id, el);
+									else rowRefs.current.delete(machine.id);
+								}}
+								// Focusable only by script. The row is not a control, but
+								// it is where a person was standing when the control under
+								// their focus unmounted.
+								tabIndex={-1}
+								style={row}
+							>
 								<Plate
 									tone={machine.revoked_at ? "red" : "teal"}
 									icon={machineIcon(machine)}
