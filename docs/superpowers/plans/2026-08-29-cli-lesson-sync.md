@@ -60,6 +60,22 @@
 
 **`packages/lesson-contract` needs building before this typechecks.** It publishes types from `dist/`, and turbo's `typecheck` depends on `^typecheck` rather than `^build`. If `tsc --noEmit` cannot resolve `@onlooker-community/lesson-contract`, run `pnpm build` once. `apps/api` already lives with this.
 
+**What the formula you are replacing actually contains** (read on 2026-08-29,
+not inferred). Its `service` block is `run [opt_bin/"onlooker", "daemon"]` with
+`keep_alive true`, so launchd relaunches the binary rather than letting it stay
+stopped — which is why dropping the block is not enough by itself and the caveat
+has to say `brew services stop onlooker` out loud. Its `test` block calls
+`onlooker version`, a subcommand the replacement does not have. Its caveat points
+at `~/.config/onlooker/config.toml`, while the Go source writes
+`~/.onlooker/config.toml` — so the text being replaced was already wrong.
+
+**The silent failure left something behind.** On the maintainer's machine
+`~/.onlooker/buffer.db` measures 110 MB, last written 2026-08-23: two months of
+events retried against a 404 and never delivered. Those are events, not lessons,
+so nothing in this plan sends them. Task 7's caveat names the file rather than
+pretending it is not there, and does not tell anyone to delete it — for some
+people it is the only copy.
+
 **Do not add a CLI framework.** Three commands do not justify commander or yargs. `process.argv` and a switch is the whole dispatcher, and it is easier to read than the framework would be.
 
 ---
@@ -1601,6 +1617,12 @@ class Onlooker < Formula
 
         onlooker link
         onlooker sync
+
+      The retired agent buffered events at ~/.onlooker/buffer.db and kept its
+      settings in ~/.onlooker/config.toml. Neither is read by this version.
+      The buffer can be large - it grew unbounded whenever sending failed -
+      and holds events this CLI does not send, so nothing here will deliver
+      them. Delete it only if you no longer want them.
     EOS
   end
 
@@ -1682,10 +1704,15 @@ The formula is uploaded rather than pushed to the tap. Pushing needs a cross-rep
 
 ```bash
 node scripts/write-formula.mjs 2.0.0 https://example.invalid/onlooker-2.0.0.tar.gz abc123 > /tmp/onlooker.rb
-grep -c 'depends_on "node"' /tmp/onlooker.rb   # expect 1
-grep -c "service" /tmp/onlooker.rb              # expect 0 - no service block
+grep -c 'depends_on "node"' /tmp/onlooker.rb    # expect 1
+grep -c "^  service do" /tmp/onlooker.rb        # expect 0 - no service block
 grep -c "brew services stop" /tmp/onlooker.rb   # expect 1 - the caveat
+grep -c "buffer.db" /tmp/onlooker.rb            # expect 1 - the leftovers note
 ```
+
+Match `^  service do` rather than the bare word `service`: the caveat text
+contains "brew services stop", so a naive `grep -c service` counts that too and
+reports a service block that is not there.
 
 Report the three counts. The middle one is the point: the retired formula's service block is what would otherwise leave launchd relaunching a binary that no longer takes `daemon`.
 
