@@ -536,12 +536,35 @@ const [revokedName, setRevokedName] = useState("");
 const rowRefs = useRef(new Map<string, HTMLDivElement>());
 ```
 
-In `revoke`, once the request settles and the list has refetched, move focus and announce:
+`revoke` currently takes `(id: string)`, so neither the machine's name nor the
+machine itself is in scope inside it. **Change its signature to take the
+machine** and update the single call site:
+
+```tsx
+const revoke = async (machine: Machine) => {
+	setRevoking(machine.id);
+	// ...rest of the existing body unchanged...
+```
+
+```tsx
+onConfirm={() => void revoke(machine)}
+```
+
+`pending={revoking === machine.id}` is unaffected — `revoking` still holds an id.
+
+Then, **inside the `try`, after `await load()`**, so it runs only when the
+revoke actually succeeded:
 
 ```tsx
 setRevokedName(machine.name);
+// The row element survives the refetch - revoked machines keep their row - so
+// this ref is still the same node the person was standing on when the confirm
+// button under their focus unmounted.
 rowRefs.current.get(machine.id)?.focus();
 ```
+
+Not in the `finally`: a failed revoke leaves the machine live, and announcing
+"Revoked X" for something still working is worse than announcing nothing.
 
 On the row `<div>`, make it a focus target and register it:
 
