@@ -54,7 +54,7 @@ export default function MachinesPage() {
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 	const [revokedName, setRevokedName] = useState("");
-	const rowRefs = useRef(new Map<string, HTMLDivElement>());
+	const rowRefs = useRef(new Map<string, HTMLLIElement>());
 
 	const load = useCallback(async () => {
 		setLoadError(null);
@@ -202,18 +202,16 @@ export default function MachinesPage() {
 						{/*
 						  Not a restored table: the visible Created/Last used labels
 						  already recover what the column headers did, so only the row
-						  boundaries and the item count were missing. A list restores
-						  exactly that. This wrapper holds rows and nothing else - the
-						  panel heading lives on Panel's own <section>, one level up,
-						  so a role="list" here has no non-listitem child.
+						  boundaries and the item count were missing. ul/li restores
+						  exactly that - and unlike a role attribute, a row can't lose
+						  its listitem semantics just by having its markup refactored.
+						  This wrapper holds rows and nothing else - the panel heading
+						  lives on Panel's own <section>, one level up.
 						*/}
-						{/* biome-ignore lint/a11y/useSemanticElements: div keeps the row's flex styling; ul/li would need a list-style reset to look the same */}
-						<div role="list">
+						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
 							{machines.map((machine) => (
-								// biome-ignore lint/a11y/useSemanticElements: same as the wrapper above - div keeps the existing flex row styling
-								<div
+								<li
 									key={machine.id}
-									role="listitem"
 									data-machine-row={machine.id}
 									ref={(el) => {
 										if (el) rowRefs.current.set(machine.id, el);
@@ -286,9 +284,9 @@ export default function MachinesPage() {
 										</span>
 									</span>
 									<span style={{ flex: "none" }}>{action(machine)}</span>
-								</div>
+								</li>
 							))}
-						</div>
+						</ul>
 
 						{revokeError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>
