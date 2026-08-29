@@ -642,11 +642,21 @@ Expected: FAIL — `Unable to find an accessible element with the role "list"`.
 
 - [ ] **Step 3: Write the implementation**
 
-On the container that wraps `machines.map(...)`, inside `<Panel title="Your machines">`:
+There is **no container today** — `{machines.map(...)}` sits directly inside
+`<Panel title="Your machines">`. Add one around the map:
 
 ```tsx
 <div role="list">
+	{machines.map((machine) => (
+		/* ...unchanged... */
+	))}
+</div>
 ```
+
+Put it here rather than on `Panel`'s own `<section>`: that section also holds
+the panel heading, and a `role="list"` containing a heading is a list with a
+non-`listitem` child. The map is the only thing inside this Panel, so the new
+wrapper contains rows and nothing else — which is what makes the list valid.
 
 On each row `<div>`, alongside the attributes Task 4 added:
 
