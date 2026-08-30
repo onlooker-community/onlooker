@@ -4,22 +4,22 @@ import {
 	type FormEvent,
 	useCallback,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import {
 	createMachine,
 	listMachines,
 	type Machine,
-	type MintedMachine,
 	revokeMachine,
 } from "../api/machinesApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
-import TokenReveal from "../components/TokenReveal";
 import { Chip, EmptyState, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
+import { useReveal } from "../reveal";
 
 // Machine credentials, from the browser. POST /api/machines is browser-
 // authenticated by design - a machine token cannot mint another, so revoking a
@@ -50,9 +50,12 @@ export default function MachinesPage() {
 	const [name, setName] = useState("");
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
-	const [revealed, setRevealed] = useState<MintedMachine | null>(null);
+	const { revealed, reveal } = useReveal();
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
+	const [revokedName, setRevokedName] = useState("");
+	const rowRefs = useRef(new Map<string, HTMLLIElement>());
+	const statusRef = useRef<HTMLParagraphElement>(null);
 
 	const load = useCallback(async () => {
 		setLoadError(null);
@@ -86,7 +89,7 @@ export default function MachinesPage() {
 			// throws, the person still has their token on screen - losing the
 			// only copy to a failed GET would be the one unrecoverable failure
 			// this page is capable of.
-			setRevealed(created);
+			reveal(created);
 			setName("");
 			await load();
 		} catch (error) {
@@ -100,16 +103,37 @@ export default function MachinesPage() {
 		}
 	};
 
-	const revoke = async (id: string) => {
-		setRevoking(id);
+	const revoke = async (machine: Machine) => {
+		setRevoking(machine.id);
 		setRevokeError(null);
 		try {
-			await revokeMachine(id);
+			await revokeMachine(machine.id);
 			await load();
+			setRevokedName(machine.name);
+			// The row element survives the refetch - revoked machines keep their
+			// row - so this ref is still the same node the person was standing
+			// on when the confirm button under their focus unmounted.
+			//
+			// Unless the refetch failed. `load` swaps the whole list for an error
+			// state, so the row unmounted, its ref callback ran with null, and
+			// this found nothing - dropping focus to <body>, which is the defect
+			// the line above exists to prevent. The status region is the fallback:
+			// always mounted, and it now reads "Revoked <name>." - the outcome of
+			// what they just did. It sits at the top of the page rather than
+			// beside the error, with the mint form in between, so Tab reaches
+			// Retry after the form rather than immediately.
+			//
+			// Retry itself would be the better landing spot, but it is rendered by
+			// EmptyState through a plain `action` prop, and Button is not a
+			// forwardRef component under React 18 - reaching it would mean
+			// threading a ref through two shared components for one caller.
+			(rowRefs.current.get(machine.id) ?? statusRef.current)?.focus();
 		} catch (error) {
 			// Nothing was marked revoked ahead of the server, so there is
 			// nothing to undo. A row that claimed a credential was dead while
-			// it was still live is worse than a slow button.
+			// it was still live is worse than a slow button. For the same
+			// reason, a failed revoke does not move focus or announce
+			// anything - the machine is still live.
 			setRevokeError(describeError(error, "Could not revoke that machine."));
 		} finally {
 			setRevoking(null);
@@ -131,17 +155,29 @@ export default function MachinesPage() {
 				pendingLabel="Revoking..."
 				variant="danger"
 				pending={revoking === machine.id}
-				onConfirm={() => void revoke(machine.id)}
+				onConfirm={() => void revoke(machine)}
 			/>
 		);
 	};
 
 	return (
 		<>
-			{revealed ? (
-				<TokenReveal machine={revealed} onDismiss={() => setRevealed(null)} />
-			) : null}
-
+			{/*
+			  Always mounted, empty until it has something to say. A live region
+			  that appears at the same moment as its text is the shape screen
+			  readers skip.
+			*/}
+			<p
+				ref={statusRef}
+				role="status"
+				// Focusable only by script, like the rows. This is where focus
+				// goes when a revoke succeeds but the reload after it fails and
+				// takes the row with it.
+				tabIndex={-1}
+				style={{ margin: 0 }}
+			>
+				{revokedName ? `Revoked ${revokedName}.` : ""}
+			</p>
 			<Panel title="Mint a machine token">
 				<p style={{ marginTop: 0 }}>
 					A machine token is how a plugin pushes lessons to the pool. It is
@@ -186,68 +222,94 @@ export default function MachinesPage() {
 					</EmptyState>
 				) : (
 					<Panel title="Your machines">
-						{machines.map((machine) => (
-							<div key={machine.id} style={row}>
-								<Plate
-									tone={machine.revoked_at ? "red" : "teal"}
-									icon={machineIcon(machine)}
-								/>
-								<span style={{ minWidth: 0, flex: 1 }}>
-									<span
-										style={{
-											display: "block",
-											marginBottom: "var(--space-1)",
-											fontSize: "var(--text-body-md)",
-										}}
-									>
-										{machine.name}
-									</span>
-									<span
-										style={{
-											display: "flex",
-											gap: "var(--space-2)",
-											alignItems: "center",
-											flexWrap: "wrap",
-											color: PALETTE.muted,
-											fontSize: "var(--text-body-sm)",
-										}}
-									>
-										{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-										{/*
-										  Labeled, not bare. LessonsPage's own meta line gets
-										  away with an unlabeled date because it only ever
-										  shows one - this row shows two, and the table it
-										  replaced had "Created"/"Last used" column headers
-										  doing the disambiguating work. Wrapped together so
-										  the label and its date wrap as one unit rather than
-										  splitting across lines at narrow widths.
-										*/}
+						{/*
+						  Not a restored table: the visible Created/Last used labels
+						  already recover what the column headers did, so only the row
+						  boundaries and the item count were missing. ul/li restores
+						  exactly that - and unlike a role attribute, a row can't lose
+						  its listitem semantics just by having its markup refactored.
+						  This wrapper holds rows and nothing else - the panel heading
+						  lives on Panel's own <section>, one level up.
+						*/}
+						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+							{machines.map((machine) => (
+								<li
+									key={machine.id}
+									data-machine-row={machine.id}
+									ref={(el) => {
+										if (el) rowRefs.current.set(machine.id, el);
+										else rowRefs.current.delete(machine.id);
+									}}
+									// Focusable only by script. The row is not a control, but
+									// it is where a person was standing when the control under
+									// their focus unmounted.
+									tabIndex={-1}
+									style={row}
+								>
+									<Plate
+										tone={machine.revoked_at ? "red" : "teal"}
+										icon={machineIcon(machine)}
+									/>
+									<span style={{ minWidth: 0, flex: 1 }}>
 										<span
-											style={{ display: "inline-flex", gap: "var(--space-1)" }}
+											style={{
+												display: "block",
+												marginBottom: "var(--space-1)",
+												fontSize: "var(--text-body-md)",
+											}}
 										>
-											Created <When iso={machine.created_at} />
+											{machine.name}
 										</span>
-										{machine.last_used_at ? (
+										<span
+											style={{
+												display: "flex",
+												gap: "var(--space-2)",
+												alignItems: "center",
+												flexWrap: "wrap",
+												color: PALETTE.muted,
+												fontSize: "var(--text-body-sm)",
+											}}
+										>
+											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+											{/*
+											  Labeled, not bare. LessonsPage's own meta line gets
+											  away with an unlabeled date because it only ever
+											  shows one - this row shows two, and the table it
+											  replaced had "Created"/"Last used" column headers
+											  doing the disambiguating work. Wrapped together so
+											  the label and its date wrap as one unit rather than
+											  splitting across lines at narrow widths.
+											*/}
 											<span
 												style={{
 													display: "inline-flex",
 													gap: "var(--space-1)",
 												}}
 											>
-												Last used <When iso={machine.last_used_at} />
+												Created <When iso={machine.created_at} />
 											</span>
-										) : (
-											// Not a dash. Minting a token and never pointing
-											// a plugin at it is the likeliest first-run
-											// failure in the product, and a blank line does
-											// not say that - it reads as missing data.
-											<Chip>Never used</Chip>
-										)}
+											{machine.last_used_at ? (
+												<span
+													style={{
+														display: "inline-flex",
+														gap: "var(--space-1)",
+													}}
+												>
+													Last used <When iso={machine.last_used_at} />
+												</span>
+											) : (
+												// Not a dash. Minting a token and never pointing
+												// a plugin at it is the likeliest first-run
+												// failure in the product, and a blank line does
+												// not say that - it reads as missing data.
+												<Chip>Never used</Chip>
+											)}
+										</span>
 									</span>
-								</span>
-								<span style={{ flex: "none" }}>{action(machine)}</span>
-							</div>
-						))}
+									<span style={{ flex: "none" }}>{action(machine)}</span>
+								</li>
+							))}
+						</ul>
 
 						{revokeError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>

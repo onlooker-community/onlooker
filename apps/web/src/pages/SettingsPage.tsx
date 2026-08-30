@@ -23,6 +23,7 @@ import {
 	validatePassword,
 	validatePasswordMatch,
 } from "../lib/validation";
+import { useReveal } from "../reveal";
 
 const sectionStyle: React.CSSProperties = {
 	border: "1px solid var(--panel)",
@@ -34,6 +35,9 @@ const sectionStyle: React.CSSProperties = {
 export default function SettingsPage() {
 	const { user, refresh, logout } = auth.useAuth();
 	const navigate = useNavigate();
+	// /settings renders without AppShell, so a reveal opened on /machines can
+	// still be on screen here - the provider lives above the whole route table.
+	const { dismiss } = useReveal();
 	const [profile, setProfile] = useState<AccountUser | null>(null);
 
 	useEffect(() => {
@@ -85,6 +89,11 @@ export default function SettingsPage() {
 			<DeleteAccountSection
 				email={display?.email ?? ""}
 				onDeleted={async () => {
+					// Same reason as AppShell's Sign out: the reveal survives a
+					// session expiry on purpose, so a deliberate exit has to end it
+					// by hand. Deleting the account makes the token dead anyway -
+					// leaving it on screen would only be misleading.
+					dismiss();
 					await logout();
 					navigate("/");
 				}}
