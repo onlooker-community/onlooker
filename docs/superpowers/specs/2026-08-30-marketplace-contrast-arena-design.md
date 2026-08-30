@@ -181,15 +181,43 @@ Three acts, in order, none of which is optional:
 2. **Install, explicitly.**
 
    ```bash
-   claude plugin install ecosystem@onlooker-community -s project
+   claude-personal plugin install ecosystem@onlooker-community -s project
    ```
 
-   The CLI defaults to `--scope user`. Project scope has to be asked for.
-3. **Verify against the registry.** Restart, then read
+   Two traps in one line. The CLI defaults to `--scope user`, so project scope
+   has to be asked for. And on this machine `claude` is not the binary — the
+   interactive fish shell defines `claude` as an account picker
+   (`~/.config/fish/conf.d/10-claude.fish`), where `claude-personal` resolves to
+   `_claude_account "$HOME/.claude-personal"`. Running the bare binary would
+   target a different config root, and the install would land in a registry this
+   session never reads.
+3. **Verify against the registry.** Read
    `~/.claude-personal/plugins/installed_plugins.json` and confirm an entry
    whose `projectPath` is this repo. Do not verify by checking the marketplace
    clone or the version directories under `plugins/cache/` — see below for why
    that reads as healthy when nothing is installed.
+
+### Step 0 result, 2026-08-30
+
+Done and verified. `ecosystem@onlooker-community` 0.45.3, `scope=project`,
+`installedAt=2026-08-30T15:18:11Z`, `projectPath` this repo. Four hooks
+confirmed live in `hook-health.jsonl` under the session id: `turn-tracker`,
+`session-duration-tracker`, and `prompt-rule-injector` on `UserPromptSubmit`,
+`tool-sequence-tracker` on `PreToolUse`, `tool-history-tracker` on
+`PostToolUse`. The plugin's `bin` directory also appears on `PATH`.
+
+**No restart was required.** `/reload-plugins` registered the hooks into the
+running session. Both this spec and ecosystem's rollout assumed a restart, and
+ecosystem's `449.11` went further, arguing against restarting as "the riskier
+path" — which is part of what kept a stale session alive through Wave 1. A
+reload is cheap and non-destructive, and it shortens the wave loop considerably.
+
+**One limit on that.** A reload does not replay `SessionStart`. The substrate's
+`session-start-tracker` and `memory-recall-tracker` did not fire, because the
+session had already started. So `PostToolUse`, `PreToolUse`, `Stop`, and
+`UserPromptSubmit` cadences can be picked up by reload, but anything measured at
+`SessionStart` — bursar in Step 1, and the whole Wave 2 cohort in ecosystem —
+still needs a fresh session.
 
 ### Correction: enabling is not installing
 
@@ -224,8 +252,12 @@ with the mechanism understood rather than assumed.
 Only once step 0's registry check passes. Add lineage, inspector, assayer, and
 bursar to `enabledPlugins` plus the `inspector.checks` block, then install each
 one explicitly at project scope — enabling them in settings will not install
-them any more than it installed the substrate. Restart, then confirm all four
-appear in `hook-health.jsonl` **before** trusting a single measurement.
+them any more than it installed the substrate. Then confirm all four appear in
+`hook-health.jsonl` **before** trusting a single measurement.
+
+`/reload-plugins` is enough to register lineage, inspector, and assayer, whose
+cadences are `PostToolUse` and `Stop`. Bursar is not: it hooks `SessionStart`
+and `SessionEnd`, so its measurement needs a fresh session either way.
 
 That verification gate is the direct lesson from ecosystem's retracted Wave 1.
 Five plugins were enabled in settings, never installed, and every number taken
