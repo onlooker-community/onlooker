@@ -521,36 +521,57 @@ export function authenticatedCases(): ContractCase[] {
 export function shapeFailures(
 	actual: unknown,
 	expected: Record<string, unknown>,
+	/**
+	 * Key prefix for failure messages, so a nested failure reads `error.code`
+	 * rather than `code`. Internal - callers pass nothing.
+	 */
+	path = "",
 ): string[] {
 	if (typeof actual !== "object" || actual === null) {
 		return [
-			`body is ${actual === null ? "null" : typeof actual}, not an object`,
+			`${path || "body"} is ${actual === null ? "null" : typeof actual}, not an object`,
 		];
 	}
 	const value = actual as Record<string, unknown>;
 
 	return Object.entries(expected).flatMap(([key, want]) => {
-		if (!(key in value)) return [`missing "${key}"`];
+		const here = path ? `${path}.${key}` : key;
+		if (!(key in value)) return [`missing "${here}"`];
 		const got = value[key];
 
 		if (want === expectObject) {
 			return typeof got === "object" && got !== null && !Array.isArray(got)
 				? []
-				: [`"${key}" should be an object, got ${describe(got)}`];
+				: [`"${here}" should be an object, got ${describe(got)}`];
 		}
 		if (want === expectArray) {
 			return Array.isArray(got)
 				? []
-				: [`"${key}" should be an array, got ${describe(got)}`];
+				: [`"${here}" should be an array, got ${describe(got)}`];
 		}
 		if (want === expectString) {
 			return typeof got === "string" && got.length > 0
 				? []
-				: [`"${key}" should be a non-empty string, got ${describe(got)}`];
+				: [`"${here}" should be a non-empty string, got ${describe(got)}`];
 		}
+
+		// A plain object expectation describes a nested shape, and is compared as
+		// a subset just like the top level. Before this branch existed the value
+		// fell through to `got === want` below - a reference comparison against a
+		// fresh object literal, which failed unconditionally. So nobody could
+		// write a nested expectation, everyone reached for `expectObject`, and
+		// that says nothing about the contents. A renamed `code` passed the suite.
+		//
+		// Placement relative to the symbol checks above is not load-bearing: the
+		// three expectations are `Symbol.for(...)` values, and `typeof aSymbol` is
+		// "symbol", so this guard cannot catch them wherever it sits.
+		if (typeof want === "object" && want !== null && !Array.isArray(want)) {
+			return shapeFailures(got, want as Record<string, unknown>, here);
+		}
+
 		return got === want
 			? []
-			: [`"${key}" should be ${String(want)}, got ${describe(got)}`];
+			: [`"${here}" should be ${String(want)}, got ${describe(got)}`];
 	});
 }
 
