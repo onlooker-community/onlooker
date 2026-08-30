@@ -385,15 +385,27 @@ Corrected, not pinned: `error.message` is prose for a person, and a case guardin
 
 - [ ] **Step 2: Pin the code that identifies it**
 
-**There is no contract case for this today** — `status_not_allowed` appears in `mockApi.ts` and nowhere in the contract, which is part of why the divergence went unnoticed. Add one, modeled on the existing `/api/lessons/:id/status` case at `packages/api-contract/src/index.ts:483` (read it for the path and `init` shape it uses):
+**The case already exists — amend it, do not write one.**
+`packages/api-contract/src/index.ts:482` is `"transition to a status the browser
+may not assert"`: `PATCH /api/lessons/01NOPE00000000000000000000/status` with
+`{ status: "refuted" }`, expecting 400. It pins the status code and says nothing
+about *which* error came back, which is exactly the gap — a grep for
+`status_not_allowed` in the contract finds nothing precisely because of it.
+
+Add one key to that case:
 
 ```ts
-		body: { error: { code: "status_not_allowed" } },
+			body: { error: { code: "status_not_allowed" } },
 ```
 
-This is the assertion that was impossible before Task 1 — a nested literal, reaching the equality path now that recursion gets there.
+This is the assertion that was impossible before Task 1 — a nested literal,
+reaching the equality path now that recursion gets there.
 
-Getting a real `status_not_allowed` out of both sides needs a lesson in a state whose transition is refused. If the fixture cannot produce one without significant new setup, **say so and stop rather than inventing a fixture** — an assertion on a response the suite cannot actually provoke is worse than no assertion.
+**No fixture seeding is needed**, and the case's own comment says why: *"400 and
+not 404: the status is rejected before the lesson is looked up, so this holds
+without either side seeding a lesson."* The ULID in the path is deliberately one
+that does not exist. If you find yourself building a fixture for this, stop —
+something has changed and I want to hear about it.
 
 - [ ] **Step 3: Run both suites**
 
