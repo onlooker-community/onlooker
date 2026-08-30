@@ -142,7 +142,7 @@ Measured here:
 
 | Check | Cost | Correct? |
 |---|---|---|
-| `biome check ${file}` | 103 ms | yes |
+| `biome check ${file}` | 103 ms cold, 46–51 ms warm | yes |
 | `tsc --noEmit ${file}` | 2.04 s | **no** — 8 spurious errors against a clean tree |
 | `tsc --noEmit` scoped to `@onlooker/web` | 1.22 s | yes, but inexpressible |
 | `turbo typecheck` from `${repo_root}` | ~1.2 s fully cached | yes, but whole-repo on every edit |
@@ -258,6 +258,49 @@ them any more than it installed the substrate. Then confirm all four appear in
 `/reload-plugins` is enough to register lineage, inspector, and assayer, whose
 cadences are `PostToolUse` and `Stop`. Bursar is not: it hooks `SessionStart`
 and `SessionEnd`, so its measurement needs a fresh session either way.
+
+### Step 1 finding: the recorders only see tool-shaped edits
+
+Registration is not the same as observation. Lineage and inspector hook
+`PostToolUse` matched on `Edit`, `Write`, and `MultiEdit`. They see a *tool
+call*, not a change to the filesystem. An agent that edits through the shell —
+a heredoc, `sed -i`, a short Python script — changes the same bytes and is
+invisible to both.
+
+Established by a two-arm test against the same file, minutes apart.
+
+| Arm | How | Hooks fired | Total |
+|---|---|---|---|
+| A | `Edit` tool | sequence 37ms, history 155ms, **inspector 221ms**, **lineage 305ms** | **718 ms** |
+| B | Bash append | sequence 37ms, history 139ms | 176 ms |
+
+Arm B changed the same file and produced `tool.shell.exec`, not
+`lineage.change.recorded`. Two numbers worth keeping from that table: 718 ms is
+this repo's per-edit tax with the recorders on, comfortably inside the ~1 s
+criterion; and 176 ms independently reproduces the 178 ms `ecosystem-449.11`
+re-baseline, on a different repo and a different substrate.
+
+The ledger makes the gap easier to see than the experiment does. Lineage's store
+for this project holds 348 records: 108 `Write`, 240 `Edit`, and nothing from
+any shell tool, ever. Over this session the event bus recorded 33
+`tool.shell.exec` against 1 `tool.file.edit`, and lineage recorded exactly one
+change — the one made through a tool.
+
+So lineage's ledger has a hole shaped like whichever editing style the agent
+happened to use, and `/lineage <file>:<line>` answers "no record" for a line
+that was demonstrably written. That is worse than an obvious gap, because the
+ledger cannot distinguish "not recorded" from "not changed".
+
+This repo is unusually good at provoking it: the harness instruction in play
+here prefers Bash wherever it can do the job, which routes almost all editing
+away from the matcher. Ecosystem is unlikely to surface it at all, being where
+the plugins are authored and where prompts do not push work toward the shell.
+
+**Inspector's floor.** The 221 ms in Arm A bought a single
+`inspector.check.skipped` with `reason: no_extension_match` — the `.md` file has
+no configured check, so that is 221 ms to decide there was nothing to do. With
+63 tracked `.md` files here, every markdown edit pays it. Ecosystem never sees
+this because its config gives `.md` a markdownlint check.
 
 That verification gate is the direct lesson from ecosystem's retracted Wave 1.
 Five plugins were enabled in settings, never installed, and every number taken
