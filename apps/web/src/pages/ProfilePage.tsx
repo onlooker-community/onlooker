@@ -1,4 +1,4 @@
-import { Button, Panel } from "../components/ui";
+import { EmptyState, Panel } from "../components/ui";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
 import type { UserProfile } from "../types/api";
 
@@ -32,10 +32,12 @@ export default function ProfilePage() {
 			{loading && <p>Loading your profile…</p>}
 
 			{error && !loading && (
-				<Panel title="Profile" icon="CatHead" variant="danger">
-					<p style={{ marginTop: 0 }}>Could not load your profile: {error}</p>
-					<Button onClick={() => refetch()}>Retry</Button>
-				</Panel>
+				<EmptyState
+					title="Could not load your profile"
+					action={{ label: "Retry", onClick: () => refetch() }}
+				>
+					{error}
+				</EmptyState>
 			)}
 
 			{data && !loading && (

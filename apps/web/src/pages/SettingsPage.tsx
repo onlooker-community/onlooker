@@ -51,7 +51,7 @@ export default function SettingsPage() {
 	const display = profile ?? (user as AccountUser | null);
 
 	return (
-		<div style={{ maxWidth: "640px" }}>
+		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
 			<h1>Account settings</h1>
 
 			{display && display.emailVerified === false && (

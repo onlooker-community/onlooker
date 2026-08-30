@@ -79,10 +79,16 @@ describe("account routes", () => {
 	});
 
 	// The hand-rolled <nav> existed only because there was no shell. Leaving it
-	// would mean two sets of links to the same places.
+	// would mean two sets of links to the same places - one from AppShell, one
+	// from the page itself. Its accessible name was "Back to the pool", not
+	// "Lessons", so asserting on the shell's own link text would not catch it
+	// coming back.
 	it("does not keep a second set of links on /profile", () => {
 		renderAppAt("/profile");
-		expect(screen.getAllByRole("link", { name: /lessons/i })).toHaveLength(1);
+		expect(screen.getAllByRole("navigation")).toHaveLength(1);
+		expect(
+			screen.queryByRole("link", { name: /back to the pool/i }),
+		).toBeNull();
 	});
 
 	// Profile took sole ownership of the account overview in Task 2, so the
