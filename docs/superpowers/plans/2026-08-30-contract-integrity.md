@@ -39,7 +39,8 @@
 | `apps/web/src/api/api-contract.test.ts` | Honor `headers`. |
 | `apps/api/src/contract.test.ts` | Honor `headers`. |
 | `apps/web/src/api/mockApi.ts` | `Content-Type` on success; `status_not_allowed` wording. |
-| `apps/api/src/db/lessons.ts` | The `has_more`/`cursor` assertion. |
+| `apps/api/src/db/lessons.ts` | The `hasMore`/`cursor` assertion. |
+| `apps/api/src/db/lessons-browser.test.ts` | The test for it, in the existing `listLessonsPage` block. |
 
 ---
 
@@ -430,11 +431,11 @@ Body: why the wording is corrected but not pinned, and why the code is.
 
 **Files:**
 - Modify: `apps/api/src/db/lessons.ts:413` (`listLessonsPage`)
-- Test: `apps/api/src/db/lessons.test.ts`
+- Test: `apps/api/src/db/lessons-browser.test.ts` (inside its existing `describe("listLessonsPage")`)
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `apps/api/src/db/lessons.test.ts`:
+Add to the existing `describe("listLessonsPage")` block in `apps/api/src/db/lessons-browser.test.ts` (line 42). **Not `lessons.test.ts`** — `listLessonsPage` is not tested there at all.
 
 ```ts
 // The browser keys its Load more control off `cursor`, so has_more: true with a
@@ -444,10 +445,12 @@ Add to `apps/api/src/db/lessons.test.ts`:
 // this pins a property that is currently true by accident of the implementation
 // rather than by statement.
 it("never reports more pages without a cursor to fetch them with", async () => {
-	// Signature is listLessonsPage(db, userId, opts) - three arguments, not two.
-	// The returned field is `hasMore` (camelCase); `has_more` is the wire name
-	// the route maps it to, and does not exist here.
-	const page = await listLessonsPage(db, USER_ID, { limit: 1 });
+	// Signature is listLessonsPage(db, userId, opts) - three arguments. Note
+	// `db()` is a function call in this file, and `userId` is the module-level
+	// binding its setup populates; match the neighbouring tests. The returned
+	// field is `hasMore` (camelCase) - `has_more` is the wire name the route
+	// maps it to and does not exist here.
+	const page = await listLessonsPage(db(), userId, { limit: 1 });
 	if (page.hasMore) {
 		expect(page.cursor).not.toBeNull();
 	}
@@ -455,7 +458,12 @@ it("never reports more pages without a cursor to fetch them with", async () => {
 });
 ```
 
-Read the file's existing setup before writing this — use whatever fixture, `db` handle and user id the neighbouring tests use; `USER_ID` above is a placeholder for whatever they call it. Seed at least two lessons so `hasMore` is genuinely true rather than vacuously false; a test that only ever sees `hasMore: false` asserts nothing.
+The file already exercises this: `lessons-browser.test.ts:61-62` asserts
+`hasMore`/`cursor` for an empty page, and the loop at :75-80 walks multiple pages
+with `limit: 2`, so a `hasMore: true` state is reachable with the fixture as it
+stands. Seed enough lessons that your call genuinely sees `hasMore: true` — a
+test that only ever observes `false` asserts nothing, and the `if` in the body
+above would never execute.
 
 `LessonPage` is `{ lessons: unknown[]; cursor: string | null; hasMore: boolean }` (`apps/api/src/db/lessons.ts:398`).
 
