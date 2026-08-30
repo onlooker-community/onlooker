@@ -516,7 +516,7 @@ export function authenticatedCases(): ContractCase[] {
 			// AuthApiError.code and made `err.code === "..."` false in production.
 			body: {
 				success: false,
-				error: expectObject,
+				error: { code: "not_found", message: expectString },
 			},
 			forbidden: NO_SECRETS,
 		},
