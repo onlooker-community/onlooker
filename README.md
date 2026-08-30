@@ -36,7 +36,7 @@ The website has no staging environment — one worker, one deploy.
 | [`db`](packages/db) | Drizzle schema and migrations for D1. Owns the schema; the API consumes it. |
 | [`auth-core`](packages/auth-core) / [`auth-react`](packages/auth-react) | Framework-agnostic auth primitives, and the React layer over them. |
 | [`brand`](packages/brand) | Design tokens, with contrast guarantees enforced by tests. |
-| [`cache`](packages/cache) · [`logger`](packages/logger) · [`types`](packages/types) · [`vite-plugins`](packages/vite-plugins) | Shared internals. |
+| [`types`](packages/types) · [`vite-plugins`](packages/vite-plugins) | Shared internals. |
 | [`config-biome`](packages/config-biome) · [`config-typescript`](packages/config-typescript) | Shared tool config. |
 
 ## Getting started
