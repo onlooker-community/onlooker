@@ -20,8 +20,10 @@ declare module "react" {
 // existed on exactly one page and disappeared with it in onlooker-yfw.
 //
 // Takes children rather than rendering an <Outlet>, so it works both as a
-// layout route and as a direct wrapper. /lessons and /machines route through
-// it today; /settings and /profile do not yet.
+// layout route and as a direct wrapper. Every authenticated route goes
+// through it now: /lessons as the layout route, whose :id child renders
+// through LessonsPage's own Outlet, and /machines, /settings and /profile
+// as direct wrappers.
 
 const SECTIONS = [
 	// ChestTreasure: the approved pool, in the brand doc's own mapping.

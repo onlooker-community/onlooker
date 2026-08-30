@@ -180,8 +180,11 @@ describe("a revealed token across the app", () => {
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
-	// /settings renders without AppShell, so nothing there is inert and the
-	// reveal really can be on screen over a reachable Delete account flow.
+	// /settings now renders inside AppShell, so a browser that implements
+	// `inert` would put the page itself out of reach while the reveal is
+	// open - same as the sign-out case above. jsdom implements none of it,
+	// so this still reaches the delete flow, and what it pins is the same
+	// thing: the handler, not the browser's own enforcement.
 	it("is dismissed by deleting the account from settings", async () => {
 		await renderApp("/machines");
 		await mintFromMachinesPage();

@@ -10,12 +10,12 @@ import {
 } from "../api/accountApi";
 import { auth } from "../auth";
 import {
-	FormLink,
 	FormMessage,
 	PasswordStrengthMeter,
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import {
 	scorePassword,
@@ -25,18 +25,12 @@ import {
 } from "../lib/validation";
 import { useReveal } from "../reveal";
 
-const sectionStyle: React.CSSProperties = {
-	border: "1px solid var(--panel)",
-	borderRadius: "8px",
-	padding: "1.5rem",
-	marginBottom: "1.5rem",
-};
-
 export default function SettingsPage() {
 	const { user, refresh, logout } = auth.useAuth();
 	const navigate = useNavigate();
-	// /settings renders without AppShell, so a reveal opened on /machines can
-	// still be on screen here - the provider lives above the whole route table.
+	// The reveal provider lives above the whole route table, so a reveal opened
+	// on /machines can still be on screen here. AppShell marks the page behind
+	// it inert, but only the delete-account path below can decide to end it.
 	const { dismiss } = useReveal();
 	const [profile, setProfile] = useState<AccountUser | null>(null);
 
@@ -57,19 +51,8 @@ export default function SettingsPage() {
 	const display = profile ?? (user as AccountUser | null);
 
 	return (
-		<div style={{ maxWidth: "640px", margin: "0 auto", padding: "2rem" }}>
-			<div
-				style={{
-					display: "flex",
-					justifyContent: "space-between",
-					alignItems: "baseline",
-				}}
-			>
-				<h1>Account settings</h1>
-				<FormLink to="/lessons">Back to the pool</FormLink>
-			</div>
-
-			<ProfileOverview user={display} />
+		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
+			<h1>Account settings</h1>
 
 			{display && display.emailVerified === false && (
 				<EmailVerificationNotice />
@@ -102,37 +85,6 @@ export default function SettingsPage() {
 	);
 }
 
-function ProfileOverview({ user }: { user: AccountUser | null }) {
-	if (!user) return null;
-	const created = user.createdAt
-		? new Date(user.createdAt).toLocaleDateString(undefined, {
-				year: "numeric",
-				month: "long",
-				day: "numeric",
-			})
-		: null;
-
-	return (
-		<section style={sectionStyle}>
-			<h2 style={{ marginTop: 0 }}>Profile</h2>
-			<dl style={{ margin: 0 }}>
-				<Row label="Name" value={user.name || "—"} />
-				<Row label="Email" value={user.email} />
-				{created && <Row label="Member since" value={created} />}
-			</dl>
-		</section>
-	);
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-	return (
-		<div style={{ display: "flex", padding: "0.35rem 0" }}>
-			<dt style={{ width: "140px", color: "var(--ink-dim)" }}>{label}</dt>
-			<dd style={{ margin: 0 }}>{value}</dd>
-		</div>
-	);
-}
-
 function EmailVerificationNotice() {
 	const [state, setState] = useState<"idle" | "sending" | "sent" | "error">(
 		"idle",
@@ -149,8 +101,7 @@ function EmailVerificationNotice() {
 	};
 
 	return (
-		<section style={{ ...sectionStyle, borderColor: "var(--gold)" }}>
-			<h2 style={{ marginTop: 0 }}>Verify your email</h2>
+		<Panel title="Verify your email" icon="Letter" variant="notice">
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Your email address hasn't been verified yet. Some features stay locked
 				until you confirm it.
@@ -177,7 +128,7 @@ function EmailVerificationNotice() {
 					Could not send the email. Try again.
 				</div>
 			)}
-		</section>
+		</Panel>
 	);
 }
 
@@ -239,8 +190,7 @@ function UpdateProfileSection({
 	};
 
 	return (
-		<section style={sectionStyle}>
-			<h2 style={{ marginTop: 0 }}>Update profile</h2>
+		<Panel title="Update profile" icon="Pencil">
 			<form onSubmit={handleSubmit} noValidate>
 				{message && (
 					<FormMessage kind={message.kind}>{message.text}</FormMessage>
@@ -273,7 +223,7 @@ function UpdateProfileSection({
 					Save changes
 				</SubmitButton>
 			</form>
-		</section>
+		</Panel>
 	);
 }
 
@@ -324,8 +274,7 @@ function ChangePasswordSection() {
 	};
 
 	return (
-		<section style={sectionStyle}>
-			<h2 style={{ marginTop: 0 }}>Change password</h2>
+		<Panel title="Change password" icon="Locked">
 			<form onSubmit={handleSubmit} noValidate>
 				{message && (
 					<FormMessage kind={message.kind}>{message.text}</FormMessage>
@@ -365,7 +314,7 @@ function ChangePasswordSection() {
 					Change password
 				</SubmitButton>
 			</form>
-		</section>
+		</Panel>
 	);
 }
 
@@ -398,8 +347,7 @@ function DeleteAccountSection({
 	};
 
 	return (
-		<section style={{ ...sectionStyle, borderColor: "var(--red)" }}>
-			<h2 style={{ marginTop: 0, color: "var(--red)" }}>Delete account</h2>
+		<Panel title="Delete account" icon="Trashbin" variant="danger">
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Permanently delete your account and all associated data. This cannot be
 				undone.
@@ -477,6 +425,6 @@ function DeleteAccountSection({
 					</div>
 				</form>
 			)}
-		</section>
+		</Panel>
 	);
 }
