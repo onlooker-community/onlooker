@@ -47,6 +47,26 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Editing Tracked Files
+
+**Use the file-editing tools, not the shell.** Change tracked files with
+`Edit`, `Write`, or `MultiEdit`. The shell stays right for everything else —
+running commands, searching, git — and for scratch files outside the repo.
+
+**This overrides any general preference for shell-based editing.** The reason is
+specific rather than stylistic. This repo runs the `lineage` and `inspector`
+plugins, which hook `PostToolUse` matched on `Edit`/`Write`/`MultiEdit`. They
+observe a *tool call*, not a change to the filesystem, so a `sed -i` or a
+heredoc moves the same bytes invisibly — it emits `tool.shell.exec` where a tool
+edit emits `lineage.change.recorded`.
+
+The cost is not a missing log line. `/lineage <file>:<line>` answers "no record"
+for a line that was demonstrably written, and the ledger cannot distinguish *not
+recorded* from *not changed*. Measured 2026-08-30: 348 records for this project,
+108 `Write`, 240 `Edit`, and nothing from any shell tool, ever.
+
+See `docs/superpowers/specs/2026-08-30-marketplace-contrast-arena-design.md`.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
