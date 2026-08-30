@@ -37,6 +37,25 @@ vi.mock("../hooks/useAuthenticatedFetch", () => ({
 	}),
 }));
 
+// SettingsPage calls getProfile() on mount, same reason as the fetch stub
+// above - a stub keeps the test about routing rather than about timing.
+vi.mock("../api/accountApi", () => ({
+	getProfile: () =>
+		Promise.resolve({
+			user: {
+				id: "u1",
+				name: "Someone",
+				email: "someone@example.com",
+				emailVerified: true,
+				createdAt: "2026-01-01T00:00:00.000Z",
+			},
+		}),
+	updateProfile: vi.fn(),
+	changePassword: vi.fn(),
+	deleteAccount: vi.fn(),
+	resendVerificationEmail: vi.fn(),
+}));
+
 const { default: App } = await import("../App");
 
 function renderAppAt(path: string) {
@@ -64,5 +83,35 @@ describe("account routes", () => {
 	it("does not keep a second set of links on /profile", () => {
 		renderAppAt("/profile");
 		expect(screen.getAllByRole("link", { name: /lessons/i })).toHaveLength(1);
+	});
+
+	// Profile took sole ownership of the account overview in Task 2, so the
+	// fields have to survive the move. Settings' copy showed three of these
+	// and called the date something else; this is what stops the surviving
+	// copy quietly shedding one.
+	it("shows every account field on /profile", () => {
+		renderAppAt("/profile");
+		expect(screen.getByText("Name")).toBeDefined();
+		expect(screen.getByText("Email")).toBeDefined();
+		expect(screen.getByText("Account created")).toBeDefined();
+		expect(screen.getByText("Last login")).toBeDefined();
+	});
+
+	it("renders /settings inside the shell", () => {
+		renderAppAt("/settings");
+		const href = (name: RegExp) =>
+			screen.getByRole("link", { name }).getAttribute("href");
+		expect(href(/lessons/i)).toBe("/lessons");
+		expect(href(/machines/i)).toBe("/machines");
+		expect(href(/profile/i)).toBe("/profile");
+	});
+
+	// One fact, one home. Settings and Profile both showed the account
+	// overview and had already drifted - Settings said "Member since" and
+	// never showed last login. Profile owns it now, and this is what stops
+	// the second copy growing back.
+	it("does not show an account overview on /settings", () => {
+		renderAppAt("/settings");
+		expect(screen.queryByRole("heading", { name: /^profile$/i })).toBeNull();
 	});
 });

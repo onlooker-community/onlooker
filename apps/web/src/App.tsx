@@ -67,7 +67,9 @@ export default function App() {
 						path="/settings"
 						element={
 							<auth.RequireAuth>
-								<SettingsPage />
+								<AppShell>
+									<SettingsPage />
+								</AppShell>
 							</auth.RequireAuth>
 						}
 					/>
