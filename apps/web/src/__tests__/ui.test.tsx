@@ -151,6 +151,37 @@ describe("Panel", () => {
 		render(<Panel>body</Panel>);
 		expect(screen.queryByRole("heading")).toBeNull();
 	});
+
+	// The two Settings sections that carry a colored border carry it as signal:
+	// "verify your email" is a call to action and "delete account" is
+	// destructive. A Panel with one fixed border color cannot say either, so
+	// moving those sections onto Panel without this would quietly drop the
+	// distinction rather than restyle it.
+	it("uses the default border when it has no variant", () => {
+		const { container } = render(<Panel title="Plain">body</Panel>);
+		const section = container.querySelector("section");
+		expect(section?.style.border).toBe(`2px solid ${PALETTE.border}`);
+	});
+
+	it("borders a notice in gold", () => {
+		const { container } = render(
+			<Panel title="Verify" variant="notice">
+				body
+			</Panel>,
+		);
+		const section = container.querySelector("section");
+		expect(section?.style.border).toBe("2px solid var(--gold)");
+	});
+
+	it("borders a danger in red", () => {
+		const { container } = render(
+			<Panel title="Delete" variant="danger">
+				body
+			</Panel>,
+		);
+		const section = container.querySelector("section");
+		expect(section?.style.border).toBe("2px solid var(--red)");
+	});
 });
 
 describe("EmptyState", () => {

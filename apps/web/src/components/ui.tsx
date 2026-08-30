@@ -112,17 +112,40 @@ export function Chip({ children }: { children: ReactNode }) {
 export function Panel({
 	title,
 	icon,
+	variant,
 	children,
 }: {
 	title?: string;
 	icon?: IconName;
+	/**
+	 * A colored edge, for the two cases where the border itself is the
+	 * message: `notice` for something the reader has to act on, `danger` for
+	 * something destructive.
+	 *
+	 * Not `tone` and not `accent`, both of which already mean something else
+	 * in this file. `tone` is which of two constant plate FILLS backs an icon
+	 * (`Plate`, `EmptyState`). `accent` is a TEXT color that shifts with the
+	 * theme, defined in opposition to a plate - `Button` is tested to fill
+	 * "with a plate and never an accent". `variant` follows `Button`, where
+	 * `danger` already means exactly this.
+	 *
+	 * Named for what the border is for rather than what color it is, so the
+	 * prop does not become a lie if gold is ever retuned.
+	 */
+	variant?: "notice" | "danger";
 	children: ReactNode;
 }) {
+	const border =
+		variant === "notice"
+			? "var(--gold)"
+			: variant === "danger"
+				? "var(--red)"
+				: PALETTE.border;
 	return (
 		<section
 			style={{
 				background: "var(--panel)",
-				border: `2px solid ${PALETTE.border}`,
+				border: `2px solid ${border}`,
 				borderRadius: 0,
 				padding: "1rem",
 			}}
