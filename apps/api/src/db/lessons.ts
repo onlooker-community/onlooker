@@ -456,10 +456,23 @@ export async function listLessonsPage(
 		(r) => JSON.parse(r.body) as { id: string; promoted_at: string },
 	);
 	const last = page.at(-1);
+	const cursor =
+		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
+
+	// Assert rather than trust: this holds by construction today, but the
+	// construction is three separate facts (hasMore derives from a row count,
+	// limit clamps to >= 1, the cursor comes from the last row) and a change to
+	// any one of them breaks it silently. The browser would hide the tail of the
+	// pool and say nothing.
+	if (hasMore && cursor === null) {
+		throw new Error(
+			"listLessonsPage: has_more is true with no cursor; the tail would be unreachable",
+		);
+	}
 
 	return {
 		lessons: page,
-		cursor: hasMore && last ? encodeCursor(last.promoted_at, last.id) : null,
+		cursor,
 		hasMore,
 	};
 }

@@ -438,7 +438,10 @@ async function mockAccountApi(
 }
 
 function json(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), { status });
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json" },
+	});
 }
 
 export async function mockAuthApi(
@@ -714,7 +717,9 @@ export async function mockDataApi(
 			throw new AuthApiError(
 				400,
 				"status_not_allowed",
-				"A lesson may be retracted or made active again from here.",
+				"A lesson may be retracted or made active again from here. " +
+					"'refuted' belongs to the counter-observation that produced it, " +
+					"and 'superseded' must name the lesson that replaced it.",
 			);
 		}
 		// The pool is always empty here, so any id is one nobody holds.

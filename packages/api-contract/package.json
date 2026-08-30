@@ -10,12 +10,14 @@
 	"scripts": {
 		"lint": "biome check src",
 		"lint:fix": "biome check --write src",
+		"test": "vitest run",
 		"typecheck": "tsc --noEmit",
 		"clean": "rimraf node_modules .turbo"
 	},
 	"devDependencies": {
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
-		"typescript": "^5.6.3"
+		"typescript": "^5.6.3",
+		"vitest": "^4.1.9"
 	}
 }
