@@ -1,6 +1,7 @@
 {
   "enabledPlugins": {
-    "typescript-architect@meaganewaller-marketplace": true
+    "typescript-architect@meaganewaller-marketplace": true,
+    "ecosystem@onlooker-community": true
   },
   "extraKnownMarketplaces": {
     "meaganewaller-marketplace": {
@@ -8,6 +9,13 @@
         "source": "github",
         "repo": "meaganewaller/marketplace"
       }
+    },
+    "onlooker-community": {
+      "source": {
+        "source": "github",
+        "repo": "onlooker-community/ecosystem"
+      },
+      "autoUpdate": true
     }
   },
   "hooks": {
