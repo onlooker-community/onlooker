@@ -46,6 +46,22 @@ export function suppressEcho(rl: Interface, prompt: string): boolean {
  */
 const PROMPT = "Machine token: ";
 
+/**
+ * Build the readline interface `promptForToken` reads the token through.
+ *
+ * Extracted so a test can assert against the interface this module actually
+ * constructs. Every other test in the suite builds its own interface, which
+ * means all of them stay green if the import above changes back to
+ * `node:readline/promises` - measured, 4/4 passing against that regression.
+ * Nothing else in the file ties an assertion to this module's own import.
+ */
+export function createPromptInterface(
+	input: NodeJS.ReadableStream,
+	output: NodeJS.WritableStream,
+): Interface {
+	return createInterface({ input, output });
+}
+
 export async function promptForToken(): Promise<string> {
 	if (!process.stdin.isTTY) {
 		const chunks: Buffer[] = [];
@@ -53,7 +69,7 @@ export async function promptForToken(): Promise<string> {
 		return Buffer.concat(chunks).toString("utf8");
 	}
 
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	const rl = createPromptInterface(process.stdin, process.stdout);
 	// The prompt goes to `question` rather than being written here, so readline
 	// knows it and passes it to the hook on every refresh. Writing it directly
 	// does not survive: readline clears the line before drawing.
