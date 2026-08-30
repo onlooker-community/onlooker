@@ -1,6 +1,6 @@
 # Marketplace Contrast Arena — Design
 
-Tracked by `onlooker-12s`, with `onlooker-12s.1` (install probe) and
+Tracked by `onlooker-12s`, with `onlooker-12s.1` (declare, install, verify) and
 `onlooker-12s.2` (recorder set).
 
 Applies to `.claude/settings.json` only. No application code changes.
@@ -35,14 +35,21 @@ where the stack gets *exercised*; ecosystem stays where it gets *fixed*.
 Three things this arena produces that the ecosystem repo structurally cannot.
 
 **A clean install path.** `ecosystem-449.10` is open, and its premise still
-holds: `installed_plugins.json` lists exactly one Onlooker plugin,
-`ecosystem@onlooker-community 0.45.2`, project-scoped to the ecosystem repo. The
-five plugins that repo's Wave 1 declared were never installed, so a full day of
-soak measured nothing and its numbers were retracted. The open question — does
-`enabledPlugins` alone trigger installation? — cannot be answered cleanly in
-that repo, whose install history includes 0.45.0 orphaned mid-session and a
-marketplace update landing between sessions. This repo has zero
-`onlooker-community` entries for its `projectPath`. It is the clean room.
+held when this was written: `installed_plugins.json` listed exactly one Onlooker
+plugin, `ecosystem@onlooker-community`, project-scoped to the ecosystem repo.
+The five plugins that repo's Wave 1 declared were never installed, so a full day
+of soak measured nothing and its numbers were retracted.
+
+That question — does `enabledPlugins` alone trigger installation? — was resolved
+the same day, and the answer is no. It is recorded under *Correction* in the
+staging section rather than here, because it changed the design rather than
+motivating it.
+
+What survives is narrower and still worth having. This repo has zero
+`onlooker-community` entries for its `projectPath`, where ecosystem has carried
+the substrate since 2026-08-09. So this is the first install either repo
+performs with the mechanism understood instead of assumed, and the first
+verification done against the registry rather than the cache.
 
 **A different substrate.** Ecosystem is shell and markdown; its inspector
 configuration is shellcheck, biome, and markdownlint. This repo is 175 `.ts`,
@@ -157,27 +164,100 @@ worked around.
 ## Staging *(approved)*
 
 Two steps, not four waves. A contrast arena has no need of its own wave
-schedule; it needs to be certain the plugins are actually running.
+schedule; it needs to be certain the plugins are actually running — which, as
+Step 0 records, is a stronger claim than it sounds.
 
-### Step 0 — the install probe (`onlooker-12s.1`)
+### Step 0 — declare, install, verify (`onlooker-12s.1`)
 
-Land `extraKnownMarketplaces` and `enabledPlugins` for
-`ecosystem@onlooker-community` **alone**. Restart. Read
-`~/.claude-personal/plugins/installed_plugins.json` for this `projectPath`.
+**Revised 2026-08-30.** This step was written as a probe: land the settings and
+see whether the substrate installs itself. That question is now answered, and
+the answer invalidates the original design. See *Correction* below.
 
-This is the whole value of the clean room, and it is worth more than everything
-downstream of it. If the substrate self-installs, `ecosystem-449.10` is
-version-churn noise local to the ecosystem repo and its rollout can resume. If
-it does not, `enabledPlugins` alone does not install, and the premise both
-rollouts are built on is wrong in both repos.
+Three acts, in order, none of which is optional:
 
-Report the result on `ecosystem-449.10` either way.
+1. **Declare.** `extraKnownMarketplaces` for `onlooker-community`, and
+   `enabledPlugins` for `ecosystem@onlooker-community` alone. This makes the
+   marketplace resolvable and marks the plugin enabled. It does not install it.
+2. **Install, explicitly.**
+
+   ```bash
+   claude-personal plugin install ecosystem@onlooker-community -s project
+   ```
+
+   Two traps in one line. The CLI defaults to `--scope user`, so project scope
+   has to be asked for. And on this machine `claude` is not the binary — the
+   interactive fish shell defines `claude` as an account picker
+   (`~/.config/fish/conf.d/10-claude.fish`), where `claude-personal` resolves to
+   `_claude_account "$HOME/.claude-personal"`. Running the bare binary would
+   target a different config root, and the install would land in a registry this
+   session never reads.
+3. **Verify against the registry.** Read
+   `~/.claude-personal/plugins/installed_plugins.json` and confirm an entry
+   whose `projectPath` is this repo. Do not verify by checking the marketplace
+   clone or the version directories under `plugins/cache/` — see below for why
+   that reads as healthy when nothing is installed.
+
+### Step 0 result, 2026-08-30
+
+Done and verified. `ecosystem@onlooker-community` 0.45.3, `scope=project`,
+`installedAt=2026-08-30T15:18:11Z`, `projectPath` this repo. Four hooks
+confirmed live in `hook-health.jsonl` under the session id: `turn-tracker`,
+`session-duration-tracker`, and `prompt-rule-injector` on `UserPromptSubmit`,
+`tool-sequence-tracker` on `PreToolUse`, `tool-history-tracker` on
+`PostToolUse`. The plugin's `bin` directory also appears on `PATH`.
+
+**No restart was required.** `/reload-plugins` registered the hooks into the
+running session. Both this spec and ecosystem's rollout assumed a restart, and
+ecosystem's `449.11` went further, arguing against restarting as "the riskier
+path" — which is part of what kept a stale session alive through Wave 1. A
+reload is cheap and non-destructive, and it shortens the wave loop considerably.
+
+**One limit on that.** A reload does not replay `SessionStart`. The substrate's
+`session-start-tracker` and `memory-recall-tracker` did not fire, because the
+session had already started. So `PostToolUse`, `PreToolUse`, `Stop`, and
+`UserPromptSubmit` cadences can be picked up by reload, but anything measured at
+`SessionStart` — bursar in Step 1, and the whole Wave 2 cohort in ecosystem —
+still needs a fresh session.
+
+### Correction: enabling is not installing
+
+The original Step 0 assumed `enabledPlugins` in committed settings could install
+a plugin, and both this spec and ecosystem's four-wave rollout were built on it.
+It cannot. `enabledPlugins` marks a plugin enabled *only if it is already
+installed*; nothing but `claude plugin install` writes the registry that governs
+hook registration.
+
+`autoUpdate` is what hides this. It keeps the plugin **cache** warm for every
+enabled entry regardless of install state, so a plugin can have a freshly
+fetched version directory while being absent from the registry entirely. The
+cache reads as healthy. Only the registry tells the truth.
+
+This is the same failure shape as `ecosystem-449.12` and the `config-loader.sh`
+bug before it: nothing errors, nothing surfaces, and the only symptom is an
+absence nobody notices. Ecosystem's Wave 1 committed its settings and measured
+nothing for a day.
+
+Recorded upstream in `onlooker-community/ecosystem#222`. A related trap from the
+same commit: `claude plugin update` also defaults to `--scope user` and fails
+outright against a project-scoped plugin.
+
+**What this repo can still contribute.** Not the mechanism — that is settled.
+But every measurement either rollout takes depends on the verification step
+above actually being performed, and the arena is only worth running if the
+plugins are demonstrably registered. The cold install here is the first one done
+with the mechanism understood rather than assumed.
 
 ### Step 1 — the recorder set (`onlooker-12s.2`)
 
-Only if step 0 installs. Add lineage, inspector, assayer, and bursar plus the
-`inspector.checks` block. Restart, then confirm all four appear in
+Only once step 0's registry check passes. Add lineage, inspector, assayer, and
+bursar to `enabledPlugins` plus the `inspector.checks` block, then install each
+one explicitly at project scope — enabling them in settings will not install
+them any more than it installed the substrate. Then confirm all four appear in
 `hook-health.jsonl` **before** trusting a single measurement.
+
+`/reload-plugins` is enough to register lineage, inspector, and assayer, whose
+cadences are `PostToolUse` and `Stop`. Bursar is not: it hooks `SessionStart`
+and `SessionEnd`, so its measurement needs a fresh session either way.
 
 That verification gate is the direct lesson from ecosystem's retracted Wave 1.
 Five plugins were enabled in settings, never installed, and every number taken
@@ -255,6 +335,8 @@ Wave 4 are not needed here.
 
 ## Open questions
 
-None blocking. The one genuine unknown — whether `enabledPlugins` alone
-installs — is the subject of step 0 rather than a question to resolve before
-starting.
+The original open question — whether `enabledPlugins` alone installs — was
+resolved on 2026-08-30 and is recorded under *Correction* above. It does not.
+
+Nothing else is blocking. The remaining unknowns are the measurements themselves,
+which is what the arena exists to produce.
