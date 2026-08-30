@@ -14,7 +14,11 @@
   },
   "enabledPlugins": {
     "typescript-architect@meaganewaller-marketplace": true,
-    "ecosystem@onlooker-community": true
+    "ecosystem@onlooker-community": true,
+    "lineage@onlooker-community": true,
+    "inspector@onlooker-community": true,
+    "assayer@onlooker-community": true,
+    "bursar@onlooker-community": true
   },
   "extraKnownMarketplaces": {
     "meaganewaller-marketplace": {
@@ -29,6 +33,54 @@
         "repo": "onlooker-community/ecosystem"
       },
       "autoUpdate": true
+    }
+  },
+  "inspector": {
+    "checks": {
+      ".ts": [
+        {
+          "name": "biome",
+          "kind": "lint",
+          "argv": [
+            "${repo_root}/node_modules/.bin/biome",
+            "check",
+            "${file}"
+          ]
+        }
+      ],
+      ".tsx": [
+        {
+          "name": "biome",
+          "kind": "lint",
+          "argv": [
+            "${repo_root}/node_modules/.bin/biome",
+            "check",
+            "${file}"
+          ]
+        }
+      ],
+      ".json": [
+        {
+          "name": "biome",
+          "kind": "lint",
+          "argv": [
+            "${repo_root}/node_modules/.bin/biome",
+            "check",
+            "${file}"
+          ]
+        }
+      ],
+      ".mjs": [
+        {
+          "name": "biome",
+          "kind": "lint",
+          "argv": [
+            "${repo_root}/node_modules/.bin/biome",
+            "check",
+            "${file}"
+          ]
+        }
+      ]
     }
   }
 }
