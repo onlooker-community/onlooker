@@ -717,7 +717,9 @@ export async function mockDataApi(
 			throw new AuthApiError(
 				400,
 				"status_not_allowed",
-				"A lesson may be retracted or made active again from here.",
+				"A lesson may be retracted or made active again from here. " +
+					"'refuted' belongs to the counter-observation that produced it, " +
+					"and 'superseded' must name the lesson that replaced it.",
 			);
 		}
 		// The pool is always empty here, so any id is one nobody holds.

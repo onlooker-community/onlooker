@@ -500,6 +500,7 @@ export function authenticatedCases(): ContractCase[] {
 			// 400 and not 404: the status is rejected before the lesson is
 			// looked up, so this holds without either side seeding a lesson.
 			status: 400,
+			body: { error: { code: "status_not_allowed" } },
 			forbidden: NO_SECRETS,
 		},
 		{
