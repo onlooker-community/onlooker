@@ -196,6 +196,26 @@ describe("listLessonsPage", () => {
 		expect(page.lessons).toHaveLength(BROWSE_MAX_LIMIT);
 		expect(page.hasMore).toBe(true);
 	});
+
+	// The browser keys its Load more control off `cursor`, so has_more: true
+	// with a null cursor would silently hide the tail of the pool - the same
+	// quiet lie the control was built to end, one layer down. The pairing
+	// holds by construction today (hasMore derives from rows.length > limit,
+	// and limit clamps to >= 1), so this pins a property that is currently
+	// true by accident of the implementation rather than by statement.
+	it("never reports more pages without a cursor to fetch them with", async () => {
+		// Two lessons, limit 1: rows.length (2) > limit (1), so hasMore is
+		// genuinely true here and the if below is not vacuous.
+		await seed(["2026-08-01T00:00:00.000Z", "2026-08-02T00:00:00.000Z"]);
+
+		const page = await listLessonsPage(db(), userId, { limit: 1 });
+
+		expect(page.hasMore).toBe(true);
+		if (page.hasMore) {
+			expect(page.cursor).not.toBeNull();
+		}
+		expect(typeof page.hasMore).toBe("boolean");
+	});
 });
 
 describe("getLessonForUser", () => {
