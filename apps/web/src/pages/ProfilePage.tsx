@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Button, Panel } from "../components/ui";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
 import type { UserProfile } from "../types/api";
 
@@ -11,56 +11,43 @@ function formatDate(iso: string): string {
 	});
 }
 
+function Row({ label, value }: { label: string; value: string }) {
+	return (
+		<div style={{ display: "flex", padding: "0.35rem 0" }}>
+			<dt style={{ width: "140px", color: "var(--ink-dim)" }}>{label}</dt>
+			<dd style={{ margin: 0 }}>{value}</dd>
+		</div>
+	);
+}
+
+// The account overview lives here and only here. Settings used to carry a
+// second copy that had already drifted - it said "Member since" where this
+// says "Account created", and it never showed last login at all.
 export default function ProfilePage() {
 	const { data, loading, error, refetch } =
 		useAuthenticatedFetch<UserProfile>("/api/users/me");
 
 	return (
-		<div style={{ maxWidth: "640px", margin: "0 auto", padding: "2rem" }}>
-			<h1>Profile</h1>
-
+		<div style={{ maxWidth: "640px" }}>
 			{loading && <p>Loading your profile…</p>}
 
 			{error && !loading && (
-				<div style={{ color: "var(--red)", marginBottom: "1rem" }}>
-					<p>Could not load your profile: {error}</p>
-					<button
-						type="button"
-						onClick={() => refetch()}
-						style={{ padding: "0.5rem 1rem", cursor: "pointer" }}
-					>
-						Retry
-					</button>
-				</div>
+				<Panel title="Profile" icon="CatHead" variant="danger">
+					<p style={{ marginTop: 0 }}>Could not load your profile: {error}</p>
+					<Button onClick={() => refetch()}>Retry</Button>
+				</Panel>
 			)}
 
 			{data && !loading && (
-				<dl
-					style={{
-						display: "grid",
-						gridTemplateColumns: "auto 1fr",
-						gap: "0.5rem 1.5rem",
-						margin: "1.5rem 0",
-					}}
-				>
-					<dt style={{ fontWeight: 600 }}>Name</dt>
-					<dd style={{ margin: 0 }}>{data.name}</dd>
-
-					<dt style={{ fontWeight: 600 }}>Email</dt>
-					<dd style={{ margin: 0 }}>{data.email}</dd>
-
-					<dt style={{ fontWeight: 600 }}>Account created</dt>
-					<dd style={{ margin: 0 }}>{formatDate(data.createdAt)}</dd>
-
-					<dt style={{ fontWeight: 600 }}>Last login</dt>
-					<dd style={{ margin: 0 }}>{formatDate(data.lastLoginAt)}</dd>
-				</dl>
+				<Panel title="Profile" icon="CatHead">
+					<dl style={{ margin: 0 }}>
+						<Row label="Name" value={data.name} />
+						<Row label="Email" value={data.email} />
+						<Row label="Account created" value={formatDate(data.createdAt)} />
+						<Row label="Last login" value={formatDate(data.lastLoginAt)} />
+					</dl>
+				</Panel>
 			)}
-
-			<nav style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
-				<Link to="/lessons">Back to the pool</Link>
-				<Link to="/settings">Settings</Link>
-			</nav>
 		</div>
 	);
 }

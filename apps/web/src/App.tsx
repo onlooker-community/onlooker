@@ -75,7 +75,9 @@ export default function App() {
 						path="/profile"
 						element={
 							<auth.RequireAuth>
-								<ProfilePage />
+								<AppShell>
+									<ProfilePage />
+								</AppShell>
 							</auth.RequireAuth>
 						}
 					/>
