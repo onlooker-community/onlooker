@@ -67,6 +67,16 @@ export interface ContractCase {
 	 */
 	body?: Record<string, unknown>;
 	/**
+	 * Response headers that must match. Names are compared case-insensitively,
+	 * because HTTP header names are; values exactly.
+	 *
+	 * Subset, like `body`: a response may carry headers a case does not name.
+	 * Added because the mock omitted Content-Type on success responses while the
+	 * API set it everywhere, and there was no way to say so - onlooker-5em had
+	 * already fixed the same divergence on the error path, without a guard.
+	 */
+	headers?: Record<string, string>;
+	/**
 	 * Substrings that must not appear anywhere in the serialized body.
 	 *
 	 * Blunt on purpose. `password_hash` is excluded today only because
@@ -384,6 +394,7 @@ export function authenticatedCases(): ContractCase[] {
 			path: "/api/lessons",
 			init: { method: "GET" },
 			status: 200,
+			headers: { "Content-Type": "application/json" },
 			// Bare, and `lessons` is an array even when there is nothing in it.
 			// An empty pool is not a 404 and not a null - the two-pane UI
 			// renders an empty state from this, and a missing key throws.

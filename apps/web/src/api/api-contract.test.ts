@@ -56,6 +56,15 @@ describe("the mock serves the contract", () => {
 
 			expect(response.status).toBe(entry.status);
 
+			if (entry.headers) {
+				for (const [name, want] of Object.entries(entry.headers)) {
+					expect(
+						response.headers.get(name),
+						`${entry.name}: header ${name}`,
+					).toBe(want);
+				}
+			}
+
 			if (entry.body || entry.forbidden) {
 				const payload = await response.json();
 				if (entry.body) {
@@ -102,6 +111,15 @@ describe("the mock serves the contract", () => {
 				const response = await call(entry, accessToken);
 
 				expect(response.status).toBe(entry.status);
+
+				if (entry.headers) {
+					for (const [name, want] of Object.entries(entry.headers)) {
+						expect(
+							response.headers.get(name),
+							`${entry.name}: header ${name}`,
+						).toBe(want);
+					}
+				}
 
 				const payload = await response.json();
 				if (entry.body) {
