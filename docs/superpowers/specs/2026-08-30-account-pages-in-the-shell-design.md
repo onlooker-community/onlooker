@@ -143,21 +143,32 @@ Replace the unstyled `<button>` in the error branch with `Button` from `ui.tsx`.
 
 ## One shared-component change *(approved)*
 
-`Panel` gains an optional `accent?: "gold" | "red"`. Two Settings sections carry
-a colored border that means something — `--gold` for "verify your email", `--red`
-for "delete account" — and moving to a `Panel` with a fixed `PALETTE.border`
-would silently discard that signal.
+`Panel` gains an optional `variant?: "notice" | "danger"`. Two Settings sections
+carry a colored border that means something — `--gold` for "verify your email",
+`--red` for "delete account" — and moving to a `Panel` with a fixed
+`PALETTE.border` would silently discard that signal.
 
-**Named `accent`, not `tone`, and the distinction matters.** `ui.tsx` already
-uses `tone` on two components — required on `Plate`, optional on `EmptyState` —
-and in both it means the same thing: which of exactly two *fill* colors backs an
-icon, `"teal" | "red"`. Panel's colored edge is a different axis with different
-values. Reusing `tone` would make one prop name mean two things in one file, and
-the union would have to widen to `"teal" | "red" | "gold"` where two of the three
-are invalid for any given component.
+**The name went through two rejected candidates, and both rejections are the
+point.** `ui.tsx` is a small file with an established vocabulary, and two obvious
+names are already taken by other meanings:
+
+- **`tone`** is used on `Plate` (required) and `EmptyState` (optional), and in
+  both it means which of exactly two *fill* colors backs an icon,
+  `"teal" | "red"`. Panel's colored edge is a different axis with different
+  values.
+- **`accent`** is worse. `PALETTE.accent` is a *text* accent that shifts with
+  the theme, defined in explicit opposition to a plate, which is a constant fill
+  (`palette.ts:9`). `Button`'s own test asserts it "fills with a plate and never
+  an accent." Naming a border prop `accent` would collide with a distinction the
+  design system documents and tests.
+
+`variant` follows the precedent `Button` already sets — `"primary" | "danger"` —
+and `"danger"` carries the identical meaning in both. The values are semantic
+rather than color-named on purpose: `"notice"` says what the border is *for*, so
+the prop does not become a lie if gold is ever retuned.
 
 The change is additive: existing `Panel` callers on `/lessons` and `/machines`
-pass no `accent` and render exactly as they do now.
+pass no `variant` and render exactly as they do now.
 
 ---
 
