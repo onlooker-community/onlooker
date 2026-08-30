@@ -302,6 +302,25 @@ no configured check, so that is 221 ms to decide there was nothing to do. With
 63 tracked `.md` files here, every markdown edit pays it. Ecosystem never sees
 this because its config gives `.md` a markdownlint check.
 
+**What was done about it, and the cost of doing that.** `CLAUDE.md` and
+`AGENTS.md` now require tracked-file edits to go through `Edit`/`Write`/
+`MultiEdit`, overriding any general preference for shell-based editing. The
+ledger is useless with holes in it, and a rule is the only lever this repo owns
+— the matcher belongs to ecosystem.
+
+That fix has a real cost worth stating rather than burying: **the arena now
+shapes its workload to fit the instrument.** Every later measurement here is
+taken under a rule written to make the instrument work, so this repo can no
+longer answer "what fraction of real edits does lineage catch?" — it answers
+"what does lineage catch once you have told the agent how to edit." Anyone
+reading a per-edit number from this repo after 2026-08-30 should know it was
+produced under that rule.
+
+The finding still stands on its own and is still ecosystem's to fix. A plugin
+whose coverage depends on every consumer adopting a convention has a matcher
+problem, not a documentation problem; the rule here is a local workaround, not
+a resolution.
+
 That verification gate is the direct lesson from ecosystem's retracted Wave 1.
 Five plugins were enabled in settings, never installed, and every number taken
 during the soak had to be withdrawn. The failure was silent in exactly the way
