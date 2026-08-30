@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import { createInterface as createPromisesInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { suppressEcho } from "../prompt";
+import { createPromptInterface, suppressEcho } from "../prompt";
 
 /**
  * A readline interface over two in-memory streams.
@@ -60,6 +60,24 @@ describe("suppressEcho", () => {
 			),
 		).toBe(false);
 		rl.close();
+	});
+
+	// The wiring test, and the only one here that would survive `prompt.ts`
+	// changing its import. Every other test in this file hands `suppressEcho` an
+	// interface the *test* built, so all four stay green when `prompt.ts` imports
+	// `node:readline/promises` and the token goes to the screen in clear text -
+	// measured, 4/4 passing against that exact regression. This one asks the
+	// module for the interface `promptForToken` itself uses, so the assertion is
+	// about production wiring rather than about the test's own imports.
+	it("builds an interface that can actually suppress echo", () => {
+		const input = new PassThrough();
+		const output = new PassThrough();
+		const rl = createPromptInterface(input, output);
+		try {
+			expect(suppressEcho(rl, "Token: ")).toBe(true);
+		} finally {
+			rl.close();
+		}
 	});
 
 	// The 2.0.0 bug, in the shape that would have caught it. Readline clears the
