@@ -20,14 +20,18 @@ jobs:
   # ============================================================================
   # LINT AND TYPECHECK
   # ============================================================================
+  # No matrix. It listed two workspaces by hand while ten define a typecheck
+  # script, so eight were never typechecked at all - including @onlooker/cli,
+  # which ships to users' machines as a Homebrew formula. The gap was invisible
+  # because every listed workspace passed. Running the root turbo tasks instead
+  # means coverage follows the workspace list and cannot drift again.
+  #
+  # It was also duplicating work: the matrix re-ran all four script suites, the
+  # install and the full build once per entry, none of which are
+  # workspace-specific. Adding the missing eight would have run them ten times.
   quality:
     name: Lint & TypeCheck
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        workspace:
-          - '@onlooker/api'
-          - '@onlooker/web'
     steps:
       - uses: actions/checkout@v5
 
@@ -78,11 +82,14 @@ jobs:
       - name: Build dependencies
         run: pnpm build
 
-      - name: Lint (${{ matrix.workspace }})
-        run: pnpm --filter ${{ matrix.workspace }} lint
+      # Turbo names the failing task in its output, so a red build still says
+      # which workspace broke - that is what the per-workspace job names used
+      # to provide.
+      - name: Lint (every workspace)
+        run: pnpm lint
 
-      - name: TypeCheck (${{ matrix.workspace }})
-        run: pnpm --filter ${{ matrix.workspace }} typecheck
+      - name: TypeCheck (every workspace)
+        run: pnpm typecheck
 
   # ============================================================================
   # LESSON CONTRACT VERSION GUARD

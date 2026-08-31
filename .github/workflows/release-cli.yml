@@ -40,6 +40,14 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Same argument as the tests above, and it is not hypothetical. Reverting
+      # apps/cli/src/prompt.ts to `node:readline/promises` reintroduces a
+      # clear-text token leak that the vitest suite passes clean and only tsc
+      # catches - measured. Until now nothing in this workflow would have
+      # stopped that build reaching a user's machine.
+      - name: TypeCheck
+        run: pnpm typecheck
+
       - run: pnpm --filter @onlooker/cli build
 
       - name: Package
