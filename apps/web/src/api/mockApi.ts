@@ -704,6 +704,43 @@ export async function mockDataApi(
 		return json({ lessons: [], cursor: null, has_more: false });
 	}
 
+	if (poolPath === "/api/activity" && (options.method ?? "GET") === "GET") {
+		requireAuth(options);
+
+		// The activity cursor is a bare sequence number, not the
+		// (promoted_at, id) pair /api/lessons uses above - see encodeSeqCursor /
+		// decodeSeqCursor in apps/api/src/db/lessons.ts. It is base64 of a plain
+		// integer, so decoding it is a parse, not a two-part split.
+		const query = new URLSearchParams(path.split("?")[1] ?? "");
+		const cursor = query.get("cursor");
+		// `if (cursor)` and not `!== null`, same reason as /api/lessons above:
+		// URLSearchParams returns "" for a bare `?cursor=`, and apps/api treats
+		// "" as absent, so rejecting it here would 400 a request production
+		// answers 200.
+		if (cursor) {
+			let seq: number | null = null;
+			try {
+				seq = Number.parseInt(atob(cursor), 10);
+			} catch {
+				seq = null;
+			}
+			if (seq === null || !Number.isFinite(seq)) {
+				throw new AuthApiError(
+					400,
+					"invalid_cursor",
+					"That cursor was not issued by this server; start from the first page",
+				);
+			}
+		}
+
+		// The mock has no feed and no way to acquire one - lesson_feed rows are
+		// written by the machine-authenticated push path, which a browser
+		// cannot reach - so this is permanently the empty-feed case. That is
+		// enough for the contract, which pins the envelope shape rather than
+		// contents.
+		return json({ events: [], cursor: null, has_more: false });
+	}
+
 	if (
 		poolPath.startsWith("/api/lessons/") &&
 		poolPath.endsWith("/status") &&
