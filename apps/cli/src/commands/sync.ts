@@ -2,6 +2,7 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { ApiError, createClient } from "../api";
 import { readConfig } from "../config";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
+import { pipelineClause, surveyPipeline } from "../pipeline";
 
 export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
@@ -37,7 +38,11 @@ export async function sync({
 		return `Nothing to sync: ${found.path} does not exist, so librarian has not run here yet.`;
 	}
 	if (found.files.length === 0) {
-		return "Nothing to sync: no approved lessons yet.";
+		// An empty pool has four causes that need four different responses, and
+		// this sentence used to be the same for all of them. The survey is a
+		// read of files already on disk - no network call, and it only runs on
+		// the path where there is nothing to send anyway.
+		return `Nothing to sync: ${pipelineClause(surveyPipeline(env))}`;
 	}
 
 	const lessons: TLesson[] = [];
