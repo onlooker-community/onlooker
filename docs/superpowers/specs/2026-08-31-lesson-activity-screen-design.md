@@ -13,8 +13,7 @@ against `main` at `73f6732` on that date.
 
 **In scope:** a read-only `/activity` screen, one new session-authenticated
 `GET /api/activity` endpoint, the `listActivityPage` query beside the existing
-`listLessonsPage`, an `api-contract` entry with its version bump, and a fifth
-`AppShell` nav slot.
+`listLessonsPage`, an `api-contract` entry, and a fifth `AppShell` nav slot.
 
 **Out of scope:** any change to `lesson_feed`'s columns, the machine-authenticated
 sync routes, and the two rejected screens described below.
@@ -66,10 +65,14 @@ already identifies a lesson by `lesson.claim`, parsed from `body`.
 ### Ordered by `seq DESC`, not `at DESC`
 
 `seq` is the feed's own per-user sequence and is unique by index
-(`lesson_feed_user_seq_idx` on `user_id, seq`). `at` defaults to
-`CURRENT_TIMESTAMP`, so two events written in the same second tie — and a tie in
-the sort key gives an unstable order across page boundaries, which is how
-cursor pagination silently drops or repeats rows.
+(`lesson_feed_user_seq_idx` on `user_id, seq`). `at`'s `CURRENT_TIMESTAMP`
+default is not actually in play: both writers of `lesson_feed`
+(`createLessonsWithFeed` and `transitionLesson` in `apps/api/src/db/lessons.ts`)
+bind an explicit ISO timestamp instead of relying on it, and
+`createLessonsWithFeed` binds that SAME timestamp to every row of a batch — so
+a tie is not merely possible, it is guaranteed within a batch. A tie in the
+sort key gives an unstable order across page boundaries, which is how cursor
+pagination silently drops or repeats rows.
 
 ### Pagination
 
@@ -89,8 +92,17 @@ one codebase is a maintenance cost with no benefit.
 `kind: "status"` records **that** a status changed, not to what. `lesson_feed`
 has no `from` or `to` columns.
 
-So a status row reads "status changed" and does not name a state. The lesson's
-**current** status is shown on the link to the lesson, not on the event.
+So a status row reads "status changed" and does not name a state. The row
+shows no status at all — not the state it changed to, and not the lesson's
+current state either.
+
+**A clause to show the lesson's current status next to the event was approved
+and then dropped on 2026-08-31**, after the whole-branch review found it
+unimplemented. The reasoning: "Status changed · `<claim>` · retracted" in a
+single row reads as though the event itself set the status to retracted — the
+exact inference the first sentence above exists to prevent. Adjacency defeats
+the separation. A lesson's current status is already visible on `/lessons` and
+on the lesson itself, so the screen loses nothing by leaving it off the event.
 
 This is deliberate and it is the conservative reading. Naming the current status
 on a past event would be actively wrong for any lesson that changed twice: a

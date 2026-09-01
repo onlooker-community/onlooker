@@ -8,7 +8,6 @@ interface ActivityEvent {
 	at: string;
 	lesson_id: string;
 	claim: string;
-	status: string;
 }
 
 interface ActivityResponse {
@@ -75,20 +74,27 @@ export default function ActivityPage() {
 		);
 	}
 
-	// Adjacency-only run-length encoding on dayKey: it only merges same-day
-	// events that are NEXT to each other in `events`, so it depends on the API
-	// returning events pre-sorted by seq DESC (see apps/api/src/db/lessons.ts,
-	// listActivityPage's `ORDER BY f.seq DESC`). If that ordering ever changed
-	// - a re-sort, a merge of multiple sources before this page sees them -
-	// same-day events could land in two non-adjacent groups, producing a
-	// duplicate `key={group.day}` on the Panel below.
-	const days: { day: string; events: ActivityEvent[] }[] = [];
+	// Grouped into a Map keyed by day rather than merging same-day events that
+	// are merely adjacent in `events`. Adjacency is not guaranteed: two
+	// concurrent writes for one user can commit with `seq` ascending but the
+	// SAME `at`, because createLessonsWithFeed and transitionLesson (in
+	// apps/api/src/db/lessons.ts) each capture `now` before their retry loop,
+	// so a batch that retries after a seq collision reuses it. If such events
+	// straddle local midnight, same-day rows are not adjacent in the feed. A
+	// Map merges them correctly regardless of position, so this grouping does
+	// not depend on the API's ordering at all - and `key={group.day}` on the
+	// Panel below is safe because a Map has each day at most once.
+	const groups = new Map<string, ActivityEvent[]>();
 	for (const event of events) {
 		const day = dayKey(event.at);
-		const current = days[days.length - 1];
-		if (current && current.day === day) current.events.push(event);
-		else days.push({ day, events: [event] });
+		const existing = groups.get(day);
+		if (existing) existing.push(event);
+		else groups.set(day, [event]);
 	}
+	const days = [...groups.entries()].map(([day, dayEvents]) => ({
+		day,
+		events: dayEvents,
+	}));
 
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>

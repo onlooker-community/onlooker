@@ -63,13 +63,35 @@ describe("GET /api/activity", () => {
 		const response = await read("/api/activity");
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as {
-			events: { seq: number; kind: string; claim: string }[];
+			events: { seq: number; kind: string }[];
 			has_more: boolean;
 		};
 		expect(body.events).toHaveLength(2);
 		expect(body.events[0].seq).toBeGreaterThan(body.events[1].seq);
 		expect(body.events.every((e) => e.kind === "create")).toBe(true);
 		expect(body.has_more).toBe(false);
+	});
+
+	// lesson_feed is per-user, so this is the isolation boundary for this
+	// endpoint - same reasoning as GET /lessons' "never returns another user's
+	// lessons" (routes/lessons-delta.test.ts). Checking `claim` values, not
+	// just a count, is also what pins the per-event wire shape: the route test
+	// above never reads a field beyond seq/kind, and the contract case pins
+	// `events` against an always-empty array on both sides, so nothing had
+	// asserted that `claim` itself survives the HTTP round trip until now.
+	it("returns only the caller's events when another account also has activity", async () => {
+		await push(machineToken, [lesson({ claim: "Mine" })]);
+
+		const other = await mintMachine("activity-other@example.com");
+		await push(other.token, [lesson({ claim: "Someone else's" })]);
+
+		const response = await read("/api/activity");
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			events: { claim: string }[];
+		};
+		expect(body.events).toHaveLength(1);
+		expect(body.events[0].claim).toBe("Mine");
 	});
 
 	// A cursor this server did not issue is client error, not server error.

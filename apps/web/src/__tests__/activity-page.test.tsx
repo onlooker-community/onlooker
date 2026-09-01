@@ -31,8 +31,9 @@ vi.mock("../auth", () => ({
 
 // Three events: two share a day (seq 3 and seq 2, both 2026-08-31) and one
 // falls on a different day (seq 1, 2026-08-30). Kept in descending seq order,
-// matching the API's real ordering (lessons.ts:472), so this also exercises
-// the grouping loop's adjacency assumption honestly.
+// matching the real ordering from `listActivityPage`'s `ORDER BY f.seq DESC`
+// in apps/api/src/db/lessons.ts, so this also matches what the API actually
+// returns.
 //
 // Two events sharing a day is the point: a heading-count assertion against
 // events that are ALL on different days would pass even if the merge branch
