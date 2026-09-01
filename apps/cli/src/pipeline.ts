@@ -281,9 +281,16 @@ export function pipelineClause(survey: PipelineSurvey): string {
 		return "no approved lessons yet, and nothing at any earlier stage either - librarian has run here but has proposed no lessons. Check that archivist and librarian are enabled.";
 	}
 
-	const parts = STAGES.map(
-		(stage) => `${survey[stage.key]} ${stage.inline}`,
-	).concat(faults(survey));
+	const parts = STAGES.map((stage) => `${survey[stage.key]} ${stage.inline}`);
+	// Unconditional in `pipelineLines`, but named here only when non-zero: a
+	// jury blocking most of what reaches it is expected, ordinary operation,
+	// not a fault, so it does not belong beside the three stall stages when
+	// there happens to be nothing declined to report.
+	if (survey.declined > 0) parts.push(`${survey.declined} declined`);
+	// Faults last: they describe a problem reading the disk, not a stage the
+	// pipeline passed through, so they read as an addendum to the sentence
+	// rather than a fourth stage in it.
+	parts.push(...faults(survey));
 	return `no approved lessons yet - ${parts.join(", ")}.`;
 }
 

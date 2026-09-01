@@ -278,6 +278,17 @@ describe("pipelineClause", () => {
 		expect(clause).toMatch(/1 with an unrecognized status \(odd\)/);
 	});
 
+	// The jury is expected to block most of what reaches it, so
+	// declined-with-nothing-stalled is where a healthy pipeline lands, not a
+	// corner case - dropping it here would hide the only non-zero fact `sync`
+	// has to report.
+	it("names the declined count even when all three stall stages are zero", () => {
+		const clause = pipelineClause(survey({ declined: 40 }));
+		expect(clause).toBe(
+			"no approved lessons yet - 0 pending review, 0 confirmed and awaiting a jury, 0 judged and awaiting promotion, 40 declined.",
+		);
+	});
+
 	// Object key order follows insertion order, which upstream follows
 	// `readdirSync` order - not guaranteed, and not something a diagnostic's
 	// output should reshuffle between runs of the same disk state.
