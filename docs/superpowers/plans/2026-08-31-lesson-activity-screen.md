@@ -542,7 +542,7 @@ Create `apps/web/src/__tests__/activity-page.test.tsx`. Read `apps/web/src/__tes
 ```tsx
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../auth", () => ({
 	auth: {
@@ -558,34 +558,51 @@ vi.mock("../auth", () => ({
 	},
 }));
 
+// Two events on two different days, so the day-grouping assertion has
+// something to group. The status event carries status "retracted" on purpose -
+// see the test that asserts the word never renders.
+const POPULATED = {
+	events: [
+		{
+			seq: 2,
+			kind: "status",
+			at: "2026-08-31T14:00:00Z",
+			lesson_id: "l2",
+			claim: "Pin vitest and vite to compatible majors",
+			applies_to: null,
+			status: "retracted",
+		},
+		{
+			seq: 1,
+			kind: "create",
+			at: "2026-08-30T09:00:00Z",
+			lesson_id: "l1",
+			claim: "Prefer explicit imports",
+			applies_to: null,
+			status: "active",
+		},
+	],
+	cursor: null,
+	has_more: false,
+};
+
+const EMPTY = { events: [], cursor: null, has_more: false };
+
+// Mutable because the mock closes over it, so it MUST be reset per test.
+// Reassigning at the end of the one test that changes it is not enough: a test
+// added after that one would inherit whatever the last one left behind, and an
+// empty feed renders an empty state that looks like a legitimate pass.
 const fetchState = {
-	data: {
-		events: [
-			{
-				seq: 2,
-				kind: "status",
-				at: "2026-08-31T14:00:00Z",
-				lesson_id: "l2",
-				claim: "Pin vitest and vite to compatible majors",
-				applies_to: null,
-				status: "retracted",
-			},
-			{
-				seq: 1,
-				kind: "create",
-				at: "2026-08-30T09:00:00Z",
-				lesson_id: "l1",
-				claim: "Prefer explicit imports",
-				applies_to: null,
-				status: "active",
-			},
-		],
-		cursor: null,
-		has_more: false,
-	} as unknown,
+	data: POPULATED as unknown,
 	loading: false,
 	error: null as string | null,
 };
+
+beforeEach(() => {
+	fetchState.data = POPULATED;
+	fetchState.loading = false;
+	fetchState.error = null;
+});
 
 vi.mock("../hooks/useAuthenticatedFetch", () => ({
 	useAuthenticatedFetch: () => ({ ...fetchState, refetch: vi.fn() }),
@@ -632,11 +649,12 @@ describe("/activity", () => {
 });
 
 describe("/activity when the feed is empty", () => {
+	// The common case for a new account, so it needs written copy rather than
+	// a blank panel. beforeEach puts the populated fixture back afterward.
 	it("explains the empty state instead of rendering nothing", () => {
-		fetchState.data = { events: [], cursor: null, has_more: false };
+		fetchState.data = EMPTY;
 		renderAppAt("/activity");
 		expect(screen.getByText(/nothing has happened yet/i)).toBeDefined();
-		fetchState.data = { events: [], cursor: null, has_more: false };
 	});
 });
 ```
