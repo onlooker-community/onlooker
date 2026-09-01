@@ -3,6 +3,7 @@ import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { reportClientError } from "./lib/reportError";
+import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
 import LessonDetail from "./pages/LessonDetail";
@@ -108,6 +109,16 @@ export default function App() {
 							<auth.RequireAuth>
 								<AppShell>
 									<MachinesPage />
+								</AppShell>
+							</auth.RequireAuth>
+						}
+					/>
+					<Route
+						path="/activity"
+						element={
+							<auth.RequireAuth>
+								<AppShell>
+									<ActivityPage />
 								</AppShell>
 							</auth.RequireAuth>
 						}

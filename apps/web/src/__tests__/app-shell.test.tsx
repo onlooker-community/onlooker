@@ -85,11 +85,12 @@ describe("AppShell", () => {
 			screen.getByRole("link", { name }).getAttribute("href");
 		expect(href(/lessons/i)).toBe("/lessons");
 		expect(href(/machines/i)).toBe("/machines");
+		expect(href(/activity/i)).toBe("/activity");
 		expect(href(/settings/i)).toBe("/settings");
 		expect(href(/profile/i)).toBe("/profile");
 	});
 
-	// Without this the nav is four identical links and nothing says which of
+	// Without this the nav is five identical links and nothing says which of
 	// them you are looking at - to a screen reader, nothing says it at all.
 	it("marks the surface the user is on", () => {
 		renderShell("/machines");
@@ -147,12 +148,12 @@ describe("AppShell", () => {
 		).toBe("https://creativecommons.org/licenses/by/4.0/");
 	});
 
-	// The nav is four identical links plus a wordmark; the icons are what make
+	// The nav is five identical links plus a wordmark; the icons are what make
 	// them scannable at a glance rather than a column of same-shaped words.
 	it("gives the wordmark and every nav link an icon", () => {
 		renderShell();
 		const icons = document.querySelectorAll("img.pixel-icon");
-		expect(icons.length).toBe(5);
+		expect(icons.length).toBe(6);
 		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
 		// so NodeListOf<Element> is not directly iterable under this tsconfig.
 		for (const img of Array.from(icons)) {

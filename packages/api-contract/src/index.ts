@@ -157,6 +157,12 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			init: { method: "GET" },
 			status: 401,
 		},
+		{
+			name: "activity, no token",
+			path: "/api/activity",
+			init: { method: "GET" },
+			status: 401,
+		},
 	];
 }
 
@@ -420,6 +426,22 @@ export function authenticatedCases(): ContractCase[] {
 			// implementations honest about parsing them at all.
 			body: {
 				lessons: expectArray,
+				cursor: null,
+				has_more: false,
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "activity feed, valid token",
+			path: "/api/activity",
+			init: { method: "GET" },
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+			// Bare, and `events` is an array even when there is nothing in it.
+			// An empty feed is not a 404 and not a null - the screen renders an
+			// empty state from this, and a missing key throws.
+			body: {
+				events: expectArray,
 				cursor: null,
 				has_more: false,
 			},

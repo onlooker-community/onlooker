@@ -29,6 +29,9 @@ const SECTIONS = [
 	// ChestTreasure: the approved pool, in the brand doc's own mapping.
 	{ to: "/lessons", label: "Lessons", icon: "ChestTreasure" },
 	{ to: "/machines", label: "Machines", icon: "Key" },
+	// Book: the log-shaped icon in the brand set, and the one not already
+	// spoken for by lessons, machines, settings or profile.
+	{ to: "/activity", label: "Activity", icon: "Book" },
 	{ to: "/settings", label: "Settings", icon: "Gear" },
 	// CatHead is an extension of the brand doc's mapping, not one of its
 	// entries - the set has no person icon, and it is the most person-like
