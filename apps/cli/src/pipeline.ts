@@ -30,7 +30,12 @@ export interface PipelineSurvey {
 	declined: number;
 	/** Status values this CLI does not know, by name and count. */
 	unrecognized: Record<string, number>;
-	/** Files that would not parse, or that carry no usable status. */
+	/**
+	 * Things this walk could not read: a file that would not parse or carried
+	 * no usable status, plus a directory that could not be listed at all. A
+	 * directory counts once here no matter how many files it might hold - this
+	 * is a "something here is wrong" flag, not a file count.
+	 */
 	unreadable: number;
 }
 
@@ -80,7 +85,7 @@ export function surveyPipeline(
 		if (!existsSync(lessons)) continue;
 		survey.lessonDirs++;
 		countProposals(join(lessons, "proposals"), survey);
-		survey.declined += countDeclined(join(lessons, "declined.jsonl"));
+		countDeclined(join(lessons, "declined.jsonl"), survey);
 	}
 
 	return survey;
@@ -128,7 +133,13 @@ function countProposals(dir: string, survey: PipelineSurvey): void {
 		// it (librarian-lesson-storage.sh:184). Its outcome is already counted
 		// downstream, in approved/ or in declined.jsonl. Counting it again
 		// would report finished work as stuck, and would grow without bound.
-		if (proposal.promoted_at !== undefined) continue;
+		//
+		// Loose equality is deliberate: this field is written by jq in a repo
+		// this CLI cannot import, so both "absent" and "written as null" have
+		// to mean "not promoted." Tightening this to `!== undefined` would
+		// drop every proposal into no bucket at all the day that repo starts
+		// writing `promoted_at: null` at creation time.
+		if (proposal.promoted_at != null) continue;
 
 		const status = proposal.status;
 		if (typeof status !== "string" || status === "") {
@@ -168,15 +179,24 @@ function countProposals(dir: string, survey: PipelineSurvey): void {
  * final write must not be able to break a count - and the count does not
  * depend on what shape the entries have.
  */
-function countDeclined(path: string): number {
-	if (!existsSync(path)) return 0;
+function countDeclined(path: string, survey: PipelineSurvey): void {
+	if (!existsSync(path)) return;
 	let raw: string;
 	try {
 		raw = readFileSync(path, "utf8");
 	} catch {
-		return 0;
+		// Same contract as the two readdirSync guards above: `existsSync`
+		// proves the path exists, not that reading it will succeed. A
+		// directory named `declined.jsonl`, or a permissions error, has to
+		// become a fault - silently reporting 0 declined would print a
+		// confident, wrong sentence about a machine whose declined log this
+		// walk could not even open.
+		survey.unreadable++;
+		return;
 	}
-	return raw.split("\n").filter((line) => line.trim() !== "").length;
+	survey.declined += raw
+		.split("\n")
+		.filter((line) => line.trim() !== "").length;
 }
 
 /**
@@ -223,7 +243,14 @@ function faults(survey: PipelineSurvey): string[] {
 	if (survey.unreadable > 0) {
 		out.push(`${survey.unreadable} that could not be read`);
 	}
-	for (const [status, count] of Object.entries(survey.unrecognized)) {
+	// Sorted by name, not by `readdirSync` order: the filesystem's listing
+	// order is not deterministic across platforms, and a diagnostic whose
+	// output reshuffles between runs on the same disk state is not one
+	// anyone can diff or paste into a bug report with confidence.
+	const unrecognized = Object.entries(survey.unrecognized).sort(([a], [b]) =>
+		a.localeCompare(b),
+	);
+	for (const [status, count] of unrecognized) {
 		out.push(`${count} with an unrecognized status (${status})`);
 	}
 	return out;

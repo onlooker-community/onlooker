@@ -191,6 +191,37 @@ describe("surveyPipeline", () => {
 		expect(survey.unreadable).toBe(1);
 		expect(survey.pendingReview).toBe(1);
 	});
+
+	// `existsSync` proves `declined.jsonl` exists, not that reading it will
+	// succeed. A directory of that name must become a fault, not a silent 0
+	// that reads as "the jury has declined nothing."
+	it("counts declined.jsonl as unreadable instead of throwing when it is a directory", () => {
+		const env = emptyDir();
+		const dir = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"aaaaaaaaaaaa",
+			"lessons",
+		);
+		mkdirSync(join(dir, "declined.jsonl"), { recursive: true });
+
+		const survey = surveyPipeline(env);
+		expect(survey.unreadable).toBe(1);
+	});
+
+	// `promoted_at: null` has to read the same as an absent `promoted_at` -
+	// both mean "not promoted." The proposal must still land in a bucket.
+	it("does not treat a null promoted_at as promoted", () => {
+		const env = emptyDir();
+		proposal(env, "aaaaaaaaaaaa", "p1", {
+			status: "pending",
+			promoted_at: null,
+		});
+
+		const survey = surveyPipeline(env);
+		expect(survey.pendingReview).toBe(1);
+		expect(survey.awaitingPromotion).toBe(0);
+	});
 });
 
 /** A survey with everything at zero, so a test names only what it cares about. */
@@ -245,6 +276,20 @@ describe("pipelineClause", () => {
 		);
 		expect(clause).toMatch(/2 that could not be read/);
 		expect(clause).toMatch(/1 with an unrecognized status \(odd\)/);
+	});
+
+	// Object key order follows insertion order, which upstream follows
+	// `readdirSync` order - not guaranteed, and not something a diagnostic's
+	// output should reshuffle between runs of the same disk state.
+	it("orders unrecognized statuses by name, not by insertion order", () => {
+		const clause = pipelineClause(
+			survey({ unrecognized: { zeta: 1, alpha: 2 } }),
+		);
+		const alphaAt = clause.indexOf("alpha");
+		const zetaAt = clause.indexOf("zeta");
+		expect(alphaAt).toBeGreaterThan(-1);
+		expect(zetaAt).toBeGreaterThan(-1);
+		expect(alphaAt).toBeLessThan(zetaAt);
 	});
 });
 
