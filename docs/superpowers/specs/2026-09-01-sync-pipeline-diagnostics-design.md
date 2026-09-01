@@ -195,11 +195,23 @@ stall is not being fed, which is the difference between a backlog and a
 blockage. Listing all three unconditionally also means there is no rule to
 remember and one output to test.
 
+**`declined`** appears in `status` always, and in `sync`'s clause when it is
+non-zero. It is a terminal jury decision rather than a stall, so an early draft
+of this section kept it out of `sync` entirely — which turned out to be wrong in
+the one state this machine is most likely to reach. The tribunal jury was
+measured blocking 9 of 10 verdicts at a 0.75 threshold (`ecosystem-449.17`), so
+"everything declined, nothing stalled" is the expected steady state once the
+pipeline runs, and in it `sync` would have printed three zeros and omitted the
+only non-zero fact it had. Caught by the whole-branch review; the fix is that
+`declined` follows the three stages, ahead of the faults.
+
+**`passed`** stays `status`-only. It is a human declining to put something
+forward, not a state of the pipeline.
+
 The **exceptional counts** — `unreadable`, and each entry in `unrecognized` —
-append only when non-zero, because they describe a fault rather than a stage.
-`passed` and `declined` are terminal human and jury decisions rather than
-stalls: `declined` appears in `status` always (a jury declining everything is
-the thing you would want to see), `passed` only when non-zero.
+append last and only when non-zero, because they describe a failure to read the
+disk rather than a stage of the pipeline. Their order is sorted by status name,
+not by directory order, so the output does not vary between runs.
 
 This is a small divergence from the mockup approved in conversation, which
 showed two clauses ordered non-zero-first. Pipeline order with no omissions is
@@ -244,10 +256,22 @@ report is useless at the only moment it matters.
 
 - A proposal that will not parse is counted into `unreadable` and reported. It
   is never silently skipped — an unreadable file is itself a finding.
+- A directory that exists but cannot be listed — `ENOTDIR` because the name is
+  a file, `EACCES` because it is not readable — also counts into `unreadable`
+  rather than throwing. A directory counts once, however many files it holds,
+  so this count understates by an unknown amount in that case. That is
+  acceptable: its job is to say *something here could not be read*, not to
+  quantify it.
 - A project key with no `lessons/` directory is skipped. That is the normal
   case, not an error.
-- A missing `declined.jsonl` counts zero.
+- A missing `declined.jsonl` counts zero. One that exists but cannot be read
+  counts into `unreadable` — the distinction matters, because a silent zero
+  there would make an unreadable ledger look like an empty one.
 - An unfamiliar status goes into `unrecognized` under its own name.
+- `promoted_at` is tested with loose equality, so an explicit `null` is treated
+  as absent rather than as promoted. The field is written by another repo's jq;
+  a `null` placeholder read as "promoted" would drop every proposal from every
+  bucket at once.
 
 `declined.jsonl` is counted by non-empty lines rather than by parsing each one.
 It is append-only and never re-read by librarian, so a torn final write should

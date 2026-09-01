@@ -908,7 +908,9 @@ Use the `/commit` skill. Stage `apps/cli/src/commands/status.ts` and `apps/cli/s
 - [ ] **Step 1: Run the full workspace gates**
 
 Run: `pnpm typecheck && pnpm lint && ./node_modules/.bin/turbo run test --force`
-Expected: typecheck 11/11, lint 12/12 with the 11 known pre-existing warnings (9 in `apps/web/src/api/mockApi.test.ts`, 2 in `apps/api/src/middleware/auth.ts`) and no new ones, test 14/14.
+Expected: typecheck 11/11, lint 12/12, test 14/14.
+
+On lint warnings: `SESSION_HANDOFF.md` says there are 11 pre-existing warnings (9 in `apps/web`, 2 in `apps/api`). That figure is stale — it describes the old two-workspace CI matrix. Across all 12 linted workspaces the real count is **36**: `lesson-contract` 11, `auth-react` 14, `web` 9, `api` 2. PR #103 widened lint coverage and made the other 25 visible without anyone re-baselining the number. This branch adds none of them: it touches only `apps/cli`, which reports zero warnings, plus two docs files.
 
 - [ ] **Step 2: Open the PR**
 
