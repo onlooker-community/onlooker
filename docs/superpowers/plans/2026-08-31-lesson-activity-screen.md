@@ -467,42 +467,24 @@ Expected: all pass. Router tests that assert the route table's contents may need
 
 **There is no version to bump, and no release gate here.** An earlier draft of this plan said CI's `contract-version` job required one. It does not: that job guards `packages/lesson-contract/schema/` and compares `packages/lesson-contract/package.json`'s version — the published package describing a *lesson's* shape. `packages/api-contract` is an internal test-fixture library with no version field. This task adds test coverage, nothing more.
 
+**This task is not red-green, and pretending otherwise would be dishonest.** The endpoint already works — Task 2 built and tested it. Registering a contract case adds regression coverage for existing behavior, so it passes on first run. That is the same shape as a characterization test, and the honest RED here is different: it is confirming the runners do **not** currently exercise `/api/activity`, then confirming they do.
+
+**Where the coverage actually comes from.** `packages/api-contract/src/index.test.ts` tests only `shapeFailures` — the matcher machinery — and is not where cases are asserted. The cases are consumed by two runners that execute every one of them against a live handler: `apps/api/src/contract.test.ts:75,128` and `apps/web/src/api/api-contract.test.ts`. Adding a case to `anonymousCases()` or `authenticatedCases()` makes both runners cover the endpoint automatically. **Do not add a meta-test asserting the case exists in the array** — that tests a literal, and the runner is the real gate.
+
 **Files:**
 - Modify: `packages/api-contract/src/index.ts` — `anonymousCases()` (starts line 109) and `authenticatedCases()` (starts line 360)
-- Test: `packages/api-contract/src/index.test.ts`
 
 **Interfaces:**
 - Consumes from Task 2: `GET /api/activity`, `200` with `{ events, cursor, has_more }`, and `401` when unauthenticated.
 - Produces: nothing later tasks import.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Confirm the runners do not cover the endpoint yet**
 
-Cases are returned by two functions, not held in an exported array — so the test calls them. Add to `packages/api-contract/src/index.test.ts`, matching how neighboring tests build a fixture for `anonymousCases`:
+Run: `cd apps/api && ../../node_modules/.bin/vitest run src/contract.test.ts 2>&1 | grep -c activity`
 
-```ts
-	// Pinned here so a change to the response shape fails a test rather than
-	// surprising the browser at runtime.
-	it("pins the activity endpoint", () => {
-		const anon = anonymousCases(fixture()).filter(
-			(c) => c.path === "/api/activity",
-		);
-		expect(anon.some((c) => c.status === 401)).toBe(true);
+Expected: `0`. No test name mentions activity, because no case names that path. This is your baseline — the two cases you add should make this number rise.
 
-		const authed = authenticatedCases().filter(
-			(c) => c.path === "/api/activity",
-		);
-		expect(authed.some((c) => c.status === 200)).toBe(true);
-	});
-```
-
-Read the file's existing tests first and reuse whatever they use to build a `ContractFixture` — substitute it for `fixture()` above.
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `cd packages/api-contract && ../../node_modules/.bin/vitest run`
-Expected: FAIL — both filters return empty, so both `some(...)` are false.
-
-- [ ] **Step 3: Add the unauthenticated case**
+- [ ] **Step 2: Add the unauthenticated case**
 
 In `anonymousCases()`, beside the existing `"users/me, no token"` case (around line 156), which is the closest analogue:
 
@@ -515,23 +497,29 @@ In `anonymousCases()`, beside the existing `"users/me, no token"` case (around l
 		},
 ```
 
-- [ ] **Step 4: Add the authenticated case**
+- [ ] **Step 3: Add the authenticated case**
 
 In `authenticatedCases()`, modeled on the `/api/lessons` GET case (around line 395). Read that case in full first and mirror its use of `expectObject` / `expectArray` / `expectString`. The shape to pin: `events` is an array that is present even when empty, `cursor` is nullable, `has_more` is a boolean.
 
 Give it a comment saying why `events` must be an array rather than absent — the screen renders an empty state from an empty array, and a missing key throws. That is the same reason the `/api/lessons` case gives.
 
-- [ ] **Step 5: Run the test and the whole repo**
+- [ ] **Step 4: Confirm the runners now cover it**
+
+Run: `cd apps/api && ../../node_modules/.bin/vitest run src/contract.test.ts 2>&1 | grep -c activity`
+
+Expected: greater than 0, where Step 1 gave 0. The runner names each case in its test title, so the new cases appear by name — that is the coverage this task exists to add, and it is now demonstrable rather than assumed.
+
+- [ ] **Step 5: Run the whole repo**
 
 ```bash
-cd packages/api-contract && ../../node_modules/.bin/vitest run
-cd ../.. && pnpm test && pnpm typecheck && pnpm lint
+pnpm test && pnpm typecheck && pnpm lint
 ```
-Expected: all pass. The contract runners in `apps/web/src/api/api-contract.test.ts` and `apps/api/src/contract.test.ts` consume these cases and will exercise the new ones — if either fails, the endpoint disagrees with the case you just wrote, and the endpoint is what to check first.
+
+Expected: all pass. Both runners — `apps/api/src/contract.test.ts` and `apps/web/src/api/api-contract.test.ts` — now execute your cases against real handlers. **If either fails, the endpoint disagrees with the case you wrote.** Check the endpoint first: the case describes what Task 2 promised, and a mismatch means one of them is wrong. Do not loosen the case to make it pass without establishing which.
 
 - [ ] **Step 6: Commit**
 
-`/commit` with `packages/api-contract/src/index.ts` and `packages/api-contract/src/index.test.ts`.
+`/commit` with `packages/api-contract/src/index.ts`.
 
 ---
 
