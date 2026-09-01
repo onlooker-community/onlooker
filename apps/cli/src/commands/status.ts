@@ -1,6 +1,7 @@
 import { ApiError, createClient } from "../api";
 import { configPath, readConfig } from "../config";
 import { discoverApproved, parseLesson } from "../lessons";
+import { pipelineLines, surveyPipeline } from "../pipeline";
 
 export interface StatusDeps {
 	env?: NodeJS.ProcessEnv;
@@ -14,15 +15,16 @@ export async function status({
 }: StatusDeps): Promise<string> {
 	const config = readConfig(env);
 	// Padded to the width of the longest label, so every value starts in the
-	// same column. `Lessons:` is one character wider than the rest and used to
-	// push its own line out of alignment with them.
+	// same column. `Pipeline:` is the longest at nine characters, so every
+	// label pads to ten and the pipeline block's continuation lines indent to
+	// match.
 	const lines = [
-		`API:     ${config.apiBaseUrl}`,
-		`Config:  ${configPath(env)}`,
+		`API:      ${config.apiBaseUrl}`,
+		`Config:   ${configPath(env)}`,
 	];
 
 	if (!config.machineToken) {
-		lines.push("Token:   not linked - run `onlooker link`");
+		lines.push("Token:    not linked - run `onlooker link`");
 	} else {
 		try {
 			await createClient(
@@ -30,7 +32,7 @@ export async function status({
 				config.machineToken,
 				fetchImpl,
 			).verify();
-			lines.push("Token:   accepted");
+			lines.push("Token:    accepted");
 		} catch (error) {
 			// A stored token that stopped working is the case worth surfacing: it
 			// looks linked right up until something tries to use it.
@@ -44,8 +46,8 @@ export async function status({
 			const detail = failure ? failure.message : (error as Error).message;
 			lines.push(
 				failure?.kind === "unauthorized"
-					? `Token:   rejected - ${detail}`
-					: `Token:   unknown - ${detail}`,
+					? `Token:    rejected - ${detail}`
+					: `Token:    unknown - ${detail}`,
 			);
 		}
 	}
@@ -57,11 +59,11 @@ export async function status({
 		// but librarian has not. Collapsing them discards the distinction
 		// `lessons.ts` exists to draw.
 		lines.push(
-			`Lessons: none - ${found.path} does not exist, so no plugin has run here yet`,
+			`Lessons:  none - ${found.path} does not exist, so no plugin has run here yet`,
 		);
 	} else if (found.kind === "no-librarian-dir") {
 		lines.push(
-			`Lessons: none - ${found.path} does not exist, so librarian has not run here yet`,
+			`Lessons:  none - ${found.path} does not exist, so librarian has not run here yet`,
 		);
 	} else {
 		// Parseable lessons, not files. `sync` counts what it can actually send,
@@ -70,9 +72,16 @@ export async function status({
 		const ready = found.files.filter((file) => parseLesson(file).ok).length;
 		const unreadable = found.files.length - ready;
 		lines.push(
-			`Lessons: ${ready} approved lesson${ready === 1 ? "" : "s"} ready to sync` +
+			`Lessons:  ${ready} approved lesson${ready === 1 ? "" : "s"} ready to sync` +
 				(unreadable > 0 ? `, ${unreadable} that cannot be read` : ""),
 		);
+
+		// Only on the `found` branch. The two branches above already say that
+		// no plugin, or no librarian, has run here - a stage breakdown under
+		// either would be four zeros restating a sentence directly above it.
+		const [first, ...rest] = pipelineLines(surveyPipeline(env));
+		lines.push(`Pipeline: ${first}`);
+		for (const line of rest) lines.push(`${" ".repeat(10)}${line}`);
 	}
 
 	return lines.join("\n");
