@@ -14,6 +14,7 @@
 ## Global Constraints
 
 - **Tabs, not spaces.** Every file in `apps/cli/src` is tab-indented; biome enforces it. Run `pnpm --filter @onlooker/cli lint` before each commit.
+- **To run one test file, use `pnpm --filter @onlooker/cli exec vitest run <pattern>`.** The package's `test` script is a bare `vitest run` with no argument passthrough, so `pnpm --filter @onlooker/cli test -- <pattern>` silently runs the whole suite instead of filtering — it looks like it worked. Found during Task 1.
 - **American English** in all comments, identifiers, and user-facing strings.
 - **Edit tracked files with `Edit`/`Write`, never with `sed`, heredocs, or shell redirection.** See `CLAUDE.md` §Conventions & Patterns — the `lineage` and `inspector` plugins hook on tool calls, so a shell edit is invisible to them.
 - **The survey never throws.** `status` is the command you run *because* something is broken. Every failure mode becomes a count, not an exception.
@@ -112,7 +113,7 @@ describe("surveyPipeline", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `pnpm --filter @onlooker/cli test -- pipeline`
+Run: `pnpm --filter @onlooker/cli exec vitest run pipeline`
 Expected: FAIL — `Failed to resolve import "../pipeline"`.
 
 - [ ] **Step 3: Write the implementation**
@@ -278,7 +279,7 @@ function countDeclined(path: string): number {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @onlooker/cli test -- pipeline`
+Run: `pnpm --filter @onlooker/cli exec vitest run pipeline`
 Expected: PASS, 2 tests.
 
 - [ ] **Step 5: Add the remaining survey tests**
@@ -377,7 +378,7 @@ Append inside the `describe("surveyPipeline", ...)` block in `apps/cli/src/__tes
 
 - [ ] **Step 6: Run the full file**
 
-Run: `pnpm --filter @onlooker/cli test -- pipeline`
+Run: `pnpm --filter @onlooker/cli exec vitest run pipeline`
 Expected: PASS, 9 tests.
 
 - [ ] **Step 7: Lint and typecheck**
@@ -428,6 +429,14 @@ describe("pipelineClause", () => {
 		expect(clause).toMatch(/never/i);
 	});
 
+	// `lessonDirs` is also 0 when the walk could not list a directory, and
+	// "the pipeline never ran" would be a confident wrong answer for that.
+	it("reports a fault ahead of the never-ran reading", () => {
+		const clause = pipelineClause(survey({ lessonDirs: 0, unreadable: 1 }));
+		expect(clause).toMatch(/could not be read/i);
+		expect(clause).not.toMatch(/never/i);
+	});
+
 	// The most common state, and the one the old single sentence hid worst:
 	// the pipeline is wired up and has produced nothing at any stage.
 	it("says nothing is at any stage when every count is zero", () => {
@@ -469,6 +478,12 @@ describe("pipelineLines", () => {
 		]);
 	});
 
+	it("shows the fault instead when the walk could not read a directory", () => {
+		expect(pipelineLines(survey({ lessonDirs: 0, unreadable: 2 }))).toEqual([
+			"2 that could not be read",
+		]);
+	});
+
 	it("adds a line per exceptional count", () => {
 		const lines = pipelineLines(
 			survey({ passed: 1, unreadable: 2, unrecognized: { odd: 3 } }),
@@ -482,7 +497,7 @@ describe("pipelineLines", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @onlooker/cli test -- pipeline`
+Run: `pnpm --filter @onlooker/cli exec vitest run pipeline`
 Expected: FAIL — `pipelineClause is not a function`.
 
 - [ ] **Step 3: Write the implementation**
@@ -551,6 +566,14 @@ function faults(survey: PipelineSurvey): string[] {
  */
 export function pipelineClause(survey: PipelineSurvey): string {
 	if (survey.lessonDirs === 0) {
+		// A fault outranks the "never ran" reading. `lessonDirs` is also 0 when
+		// the walk could not list a directory at all, and reporting that as
+		// "the pipeline never ran" would be the same confident-but-wrong
+		// sentence this module exists to remove.
+		const unread = faults(survey);
+		if (unread.length > 0) {
+			return `no approved lessons yet, and the pipeline could not be read - ${unread.join(", ")}.`;
+		}
 		return "no approved lessons yet - librarian has run here, but its lesson pipeline never has. Check that archivist and librarian are enabled.";
 	}
 	if (!holdsSomething(survey)) {
@@ -565,7 +588,12 @@ export function pipelineClause(survey: PipelineSurvey): string {
 
 /** The value lines of `status`'s `Pipeline:` block, unlabeled and unpadded. */
 export function pipelineLines(survey: PipelineSurvey): string[] {
-	if (survey.lessonDirs === 0) return ["no lesson pipeline has run here"];
+	if (survey.lessonDirs === 0) {
+		// Same precedence as the clause: a directory we could not list is not
+		// a pipeline that never ran.
+		const unread = faults(survey);
+		return unread.length > 0 ? unread : ["no lesson pipeline has run here"];
+	}
 
 	const lines = STAGES.map((stage) => `${survey[stage.key]} ${stage.block}`);
 	// `declined` always: a jury refusing everything it sees is precisely what
@@ -579,8 +607,8 @@ export function pipelineLines(survey: PipelineSurvey): string[] {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter @onlooker/cli test -- pipeline`
-Expected: PASS, 16 tests.
+Run: `pnpm --filter @onlooker/cli exec vitest run pipeline`
+Expected: PASS, 20 tests — Task 1's 11 (its original 9, plus 2 added in review for unlistable directories) and the 9 added here.
 
 - [ ] **Step 5: Lint and typecheck**
 
@@ -664,7 +692,7 @@ Add `writeFileSync` to the existing `node:fs` import at the top of the file.
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm --filter @onlooker/cli test -- sync`
+Run: `pnpm --filter @onlooker/cli exec vitest run sync`
 Expected: FAIL on all three new cases — the message is still `"Nothing to sync: no approved lessons yet."`
 
 - [ ] **Step 3: Write the implementation**
@@ -697,7 +725,7 @@ with:
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `pnpm --filter @onlooker/cli test -- sync`
+Run: `pnpm --filter @onlooker/cli exec vitest run sync`
 Expected: PASS, all cases including the untouched pre-existing ones.
 
 - [ ] **Step 5: Lint and typecheck**
@@ -793,7 +821,7 @@ Add to `apps/cli/src/__tests__/status.test.ts`:
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm --filter @onlooker/cli test -- status`
+Run: `pnpm --filter @onlooker/cli exec vitest run status`
 Expected: FAIL — no `Pipeline:` line exists.
 
 - [ ] **Step 3: Write the implementation**
@@ -841,7 +869,7 @@ Finally, append the block at the end of that same `else` branch, so it appears e
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `pnpm --filter @onlooker/cli test -- status`
+Run: `pnpm --filter @onlooker/cli exec vitest run status`
 Expected: PASS. If a pre-existing test asserts an exact label width, update it to the new column — that is the intended change, not a regression.
 
 - [ ] **Step 5: Run the whole CLI suite**
