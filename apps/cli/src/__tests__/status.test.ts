@@ -138,4 +138,69 @@ describe("status", () => {
 		expect(message.split("\n")).toHaveLength(4);
 		expect(new Set(columns).size).toBe(1);
 	});
+
+	it("breaks the pipeline down by stage", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		const dir = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"aaaaaaaaaaaa",
+			"lessons",
+			"proposals",
+		);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "p1.json"),
+			JSON.stringify({ status: "confirmed" }),
+		);
+
+		const message = await status({ env, fetchImpl: ok() });
+		expect(message).toMatch(/^Pipeline: 0 pending review$/m);
+		expect(message).toMatch(/^ {10}1 confirmed, awaiting a jury$/m);
+		expect(message).toMatch(/^ {10}0 judged, awaiting promotion$/m);
+		expect(message).toMatch(/^ {10}0 declined$/m);
+	});
+
+	// Every label pads to the longest, and `Pipeline:` is now the longest.
+	it("re-pads every label so the values still share a column", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		mkdirSync(join(env.ONLOOKER_DIR as string, "librarian"), {
+			recursive: true,
+		});
+
+		const message = await status({ env, fetchImpl: ok() });
+		// Continuation lines start with a space and carry no label.
+		const labeled = message.split("\n").filter((line) => /^\S/.test(line));
+		expect(labeled.length).toBe(5);
+		for (const line of labeled) {
+			// The first colon is always the label's - a value containing one
+			// (the API URL) has it later. Every value begins at column 10.
+			const afterLabel = line.indexOf(":") + 1;
+			expect(line.slice(afterLabel).search(/\S/) + afterLabel).toBe(10);
+		}
+	});
+
+	// The pool is empty either way; only `status` can say the difference
+	// between "librarian never ran" and "it ran and proposed nothing".
+	it("says when the lesson pipeline has never run", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		mkdirSync(join(env.ONLOOKER_DIR as string, "librarian"), {
+			recursive: true,
+		});
+
+		const message = await status({ env, fetchImpl: ok() });
+		expect(message).toMatch(/^Pipeline: no lesson pipeline has run here$/m);
+	});
 });

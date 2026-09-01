@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -84,6 +84,65 @@ describe("sync", () => {
 		const fetchImpl = accepts();
 		const message = await sync({ env, fetchImpl });
 		expect(message).toMatch(/nothing to sync/i);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("says the lesson pipeline has never run when no key has a lessons dir", async () => {
+		const env = linked();
+		// A project key librarian knows about, with only its memory queue.
+		mkdirSync(
+			join(
+				env.ONLOOKER_DIR as string,
+				"librarian",
+				"aaaaaaaaaaaa",
+				"proposals",
+			),
+			{ recursive: true },
+		);
+		const message = await sync({ env, fetchImpl: accepts() });
+		expect(message).toMatch(/lesson pipeline never has/i);
+	});
+
+	it("says nothing is at any stage when the pipeline has run and proposed nothing", async () => {
+		const env = linked();
+		mkdirSync(
+			join(
+				env.ONLOOKER_DIR as string,
+				"librarian",
+				"aaaaaaaaaaaa",
+				"lessons",
+				"proposals",
+			),
+			{ recursive: true },
+		);
+		const message = await sync({ env, fetchImpl: accepts() });
+		expect(message).toMatch(/nothing at any earlier stage/i);
+	});
+
+	// The case the bead was filed for: the pool is empty and the reason is two
+	// proposals stuck one step short of it.
+	it("names the stage that is holding proposals back", async () => {
+		const env = linked();
+		const dir = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"aaaaaaaaaaaa",
+			"lessons",
+			"proposals",
+		);
+		mkdirSync(dir, { recursive: true });
+		for (const id of ["p1", "p2"]) {
+			writeFileSync(
+				join(dir, `${id}.json`),
+				JSON.stringify({ status: "confirmed" }),
+			);
+		}
+
+		const fetchImpl = accepts();
+		const message = await sync({ env, fetchImpl });
+		expect(message).toMatch(/2 confirmed and awaiting a jury/);
+		expect(message).toMatch(/0 pending review/);
+		// Still the success path: nothing to send is not a failure.
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 
