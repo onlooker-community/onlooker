@@ -395,6 +395,126 @@ export class InvalidCursorError extends Error {
 	}
 }
 
+/**
+ * Activity cursors carry a sequence, not a (timestamp, id) pair.
+ *
+ * `lesson_feed.seq` is unique per user by index — `lesson_feed_user_seq_idx`
+ * on (user_id, seq) — so one value totally orders a user's feed and needs no
+ * tiebreaker. Base64 for the same reason the lesson cursor uses it: a client
+ * should not read a cursor as a number and start doing arithmetic on it.
+ */
+export function encodeSeqCursor(seq: number): string {
+	return btoa(String(seq));
+}
+
+export function decodeSeqCursor(cursor: string): number | null {
+	try {
+		const seq = Number.parseInt(atob(cursor), 10);
+		return Number.isFinite(seq) ? seq : null;
+	} catch {
+		// atob throws on anything that is not base64. A client-supplied cursor
+		// is untrusted input, and a malformed one is a 400, not a 500.
+		return null;
+	}
+}
+
+/** One lesson event, joined to the lesson it happened to. */
+export interface ActivityEvent {
+	seq: number;
+	kind: string;
+	at: string;
+	lesson_id: string;
+	claim: string;
+	applies_to: unknown;
+	status: string;
+}
+
+export interface ActivityPage {
+	events: ActivityEvent[];
+	cursor: string | null;
+	hasMore: boolean;
+}
+
+/**
+ * One page of a user's lesson activity, newest first.
+ *
+ * Ordered by seq DESC rather than at DESC. `at` defaults to CURRENT_TIMESTAMP,
+ * so two events written in the same second tie — and a tie in the sort key is
+ * how cursor pagination drops or repeats rows across a page boundary.
+ *
+ * The claim lives in the lesson's body rather than a column, so this joins and
+ * parses rather than selecting a title that does not exist.
+ */
+export async function listActivityPage(
+	db: D1Database,
+	userId: string,
+	opts: { cursor?: string | null; limit: number },
+): Promise<ActivityPage> {
+	const limit = Math.min(Math.max(1, opts.limit), BROWSE_MAX_LIMIT);
+	const binds: unknown[] = [userId];
+	let where = "f.user_id = ?";
+
+	if (opts.cursor) {
+		const after = decodeSeqCursor(opts.cursor);
+		if (after === null) throw new InvalidCursorError();
+		where += " AND f.seq < ?";
+		binds.push(after);
+	}
+
+	binds.push(limit + 1);
+
+	const { results } = await db
+		.prepare(
+			`SELECT f.seq, f.kind, f.at, f.lesson_id, l.body, l.status
+			 FROM lesson_feed f
+			 JOIN lessons l ON l.id = f.lesson_id
+			 WHERE ${where}
+			 ORDER BY f.seq DESC
+			 LIMIT ?`,
+		)
+		.bind(...binds)
+		.all<{
+			seq: number;
+			kind: string;
+			at: string;
+			lesson_id: string;
+			body: string;
+			status: string;
+		}>();
+
+	const rows = results ?? [];
+	const hasMore = rows.length > limit;
+	const events = (hasMore ? rows.slice(0, limit) : rows).map((r) => {
+		const body = JSON.parse(r.body) as {
+			claim?: string;
+			applies_to?: unknown;
+		};
+		return {
+			seq: r.seq,
+			kind: r.kind,
+			at: r.at,
+			lesson_id: r.lesson_id,
+			claim: body.claim ?? "",
+			applies_to: body.applies_to ?? null,
+			status: r.status,
+		};
+	});
+
+	const last = events.at(-1);
+	const cursor = hasMore && last ? encodeSeqCursor(last.seq) : null;
+
+	// Asserted rather than trusted, for the same reason listLessonsPage asserts
+	// it: hasMore, the clamped limit and the cursor are three separate facts,
+	// and a change to any one of them would silently hide the tail of the feed.
+	if (hasMore && cursor === null) {
+		throw new Error(
+			"listActivityPage: has_more is true with no cursor; the tail would be unreachable",
+		);
+	}
+
+	return { events, cursor, hasMore };
+}
+
 export interface LessonPage {
 	lessons: unknown[];
 	cursor: string | null;
