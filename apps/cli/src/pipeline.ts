@@ -1,0 +1,154 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { onlookerDir } from "./config";
+
+/**
+ * What each stage of the lesson pipeline is holding.
+ *
+ * `sync` used to answer "no approved lessons yet" for four different
+ * situations that call for four different responses: nothing has ever
+ * proposed a lesson, proposals are waiting on a human, they are waiting on
+ * the jury, or they were judged and never promoted. The counts here are what
+ * lets one sentence say which.
+ *
+ * The stage a proposal sits at is a `status` field INSIDE each file, not a
+ * directory - `lessons/proposals/` holds every state from `pending` through
+ * `rejected`. So this is a read of each file, not a directory listing.
+ */
+export interface PipelineSurvey {
+	/** Project keys with a `lessons/` directory at all. */
+	lessonDirs: number;
+	/** `pending` - librarian proposed it, no human has reviewed it. */
+	pendingReview: number;
+	/** `confirmed` - a human confirmed it, the jury has not judged it. */
+	awaitingJury: number;
+	/** `approved` or `rejected`, with no `promoted_at`. */
+	awaitingPromotion: number;
+	/** `passed` - a human declined to put it forward. Terminal. */
+	passed: number;
+	/** Non-empty lines in `declined.jsonl`. Terminal. */
+	declined: number;
+	/** Status values this CLI does not know, by name and count. */
+	unrecognized: Record<string, number>;
+	/** Files that would not parse, or that carry no usable status. */
+	unreadable: number;
+}
+
+/**
+ * Count what sits at each stage, across every project key.
+ *
+ * Never throws. This feeds `status`, which is the command someone runs
+ * *because* something is wrong - a diagnostic that dies on the state it
+ * exists to report is useless at the only moment it matters. Every failure
+ * mode below becomes a count instead.
+ */
+export function surveyPipeline(
+	env: NodeJS.ProcessEnv = process.env,
+): PipelineSurvey {
+	const survey: PipelineSurvey = {
+		lessonDirs: 0,
+		pendingReview: 0,
+		awaitingJury: 0,
+		awaitingPromotion: 0,
+		passed: 0,
+		declined: 0,
+		unrecognized: {},
+		unreadable: 0,
+	};
+
+	const librarian = join(onlookerDir(env), "librarian");
+	if (!existsSync(librarian)) return survey;
+
+	for (const project of readdirSync(librarian)) {
+		// `<key>/lessons/`, never `<key>/proposals/`. The latter is librarian's
+		// MEMORY proposal queue, held apart from lessons on purpose - see
+		// librarian-lesson-storage.sh:8. Counting it here would report memory
+		// candidates as lesson candidates.
+		const lessons = join(librarian, project, "lessons");
+		if (!existsSync(lessons)) continue;
+		survey.lessonDirs++;
+		countProposals(join(lessons, "proposals"), survey);
+		survey.declined += countDeclined(join(lessons, "declined.jsonl"));
+	}
+
+	return survey;
+}
+
+function countProposals(dir: string, survey: PipelineSurvey): void {
+	if (!existsSync(dir)) return;
+
+	for (const entry of readdirSync(dir)) {
+		if (!entry.endsWith(".json")) continue;
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(readFileSync(join(dir, entry), "utf8"));
+		} catch {
+			// Counted, not skipped. A file that will not parse is itself a
+			// finding, and dropping it would let the totals below claim to
+			// describe files nobody could read.
+			survey.unreadable++;
+			continue;
+		}
+
+		const proposal = parsed as Record<string, unknown> | null;
+		if (typeof proposal !== "object" || proposal === null) {
+			survey.unreadable++;
+			continue;
+		}
+
+		// A promoted proposal keeps its file here forever: proposals/ is the
+		// sole dedup source for an approved lesson, so librarian never prunes
+		// it (librarian-lesson-storage.sh:184). Its outcome is already counted
+		// downstream, in approved/ or in declined.jsonl. Counting it again
+		// would report finished work as stuck, and would grow without bound.
+		if (proposal.promoted_at !== undefined) continue;
+
+		const status = proposal.status;
+		if (typeof status !== "string" || status === "") {
+			survey.unreadable++;
+			continue;
+		}
+
+		switch (status) {
+			case "pending":
+				survey.pendingReview++;
+				break;
+			case "confirmed":
+				survey.awaitingJury++;
+				break;
+			case "approved":
+			case "rejected":
+				survey.awaitingPromotion++;
+				break;
+			case "passed":
+				survey.passed++;
+				break;
+			default:
+				// Named, not dropped. This vocabulary is owned by another repo
+				// and can grow without telling us. Silently ignoring an
+				// unfamiliar status would under-report a real stall and print a
+				// confident total - which is the exact defect this module
+				// exists to fix, reintroduced one layer down.
+				survey.unrecognized[status] = (survey.unrecognized[status] ?? 0) + 1;
+		}
+	}
+}
+
+/**
+ * Non-empty lines, rather than parsed entries.
+ *
+ * `declined.jsonl` is append-only and librarian never re-reads it, so a torn
+ * final write must not be able to break a count - and the count does not
+ * depend on what shape the entries have.
+ */
+function countDeclined(path: string): number {
+	if (!existsSync(path)) return 0;
+	let raw: string;
+	try {
+		raw = readFileSync(path, "utf8");
+	} catch {
+		return 0;
+	}
+	return raw.split("\n").filter((line) => line.trim() !== "").length;
+}
