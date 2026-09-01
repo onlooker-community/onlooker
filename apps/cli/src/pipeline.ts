@@ -178,3 +178,102 @@ function countDeclined(path: string): number {
 	}
 	return raw.split("\n").filter((line) => line.trim() !== "").length;
 }
+
+/**
+ * The three stages a proposal can be stuck at, in pipeline order.
+ *
+ * Two phrasings from one table, because the same fact reads differently in
+ * the two places it appears: `sync` runs them into a sentence where commas
+ * are already separating stages, so it needs "confirmed and awaiting a jury";
+ * `status` puts each on its own line, where the comma is the clearer break.
+ * Keeping both here is what stops the two commands describing the same disk
+ * state in different words.
+ */
+const STAGES = [
+	{ key: "pendingReview", inline: "pending review", block: "pending review" },
+	{
+		key: "awaitingJury",
+		inline: "confirmed and awaiting a jury",
+		block: "confirmed, awaiting a jury",
+	},
+	{
+		key: "awaitingPromotion",
+		inline: "judged and awaiting promotion",
+		block: "judged, awaiting promotion",
+	},
+] as const;
+
+/** Anything at all, at any stage, including the two fault counts. */
+function holdsSomething(survey: PipelineSurvey): boolean {
+	return (
+		STAGES.some((stage) => survey[stage.key] > 0) ||
+		survey.passed > 0 ||
+		survey.declined > 0 ||
+		survey.unreadable > 0 ||
+		Object.keys(survey.unrecognized).length > 0
+	);
+}
+
+/**
+ * The faults, phrased the same way in both renderers. Empty when clean, so
+ * both callers can append it unconditionally.
+ */
+function faults(survey: PipelineSurvey): string[] {
+	const out: string[] = [];
+	if (survey.unreadable > 0) {
+		out.push(`${survey.unreadable} that could not be read`);
+	}
+	for (const [status, count] of Object.entries(survey.unrecognized)) {
+		out.push(`${count} with an unrecognized status (${status})`);
+	}
+	return out;
+}
+
+/**
+ * Everything after "Nothing to sync: " in `sync`'s empty-pool message.
+ *
+ * All three stall stages are named even at zero. A zero is information here:
+ * "2 confirmed and awaiting a jury, 0 pending review" says the stall is not
+ * being fed, which is the difference between a backlog and a blockage. It
+ * also means there is no rule about which counts appear, and one output to
+ * test.
+ */
+export function pipelineClause(survey: PipelineSurvey): string {
+	if (survey.lessonDirs === 0) {
+		// A fault outranks the "never ran" reading. `lessonDirs` is also 0 when
+		// the walk could not list a directory at all, and reporting that as
+		// "the pipeline never ran" would be the same confident-but-wrong
+		// sentence this module exists to remove.
+		const unread = faults(survey);
+		if (unread.length > 0) {
+			return `no approved lessons yet, and the pipeline could not be read - ${unread.join(", ")}.`;
+		}
+		return "no approved lessons yet - librarian has run here, but its lesson pipeline never has. Check that archivist and librarian are enabled.";
+	}
+	if (!holdsSomething(survey)) {
+		return "no approved lessons yet, and nothing at any earlier stage either - librarian has run here but has proposed no lessons. Check that archivist and librarian are enabled.";
+	}
+
+	const parts = STAGES.map(
+		(stage) => `${survey[stage.key]} ${stage.inline}`,
+	).concat(faults(survey));
+	return `no approved lessons yet - ${parts.join(", ")}.`;
+}
+
+/** The value lines of `status`'s `Pipeline:` block, unlabeled and unpadded. */
+export function pipelineLines(survey: PipelineSurvey): string[] {
+	if (survey.lessonDirs === 0) {
+		// Same precedence as the clause: a directory we could not list is not
+		// a pipeline that never ran.
+		const unread = faults(survey);
+		return unread.length > 0 ? unread : ["no lesson pipeline has run here"];
+	}
+
+	const lines = STAGES.map((stage) => `${survey[stage.key]} ${stage.block}`);
+	// `declined` always: a jury refusing everything it sees is precisely what
+	// someone runs `status` to find out. `passed` only when non-zero - it is a
+	// human's decision not to put something forward, not a stall.
+	lines.push(`${survey.declined} declined`);
+	if (survey.passed > 0) lines.push(`${survey.passed} passed over`);
+	return lines.concat(faults(survey));
+}

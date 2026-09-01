@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { surveyPipeline } from "../pipeline";
+import {
+	type PipelineSurvey,
+	pipelineClause,
+	pipelineLines,
+	surveyPipeline,
+} from "../pipeline";
 
 /** A temp `$ONLOOKER_DIR` with nothing in it. */
 function emptyDir(): NodeJS.ProcessEnv {
@@ -185,5 +190,92 @@ describe("surveyPipeline", () => {
 		const survey = surveyPipeline(env);
 		expect(survey.unreadable).toBe(1);
 		expect(survey.pendingReview).toBe(1);
+	});
+});
+
+/** A survey with everything at zero, so a test names only what it cares about. */
+function survey(over: Partial<PipelineSurvey> = {}): PipelineSurvey {
+	return {
+		lessonDirs: 1,
+		pendingReview: 0,
+		awaitingJury: 0,
+		awaitingPromotion: 0,
+		passed: 0,
+		declined: 0,
+		unrecognized: {},
+		unreadable: 0,
+		...over,
+	};
+}
+
+describe("pipelineClause", () => {
+	it("says the pipeline has never run when no lessons directory exists", () => {
+		const clause = pipelineClause(survey({ lessonDirs: 0 }));
+		expect(clause).toMatch(/lesson pipeline/i);
+		expect(clause).toMatch(/never/i);
+	});
+
+	// `lessonDirs` is also 0 when the walk could not list a directory, and
+	// "the pipeline never ran" would be a confident wrong answer for that.
+	it("reports a fault ahead of the never-ran reading", () => {
+		const clause = pipelineClause(survey({ lessonDirs: 0, unreadable: 1 }));
+		expect(clause).toMatch(/could not be read/i);
+		expect(clause).not.toMatch(/never/i);
+	});
+
+	// The most common state, and the one the old single sentence hid worst:
+	// the pipeline is wired up and has produced nothing at any stage.
+	it("says nothing is at any stage when every count is zero", () => {
+		const clause = pipelineClause(survey());
+		expect(clause).toMatch(/nothing at any earlier stage/i);
+		expect(clause).toMatch(/archivist and librarian/i);
+	});
+
+	it("names all three stall stages in pipeline order once one holds something", () => {
+		const clause = pipelineClause(survey({ awaitingJury: 2 }));
+		expect(clause).toBe(
+			"no approved lessons yet - 0 pending review, 2 confirmed and awaiting a jury, 0 judged and awaiting promotion.",
+		);
+	});
+
+	it("appends the exceptional counts only when they are non-zero", () => {
+		expect(pipelineClause(survey({ pendingReview: 1 }))).not.toMatch(/unread/i);
+		const clause = pipelineClause(
+			survey({ pendingReview: 1, unreadable: 2, unrecognized: { odd: 1 } }),
+		);
+		expect(clause).toMatch(/2 that could not be read/);
+		expect(clause).toMatch(/1 with an unrecognized status \(odd\)/);
+	});
+});
+
+describe("pipelineLines", () => {
+	it("always lists the three stall stages and the declined count", () => {
+		expect(pipelineLines(survey({ awaitingJury: 2, declined: 4 }))).toEqual([
+			"0 pending review",
+			"2 confirmed, awaiting a jury",
+			"0 judged, awaiting promotion",
+			"4 declined",
+		]);
+	});
+
+	it("collapses to one line when the pipeline has never run", () => {
+		expect(pipelineLines(survey({ lessonDirs: 0 }))).toEqual([
+			"no lesson pipeline has run here",
+		]);
+	});
+
+	it("shows the fault instead when the walk could not read a directory", () => {
+		expect(pipelineLines(survey({ lessonDirs: 0, unreadable: 2 }))).toEqual([
+			"2 that could not be read",
+		]);
+	});
+
+	it("adds a line per exceptional count", () => {
+		const lines = pipelineLines(
+			survey({ passed: 1, unreadable: 2, unrecognized: { odd: 3 } }),
+		);
+		expect(lines).toContain("1 passed over");
+		expect(lines).toContain("2 that could not be read");
+		expect(lines).toContain("3 with an unrecognized status (odd)");
 	});
 });
