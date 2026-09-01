@@ -14,6 +14,7 @@ export {
 	handleVerifyEmail,
 	handleVerifyResetToken,
 } from "./account";
+export { handleActivity } from "./activity";
 export {
 	handleLogin,
 	handleLogout,

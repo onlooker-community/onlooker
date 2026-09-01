@@ -5,6 +5,7 @@
 
 import { errorHandler } from "./middleware";
 import {
+	handleActivity,
 	handleBrowseLessons,
 	handleBrowserTransition,
 	handleChangePassword,
@@ -208,6 +209,11 @@ const ROUTES: Route[] = [
 		method: "PATCH",
 		path: "/api/lessons/:id/status",
 		handler: handleBrowserTransition,
+	},
+	{
+		method: "GET",
+		path: "/api/activity",
+		handler: handleActivity,
 	},
 ];
 
