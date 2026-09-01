@@ -59,7 +59,19 @@ export function surveyPipeline(
 	const librarian = join(onlookerDir(env), "librarian");
 	if (!existsSync(librarian)) return survey;
 
-	for (const project of readdirSync(librarian)) {
+	let projects: string[];
+	try {
+		projects = readdirSync(librarian);
+	} catch {
+		// `existsSync` only proves the path exists at that instant - it can
+		// still be a file rather than a directory, be unreadable, or vanish
+		// before this call runs. That is itself something worth reporting,
+		// not something to swallow and report as "no librarian directory".
+		survey.unreadable++;
+		return survey;
+	}
+
+	for (const project of projects) {
 		// `<key>/lessons/`, never `<key>/proposals/`. The latter is librarian's
 		// MEMORY proposal queue, held apart from lessons on purpose - see
 		// librarian-lesson-storage.sh:8. Counting it here would report memory
@@ -77,7 +89,21 @@ export function surveyPipeline(
 function countProposals(dir: string, survey: PipelineSurvey): void {
 	if (!existsSync(dir)) return;
 
-	for (const entry of readdirSync(dir)) {
+	let entries: string[];
+	try {
+		entries = readdirSync(dir);
+	} catch {
+		// Same TOCTOU/permission/not-a-directory gap as the librarian listing
+		// above: `existsSync` cannot guarantee the path is still a listable
+		// directory by the time we get here. Count it as unreadable rather
+		// than skip silently, so this project key's stall shows up instead of
+		// vanishing from the totals - and keep going, so one bad key does not
+		// cost every other key its count.
+		survey.unreadable++;
+		return;
+	}
+
+	for (const entry of entries) {
 		if (!entry.endsWith(".json")) continue;
 
 		let parsed: unknown;

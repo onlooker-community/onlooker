@@ -149,4 +149,41 @@ describe("surveyPipeline", () => {
 
 		expect(surveyPipeline(env).declined).toBe(3);
 	});
+
+	// `existsSync` only proves the path exists at that instant - it does not
+	// prove `readdirSync` can list it. A file where a directory was expected
+	// must not throw past the diagnostic that exists to survive a broken
+	// machine.
+	it("counts librarian as unreadable instead of throwing when it is a file", () => {
+		const env = emptyDir();
+		writeFileSync(join(env.ONLOOKER_DIR as string, "librarian"), "");
+
+		const survey = surveyPipeline(env);
+		expect(survey.unreadable).toBe(1);
+	});
+
+	it("counts one key's unlistable proposals dir without losing its siblings", () => {
+		const env = emptyDir();
+		mkdirSync(
+			join(env.ONLOOKER_DIR as string, "librarian", "aaaaaaaaaaaa", "lessons"),
+			{
+				recursive: true,
+			},
+		);
+		writeFileSync(
+			join(
+				env.ONLOOKER_DIR as string,
+				"librarian",
+				"aaaaaaaaaaaa",
+				"lessons",
+				"proposals",
+			),
+			"",
+		);
+		proposal(env, "bbbbbbbbbbbb", "p1", { status: "pending" });
+
+		const survey = surveyPipeline(env);
+		expect(survey.unreadable).toBe(1);
+		expect(survey.pendingReview).toBe(1);
+	});
 });
