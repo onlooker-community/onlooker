@@ -118,11 +118,26 @@ One `Panel` per day, titled with the date, events inside. `EmptyState` when the
 feed is empty — the common case for a new account, and it deserves written copy
 rather than a blank panel.
 
-## Contract *(approved)*
+## Contract *(approved, corrected 2026-08-31)*
 
-`packages/api-contract` gains an entry for the endpoint, plus a version bump.
-CI's `contract-version` job fails a pull request whose schema changed without
-one, so this is enforced rather than remembered.
+`packages/api-contract` gains cases for the endpoint: the unauthenticated `401`
+in `anonymousCases()`, and the authenticated `200` with its expected shape in
+`authenticatedCases()`.
+
+**No version bump, and the earlier draft of this section was wrong to ask for
+one.** It claimed CI's `contract-version` job would fail a pull request that
+changed the contract without a bump. That job guards
+`packages/lesson-contract/schema/` — the published npm package defining a
+*lesson's* shape — and compares `packages/lesson-contract/package.json`'s
+version. `packages/api-contract` is a different thing entirely: an internal
+test-fixture library exporting `anonymousCases`, `authenticatedCases` and
+`shapeFailures`, with no version field and no CI guard.
+
+This work adds an HTTP endpoint. It touches neither the lesson schema nor its
+package version, so the guard is not involved and nothing needs bumping. The
+contract cases are still worth adding — they are how a response-shape change
+fails a test rather than surprising the browser — but they are ordinary test
+coverage, not a release gate.
 
 ## Testing *(approved)*
 
