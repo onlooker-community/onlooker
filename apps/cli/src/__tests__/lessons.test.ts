@@ -42,7 +42,7 @@ describe("discoverApproved", () => {
 		const env = root();
 		approvedDir(env);
 		const found = discoverApproved(env);
-		expect(found).toEqual({ kind: "found", files: [] });
+		expect(found).toEqual({ kind: "found", files: [], unreadable: [] });
 	});
 
 	it("finds lessons across every project", () => {
@@ -68,6 +68,38 @@ describe("discoverApproved", () => {
 		mkdirSync(proposals, { recursive: true });
 		cpSync(FIXTURE, join(proposals, "p.json"));
 		expect(discoverApproved(env)).toMatchObject({ kind: "found", files: [] });
+	});
+
+	// A directory that exists but cannot be listed is its own answer, not zero
+	// lessons. Reporting `found` with an empty array here would be the silent
+	// zero this union exists to prevent - there could be a thousand lessons
+	// behind a path we could not open.
+	it("distinguishes a librarian directory it cannot list", () => {
+		const env = root();
+		writeFileSync(join(env.ONLOOKER_DIR as string, "librarian"), "");
+		const found = discoverApproved(env);
+		expect(found.kind).toBe("unreadable");
+		expect(found.kind === "unreadable" && found.path).toContain("librarian");
+	});
+
+	// One unlistable project key must not cost the others their lessons, and it
+	// must not vanish either: the count would then be quietly short.
+	it("names a project it cannot list without losing its siblings", () => {
+		const env = root();
+		cpSync(FIXTURE, join(approvedDir(env, "aaaaaaaaaaaa"), "a.json"));
+		const broken = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"bbbbbbbbbbbb",
+			"lessons",
+		);
+		mkdirSync(broken, { recursive: true });
+		writeFileSync(join(broken, "approved"), "");
+
+		const found = discoverApproved(env);
+		expect(found.kind).toBe("found");
+		expect(found.kind === "found" && found.files).toHaveLength(1);
+		expect(found.kind === "found" && found.unreadable).toHaveLength(1);
 	});
 });
 

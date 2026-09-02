@@ -9,16 +9,24 @@ export const MAX_BATCH = 100;
 /**
  * What a look at the disk found.
  *
- * Three outcomes rather than an array, because "no lessons" has three causes
- * that deserve different sentences: the directory does not exist, the ecosystem
- * has never run here, or there is genuinely nothing approved yet. The last is
- * the expected state until the promotion step ships, so a bare empty array
- * would make the normal case indistinguishable from a broken install.
+ * Four outcomes rather than an array, because "no lessons" has four causes that
+ * deserve different sentences: the directory does not exist, the ecosystem has
+ * never run here, the directory is there and could not be read, or there is
+ * genuinely nothing approved yet. The last is the expected state until the
+ * promotion step ships, so a bare empty array would make the normal case
+ * indistinguishable from a broken install.
+ *
+ * `unreadable` is a separate outcome rather than an empty `found` because the
+ * two claim different things. An empty `found` asserts there are no approved
+ * lessons; a path we could not open supports no such claim, and there could be
+ * a thousand behind it.
  */
 export type Discovery =
 	| { kind: "no-onlooker-dir"; path: string }
 	| { kind: "no-librarian-dir"; path: string }
-	| { kind: "found"; files: string[] };
+	| { kind: "unreadable"; path: string }
+	/** `unreadable` names project keys skipped because listing them failed. */
+	| { kind: "found"; files: string[]; unreadable: string[] };
 
 export function discoverApproved(
 	env: NodeJS.ProcessEnv = process.env,
@@ -37,15 +45,38 @@ export function discoverApproved(
 	//
 	// `approved` only. `proposals/` holds candidates awaiting judgment, and
 	// pushing one would put an unjudged claim into a pool built on consensus.
+	// `existsSync` is not enough to make `readdirSync` safe: a path that exists
+	// but cannot be listed - a file where a directory belongs (ENOTDIR), a
+	// directory without read permission (EACCES) - throws. Both commands call
+	// this before anything else, so an unguarded throw here takes out `status`,
+	// which is the command someone runs *because* the machine is broken.
+	let projects: string[];
+	try {
+		projects = readdirSync(librarian);
+	} catch {
+		return { kind: "unreadable", path: librarian };
+	}
+
 	const files: string[] = [];
-	for (const project of readdirSync(librarian)) {
+	const unreadable: string[] = [];
+	for (const project of projects) {
 		const approved = join(librarian, project, "lessons", "approved");
 		if (!existsSync(approved)) continue;
-		for (const entry of readdirSync(approved)) {
+		let entries: string[];
+		try {
+			entries = readdirSync(approved);
+		} catch {
+			// Named, not skipped, and scoped to this key: one unlistable project
+			// must not cost the others their lessons, but it must not vanish
+			// either - the count would then be quietly short.
+			unreadable.push(approved);
+			continue;
+		}
+		for (const entry of entries) {
 			if (entry.endsWith(".json")) files.push(join(approved, entry));
 		}
 	}
-	return { kind: "found", files: files.sort() };
+	return { kind: "found", files: files.sort(), unreadable: unreadable.sort() };
 }
 
 export type Parsed =

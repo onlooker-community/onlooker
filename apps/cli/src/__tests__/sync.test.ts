@@ -151,6 +151,37 @@ describe("sync", () => {
 		expect(message).toMatch(/librarian/);
 	});
 
+	// Deliberately a failure, not "nothing to sync". Exiting 0 here would claim
+	// there is nothing to send on a machine where we could not look.
+	it("fails rather than reporting nothing when librarian cannot be listed", async () => {
+		const env = linked();
+		writeFileSync(join(env.ONLOOKER_DIR as string, "librarian"), "");
+		const fetchImpl = accepts();
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(
+			/could not be listed/i,
+		);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	// A partial listing failure must not read as a complete run: the summary
+	// would be true about what was sent and silent about what was missed.
+	it("reports a project it could not list even when the push succeeds", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const broken = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"bbbbbbbbbbbb",
+			"lessons",
+		);
+		mkdirSync(broken, { recursive: true });
+		writeFileSync(join(broken, "approved"), "");
+
+		await expect(sync({ env, fetchImpl: accepts() })).rejects.toThrow(
+			/could not be listed/i,
+		);
+	});
+
 	it("pushes what it finds", async () => {
 		const env = linked();
 		withLessons(env, 2);
