@@ -65,20 +65,40 @@ export async function status({
 		lines.push(
 			`Lessons:  none - ${found.path} does not exist, so librarian has not run here yet`,
 		);
+	} else if (found.kind === "unreadable") {
+		// The one case `status` most has to survive: it exists to explain a
+		// broken machine, so it must report an unlistable directory rather than
+		// dying on it. "unknown", never "none" - we did not look successfully,
+		// so claiming zero would be an answer we do not have.
+		lines.push(
+			`Lessons:  unknown - ${found.path} exists but could not be listed`,
+		);
 	} else {
 		// Parseable lessons, not files. `sync` counts what it can actually send,
 		// and a status that advertises lessons `sync` will refuse is worse than
 		// no count at all - it makes the two commands look like they disagree.
 		const ready = found.files.filter((file) => parseLesson(file).ok).length;
-		const unreadable = found.files.length - ready;
+		const unparseable = found.files.length - ready;
+		// Two different failures, kept apart. `unparseable` is a file that was
+		// read and is not a lesson; `found.unreadable` is a project directory
+		// that could not be listed at all. Folding the second into the first
+		// would hide whole projects behind a count of bad files, and the
+		// remedies are nothing alike.
+		const caveats = [
+			unparseable > 0 ? `${unparseable} that cannot be read` : "",
+			found.unreadable.length > 0
+				? `${found.unreadable.length} project${found.unreadable.length === 1 ? "" : "s"} that could not be listed`
+				: "",
+		].filter(Boolean);
 		lines.push(
 			`Lessons:  ${ready} approved lesson${ready === 1 ? "" : "s"} ready to sync` +
-				(unreadable > 0 ? `, ${unreadable} that cannot be read` : ""),
+				(caveats.length > 0 ? `, ${caveats.join(", ")}` : ""),
 		);
 
-		// Only on the `found` branch. The two branches above already say that
-		// no plugin, or no librarian, has run here - a stage breakdown under
-		// either would be four zeros restating a sentence directly above it.
+		// Only on the `found` branch. The three branches above already say that
+		// no plugin has run, that librarian has not, or that the directory could
+		// not be listed - a stage breakdown under any of them would be four
+		// zeros restating a sentence directly above it.
 		const [first, ...rest] = pipelineLines(surveyPipeline(env));
 		lines.push(`Pipeline: ${first}`);
 		for (const line of rest) lines.push(`${" ".repeat(10)}${line}`);

@@ -37,6 +37,17 @@ export async function sync({
 	if (found.kind === "no-librarian-dir") {
 		return `Nothing to sync: ${found.path} does not exist, so librarian has not run here yet.`;
 	}
+	if (found.kind === "unreadable") {
+		// Not "nothing to sync" - we do not know that. Thrown rather than
+		// returned, because returning would exit 0 on a machine whose lesson
+		// directory could not be opened, which is the same successful-looking
+		// silence the pipeline counts exist to remove. `rejected` because
+		// waiting does not fix a permission or a file where a directory belongs.
+		throw new ApiError({
+			kind: "rejected",
+			message: `Could not read ${found.path}. It exists but could not be listed, so how many lessons are waiting is unknown.`,
+		});
+	}
 	if (found.files.length === 0) {
 		// An empty pool has four causes that need four different responses, and
 		// this sentence used to be the same for all of them. The survey is a
@@ -169,6 +180,16 @@ export async function sync({
 		problems.push(
 			`${skipped.length} file(s) could not be read as a lesson.`,
 			...skipped,
+		);
+	}
+	// A project whose approved/ could not be listed means this run pushed an
+	// unknown fraction of what exists. Reporting "Synced 3 lessons" and exiting
+	// 0 would be true about what was sent and misleading about what was left,
+	// which is the failure the counts in this file exist to prevent.
+	if (found.unreadable.length > 0) {
+		problems.push(
+			`${found.unreadable.length} project director(ies) could not be listed, so some lessons may not have been sent.`,
+			...found.unreadable,
 		);
 	}
 

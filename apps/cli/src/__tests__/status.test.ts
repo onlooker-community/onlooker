@@ -190,6 +190,44 @@ describe("status", () => {
 
 	// The pool is empty either way; only `status` can say the difference
 	// between "librarian never ran" and "it ran and proposed nothing".
+	// The case status most has to survive: it exists to explain a broken
+	// machine, so dying on an unlistable directory defeats the command.
+	it("reports an unlistable librarian directory instead of throwing", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		writeFileSync(join(env.ONLOOKER_DIR as string, "librarian"), "");
+
+		const message = await status({ env, fetchImpl: ok() });
+		expect(message).toMatch(/^Lessons: {2}unknown - .*could not be listed$/m);
+		// "unknown", never "none" - we did not look successfully, so a count
+		// would be an answer we do not have.
+		expect(message).not.toMatch(/Lessons: {2}none/);
+		// No pipeline breakdown: it would be zeros restating the line above.
+		expect(message).not.toMatch(/^Pipeline:/m);
+	});
+
+	it("names a project it could not list beside the count it did manage", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		const broken = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"bbbbbbbbbbbb",
+			"lessons",
+		);
+		mkdirSync(broken, { recursive: true });
+		writeFileSync(join(broken, "approved"), "");
+
+		const message = await status({ env, fetchImpl: ok() });
+		expect(message).toMatch(/1 project that could not be listed/);
+	});
+
 	it("says when the lesson pipeline has never run", async () => {
 		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
 		writeConfig(
