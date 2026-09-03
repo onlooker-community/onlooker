@@ -16,6 +16,7 @@ import {
 	outputLabel,
 	STALL_THRESHOLD,
 	STREAMS,
+	surveyStreams,
 } from "../streams";
 
 /**
@@ -110,6 +111,16 @@ describe("STREAMS", () => {
 	// question this table does not track.
 	it("resolves cartographer against completed audits, not open findings", () => {
 		expect(entryFor("cartographer").subpath).toBe("runs");
+	});
+
+	// writeHooks pins which hooks a firing-count stall check may trust.
+	// bursar-session-start and archivist-inject both fire without implying a
+	// write; lineage has no reliable write hook at all, since its one hook
+	// name covers Bash as well as Edit/Write/MultiEdit.
+	it("pins which hooks are reliable write triggers versus mere firings", () => {
+		expect(entryFor("bursar").writeHooks).toEqual(["bursar-session-end"]);
+		expect(entryFor("archivist").writeHooks).toEqual(["archivist-extract"]);
+		expect(entryFor("lineage").writeHooks).toBeUndefined();
 	});
 });
 
@@ -209,6 +220,32 @@ describe("outputFreshness", () => {
 		writeFileSync(join(base, "historian", ".DS_Store"), "x");
 		const fresh = outputFreshness(entryFor("historian"), env);
 		expect(fresh.mtime?.slice(0, 10)).toBe("2026-08-07");
+		expect(fresh.unreadable).toBe(false);
+	});
+
+	// The test above catches `.DS_Store` sitting where a KEY belongs -
+	// already skipped by the project-key classification. One dropped
+	// INSIDE a key's own directory (Finder browsing that specific folder,
+	// not just the plugin root) is real content by every check the walk
+	// already has, and `newestMtime` counts it like any other file. Global
+	// filesystem noise, not a per-entry `ignore` concern: no plugin ever
+	// wrote it, and no table entry should need to know its name to skip it.
+	it("ignores OS metadata files anywhere in the walk, not just at the key level", () => {
+		const env = emptyDir();
+		fileAt(
+			env,
+			join("bursar", "projects", "a", "sessions.jsonl"),
+			"2026-07-01T00:00:00Z",
+		);
+		// Written today by Finder browsing the key's own directory - newer
+		// than the real output, and must not count.
+		fileAt(
+			env,
+			join("bursar", "projects", "a", ".DS_Store"),
+			"2026-09-02T00:00:00Z",
+		);
+		const fresh = outputFreshness(entryFor("bursar"), env);
+		expect(fresh.mtime?.slice(0, 10)).toBe("2026-07-01");
 		expect(fresh.unreadable).toBe(false);
 	});
 
@@ -521,10 +558,29 @@ describe("clearsCadenceFloor", () => {
 
 describe("outputLabel", () => {
 	it("renders a subpath entry with a wildcard key segment", () => {
-		expect(outputLabel(entryFor("bursar"))).toBe(join("bursar", "projects"));
 		expect(outputLabel(entryFor("librarian"))).toBe(
 			join("librarian", "*", "lessons"),
 		);
+	});
+
+	// bursar is perProject but has no subpath of its own - the walk still
+	// only ever covers <output>/<this repo's own keys>, not the whole
+	// output root, and the label must say so. Before this fix it read
+	// "bursar/projects" unqualified, overstating what was actually
+	// measured: a user who then listed that directory and found a sibling
+	// repo's key written yesterday would have every reason to think the
+	// tool was simply wrong.
+	it("renders a perProject entry with no subpath of its own with a wildcard key segment too", () => {
+		expect(outputLabel(entryFor("bursar"))).toBe(
+			join("bursar", "projects", "*"),
+		);
+	});
+
+	// governor is flat and genuinely machine-wide (see its own table
+	// comment) - its label must not claim a per-key scope it was never
+	// given.
+	it("renders a flat, non-per-project entry with no wildcard at all", () => {
+		expect(outputLabel(entryFor("governor"))).toBe("governance");
 	});
 });
 
@@ -534,5 +590,886 @@ describe("STALL_THRESHOLD", () => {
 	// Five clears that with margin. The real outage hit 71.
 	it("sits above one session of legitimate lag", () => {
 		expect(STALL_THRESHOLD).toBe(5);
+	});
+});
+
+/**
+ * Session id `machine()`'s own `projectKeys` option ties its
+ * synthetic `session.start` (and each `project_key`-tagged event) to -
+ * exposed so a test that needs to add MORE events for "this repo's own
+ * session," rather than a foreign one, can reuse it instead of duplicating
+ * the literal.
+ */
+const MACHINE_SESSION_ID = "machine-project-keys";
+
+/**
+ * Build a machine: a temp `$ONLOOKER_DIR` with both logs, plus a project tree
+ * whose `.claude/settings.json` enables `plugins`.
+ */
+function machine(opts: {
+	plugins: string[];
+	events?: unknown[];
+	hooks?: unknown[];
+	files?: Array<[string, string]>;
+	/** Skip writing `logs/onlooker-events.jsonl` at all, so scanEvents reports `missing`. */
+	skipEventsLog?: boolean;
+	/** Skip writing `.claude/settings.json`, so enablement reads `unknown`. */
+	noSettings?: boolean;
+	/**
+	 * This repo's own project keys - established the real way `scanEvents`
+	 * derives them, not a test-only bypass: a `.git` marker under `cwd` so
+	 * `repoRoot(cwd)` resolves to it, plus a synthetic `session.start`
+	 * event rooted there and one `project_key`-tagged event per key, tied
+	 * to the same session. Required by any test exercising a per-project
+	 * entry (see `StreamEntry.perProject`) - without it, `events.projectKeys`
+	 * stays empty and `judge()` reports `unknown` before looking at
+	 * anything else.
+	 *
+	 * Event type `onlooker.project_key.sync` and a fixed 1970 timestamp: no
+	 * table entry tracks the `onlooker` prefix, and the timestamp never
+	 * wins any real entry's `lastEvent` computation against a 2026 fixture.
+	 */
+	projectKeys?: string[];
+}): { cwd: string; home: string; configDir: string; env: NodeJS.ProcessEnv } {
+	const dir = mkdtempSync(join(tmpdir(), "onlooker-survey-"));
+	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+	mkdirSync(join(dir, "logs"), { recursive: true });
+
+	const home = mkdtempSync(join(tmpdir(), "onlooker-survey-home-"));
+	onTestFinished(() => rmSync(home, { recursive: true, force: true }));
+	const cwd = mkdtempSync(join(tmpdir(), "onlooker-survey-proj-"));
+	onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
+
+	const events = [...(opts.events ?? [])];
+	if (opts.projectKeys !== undefined) {
+		mkdirSync(join(cwd, ".git"), { recursive: true });
+		const sessionId = MACHINE_SESSION_ID;
+		events.push({
+			event_type: "session.start",
+			timestamp: "1970-01-01T00:00:00Z",
+			session_id: sessionId,
+			payload: { working_directory: cwd },
+		});
+		for (const key of opts.projectKeys) {
+			events.push({
+				event_type: "onlooker.project_key.sync",
+				timestamp: "1970-01-01T00:00:00Z",
+				session_id: sessionId,
+				payload: { project_key: key },
+			});
+		}
+	}
+
+	const write = (name: string, lines: unknown[]) =>
+		writeFileSync(
+			join(dir, "logs", name),
+			`${lines.map((l) => JSON.stringify(l)).join("\n")}\n`,
+		);
+	if (!opts.skipEventsLog) write("onlooker-events.jsonl", events);
+	write("hook-health.jsonl", opts.hooks ?? []);
+	for (const [rel, iso] of opts.files ?? [])
+		fileAt({ ONLOOKER_DIR: dir }, rel, iso);
+
+	if (!opts.noSettings) {
+		mkdirSync(join(cwd, ".claude"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".claude", "settings.json"),
+			JSON.stringify({
+				enabledPlugins: Object.fromEntries(
+					opts.plugins.map((p) => [`${p}@onlooker-community`, true]),
+				),
+			}),
+		);
+	}
+	// An empty config dir, never the developer's real one. Without this every
+	// test below reads whatever CLAUDE_CONFIG_DIR points at on this machine.
+	const configDir = mkdtempSync(join(tmpdir(), "onlooker-survey-cfg-"));
+	onTestFinished(() => rmSync(configDir, { recursive: true, force: true }));
+	return { cwd, home, configDir, env: { ONLOOKER_DIR: dir } };
+}
+
+const verdictFor = (
+	survey: Awaited<ReturnType<typeof surveyStreams>>,
+	plugin: string,
+) => survey.verdicts.find((v) => v.plugin === plugin)?.verdict;
+
+describe("surveyStreams", () => {
+	// The bursar trap a third time, one level down: a per-project entry's
+	// freshness walk must be scoped to THIS repo's own project keys, not
+	// every key discovered under the output root. Two repos on one machine
+	// - ours frozen for months, a sibling's writing daily - must not let a
+	// busy sibling key mask our own frozen one, the same way `bursar/
+	// sessions` once masked a frozen `bursar/projects`.
+	it("scopes a per-project stream's freshness to this repo's own project keys, not a sibling's", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-06-01T00:00:00Z",
+				],
+				// A sibling repo's key, busy and fresh - must never be
+				// consulted when computing OUR verdict.
+				[
+					join("bursar", "projects", "bbbbbbbbbbbb", "sessions.jsonl"),
+					"2026-09-02T00:00:00Z",
+				],
+			],
+			hooks: Array.from({ length: 20 }, (_, i) => ({
+				hook: "bursar-session-end",
+				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
+	});
+
+	// The case the acceptance criterion names. Busy input, stale output, hook
+	// firing successfully throughout.
+	it("reports a stream as stopped when its hook fires and its output does not move", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-07T00:00:00Z",
+				],
+				[join("bursar", "sessions", "today.jsonl"), "2026-09-02T00:00:00Z"],
+			],
+			hooks: Array.from({ length: 20 }, (_, i) => ({
+				hook: "bursar-session-end",
+				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"bursar-session-end",
+		);
+	});
+
+	// NOT events alone: an output:null stream's only remaining axis is the
+	// event stream itself, and the event stream needs its own trigger to
+	// corroborate it, exactly like every other branch in this design (see
+	// the `entry.output === null` block below for why). A hook firing
+	// close behind the event is what makes this "recording" rather than
+	// "unknown" - without it, this fixture would have no hook records to
+	// compare against at all.
+	it("reports a stream with no output path as recording when its events and hooks are both recent", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			events: [
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-09-02T00:00:05Z",
+					status: "success",
+				},
+			],
+		});
+		expect(
+			verdictFor(
+				await surveyStreams({ cwd, home, configDir, env }),
+				"inspector",
+			)?.kind,
+		).toBe("recording");
+	});
+
+	// ecosystem's real shape, and the failure this whole feature exists to
+	// prevent: its trackers died 2026-08-07 (the real outage date), and the
+	// event log still holds session.*/tool.* records up to that day. With
+	// no output path to compare against, the trigger (its hooks) is the
+	// only remaining axis - if the hooks keep firing and the events do not
+	// follow, the events have stopped even though the trigger has not.
+	it("reports an output:null stream stopped when its hooks keep firing but its events have stopped landing", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-08-07T00:00:00Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "session-start-tracker",
+					timestamp: "2026-09-02T00:00:00Z",
+					status: "success",
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "ecosystem")?.kind).toBe("stopped");
+	});
+
+	it("reports an output:null stream recording when its hooks and events move together", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "session-start-tracker",
+					timestamp: "2026-09-02T00:00:05Z",
+					status: "success",
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "ecosystem")?.kind).toBe("recording");
+	});
+
+	// Events exist, but nothing in hook-health can corroborate them - a
+	// thing this rule could not measure does not get a clean bill, same as
+	// everywhere else in this design.
+	it("reports an output:null stream unknown when it has events but no hook records to compare", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "ecosystem")?.kind).toBe("unknown");
+	});
+
+	// The vocabulary is owned by another repo. A plugin we have no rule for
+	// must be named, never silently dropped and never assumed healthy.
+	it("names an enabled plugin that has no table entry", async () => {
+		const { cwd, home, configDir, env } = machine({ plugins: ["brandnew"] });
+		expect(
+			verdictFor(await surveyStreams({ cwd, home, configDir, env }), "brandnew")
+				?.kind,
+		).toBe("no-rule");
+	});
+
+	// Archivist on the real machine: holding data, deliberately not enabled.
+	// Reporting it as a fault would cry wolf about a decision made on purpose.
+	it("puts a stream that is writing but not enabled in the footer, not the verdicts", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			files: [[join("archivist", "note.json"), "2026-08-07T00:00:00Z"]],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(survey.footer.map((f) => f.plugin)).toContain("archivist");
+		expect(survey.verdicts.map((v) => v.plugin)).not.toContain("archivist");
+	});
+
+	// A stream we could not measure does not get a clean bill. NOT
+	// `librarian/k/x.json` (a plain file outside `lessons/`) - that resolves
+	// `outputFreshness` to `{ mtime: null }` and exercises the `outputAt ===
+	// null` branch instead, leaving the `measurable.length === 0` branch
+	// this test names with zero coverage. `librarian/k/lessons/note.json` is
+	// real subpath output, so this only passes if that specific branch -
+	// output present, no matching hook-health record - is the one reached.
+	it("reports unknown when a stream has output but no hook to compare against", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("librarian", "aaaaaaaaaaaa", "lessons", "note.json"),
+					"2026-07-01T00:00:00Z",
+				],
+			],
+		});
+		expect(
+			verdictFor(
+				await surveyStreams({ cwd, home, configDir, env }),
+				"librarian",
+			)?.kind,
+		).toBe("unknown");
+	});
+
+	it("carries the unknown enablement through rather than inventing an empty set", async () => {
+		const bare = mkdtempSync(join(tmpdir(), "onlooker-noconf-"));
+		onTestFinished(() => rmSync(bare, { recursive: true, force: true }));
+		const home = mkdtempSync(join(tmpdir(), "onlooker-nohome-"));
+		onTestFinished(() => rmSync(home, { recursive: true, force: true }));
+		const configDir = mkdtempSync(join(tmpdir(), "onlooker-nocfg-"));
+		onTestFinished(() => rmSync(configDir, { recursive: true, force: true }));
+		const logDir = mkdtempSync(join(tmpdir(), "onlooker-nodir-"));
+		onTestFinished(() => rmSync(logDir, { recursive: true, force: true }));
+		const survey = await surveyStreams({
+			cwd: bare,
+			home,
+			// Without an empty configDir this reads the developer's real
+			// settings.json and comes back "found", not "unknown".
+			configDir,
+			env: { ONLOOKER_DIR: logDir },
+		});
+		expect(survey.enablement.kind).toBe("unknown");
+		expect(survey.verdicts).toEqual([]);
+	});
+
+	it("reports a missing event log as a fault instead of throwing", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "onlooker-nolog-"));
+		onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
+		const home = mkdtempSync(join(tmpdir(), "onlooker-nolog-home-"));
+		onTestFinished(() => rmSync(home, { recursive: true, force: true }));
+		const configDir = mkdtempSync(join(tmpdir(), "onlooker-nolog-cfg-"));
+		onTestFinished(() => rmSync(configDir, { recursive: true, force: true }));
+		const logDir = mkdtempSync(join(tmpdir(), "onlooker-nolog-dir-"));
+		onTestFinished(() => rmSync(logDir, { recursive: true, force: true }));
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env: { ONLOOKER_DIR: logDir },
+		});
+		expect(survey.faults.join(" ")).toContain("onlooker-events.jsonl");
+	});
+
+	// bursar-session-start fires a whole session before bursar-session-end
+	// performs the real write - the exact ordering lag STALL_THRESHOLD was
+	// built to tolerate. Counting session-start's own firings anyway would
+	// flag a healthy bursar the moment new sessions keep opening, regardless
+	// of whether session-end is writing just fine. writeHooks is what keeps
+	// a non-write hook's firing from being read as evidence either way.
+	it("does not report a stream stopped from a non-write hook's firing alone", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-07T00:00:00Z",
+				],
+			],
+			hooks: [
+				...Array.from({ length: 20 }, (_, i) => ({
+					hook: "bursar-session-start",
+					timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				})),
+				{
+					hook: "bursar-session-end",
+					timestamp: "2026-08-10T00:00:00Z",
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("recording");
+	});
+
+	// lineage's real shape, and the regression that started this fix round:
+	// lineage-post-tool-use serves Edit, Write, MultiEdit, AND Bash under one
+	// hook name, and Bash outruns Edit roughly 30:1 (lineage's own
+	// hooks.json). A firing-count check built from it reads a perfectly
+	// healthy lineage as stalled after about five Bash calls with no edit.
+	// lineage has no writeHooks, so judge() must fall back to comparing
+	// event recency against output recency instead - and that comparison
+	// must not be swayed by however many times the hook itself fired.
+	it("reads a stream with no writeHooks as recording when events track its output, regardless of hook firings", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-09-02T12:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-09-02T12:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+			hooks: Array.from({ length: 200 }, (_, i) => ({
+				hook: "lineage-post-tool-use",
+				timestamp: `2026-09-02T${String(i % 24).padStart(2, "0")}:00:00Z`,
+				status: "success",
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
+	});
+
+	// Same entry, but events keep arriving long after the file stopped
+	// moving - the gap the event-vs-output fallback exists to catch. If
+	// lineage genuinely broke, this is what that looks like.
+	it("reads a stream with no writeHooks as stopped when events outrun its output by more than the tolerance", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
+	});
+
+	// cartographer's real shape, and the cry-wolf bug fix round 1 quietly
+	// reintroduced: floorCleared was computed but never consulted in the
+	// no-writeHooks fallback, and cartographer/counsel are exactly the two
+	// entries that both set writeGateHours AND land in that fallback (their
+	// own writeHooks are omitted). A completed audit followed by an
+	// ordinary 26h gap before the next one - well inside cartographer's own
+	// 24h cadence, and within its 2x floor - must not read as a stall just
+	// because 26h is more than EVENT_OUTPUT_TOLERANCE_MS's one hour.
+	it("does not report a gated writer with no writeHooks stopped inside its own cadence floor", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["cartographer"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("cartographer", "aaaaaaaaaaaa", "runs", "audit-1.json"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "cartographer.audit.complete",
+					// 26h after the output's mtime: past the 1h event tolerance,
+					// but well inside cartographer's own 2 * 24h = 48h floor.
+					timestamp: "2026-08-02T02:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "cartographer")?.kind).toBe("recording");
+	});
+
+	it("reports a gated writer with no writeHooks stopped once its cadence floor has cleared", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["cartographer"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("cartographer", "aaaaaaaaaaaa", "runs", "audit-1.json"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "cartographer.audit.complete",
+					// 51h after the output's mtime: past the 48h floor.
+					timestamp: "2026-08-03T03:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "cartographer")?.kind).toBe("stopped");
+	});
+
+	// A gated writer (writeGateHours set) that has never produced output
+	// cannot be told apart from "hasn't reached its first gate yet" -
+	// clearsCadenceFloor needs an mtime to measure elapsed time against, and
+	// there is none here. Asserting `stopped` would flag every brand-new
+	// counsel install before its first brief is even due.
+	it("reports a gated writer with no output as unknown rather than stopped", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["counsel"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			events: [
+				{
+					event_type: "counsel.something",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "counsel")?.kind).toBe("unknown");
+	});
+
+	// Generalizes the counsel case above beyond gated writers: curator has
+	// no writeGateHours at all, but its scan is conditional (a session with
+	// no memory store found writes only the manifest heartbeat, never
+	// findings/), and its writeHooks is empty for exactly that reason. A
+	// perfectly healthy curator that simply never had a finding must not
+	// read as `stopped` any more than a gated one does.
+	it("reports an ungated conditional writer with no output as unknown rather than stopped", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["curator"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			events: [
+				{
+					event_type: "curator.scan.complete",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "curator")?.kind).toBe("unknown");
+	});
+
+	// The counterpart: librarian HAS a writeHook (librarian-session-end IS
+	// the writer), so a write hook that has genuinely fired past
+	// STALL_THRESHOLD with no lesson ever written is exactly what "stopped"
+	// means - that is the whole feature. This must stay stopped, not soften
+	// into unknown alongside the conditional writers above. NOT a single
+	// firing - see the next test for why one event is not enough evidence.
+	it("still reports a stream with a writeHook stopped once its write hook has fired past the threshold with no output", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+			hooks: Array.from({ length: 6 }, (_, i) => ({
+				hook: "librarian-session-end",
+				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "librarian")?.kind).toBe("stopped");
+	});
+
+	// librarian's documented zero-candidate bail: librarian-session-end runs
+	// once, writes only the manifest heartbeat (no lessons/ yet), and one
+	// librarian.* event lands. A single firing must not read `stopped` on a
+	// fresh checkout - STALL_THRESHOLD exists to prevent exactly this
+	// everywhere else in this function, and this branch was the one place
+	// it was not applied.
+	it("does not report a stream stopped from a single write-hook firing with no output yet", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "librarian-session-end",
+					timestamp: "2026-09-02T00:00:00Z",
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "librarian")?.kind).toBe("unknown");
+	});
+
+	// A fully-read log where the prefix never appears is not evidence the
+	// stream is healthy - "recording" with nothing to corroborate it
+	// contradicts the very next check this function makes for a truncated
+	// log.
+	it("reports unknown, not recording, when the event log is readable but the stream's prefix never appears", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			// events (beyond the projectKeys-establishing ones machine()
+			// itself adds) are empty - the log is fully read, just empty for
+			// this prefix, not missing.
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "lineage")?.kind).toBe("unknown");
+	});
+
+	// A truncated or unreadable event scan clears lastByPrefix (scanEvents's
+	// own contract), so `lastEvent` reads exactly like "no events fired" and
+	// the no-writeHooks fallback would otherwise default to `recording` on a
+	// source it could not actually read - the writeHooks path already
+	// refuses to do this (`measurable.length === 0` reads `unknown` when
+	// hook-health itself is unreadable); this is the same promise for the
+	// event axis. NOT a per-project entry (lineage): `skipEventsLog` means
+	// `machine()`'s own projectKeys-establishing events never get written
+	// either, so a per-project entry would hit the "keys could not be
+	// determined" guard first and never reach the branch this test names.
+	// governor is flat (see its table comment), so it reaches this branch
+	// with no per-project interference.
+	it("reports unknown, not recording, when the event log is missing for a stream with no writeHooks", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["governor"],
+			skipEventsLog: true,
+			files: [
+				[join("governance", "ledgers", "some.jsonl"), "2026-09-02T00:00:00Z"],
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "governor")?.kind).toBe("unknown");
+	});
+
+	// archivist's only emission is shared with counsel and scribe, so no event
+	// prefix can identify it - `lastEvent` is permanently "". Without a
+	// hook-only fallback a genuine archivist outage reads identically to a
+	// first-run machine.
+	it("reports archivist stopped from hook firings alone when no output and no event axis exist", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["archivist"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			hooks: Array.from({ length: 10 }, (_, i) => ({
+				hook: "archivist-extract",
+				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const verdict = verdictFor(survey, "archivist");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"archivist-extract",
+		);
+	});
+
+	// The same hook-only path must not turn every quiet first run into a
+	// false stall - below STALL_THRESHOLD, archivist stays unknown exactly
+	// like any other stream with no output and no evidence yet.
+	it("still reports archivist unknown when hooks have not crossed the threshold", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["archivist"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			hooks: [
+				{
+					hook: "archivist-extract",
+					timestamp: "2026-08-10T00:00:00Z",
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				},
+				{
+					hook: "archivist-extract",
+					timestamp: "2026-08-11T00:00:00Z",
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "archivist")?.kind).toBe("unknown");
+	});
+
+	// librarian's real output sits at `<key>/lessons`; a key that has only
+	// ever written its `manifest.json` heartbeat resolves to a null
+	// `outputFreshness` - by design, so a stall check never mistakes the
+	// heartbeat for real activity. The footer asks a different question
+	// ("is there any data here at all, that this project does not enable"),
+	// and a manifest is data a user would want surfaced, not silently
+	// dropped because it happens to be a heartbeat rather than an analytical
+	// artifact.
+	it("puts a stream that has only ever written its heartbeat in the footer", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			files: [
+				[join("librarian", "k1", "manifest.json"), "2026-08-07T00:00:00Z"],
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(survey.footer.map((f) => f.plugin)).toContain("librarian");
+	});
+
+	// `enabled` is `[]` whenever enablement itself is unknown - not because
+	// this project enables nothing, but because this run could not tell.
+	// Building the footer from `enabled` in that state would list every
+	// stream holding data as "this project does not enable it," a claim the
+	// unknown enablement explicitly does not support. readEnablement keeps
+	// "unknown" distinct from "found, empty" on purpose; the footer must not
+	// discard that distinction.
+	it("does not populate the footer when enablement itself is unknown", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			noSettings: true,
+			files: [[join("archivist", "note.json"), "2026-08-07T00:00:00Z"]],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(survey.enablement.kind).toBe("unknown");
+		expect(survey.footer).toEqual([]);
+	});
+
+	// A stale symlink - a relocated checkout leaving `<old-key> ->
+	// <moved checkout>` behind, say - makes part of the walk unreadable,
+	// but the walk still found a real mtime and the write hook has fired
+	// well past the threshold since. `unknown` here would suppress exactly
+	// the alarm this feature exists to raise; `stopped` must survive, with
+	// the partial listing noted rather than hidden.
+	it("keeps a stopped verdict when a stale symlink leaves the walk partial, with a caveat", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-06-01T00:00:00Z",
+				],
+			],
+			hooks: Array.from({ length: 20 }, (_, i) => ({
+				hook: "bursar-session-end",
+				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const base = env.ONLOOKER_DIR as string;
+		mkdirSync(join(base, "elsewhere-target"), { recursive: true });
+		symlinkSync(
+			join(base, "elsewhere-target"),
+			join(base, "bursar", "projects", "aaaaaaaaaaaa", "stale-link"),
+		);
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"bursar-session-end",
+		);
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"could not be fully listed",
+		);
+	});
+
+	// The other direction: when the unreadable path IS the reason there is
+	// no mtime at all - nothing else in the walk found any real data -
+	// `unknown` is still the right call. Only a well-supported `stopped`
+	// survives an unreadable path; a stall this walk genuinely could not
+	// measure does not get asserted either.
+	it("reports unknown when an unreadable path is the only reason there is no mtime at all", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			hooks: Array.from({ length: 20 }, (_, i) => ({
+				hook: "bursar-session-end",
+				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+			})),
+		});
+		const base = env.ONLOOKER_DIR as string;
+		mkdirSync(join(base, "elsewhere-target"), { recursive: true });
+		mkdirSync(join(base, "bursar", "projects"), { recursive: true });
+		// The key itself is a stale symlink - nothing readable behind it.
+		symlinkSync(
+			join(base, "elsewhere-target"),
+			join(base, "bursar", "projects", "aaaaaaaaaaaa"),
+		);
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("unknown");
+	});
+
+	// The mirror image of the bug project-scoping the output walk fixed,
+	// running the other way: our own key sits frozen since 2026-08-01, but
+	// a single event from a DIFFERENT repo's session - never rooted here -
+	// landing 2026-09-02 must not read as evidence of OUR stream's
+	// recency. Our own session's own event, close behind the output's own
+	// mtime, is what makes this "recording."
+	it("does not let a different repo's session's recent event mask this repo's own frozen stream", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+				// A different repo's session - never rooted at `cwd` - firing
+				// much more recently. Must not count toward OUR verdict.
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: "a-different-repos-session",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
+	});
+
+	// Same shape on the firing-count axis: 90 daily firings from a
+	// different repo's session, all after our own key's frozen mtime,
+	// would push firedSince well past STALL_THRESHOLD under no scoping at
+	// all - the reviewer's exact reproduction. Scoped to our own sessions,
+	// none of those firings are ours, so bursar-session-end has no records
+	// attributable to us at all.
+	it("does not let a different repo's session's firings push a stall past the threshold", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-06-01T00:00:00Z",
+				],
+			],
+			hooks: Array.from({ length: 90 }, (_, i) => {
+				const when = new Date("2026-06-02T00:00:00Z");
+				when.setUTCDate(when.getUTCDate() + i);
+				return {
+					hook: "bursar-session-end",
+					timestamp: when.toISOString(),
+					status: "success",
+					session_id: "a-different-repos-session",
+				};
+			}),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("unknown");
 	});
 });
