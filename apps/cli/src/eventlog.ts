@@ -20,15 +20,28 @@ export interface EventScan {
 	sessions: number;
 	/** Lines that would not parse. Counted, never skipped silently. */
 	unreadable: number;
-	/** True when the log could not be opened at all. */
+	/**
+	 * True when the log could not be read: either it could not be opened at
+	 * all, or a read that had already started was aborted partway through.
+	 * A truncated read is reported the same way as a missing file rather
+	 * than as a partial result - see the truncation branch in `scanEvents`
+	 * for why a partial pass cannot be trusted downstream.
+	 */
 	missing: boolean;
 }
 
 /** True when `dir` is `root` itself or sits underneath it. */
 function within(dir: unknown, root: string): boolean {
-	return (
-		typeof dir === "string" && (dir === root || dir.startsWith(root + sep))
-	);
+	if (typeof dir !== "string") return false;
+	// Strip a trailing separator before comparing: `root + sep` otherwise
+	// produces a doubled separator that only the literal string `root`
+	// itself can start with. This bites hardest when `root` is a bare "/" -
+	// a repository checked out at the filesystem root, which is exactly what
+	// `dirname(findUp(cwd, ".git"))` produces there - where every real
+	// subdirectory would read as foreign and a live project would be
+	// silently reported as having no sessions.
+	const stripped = root.endsWith(sep) ? root.slice(0, -sep.length) : root;
+	return dir === stripped || dir.startsWith(stripped + sep);
 }
 
 export async function scanEvents(opts: {
@@ -36,7 +49,13 @@ export async function scanEvents(opts: {
 	env?: NodeJS.ProcessEnv;
 }): Promise<EventScan> {
 	const scan: EventScan = {
-		lastByPrefix: {},
+		// `Object.create(null)`, not `{}`: an `event_type` prefix of
+		// `__proto__` or `constructor` on a plain object literal reads back
+		// through `Object.prototype` instead of returning `undefined`, and an
+		// assignment through it pollutes every object in the process for the
+		// life of the CLI invocation. The event log is untrusted input; the
+		// map it drives into must not have a prototype to collide with.
+		lastByPrefix: Object.create(null) as Record<string, string>,
 		projectKeys: [],
 		sessions: 0,
 		unreadable: 0,
@@ -73,13 +92,11 @@ export async function scanEvents(opts: {
 		return scan;
 	}
 
-	let linesRead = 0;
 	try {
 		for await (const line of createInterface({
 			input: stream,
 			crlfDelay: Number.POSITIVE_INFINITY,
 		})) {
-			linesRead++;
 			const trimmed = line.trim();
 			if (trimmed === "") continue;
 
@@ -131,30 +148,23 @@ export async function scanEvents(opts: {
 		}
 	} catch {
 		// `createReadStream` does not throw synchronously for EISDIR/EACCES -
-		// the failure surfaces here instead, asynchronously, as the loop's
-		// first and only error. Zero lines read means the stream was never
-		// actually opened, which is the same "could not be read" outcome as
-		// a missing file.
-		if (linesRead === 0) {
-			scan.missing = true;
-			return scan;
-		}
-
-		// A failure after some lines were read leaves a genuinely partial
-		// pass, and a partial pass cannot be told apart from a complete one
-		// by anything downstream: `judge()` would compare the truncated
-		// `lastByPrefix` timestamps against current output mtimes and report
-		// live streams as stopped - a false alarm. Refusing to cry wolf is a
-		// design commitment this command makes elsewhere (it is why an
-		// unenabled-but-writing stream goes in a footer rather than the
-		// fault list), so a truncated pass reports `missing` and discards
-		// the data that would drive a verdict. `unreadable` is left alone -
-		// a scan can honestly be both truncated and have seen bad lines
-		// before the abort.
+		// the failure can surface here instead, asynchronously, as the loop's
+		// first and only error, and there is no way to tell "never actually
+		// opened" apart from "opened, then failed after some lines were read"
+		// from inside this catch - so both get the same treatment. Either way
+		// the pass cannot be told apart from a complete one by anything
+		// downstream: `judge()` would compare a truncated `lastByPrefix`
+		// against current output mtimes and report live streams as stopped -
+		// a false alarm. Refusing to cry wolf is a design commitment this
+		// command makes elsewhere (it is why an unenabled-but-writing stream
+		// goes in a footer rather than the fault list), so any failure here
+		// reports `missing` and discards the data that would drive a verdict.
+		// `projectKeys` and `sessions` need no reset - they are only assigned
+		// after the loop above, so at this point they are still their initial
+		// `[]`/`0`. `unreadable` is left alone too - a scan can honestly have
+		// seen bad lines before a failure like this one.
 		scan.missing = true;
-		scan.lastByPrefix = {};
-		scan.projectKeys = [];
-		scan.sessions = 0;
+		scan.lastByPrefix = Object.create(null) as Record<string, string>;
 		return scan;
 	}
 
@@ -166,5 +176,122 @@ export async function scanEvents(opts: {
 		}
 	}
 	scan.projectKeys = [...keys].sort((a, b) => a.localeCompare(b));
+	return scan;
+}
+
+/**
+ * What one pass over `logs/hook-health.jsonl` found, per hook.
+ *
+ * Only the 21 hooks that write health records appear here. This file is not a
+ * registry of streams and must never be used as one: six plugins that stopped
+ * on 2026-08-07 have zero records across all 199,103 entries, so "no failures"
+ * would give six dead streams a clean bill.
+ */
+export interface HookScan {
+	hooks: Record<string, { firedSince: number; okSince: number; last: string }>;
+	unreadable: number;
+	missing: boolean;
+}
+
+export async function scanHooks(opts: {
+	/** Hook name to the ISO timestamp its output last moved. Absent means count all. */
+	since: Record<string, string>;
+	env?: NodeJS.ProcessEnv;
+}): Promise<HookScan> {
+	const scan: HookScan = {
+		// `Object.create(null)`, not `{}`: same hazard as `lastByPrefix` in
+		// `scanEvents` above, and a hook name is exactly as untrusted as an
+		// event-type prefix. A hook literally named `__proto__` or
+		// `constructor` must not resolve through `Object.prototype`.
+		hooks: Object.create(null) as Record<
+			string,
+			{ firedSince: number; okSince: number; last: string }
+		>,
+		unreadable: 0,
+		missing: false,
+	};
+
+	const path = join(
+		onlookerDir(opts.env ?? process.env),
+		"logs",
+		"hook-health.jsonl",
+	);
+	if (!existsSync(path)) {
+		scan.missing = true;
+		return scan;
+	}
+
+	let stream: ReturnType<typeof createReadStream>;
+	try {
+		stream = createReadStream(path, { encoding: "utf8" });
+	} catch {
+		scan.missing = true;
+		return scan;
+	}
+
+	try {
+		for await (const line of createInterface({
+			input: stream,
+			crlfDelay: Number.POSITIVE_INFINITY,
+		})) {
+			const trimmed = line.trim();
+			if (trimmed === "") continue;
+
+			let record: Record<string, unknown>;
+			try {
+				const parsed: unknown = JSON.parse(trimmed);
+				if (typeof parsed !== "object" || parsed === null)
+					throw new Error("not an object");
+				record = parsed as Record<string, unknown>;
+			} catch {
+				scan.unreadable++;
+				continue;
+			}
+
+			const hook = record.hook;
+			const timestamp = record.timestamp;
+			if (typeof hook !== "string" || typeof timestamp !== "string") {
+				scan.unreadable++;
+				continue;
+			}
+
+			if (!scan.hooks[hook])
+				scan.hooks[hook] = { firedSince: 0, okSince: 0, last: "" };
+			const entry = scan.hooks[hook];
+			if (timestamp > entry.last) entry.last = timestamp;
+
+			// No threshold means nothing downstream to lag behind, so every
+			// firing counts. Defaulting the other way would zero out every
+			// stream whose table entry has no output path. `since` is a plain
+			// object supplied by the caller, not one of ours to make
+			// prototype-free - `since[hook]` for `hook === "__proto__"` would
+			// resolve to `Object.prototype` instead of `undefined`, so
+			// existence is decided with `hasOwn` rather than a truthy/
+			// not-undefined check on the lookup itself.
+			if (Object.hasOwn(opts.since, hook) && timestamp <= opts.since[hook])
+				continue;
+
+			entry.firedSince++;
+			if (record.status === "success") entry.okSince++;
+		}
+	} catch {
+		// Same asymmetry as scanEvents: createReadStream does not throw
+		// synchronously for EISDIR/EACCES, so the failure can surface here
+		// instead, asynchronously, as the loop's first and only error, and
+		// there is no way to tell "never actually opened" apart from
+		// "opened, then failed after some lines were read" from inside this
+		// catch. Unlike scanEvents there is no derived verdict here to
+		// mistakenly trust either way - firedSince/okSince/last are just
+		// undercounts of a scan that did not finish, so any failure here
+		// reports `missing` and discards them rather than handing a caller a
+		// table that looks complete but is not.
+		scan.missing = true;
+		scan.hooks = Object.create(null) as Record<
+			string,
+			{ firedSince: number; okSince: number; last: string }
+		>;
+		return scan;
+	}
+
 	return scan;
 }
