@@ -236,7 +236,24 @@ Four new files, matching the existing flat `src/` layout.
 
 | File | One job |
 |---|---|
-| `src/enablement.ts` | Walk up from cwd for `.claude/settings.json`, merge `~/.claude/settings.json` when present, return the expected plugin set — or `unknown` |
+| `src/enablement.ts` | Walk up from cwd for `.claude/settings.json`, merge the user-level settings when present, return the expected plugin set — or `unknown` |
+
+**The user-level path is not `~/.claude/settings.json`.** Claude Code exports
+`CLAUDE_CONFIG_DIR` to child processes, and where it is set `$HOME/.claude`
+typically does not exist at all — on the machine this design was measured on it
+is `~/.claude-personal`. Resolve it in the same order the ecosystem's own
+`validate-path.sh:19` does, and that `config-loader.sh` was corrected to use in
+`onlooker-community/ecosystem@057a40d` (#237):
+
+```
+${CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}
+```
+
+`CLAUDE_HOME` is not exported by Claude Code; `CLAUDE_CONFIG_DIR` is. Mirroring
+the chain rather than inventing one keeps the CLI and the plugins from
+disagreeing about where a user's settings live. Hardcoding `$HOME/.claude` is
+the exact defect #237 fixed across 16 vendored copies: the layer was silently
+unreachable, with no error, no warning, and no failing test.
 | `src/eventlog.ts` | Stream both JSONL files once each, return last-seen maps and per-hook firing counts |
 | `src/streams.ts` | The `STREAMS` table, `surveyStreams()`, verdicts, both renderers |
 | `src/commands/doctor.ts` | Thin — survey, render, pick the exit code |
@@ -339,8 +356,13 @@ Cases that must be covered, because each is a way the command could lie:
   miss, at the cost of the richest vocabulary to maintain and the one most
   likely to go quietly stale. Deferred deliberately; file a bead if the
   three-axis version proves insufficient.
-- **`ecosystem-2vo` is unfixed upstream.** This command would have *detected*
-  the bursar deadlock. It does not repair it, and any other machine with
-  pre-`a4211b1` locks is still in the same permanent deadlock.
+- **`ecosystem-2vo` is fixed upstream as of 2026-09-02.**
+  `onlooker-community/ecosystem@887e227` (#233) clamps `stale_after` to
+  `timeout`, shipped in **bursar 0.4.3**, installed here the same day. That
+  commit independently corroborates this design's central premise: it records
+  ten ledgers frozen between Jun 20 and Aug 7 while **all 110 of those hook
+  runs logged `status=success` with `error=null`**. A check reading hook
+  health alone would have called that machine healthy for seven weeks.
+  This command detects the shape; it does not repair it.
 - **Repair actions.** `doctor` reports. It does not clear locks, restart
   streams, or edit settings.

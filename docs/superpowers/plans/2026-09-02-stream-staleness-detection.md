@@ -56,9 +56,16 @@ function project(settings: unknown, nested = "a/b/c"): { root: string; cwd: stri
 	return { root, cwd };
 }
 
-/** A temp home with no `.claude/settings.json`, so only the project file counts. */
+/** A temp config dir with no `settings.json`, so only the project file counts. */
 function bareHome(): string {
 	return mkdtempSync(join(tmpdir(), "onlooker-home-"));
+}
+
+/** A temp config dir holding a user-level `settings.json`. */
+function configDir(settings: unknown): string {
+	const dir = mkdtempSync(join(tmpdir(), "onlooker-cfg-"));
+	writeFileSync(join(dir, "settings.json"), JSON.stringify(settings));
+	return dir;
 }
 
 describe("findUp", () => {
@@ -114,6 +121,40 @@ describe("readEnablement", () => {
 	it("reports unknown when the file parses but declares no enabledPlugins", () => {
 		const { cwd } = project({ hooks: {} });
 		expect(readEnablement({ cwd, home: bareHome() }).kind).toBe("unknown");
+	});
+
+	// The bug ecosystem@057a40d (#237) fixed across 16 vendored copies of
+	// config-loader.sh. Claude Code exports CLAUDE_CONFIG_DIR, and where it is
+	// set $HOME/.claude typically does not exist at all - so hardcoding it
+	// makes the user layer silently unreachable, with no error and no failing
+	// test. This drives the disagreement on purpose: a custom config dir, and
+	// no $HOME/.claude anywhere.
+	it("reads user settings from CLAUDE_CONFIG_DIR when it is set", () => {
+		const cfg = configDir({
+			enabledPlugins: { "assayer@onlooker-community": true },
+		});
+		const bare = mkdtempSync(join(tmpdir(), "onlooker-nohome-"));
+		const found = readEnablement({
+			cwd: mkdtempSync(join(tmpdir(), "onlooker-noproj-")),
+			home: bare,
+			configDir: cfg,
+		});
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual(["assayer"]);
+	});
+
+	it("lets the project file win over the user file", () => {
+		const cfg = configDir({
+			enabledPlugins: { "assayer@onlooker-community": true },
+		});
+		const { cwd } = project({
+			enabledPlugins: { "assayer@onlooker-community": false },
+		});
+		const found = readEnablement({ cwd, home: bareHome(), configDir: cfg });
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual([]);
 	});
 });
 ```
@@ -183,13 +224,43 @@ function readSettings(path: string): Settings | { error: string } {
  * Project wins on conflict, matching how Claude Code layers them: a repo that
  * switches a plugin off has made a decision the global default should not undo.
  */
+/**
+ * Where Claude Code keeps user-level settings.
+ *
+ * NOT `$HOME/.claude`. Claude Code exports `CLAUDE_CONFIG_DIR` to child
+ * processes, and on a machine that sets it `$HOME/.claude` typically does not
+ * exist at all - this machine's is `~/.claude-personal`. `CLAUDE_HOME` is not
+ * exported by Claude Code but is honored first for parity.
+ *
+ * This mirrors `validate-path.sh:19` in `onlooker-community/ecosystem`, and the
+ * correction that repo made to `config-loader.sh` in `057a40d` (#237), where
+ * the hardcoded path made the user settings layer silently unreachable for
+ * every plugin in every session. Mirrored rather than shared, because the two
+ * live in different repos - so the test above pins the precedence.
+ */
+function userConfigDir(
+	env: NodeJS.ProcessEnv,
+	home: string,
+	override?: string,
+): string {
+	return (
+		override ?? env.CLAUDE_HOME ?? env.CLAUDE_CONFIG_DIR ?? join(home, ".claude")
+	);
+}
+
 export function readEnablement(opts: {
 	cwd: string;
 	home?: string;
+	/** Overrides the resolved config dir. Tests use it; callers should not. */
+	configDir?: string;
+	env?: NodeJS.ProcessEnv;
 }): Enablement {
 	const home = opts.home ?? homedir();
 	const projectPath = findUp(opts.cwd, join(".claude", "settings.json"));
-	const globalPath = join(home, ".claude", "settings.json");
+	const globalPath = join(
+		userConfigDir(opts.env ?? process.env, home, opts.configDir),
+		"settings.json",
+	);
 
 	const sources: string[] = [];
 	const merged: Record<string, boolean> = {};
@@ -231,7 +302,7 @@ export function readEnablement(opts: {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @onlooker/cli exec vitest run src/__tests__/enablement.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -775,12 +846,27 @@ describe("STREAMS", () => {
 		expect(entryFor("inspector").output).toBeNull();
 	});
 
-	// The directory is `governance/`; the events are `governor.*`. Real
-	// mismatch on disk, and the table is the only place it is reconciled.
-	it("keeps the governance directory separate from the governor event prefix", () => {
-		const entry = entryFor("governance");
+	// Three names for one thing: the plugin is `governor` (and that is the
+	// enabledPlugins key, so keying this entry by anything else makes the
+	// lookup miss), its directory is `governance/`, its events are
+	// `governor.*`. Verified against the marketplace checkout at 057a40d.
+	it("keys governor by its plugin name, not its directory name", () => {
+		const entry = entryFor("governor");
 		expect(entry.output).toBe("governance");
 		expect(entry.events).toContain("governor");
+	});
+
+	// Hook names are pinned from plugins/*/scripts/hooks/*.sh in the
+	// marketplace checkout. If a plugin renames a hook this table goes quietly
+	// wrong - the stream reads `unknown` rather than reporting a stall - so
+	// re-verify this list after a marketplace update.
+	it("pins the hook names the staleness rule counts", () => {
+		expect(entryFor("bursar").hooks).toEqual([
+			"bursar-session-start",
+			"bursar-session-end",
+		]);
+		expect(entryFor("librarian").hooks).toContain("librarian-session-end");
+		expect(entryFor("archivist").hooks).toContain("archivist-extract");
 	});
 
 	it("names every plugin exactly once", () => {
@@ -892,7 +978,7 @@ export const STREAMS: readonly StreamEntry[] = [
 		plugin: "archivist",
 		output: "archivist",
 		events: ["archivist"],
-		hooks: [],
+		hooks: ["archivist-extract", "archivist-inject"],
 	},
 	{ plugin: "assayer", output: "assayer", events: ["assayer"], hooks: ["assayer-stop"] },
 	{
@@ -902,10 +988,35 @@ export const STREAMS: readonly StreamEntry[] = [
 		events: ["bursar"],
 		hooks: ["bursar-session-start", "bursar-session-end"],
 	},
-	{ plugin: "cartographer", output: "cartographer", events: ["cartographer"], hooks: [] },
-	{ plugin: "compass", output: "compass", events: ["compass"], hooks: [] },
-	{ plugin: "counsel", output: "counsel", events: ["counsel"], hooks: [] },
-	{ plugin: "curator", output: "curator", events: ["curator"], hooks: [] },
+	{
+		plugin: "cartographer",
+		output: "cartographer",
+		events: ["cartographer"],
+		hooks: ["cartographer-post-write", "cartographer-session-start"],
+	},
+	{
+		plugin: "compass",
+		output: "compass",
+		events: ["compass"],
+		hooks: [
+			"compass-bash-gate",
+			"compass-pre-tool-use",
+			"compass-record-write",
+			"compass-session-start",
+		],
+	},
+	{
+		plugin: "counsel",
+		output: "counsel",
+		events: ["counsel"],
+		hooks: ["counsel-session-start"],
+	},
+	{
+		plugin: "curator",
+		output: "curator",
+		events: ["curator"],
+		hooks: ["curator-session-start"],
+	},
 	{ plugin: "echo", output: "echo", events: ["echo"], hooks: ["echo-stop-gate"] },
 	{
 		// Writes no directory of its own; its trace is the shared event log.
@@ -930,14 +1041,27 @@ export const STREAMS: readonly StreamEntry[] = [
 		],
 	},
 	{
-		// The directory is `governance/`; the events are `governor.*`. This
-		// table is the only place that mismatch is reconciled.
-		plugin: "governance",
+		// Three different names for one thing, and this table is the only
+		// place they are reconciled. The PLUGIN is `governor` - that is the
+		// key in enabledPlugins, so keying this entry by anything else makes
+		// the lookup miss and report "no rule" on an enabled plugin. Its
+		// output directory is `governance/`, and its events are `governor.*`.
+		plugin: "governor",
 		output: "governance",
 		events: ["governor"],
-		hooks: [],
+		hooks: [
+			"governor-post-tool-use",
+			"governor-pre-tool-use",
+			"governor-session-start",
+			"governor-stop",
+		],
 	},
-	{ plugin: "historian", output: "historian", events: ["historian"], hooks: [] },
+	{
+		plugin: "historian",
+		output: "historian",
+		events: ["historian"],
+		hooks: ["historian-prompt-submit", "historian-session-end"],
+	},
 	{
 		// Writes no directory of its own; its trace is the shared event log.
 		plugin: "inspector",
@@ -945,16 +1069,31 @@ export const STREAMS: readonly StreamEntry[] = [
 		events: ["inspector"],
 		hooks: ["inspector-post-write"],
 	},
-	{ plugin: "librarian", output: "librarian", events: ["librarian"], hooks: [] },
+	{
+		plugin: "librarian",
+		output: "librarian",
+		events: ["librarian"],
+		hooks: ["librarian-session-end", "librarian-session-start"],
+	},
 	{
 		plugin: "lineage",
 		output: "lineage",
 		events: ["lineage"],
 		hooks: ["lineage-post-tool-use"],
 	},
-	{ plugin: "scribe", output: "scribe", events: ["scribe"], hooks: [] },
+	{
+		plugin: "scribe",
+		output: "scribe",
+		events: ["scribe"],
+		hooks: ["scribe-capture", "scribe-session-start", "scribe-stop"],
+	},
 	{ plugin: "tribunal", output: "tribunal", events: ["tribunal"], hooks: ["tribunal-stop-gate"] },
-	{ plugin: "warden", output: "warden", events: ["warden"], hooks: [] },
+	{
+		plugin: "warden",
+		output: "warden",
+		events: ["warden"],
+		hooks: ["warden-post-tool-use", "warden-pre-tool-use", "warden-session-start"],
+	},
 ];
 
 /** Newest mtime anywhere beneath a stream's declared output path. */
@@ -1008,7 +1147,7 @@ export function outputFreshness(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @onlooker/cli exec vitest run src/__tests__/streams.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1030,7 +1169,15 @@ Suggested message: `feat(cli): name each stream's analytical output, not its bus
 
 **Interfaces:**
 - Consumes: `readEnablement`/`Enablement` (Task 1), `scanEvents`/`scanHooks` (Tasks 2–3), `STREAMS`/`outputFreshness`/`STALL_THRESHOLD` (Task 4).
-- Produces: `type Verdict`, `type StreamSurvey`, `surveyStreams(opts: { cwd: string; home?: string; env?: NodeJS.ProcessEnv }): Promise<StreamSurvey>`.
+- Produces: `type Verdict`, `type StreamSurvey`, `surveyStreams(opts: { cwd: string; home?: string; configDir?: string; env?: NodeJS.ProcessEnv }): Promise<StreamSurvey>`.
+
+> **Test isolation, and it is not optional here.** `readEnablement` falls back
+> to `process.env` for `CLAUDE_CONFIG_DIR`, which on a developer machine points
+> at a real `settings.json` with real `enabledPlugins`. If `surveyStreams` does
+> not thread `configDir` through, every test below silently reads the
+> developer's own config and the "unknown enablement" case passes or fails
+> depending on whose laptop it runs on. Thread it, and give every test a bare
+> temp config dir.
 
 ```ts
 export type Verdict =
@@ -1063,7 +1210,7 @@ function machine(opts: {
 	events?: unknown[];
 	hooks?: unknown[];
 	files?: Array<[string, string]>;
-}): { cwd: string; home: string; env: NodeJS.ProcessEnv } {
+}): { cwd: string; home: string; configDir: string; env: NodeJS.ProcessEnv } {
 	const dir = mkdtempSync(join(tmpdir(), "onlooker-survey-"));
 	mkdirSync(join(dir, "logs"), { recursive: true });
 	const write = (name: string, lines: unknown[]) =>
@@ -1086,7 +1233,10 @@ function machine(opts: {
 			),
 		}),
 	);
-	return { cwd, home, env: { ONLOOKER_DIR: dir } };
+	// An empty config dir, never the developer's real one. Without this every
+	// test below reads whatever CLAUDE_CONFIG_DIR points at on this machine.
+	const configDir = mkdtempSync(join(tmpdir(), "onlooker-survey-cfg-"));
+	return { cwd, home, configDir, env: { ONLOOKER_DIR: dir } };
 }
 
 const verdictFor = (survey: Awaited<ReturnType<typeof surveyStreams>>, plugin: string) =>
@@ -1096,7 +1246,7 @@ describe("surveyStreams", () => {
 	// The case the acceptance criterion names. Busy input, stale output, hook
 	// firing successfully throughout.
 	it("reports a stream as stopped when its hook fires and its output does not move", async () => {
-		const { cwd, home, env } = machine({
+		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			files: [
 				[join("bursar", "projects", "k", "sessions.jsonl"), "2026-08-07T00:00:00Z"],
@@ -1108,14 +1258,14 @@ describe("surveyStreams", () => {
 				status: "success",
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, env });
+		const survey = await surveyStreams({ cwd, home, configDir, env });
 		const verdict = verdictFor(survey, "bursar");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain("bursar-session-end");
 	});
 
 	it("reports a stream with no output path as recording when its events are recent", async () => {
-		const { cwd, home, env } = machine({
+		const { cwd, home, configDir, env } = machine({
 			plugins: ["inspector"],
 			events: [
 				{
@@ -1126,7 +1276,7 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		expect(verdictFor(await surveyStreams({ cwd, home, env }), "inspector")?.kind).toBe(
+		expect(verdictFor(await surveyStreams({ cwd, home, configDir, env }), "inspector")?.kind).toBe(
 			"recording",
 		);
 	});
@@ -1134,8 +1284,8 @@ describe("surveyStreams", () => {
 	// The vocabulary is owned by another repo. A plugin we have no rule for
 	// must be named, never silently dropped and never assumed healthy.
 	it("names an enabled plugin that has no table entry", async () => {
-		const { cwd, home, env } = machine({ plugins: ["brandnew"] });
-		expect(verdictFor(await surveyStreams({ cwd, home, env }), "brandnew")?.kind).toBe(
+		const { cwd, home, configDir, env } = machine({ plugins: ["brandnew"] });
+		expect(verdictFor(await surveyStreams({ cwd, home, configDir, env }), "brandnew")?.kind).toBe(
 			"no-rule",
 		);
 	});
@@ -1143,22 +1293,22 @@ describe("surveyStreams", () => {
 	// Archivist on the real machine: holding data, deliberately not enabled.
 	// Reporting it as a fault would cry wolf about a decision made on purpose.
 	it("puts a stream that is writing but not enabled in the footer, not the verdicts", async () => {
-		const { cwd, home, env } = machine({
+		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			files: [[join("archivist", "note.json"), "2026-08-07T00:00:00Z"]],
 		});
-		const survey = await surveyStreams({ cwd, home, env });
+		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(survey.footer.map((f) => f.plugin)).toContain("archivist");
 		expect(survey.verdicts.map((v) => v.plugin)).not.toContain("archivist");
 	});
 
 	// A stream we could not measure does not get a clean bill.
 	it("reports unknown when a stream has output but no hook to compare against", async () => {
-		const { cwd, home, env } = machine({
+		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
 			files: [[join("librarian", "k", "x.json"), "2026-07-01T00:00:00Z"]],
 		});
-		expect(verdictFor(await surveyStreams({ cwd, home, env }), "librarian")?.kind).toBe(
+		expect(verdictFor(await surveyStreams({ cwd, home, configDir, env }), "librarian")?.kind).toBe(
 			"unknown",
 		);
 	});
@@ -1168,6 +1318,9 @@ describe("surveyStreams", () => {
 		const survey = await surveyStreams({
 			cwd: bare,
 			home: mkdtempSync(join(tmpdir(), "onlooker-nohome-")),
+			// Without an empty configDir this reads the developer's real
+			// settings.json and comes back "found", not "unknown".
+			configDir: mkdtempSync(join(tmpdir(), "onlooker-nocfg-")),
 			env: { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-nodir-")) },
 		});
 		expect(survey.enablement.kind).toBe("unknown");
@@ -1178,6 +1331,7 @@ describe("surveyStreams", () => {
 		const survey = await surveyStreams({
 			cwd: mkdtempSync(join(tmpdir(), "onlooker-nolog-")),
 			home: mkdtempSync(join(tmpdir(), "onlooker-nolog-home-")),
+			configDir: mkdtempSync(join(tmpdir(), "onlooker-nolog-cfg-")),
 			env: { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-nolog-dir-")) },
 		});
 		expect(survey.faults.join(" ")).toContain("onlooker-events.jsonl");
@@ -1237,10 +1391,19 @@ function repoRoot(cwd: string): string | null {
 export async function surveyStreams(opts: {
 	cwd: string;
 	home?: string;
+	configDir?: string;
 	env?: NodeJS.ProcessEnv;
 }): Promise<StreamSurvey> {
 	const env = opts.env ?? process.env;
-	const enablement = readEnablement({ cwd: opts.cwd, home: opts.home });
+	// `configDir` and `env` are threaded rather than defaulted inside
+	// readEnablement: without them a test inherits the developer's real
+	// CLAUDE_CONFIG_DIR and reads their actual settings.json.
+	const enablement = readEnablement({
+		cwd: opts.cwd,
+		home: opts.home,
+		configDir: opts.configDir,
+		env,
+	});
 	const faults: string[] = [];
 
 	const events = await scanEvents({ root: repoRoot(opts.cwd), env });
@@ -1357,7 +1520,7 @@ function judge(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @onlooker/cli exec vitest run src/__tests__/streams.test.ts`
-Expected: PASS, 16 tests (9 from Task 4, 7 new).
+Expected: PASS, 17 tests (10 from Task 4, 7 new).
 
 - [ ] **Step 5: Commit**
 
@@ -1577,7 +1740,7 @@ export function exitCodeFor(survey: StreamSurvey): number {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @onlooker/cli exec vitest run src/__tests__/streams.test.ts`
-Expected: PASS, 24 tests (16 prior, 8 new).
+Expected: PASS, 25 tests (17 prior, 8 new).
 
 - [ ] **Step 5: Commit**
 
@@ -1616,7 +1779,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { doctor } from "../commands/doctor";
 
-function bareMachine(): { cwd: string; home: string; env: NodeJS.ProcessEnv } {
+function bareMachine(): {
+	cwd: string;
+	home: string;
+	configDir: string;
+	env: NodeJS.ProcessEnv;
+} {
 	const dir = mkdtempSync(join(tmpdir(), "onlooker-doc-"));
 	mkdirSync(join(dir, "logs"), { recursive: true });
 	writeFileSync(join(dir, "logs", "onlooker-events.jsonl"), "");
@@ -1627,13 +1795,19 @@ function bareMachine(): { cwd: string; home: string; env: NodeJS.ProcessEnv } {
 		join(cwd, ".claude", "settings.json"),
 		JSON.stringify({ enabledPlugins: { "inspector@onlooker-community": true } }),
 	);
-	return { cwd, home: mkdtempSync(join(tmpdir(), "onlooker-doc-home-")), env: { ONLOOKER_DIR: dir } };
+	return {
+		cwd,
+		home: mkdtempSync(join(tmpdir(), "onlooker-doc-home-")),
+		// Empty on purpose - see the isolation note in Task 5.
+		configDir: mkdtempSync(join(tmpdir(), "onlooker-doc-cfg-")),
+		env: { ONLOOKER_DIR: dir },
+	};
 }
 
 describe("doctor", () => {
 	it("returns rendered text and an exit code together", async () => {
-		const { cwd, home, env } = bareMachine();
-		const result = await doctor({ cwd, home, env });
+		const { cwd, home, configDir, env } = bareMachine();
+		const result = await doctor({ cwd, home, configDir, env });
 		expect(typeof result.text).toBe("string");
 		expect([0, 1]).toContain(result.code);
 		expect(result.text).toContain("Expected:");
@@ -1647,6 +1821,7 @@ describe("doctor", () => {
 			doctor({
 				cwd: empty,
 				home: mkdtempSync(join(tmpdir(), "onlooker-doc-nohome-")),
+				configDir: mkdtempSync(join(tmpdir(), "onlooker-doc-nocfg-")),
 				env: { ONLOOKER_DIR: empty },
 			}),
 		).resolves.toBeDefined();
@@ -1657,6 +1832,7 @@ describe("doctor", () => {
 		const result = await doctor({
 			cwd: empty,
 			home: mkdtempSync(join(tmpdir(), "onlooker-doc-unknown-home-")),
+			configDir: mkdtempSync(join(tmpdir(), "onlooker-doc-unknown-cfg-")),
 			env: { ONLOOKER_DIR: empty },
 		});
 		expect(result.code).toBe(1);
@@ -1690,6 +1866,8 @@ export interface DoctorDeps {
 	cwd?: string;
 	/** Overridable so tests never read the developer's real home. */
 	home?: string;
+	/** Overrides the resolved CLAUDE_CONFIG_DIR. Tests only. */
+	configDir?: string;
 	env?: NodeJS.ProcessEnv;
 }
 
@@ -1706,6 +1884,7 @@ export async function doctor(
 	const survey = await surveyStreams({
 		cwd: deps.cwd ?? process.cwd(),
 		home: deps.home,
+		configDir: deps.configDir,
 		env: deps.env,
 	});
 	return { text: doctorLines(survey).join("\n"), code: exitCodeFor(survey) };
