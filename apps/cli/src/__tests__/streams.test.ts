@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
 	clearsCadenceFloor,
+	doctorLines,
+	exitCodeFor,
 	mtimeToIso,
 	outputFreshness,
 	outputLabel,
@@ -114,13 +116,55 @@ describe("STREAMS", () => {
 	});
 
 	// writeHooks pins which hooks a firing-count stall check may trust.
-	// bursar-session-start and archivist-inject both fire without implying a
-	// write; lineage has no reliable write hook at all, since its one hook
-	// name covers Bash as well as Edit/Write/MultiEdit.
+	// bursar-session-start fires without implying a write; lineage has no
+	// reliable write hook at all, since its one hook name covers Bash as
+	// well as Edit/Write/MultiEdit.
+	//
+	// archivist-extract, assayer-stop, and librarian-session-end were all
+	// pinned as reliable once (a source read that stopped at "this hook
+	// writes something on its intended path" without checking how often it
+	// bails before reaching it). Fix round 2 read each script in full and
+	// found each one bails without writing at several ordinary sites - see
+	// each entry's own table comment for the file:line list - so all three
+	// are undefined here now. historian-session-end is the one entry that
+	// survived the same re-read: its only plausible ordinary bail
+	// (too_short) is a single condition, not several stacked ones, and
+	// nothing downstream of a real write can silently drop it the way
+	// librarian's classifier/durability funnel can.
 	it("pins which hooks are reliable write triggers versus mere firings", () => {
 		expect(entryFor("bursar").writeHooks).toEqual(["bursar-session-end"]);
-		expect(entryFor("archivist").writeHooks).toEqual(["archivist-extract"]);
+		expect(entryFor("historian").writeHooks).toEqual(["historian-session-end"]);
+		expect(entryFor("archivist").writeHooks).toBeUndefined();
+		expect(entryFor("assayer").writeHooks).toBeUndefined();
+		expect(entryFor("librarian").writeHooks).toBeUndefined();
 		expect(entryFor("lineage").writeHooks).toBeUndefined();
+	});
+
+	// `output: null` entries have no separate write axis - `writeHooks` here
+	// means "reliably implies an EVENT was emitted" instead (see its own
+	// docstring). Fix round 2 read all four `output: null` scripts in full:
+	// inspector's one hook always emits on the only tool calls its matcher
+	// ever lets through, so it is trusted; compass's other three hooks never
+	// emit at all, leaving only its Bash write-pattern gate; ecosystem's
+	// fourteen split five ways once each was actually read, not inferred
+	// from its tracker-sounding name (see its own table comment for the
+	// full account); warden's three hooks all fire far more often than they
+	// ever emit, leaving nothing to trust at all.
+	it("pins which output:null entries have a hook that reliably implies an emission", () => {
+		expect(entryFor("inspector").writeHooks).toEqual(["inspector-post-write"]);
+		expect(entryFor("compass").writeHooks).toEqual(["compass-bash-gate"]);
+		expect(entryFor("ecosystem").writeHooks).toEqual([
+			"session-start-tracker",
+			"session-end-tracker",
+			"turn-tracker",
+			"tool-history-tracker",
+			"skill-usage-tracker",
+			"agent-spawn-tracker",
+			"task-tracker",
+			"context-compact-tracker",
+			"worktree-tracker",
+		]);
+		expect(entryFor("warden").writeHooks).toBeUndefined();
 	});
 });
 
@@ -860,6 +904,39 @@ describe("surveyStreams", () => {
 		expect(verdictFor(survey, "ecosystem")?.kind).toBe("unknown");
 	});
 
+	// warden's real shape, and fix round 3's own flagship case: warden-pre-
+	// tool-use fires on every Write/Edit/MultiEdit/Bash but only emits
+	// warden.gate.blocked once the gate is already closed; warden-post-
+	// tool-use fires on every WebFetch/Read but only emits
+	// warden.threat.detected on a positive scan hit. Before this fix,
+	// judge() trusted every one of these hooks' raw `.last` timestamps as
+	// the trigger axis, so ordinary tool activity outrunning a rare
+	// detection read as `stopped` - permanently, on any machine that has
+	// not been blocked recently, which is most of them. warden has no
+	// hook this table trusts as emission evidence at all (see its own
+	// table entry), so this now reads `unknown` - not a clean bill, but not
+	// a false alarm either.
+	it("reads warden as unknown, not permanently stopped, when its hooks fire constantly but rarely emit", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["warden"],
+			events: [
+				{
+					event_type: "warden.threat.detected",
+					timestamp: "2026-08-01T21:13:33Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+			hooks: Array.from({ length: 200 }, (_, i) => ({
+				hook: "warden-pre-tool-use",
+				timestamp: `2026-09-${String(1 + (i % 2)).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "warden")?.kind).toBe("unknown");
+	});
+
 	// The vocabulary is owned by another repo. A plugin we have no rule for
 	// must be named, never silently dropped and never assumed healthy.
 	it("names an enabled plugin that has no table entry", async () => {
@@ -1008,10 +1085,17 @@ describe("surveyStreams", () => {
 					payload: {},
 				},
 			],
+			// session_id set: without it, session scoping (see scanHooks's own
+			// sessionIds option) drops every one of these firings before
+			// judge() ever sees them, and the test would keep passing even if
+			// a regression made the no-writeHooks path start counting hook
+			// firings again - the exact false confidence a fixture in this
+			// suite must never produce.
 			hooks: Array.from({ length: 200 }, (_, i) => ({
 				hook: "lineage-post-tool-use",
 				timestamp: `2026-09-02T${String(i % 24).padStart(2, "0")}:00:00Z`,
 				status: "success",
+				session_id: MACHINE_SESSION_ID,
 			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
@@ -1042,6 +1126,46 @@ describe("surveyStreams", () => {
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
+	});
+
+	// assayer's real shape, and fix round 2's own reproduction: assayer-
+	// stop.sh bails without writing an audit at seven ordinary sites (no
+	// repo root, no project key, no claude/jq on PATH, no transcript, empty
+	// final message, empty claude -p response), measured on a live machine
+	// at roughly 10 firings per audit. Before this fix, assayer's writeHooks
+	// trusted every one of those 200 firings as evidence of a write, and
+	// STALL_THRESHOLD = 5 crossed within hours of any quiet stretch even
+	// while assayer was healthy. With writeHooks removed, judge() falls
+	// back to the same event-vs-output comparison lineage above uses -
+	// assayer's own events are real and uniquely prefixed
+	// (`assayer.audit.*`, `assayer.claim.*`), so that fallback still works.
+	it("reads assayer as recording via the event-vs-output fallback, not a heavy stop-hook firing count", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["assayer"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("assayer", "aaaaaaaaaaaa", "audit-1.json"),
+					"2026-09-02T12:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "assayer.audit.complete",
+					timestamp: "2026-09-02T12:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+			hooks: Array.from({ length: 200 }, (_, i) => ({
+				hook: "assayer-stop",
+				timestamp: `2026-09-02T${String(i % 24).padStart(2, "0")}:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "assayer")?.kind).toBe("recording");
 	});
 
 	// cartographer's real shape, and the cry-wolf bug fix round 1 quietly
@@ -1146,48 +1270,55 @@ describe("surveyStreams", () => {
 		expect(verdictFor(survey, "curator")?.kind).toBe("unknown");
 	});
 
-	// The counterpart: librarian HAS a writeHook (librarian-session-end IS
+	// The counterpart: historian HAS a writeHook (historian-session-end IS
 	// the writer), so a write hook that has genuinely fired past
-	// STALL_THRESHOLD with no lesson ever written is exactly what "stopped"
+	// STALL_THRESHOLD with no session ever indexed is exactly what "stopped"
 	// means - that is the whole feature. This must stay stopped, not soften
 	// into unknown alongside the conditional writers above. NOT a single
 	// firing - see the next test for why one event is not enough evidence.
+	//
+	// Previously used librarian for this pair. A closer read of librarian-
+	// session-end.sh (fix round 2) found it is not a reliable write signal
+	// either - a multi-stage pipeline with its own session-level bail sites
+	// plus a downstream classifier/durability/tombstone funnel any of which
+	// can decline without writing - so librarian's `writeHooks` was removed
+	// (see its table entry) and this pair moved to historian, the one
+	// remaining subpath-based entry a source read confirmed still qualifies.
 	it("still reports a stream with a writeHook stopped once its write hook has fired past the threshold with no output", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["librarian"],
+			plugins: ["historian"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			events: [
 				{
-					event_type: "librarian.scan.complete",
+					event_type: "historian.indexing.started",
 					timestamp: "2026-09-02T00:00:00Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
 				},
 			],
 			hooks: Array.from({ length: 6 }, (_, i) => ({
-				hook: "librarian-session-end",
+				hook: "historian-session-end",
 				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
 				status: "success",
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "librarian")?.kind).toBe("stopped");
+		expect(verdictFor(survey, "historian")?.kind).toBe("stopped");
 	});
 
-	// librarian's documented zero-candidate bail: librarian-session-end runs
-	// once, writes only the manifest heartbeat (no lessons/ yet), and one
-	// librarian.* event lands. A single firing must not read `stopped` on a
-	// fresh checkout - STALL_THRESHOLD exists to prevent exactly this
-	// everywhere else in this function, and this branch was the one place
-	// it was not applied.
+	// historian's own too_short/transcript_unavailable skip paths still emit
+	// historian.indexing.complete and still fire historian-session-end. A
+	// single firing must not read `stopped` on a fresh checkout -
+	// STALL_THRESHOLD exists to prevent exactly this everywhere else in this
+	// function, and this branch was the one place it was not applied.
 	it("does not report a stream stopped from a single write-hook firing with no output yet", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["librarian"],
+			plugins: ["historian"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			events: [
 				{
-					event_type: "librarian.scan.complete",
+					event_type: "historian.indexing.started",
 					timestamp: "2026-09-02T00:00:00Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
@@ -1195,12 +1326,41 @@ describe("surveyStreams", () => {
 			],
 			hooks: [
 				{
-					hook: "librarian-session-end",
+					hook: "historian-session-end",
 					timestamp: "2026-09-02T00:00:00Z",
 					status: "success",
 					session_id: MACHINE_SESSION_ID,
 				},
 			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "historian")?.kind).toBe("unknown");
+	});
+
+	// librarian's own new shape, after fix round 2 removed its writeHooks:
+	// events present, output never written, and - unlike historian just
+	// above - no amount of firing ever reads `stopped` anymore, because
+	// there is no longer a hook this table trusts as write evidence for it.
+	// This is the same "cannot tell nothing-to-write-yet from broken"
+	// fallback curator already takes, now shared by librarian too.
+	it("reports librarian unknown rather than stopped now that its write hook is no longer trusted", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-02T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+			hooks: Array.from({ length: 20 }, (_, i) => ({
+				hook: "librarian-session-end",
+				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "librarian")?.kind).toBe("unknown");
@@ -1252,11 +1412,22 @@ describe("surveyStreams", () => {
 		expect(verdictFor(survey, "governor")?.kind).toBe("unknown");
 	});
 
-	// archivist's only emission is shared with counsel and scribe, so no event
-	// prefix can identify it - `lastEvent` is permanently "". Without a
-	// hook-only fallback a genuine archivist outage reads identically to a
-	// first-run machine.
-	it("reports archivist stopped from hook firings alone when no output and no event axis exist", async () => {
+	// archivist's only emission is shared with counsel and scribe, so no
+	// event prefix can identify it - `lastEvent` is permanently "". This
+	// entry used to have a hook-only fallback here that read a genuine
+	// outage as `stopped` once archivist-extract's own firings crossed
+	// STALL_THRESHOLD with nothing ever written. Fix round 2 removed
+	// archivist's `writeHooks` (see its table entry: six ordinary bail
+	// sites, plus a seventh "nothing extraction-worthy this session" no-op
+	// past all six) - since that hook-only fallback also only trusts
+	// `writeHooks`-filtered hooks, archivist lost that detection along with
+	// the false positive it was causing. A firing count this high, this
+	// consistently, with zero output ever written IS suspicious - but this
+	// design's own rule is that an unmeasured thing does not get a verdict
+	// asserted about it, and archivist genuinely has no axis left to measure
+	// with once its only hook cannot be trusted. `unknown` is the honest
+	// answer, not a downgrade applied by accident.
+	it("reports archivist unknown, not stopped, from heavy hook firing alone now that the hook is not trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["archivist"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1268,16 +1439,13 @@ describe("surveyStreams", () => {
 			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
-		const verdict = verdictFor(survey, "archivist");
-		expect(verdict?.kind).toBe("stopped");
-		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"archivist-extract",
-		);
+		expect(verdictFor(survey, "archivist")?.kind).toBe("unknown");
 	});
 
-	// The same hook-only path must not turn every quiet first run into a
-	// false stall - below STALL_THRESHOLD, archivist stays unknown exactly
-	// like any other stream with no output and no evidence yet.
+	// Same shape below STALL_THRESHOLD - was already `unknown` before fix
+	// round 2 for a different reason (too few firings to call it stopped);
+	// stays `unknown` after for the same reason as the test just above (no
+	// hook this table trusts as write evidence for archivist at all).
 	it("still reports archivist unknown when hooks have not crossed the threshold", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["archivist"],
@@ -1387,10 +1555,18 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// session_id set for consistency with every other session-scoped
+			// fixture in this suite - here it is not load-bearing (the key
+			// itself is entirely a symlink below, so outputAt is null and the
+			// unreadable-walk degrade is reached before any hook record would
+			// matter either way), but an unscoped fixture next to scoped ones
+			// is a trap for the next person who copies it into a test where it
+			// would matter.
 			hooks: Array.from({ length: 20 }, (_, i) => ({
 				hook: "bursar-session-end",
 				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
 				status: "success",
+				session_id: MACHINE_SESSION_ID,
 			})),
 		});
 		const base = env.ONLOOKER_DIR as string;
@@ -1471,5 +1647,225 @@ describe("surveyStreams", () => {
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("unknown");
+	});
+});
+
+/** A minimal, valid `StreamSurvey`, overridable field by field. */
+const surveyOf = (
+	over: Partial<Awaited<ReturnType<typeof surveyStreams>>> = {},
+): Awaited<ReturnType<typeof surveyStreams>> => ({
+	enablement: {
+		kind: "found" as const,
+		plugins: [],
+		source: "/x/.claude/settings.json",
+	},
+	projectKeys: [],
+	verdicts: [],
+	footer: [],
+	faults: [],
+	...over,
+});
+
+describe("doctorLines", () => {
+	it("lists streams alphabetically regardless of input order", () => {
+		const lines = doctorLines(
+			surveyOf({
+				verdicts: [
+					{ plugin: "lineage", verdict: { kind: "recording", detail: "x" } },
+					{ plugin: "assayer", verdict: { kind: "recording", detail: "y" } },
+				],
+			}),
+		);
+		const body = lines.filter(
+			(l) => l.includes("assayer") || l.includes("lineage"),
+		);
+		expect(body[0]).toContain("assayer");
+		expect(body[1]).toContain("lineage");
+	});
+
+	it("shouts about a stopped stream and names the layer", () => {
+		const lines = doctorLines(
+			surveyOf({
+				verdicts: [
+					{
+						plugin: "bursar",
+						verdict: {
+							kind: "stopped",
+							detail: "bursar-session-end fired 71 times",
+						},
+					},
+				],
+			}),
+		).join("\n");
+		expect(lines).toContain("STOPPED");
+		expect(lines).toContain("bursar-session-end fired 71 times");
+	});
+
+	it("says it does not know rather than reporting nothing enabled", () => {
+		const lines = doctorLines(
+			surveyOf({
+				enablement: { kind: "unknown", reason: "no .claude/settings.json" },
+			}),
+		).join("\n");
+		expect(lines).toContain("unknown");
+		expect(lines).not.toContain("0 plugins enabled");
+	});
+
+	it("puts unenabled streams under their own heading", () => {
+		const lines = doctorLines(
+			surveyOf({
+				footer: [{ plugin: "archivist", detail: "last wrote 2026-08-07" }],
+			}),
+		).join("\n");
+		expect(lines).toContain("Not enabled here");
+		expect(lines).toContain("archivist");
+	});
+
+	// cartographer is exactly as long as the column padding was, so a naive
+	// `padEnd` leaves it running straight into its label with no separating
+	// space at all - "  cartographerlast wrote 2026-08-07" on a real
+	// machine's footer. Pinned on this specific name rather than a
+	// hypothetical one, so the next plugin name that reaches the column
+	// width fails this test loudly instead of silently running together.
+	it("leaves a gap after the longest real plugin name, cartographer", () => {
+		const verdictLines = doctorLines(
+			surveyOf({
+				verdicts: [
+					{
+						plugin: "cartographer",
+						verdict: { kind: "recording", detail: "audited" },
+					},
+				],
+			}),
+		);
+		const verdictLine = verdictLines.find((l) => l.includes("cartographer"));
+		expect(verdictLine).toMatch(/cartographer\s+recording/);
+
+		const footerLines = doctorLines(
+			surveyOf({
+				footer: [{ plugin: "cartographer", detail: "last wrote 2026-08-07" }],
+			}),
+		);
+		const footerLine = footerLines.find((l) => l.includes("cartographer"));
+		expect(footerLine).toMatch(/cartographer\s+last wrote/);
+	});
+
+	// The test above pins today's longest name, cartographer, by its
+	// literal 12 characters - it says nothing about a FUTURE plugin whose
+	// name reaches a NEW longest length, which is the actual promise the
+	// column's docstring makes ("the next plugin name that reaches this
+	// width fails loudly instead of silently running together"). Deriving
+	// the synthetic name's length from STREAMS itself, rather than
+	// hardcoding a number, keeps this test honest as the table grows: it
+	// exercises the real current boundary on every run, not a boundary
+	// that happened to be true once.
+	it("leaves a gap after any name as long as the current longest name in STREAMS", () => {
+		const maxLen = Math.max(...STREAMS.map((s) => s.plugin.length));
+		const syntheticName = "x".repeat(maxLen);
+		const lines = doctorLines(
+			surveyOf({
+				verdicts: [
+					{
+						plugin: syntheticName,
+						verdict: { kind: "recording", detail: "audited" },
+					},
+				],
+			}),
+		);
+		const line = lines.find((l) => l.includes(syntheticName));
+		expect(line).toMatch(new RegExp(`${syntheticName}\\s+recording`));
+	});
+
+	// This machine's own footer is routinely two project keys, both
+	// legitimate (one partly historical) - "key 6a7678979e31, 80523e1cd7d2"
+	// reads as though the second one is a typo. Pluralizes exactly like the
+	// plugin count on the same line.
+	it("pluralizes the header's key count to match the plugin count's own pluralization", () => {
+		const two = doctorLines(
+			surveyOf({ projectKeys: ["6a7678979e31", "80523e1cd7d2"] }),
+		)[0];
+		expect(two).toContain("keys 6a7678979e31, 80523e1cd7d2");
+		expect(two).not.toContain("key 6a7678979e31");
+
+		const one = doctorLines(surveyOf({ projectKeys: ["6a7678979e31"] }))[0];
+		expect(one).toContain("key 6a7678979e31");
+		expect(one).not.toContain("keys 6a7678979e31");
+	});
+});
+
+describe("exitCodeFor", () => {
+	it("exits 0 when every enabled stream is recording", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({
+					verdicts: [
+						{ plugin: "lineage", verdict: { kind: "recording", detail: "x" } },
+					],
+				}),
+			),
+		).toBe(0);
+	});
+
+	it("exits 1 when a stream has stopped", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({
+					verdicts: [
+						{ plugin: "bursar", verdict: { kind: "stopped", detail: "x" } },
+					],
+				}),
+			),
+		).toBe(1);
+	});
+
+	// Not knowing is not the same as fine, and a retry fixes neither. Same
+	// reasoning sync uses when it exits 1 on an unlistable directory.
+	it("exits 1 when a source could not be read", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({ faults: ["logs/hook-health.jsonl could not be read"] }),
+			),
+		).toBe(1);
+	});
+
+	it("exits 1 when the expected set is unknown", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({ enablement: { kind: "unknown", reason: "none" } }),
+			),
+		).toBe(1);
+	});
+
+	// "Unknown" is never "healthy" - an unrecognized verdict must not exit 0
+	// just because nothing was flagged "stopped." Not knowing is precisely
+	// the state this command exists to surface.
+	it("exits 1 when a verdict itself is unknown", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({
+					verdicts: [
+						{
+							plugin: "librarian",
+							verdict: { kind: "unknown", detail: "no hook records" },
+						},
+					],
+				}),
+			),
+		).toBe(1);
+	});
+
+	// A plugin missing from STREAMS gets no health rule at all - `STREAMS`'s
+	// own docstring calls this the expected steady state after a marketplace
+	// addition, not an edge case. Exiting 0 here would let a repo that just
+	// enabled a brand-new plugin read as fully healthy with zero health
+	// information about the one thing that changed.
+	it("exits 1 when an enabled plugin has no health rule", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({
+					verdicts: [{ plugin: "brandnew", verdict: { kind: "no-rule" } }],
+				}),
+			),
+		).toBe(1);
 	});
 });

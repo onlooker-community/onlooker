@@ -127,19 +127,36 @@ export interface StreamEntry {
 	 */
 	writeGateHours?: number;
 	/**
-	 * The subset of `hooks` whose firing implies output should have been
-	 * written - the only hooks `judge()`'s stall check counts firings from.
+	 * The subset of `hooks` whose firing is reliable evidence that this
+	 * entry's real, analytical work happened - not merely that its trigger
+	 * ran. Two different things count as "real work" depending on `output`:
 	 *
-	 * Undefined or empty when no hook on this entry is a reliable write
-	 * signal, whether because one hook name serves several matchers and only
-	 * some of them write (lineage), or because the writer itself is gated or
-	 * conditional so its hook fires far more than it writes (counsel,
-	 * cartographer, curator, governor, echo, tribunal). `judge()` falls back
-	 * to comparing event recency against output recency for those entries
-	 * instead of counting firings - see `EVENT_OUTPUT_TOLERANCE_MS`.
+	 * For an entry with a real `output` path, this means the firing implies
+	 * output should have been WRITTEN - the only hooks `judge()`'s
+	 * firing-count stall check counts from. Undefined or empty when no hook
+	 * on the entry is a reliable write signal, whether because one hook name
+	 * serves several matchers and only some of them write (lineage), or
+	 * because the writer itself is gated or conditional so its hook fires far
+	 * more than it writes (counsel, cartographer, curator, governor, echo,
+	 * tribunal). `judge()` falls back to comparing event recency against
+	 * output recency for those entries instead of counting firings - see
+	 * `EVENT_OUTPUT_TOLERANCE_MS`.
+	 *
+	 * For an `output: null` entry, there is no output path to fall back to
+	 * comparing against - events are the only downstream signal such an
+	 * entry has at all - so this means the firing implies an event should
+	 * have been EMITTED. Undefined or empty means this entry's own review
+	 * found no hook that qualifies (warden: `warden-pre-tool-use` only fires
+	 * when the content gate is already closed, `warden-post-tool-use` only
+	 * fires on a positive threat detection, both far rarer than the hook
+	 * itself running), and `judge()` reports `unknown` rather than trusting
+	 * every hook's raw firing the way an unreviewed entry once did - see the
+	 * `entry.output === null` branch of `computeVerdict`.
 	 *
 	 * Present, and a strict subset of `hooks`, everywhere a hook genuinely
-	 * implies a write. See each entry below for which hook and why.
+	 * implies real work by either definition. See each entry below for which
+	 * hook and why - and, for a hook whose script was actually read rather
+	 * than inferred from its name, the bail sites that justified the call.
 	 */
 	writeHooks?: readonly string[];
 	/**
@@ -199,9 +216,29 @@ export const STREAMS: readonly StreamEntry[] = [
 		// parent of them, so `subpath` cannot separate it out; `ignore` can.
 		ignore: ["manifest.json"],
 		hooks: ["archivist-extract", "archivist-inject"],
-		// NOT archivist-inject, which runs at SessionStart and only reads.
-		// Extraction - the only write - happens in archivist-extract alone.
-		writeHooks: ["archivist-extract"],
+		// NOT archivist-inject, which runs at SessionStart and only reads -
+		// that part still holds. But archivist-extract itself is NOT a
+		// reliable write signal either, on a closer read than the original
+		// `writeHooks` call: after hook_health_register (archivist-
+		// extract.sh:39) it bails without writing at SIX ordinary, ROUTINE
+		// sites - no git context (:103-106), no transcript (:108-111), no
+		// `claude` CLI (:113-116), empty transcript tail (:135-138), empty
+		// LLM response (:195-198), extraction output not valid JSON
+		// (:203-206) - and even past all six, a session with nothing
+		// extraction-worthy produces zero decisions/dead_ends/open_questions
+		// and reaches the end having written nothing (WRITE_COUNT stays 0,
+		// so the `WRITE_COUNT -gt 0` guard at :269 skips the aggregate write
+		// and the `onlooker.artifact.ready` emission both). None of these
+		// are exceptional - most sessions do not produce durable memory.
+		// With no writeHooks, judge() falls back to comparing event recency
+		// against output recency instead - which for archivist means it can
+		// only ever read `unknown`, never `recording` or `stopped`: its
+		// `events: []` above (shared-event-prefix problem) leaves no event
+		// axis to compare output against once firing counts are untrusted.
+		// That is a real loss of signal, not a bug - archivist genuinely has
+		// no remaining axis this design can measure, and `unknown` is the
+		// honest answer rather than a fabricated one.
+		//
 		// `archivist/<key>/` per project - verified on disk (first-level
 		// children are 12-hex project keys). See `perProject`'s docstring.
 		perProject: true,
@@ -211,8 +248,20 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: "assayer",
 		events: ["assayer"],
 		hooks: ["assayer-stop"],
-		// Its only hook, and it writes an audit on every stop.
-		writeHooks: ["assayer-stop"],
+		// NOT writeHooks: ["assayer-stop"], despite being its only hook.
+		// assayer-stop.sh registers hook health at line 35, then has SEVEN
+		// bail sites before it ever writes an audit - no repo root (:94), no
+		// project key (:99), no `claude` on PATH (:101), no `jq` on PATH
+		// (:102), no transcript (:104), empty final assistant message
+		// (:112), empty `claude -p` response (:140) - all ordinary, not
+		// exceptional. Measured on a live machine: 395 assayer-stop firings
+		// against 39 audit files, roughly 10:1. At STALL_THRESHOLD = 5,
+		// assayer crossed into `stopped` within hours of any quiet stretch -
+		// the lineage false positive again, on a plugin this repo enables.
+		// judge() falls back to comparing event recency against output
+		// recency instead: assayer emits real, uniquely-prefixed events per
+		// audit (`assayer.audit.*`, `assayer.claim.*`), so - unlike
+		// archivist below - that fallback still has a working event axis.
 		// `assayer/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -281,6 +330,21 @@ export const STREAMS: readonly StreamEntry[] = [
 			"compass-record-write",
 			"compass-session-start",
 		],
+		// Of the four, only compass-bash-gate can ever emit a `compass.*`
+		// event - compass-session-start, compass-pre-tool-use, and compass-
+		// record-write each read straight through to their per-session gate
+		// state with no `compass_emit_event` call anywhere in any of the
+		// three. compass-bash-gate fires on every Bash call but exits
+		// immediately (compass-bash-gate.sh:94) unless the command matches a
+		// write pattern (rm/mv/cp/redirect/git commit/sed -i/etc.,
+		// compass-bash-gate.sh:58-93); once it decides a command IS a write,
+		// compass_run_gate emits on every path through it, including its own
+		// skip branches (compass-gate.sh's `compass.check.skipped` calls) -
+		// so a write-pattern match reliably emits, even though most Bash
+		// calls are read-only and never reach that far. The coarsest signal
+		// this table has for an `output: null` entry, but the only one
+		// compass has at all.
+		writeHooks: ["compass-bash-gate"],
 	},
 	{
 		plugin: "counsel",
@@ -360,6 +424,42 @@ export const STREAMS: readonly StreamEntry[] = [
 			"context-compact-tracker",
 			"worktree-tracker",
 		],
+		// Four of the fourteen never call an emit function that touches any
+		// of the five prefixes above, for any input, ever - read in full,
+		// not inferred:
+		//   - tool-sequence-tracker (every tool call): pure turn-state
+		//     bookkeeping, no onlooker_append_event/session_tracker_emit call
+		//     anywhere in the script.
+		//   - session-duration-tracker (every prompt): only builds
+		//     UserPromptSubmit additionalContext; same absence.
+		//   - pre-compact-tracker (every PreCompact): only records local
+		//     pre-compact state and approves; same absence.
+		//   - prompt-rule-injector (every prompt): emits real events, but
+		//     only `prompt_rule.matched`/`prompt_rule.applied` - neither is
+		//     one of this entry's five tracked prefixes, so its firing is
+		//     irrelevant signal here regardless of how often it emits.
+		// A fifth, memory-recall-tracker (every SessionStart), has a real
+		// `memory.recalled` emit path but skips it on FOUR routine
+		// conditions, not one: `source == "compact"` (compaction reloads the
+		// same memories, so re-emitting would double-count), no resolvable
+		// project key, no per-project memory store directory at all (the
+		// default state for most repos, which never accumulate typed
+		// memory), or a memory store with zero validly-typed `.md` files.
+		// The remaining nine each have at most one narrow, structurally-
+		// guarded skip (a matcher already scopes out the mismatched-tool-
+		// name case for agent-spawn-tracker and skill-usage-tracker; a
+		// missing session_id is the only bail for the rest) and were kept.
+		writeHooks: [
+			"session-start-tracker",
+			"session-end-tracker",
+			"turn-tracker",
+			"tool-history-tracker",
+			"skill-usage-tracker",
+			"agent-spawn-tracker",
+			"task-tracker",
+			"context-compact-tracker",
+			"worktree-tracker",
+		],
 	},
 	{
 		// Three different names for one thing, and this table is the only
@@ -398,6 +498,24 @@ export const STREAMS: readonly StreamEntry[] = [
 		hooks: ["historian-prompt-submit", "historian-session-end"],
 		// NOT historian-prompt-submit, which fires on every prompt and
 		// writes nothing analytical by itself.
+		//
+		// historian-session-end.sh itself was read in full for the same
+		// bail-after-registration risk assayer/archivist/librarian turned
+		// out to have. It bails without indexing at: no project key
+		// (:79), storage init failure (:81), no transcript (:109-112,
+		// emits a real `historian.indexing.complete{outcome:skipped}`
+		// first), and transcript shorter than
+		// `min_transcript_chars_to_index` - 1200 chars by default
+		// (:126-129, same emit-then-skip shape). Kept, not removed: unlike
+		// assayer/archivist/librarian, there is exactly one plausibly-
+		// routine bail (`too_short`), not several stacked ones, and once
+		// `historian_storage_append_chunk` actually runs it appends
+		// directly - no further LLM-classifier or durability-filter stage
+		// downstream that could silently drop everything the way
+		// librarian's does. No firing-count/output ratio measured on this
+		// machine (zero historian-session-end firings recorded), so this
+		// is a source-only read, not an empirical confirmation - worth
+		// revisiting if a live ratio ever surfaces a real problem.
 		writeHooks: ["historian-session-end"],
 	},
 	{
@@ -406,6 +524,16 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: null,
 		events: ["inspector"],
 		hooks: ["inspector-post-write"],
+		// Its matcher already scopes it to Write/Edit/MultiEdit only
+		// (inspector's hooks.json), so the tool-name/missing-target guards
+		// inside the script are dead code, not a routine skip. Past those,
+		// every path emits: not-in-repo, an excluded path, and no-
+		// extension-match each call inspector_emit_whole_file_skipped
+		// (inspector-run.sh:308), and a matched check set runs through
+		// inspector_run, whose own loop emits per check and always finishes
+		// with inspector.run.completed. Its only firing is inspector-post-
+		// write, so it is both its only hook and its only reliable one.
+		writeHooks: ["inspector-post-write"],
 	},
 	{
 		plugin: "librarian",
@@ -419,8 +547,22 @@ export const STREAMS: readonly StreamEntry[] = [
 		subpath: "lessons",
 		events: ["librarian"],
 		hooks: ["librarian-session-end", "librarian-session-start"],
-		// NOT librarian-session-start, which writes nothing.
-		writeHooks: ["librarian-session-end"],
+		// NOT librarian-session-start, which writes nothing - that part
+		// still holds. But librarian-session-end is not reliable either: it
+		// is a multi-stage pipeline with FOUR session-level bail sites
+		// before any candidate is even considered - no project key
+		// (:102), storage init failure (:105), zero new archivist artifacts
+		// since the last scan (:145-159, common precisely because archivist
+		// itself frequently produces nothing per its own entry above), and
+		// a 1-second SessionEnd time budget exceeded before classification
+		// starts (:196-210) - and even a session that clears all four still
+		// runs each surviving artifact through a durability filter, an LLM
+		// classifier, a tombstone/duplicate check, and (separately) a lesson
+		// transform with its own pregate and LLM call, any of which can
+		// decline without writing to `lessons/`. This is the same shape as
+		// assayer and archivist, one layer deeper. With no writeHooks,
+		// judge() falls back to comparing event recency against output
+		// recency instead.
 	},
 	{
 		plugin: "lineage",
@@ -486,6 +628,23 @@ export const STREAMS: readonly StreamEntry[] = [
 			"warden-pre-tool-use",
 			"warden-session-start",
 		],
+		// No writeHooks, deliberately: none of the three ever reliably
+		// emits. warden-session-start (every SessionStart) only creates the
+		// gate directory - no warden_emit_event call anywhere in the
+		// script. warden-pre-tool-use (every Write/Edit/MultiEdit/Bash)
+		// only emits warden.gate.blocked when the gate is ALREADY closed
+		// (warden-pre-tool-use.sh:50-52), which requires a threat to have
+		// been detected first - rare relative to how often the hook itself
+		// runs. warden-post-tool-use (every WebFetch/Read) only emits
+		// warden.threat.detected on a POSITIVE scan hit (warden-post-tool-
+		// use.sh:138-140) - most fetched or read content is benign. On a
+		// machine that has not been blocked recently, this is not a
+		// hypothetical gap: this repo's own event log holds tool activity
+		// continuing well past the last recorded `warden.*` event
+		// (2026-08-01T21:13:33Z). With no hook reliably implying an
+		// emission, judge() reports `unknown` rather than trusting every
+		// hook's raw firing - see `computeVerdict`'s `entry.output === null`
+		// branch.
 	},
 ];
 
@@ -1216,9 +1375,31 @@ function computeVerdict(
 		// just with the event log playing output's part. No wall-clock
 		// threshold, for the same reason the rest of this design rejects
 		// one: see `toleranceFor`.
+		//
+		// Only `writeHooks` counts as the trigger here too - the output:null
+		// mirror of the filter just below for a real output path. warden is
+		// the concrete break this filter exists for: warden-pre-tool-use
+		// fires on every Write/Edit/MultiEdit/Bash but only emits when the
+		// gate is ALREADY closed, and warden-post-tool-use fires on every
+		// WebFetch/Read but only emits on a positive threat detection - both
+		// far rarer than the hook itself running, so an unfiltered `.last`
+		// across all of `entry.hooks` reads a healthy, unblocked warden as
+		// permanently `stopped` the moment routine tool activity outruns its
+		// own rare emissions. Unlike the real-output branch below, there is
+		// no softer fallback to degrade to if no hook qualifies - events are
+		// already the only axis this branch has - so `writeHooks` empty or
+		// undefined here means `unknown`, not "trust everything," full stop.
+		const emitHooks = entry.writeHooks ?? [];
+		if (emitHooks.length === 0) {
+			return {
+				kind: "unknown",
+				detail:
+					"no hook in this table reliably implies an event was emitted for this stream",
+			};
+		}
 		let newestHook = "";
 		let hookLast = "";
-		for (const hook of entry.hooks) {
+		for (const hook of emitHooks) {
 			const last = hooks.hooks[hook]?.last ?? "";
 			if (last > hookLast) {
 				hookLast = last;
@@ -1415,4 +1596,117 @@ function computeVerdict(
 		kind: "recording",
 		detail: `output last changed ${outputAt.slice(0, 10)}`,
 	};
+}
+
+/**
+ * Column the detail text starts in, so every verdict reads down one edge.
+ *
+ * Wide enough that the longest real plugin name in `STREAMS` -
+ * `cartographer`, 12 characters - still leaves a separating space before its
+ * label. A tighter column left `cartographer` and its label running
+ * together with none at all: `padEnd`'s target and the string's own length
+ * matched exactly, so `padEnd` had nothing to add. The `doctorLines`
+ * `describe` block pins this on `cartographer` by name, so the next plugin
+ * name that reaches this width fails loudly instead of silently regressing.
+ */
+const DETAIL_COLUMN = 15;
+
+function label(verdict: Verdict): string {
+	switch (verdict.kind) {
+		case "recording":
+			return "recording";
+		// Upper case earns its shout: this is the one line someone scanning
+		// the output has to catch, and it is surrounded by lower-case rows.
+		case "stopped":
+			return "STOPPED";
+		case "unknown":
+			return "unknown";
+		case "no-rule":
+			return "no rule";
+	}
+}
+
+function detail(verdict: Verdict): string {
+	return verdict.kind === "no-rule"
+		? "this CLI has no health rule for it"
+		: verdict.detail;
+}
+
+export function doctorLines(survey: StreamSurvey): string[] {
+	const lines: string[] = [];
+
+	if (survey.enablement.kind === "unknown") {
+		lines.push(`Expected: unknown - ${survey.enablement.reason}`);
+	} else {
+		const count = survey.enablement.plugins.length;
+		// This machine's own footer is routinely two keys, not one - one
+		// current, one partly historical, both legitimate - so this pluralizes
+		// exactly like the plugin count just above it rather than assuming a
+		// single key.
+		const keys =
+			survey.projectKeys.length > 0
+				? ` - key${survey.projectKeys.length === 1 ? "" : "s"} ${survey.projectKeys.join(", ")}`
+				: "";
+		lines.push(
+			`Expected: ${count} plugin${count === 1 ? "" : "s"} enabled from onlooker-community${keys}`,
+		);
+	}
+
+	// Sorted here as well as in readEnablement: this renderer is exported and
+	// a caller may hand it verdicts assembled some other way.
+	const sorted = [...survey.verdicts].sort((a, b) =>
+		a.plugin.localeCompare(b.plugin),
+	);
+	if (sorted.length > 0) lines.push("");
+	for (const { plugin, verdict } of sorted) {
+		const left = `  ${plugin.padEnd(DETAIL_COLUMN - 2)}${label(verdict).padEnd(11)}`;
+		lines.push(`${left}${detail(verdict)}`);
+	}
+
+	if (survey.footer.length > 0) {
+		lines.push("");
+		lines.push("Not enabled here, but holding data on this machine:");
+		for (const { plugin, detail: text } of [...survey.footer].sort((a, b) =>
+			a.plugin.localeCompare(b.plugin),
+		)) {
+			lines.push(`  ${plugin.padEnd(DETAIL_COLUMN - 2)}${text}`);
+		}
+	}
+
+	if (survey.faults.length > 0) {
+		lines.push("");
+		for (const fault of survey.faults) lines.push(`Fault:    ${fault}`);
+	}
+
+	return lines;
+}
+
+/**
+ * 0 when everything enabled is recording, 1 otherwise.
+ *
+ * `cli.ts`'s existing convention: 1 means stop and go look, 2 means a retry
+ * may fix it. Nothing here is transient - a stopped stream and an unreadable
+ * log both need a person - so 2 is never returned.
+ *
+ * An unknown expected-set is also 1, and so is any individual `unknown` or
+ * `no-rule` verdict. Not knowing what should be running, not knowing
+ * whether a given stream is healthy, and having no health rule for an
+ * enabled plugin at all are each precisely the state this command exists to
+ * surface - exiting 0 on any of them would let a hook or CI job treat an
+ * unconfigured, unmeasurable, or unrecognized-plugin machine as a healthy
+ * one. `STREAMS`'s own docstring anticipates the vocabulary growing without
+ * notice, which makes `no-rule` the expected steady state after any
+ * marketplace addition, not a rare edge case worth softening.
+ */
+export function exitCodeFor(survey: StreamSurvey): number {
+	if (survey.enablement.kind === "unknown") return 1;
+	if (survey.faults.length > 0) return 1;
+	return survey.verdicts.some(
+		(v) =>
+			v.verdict.kind === "stopped" ||
+			v.verdict.kind === "unknown" ||
+			v.verdict.kind === "no-rule",
+	)
+		? 1
+		: 0;
 }
