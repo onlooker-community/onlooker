@@ -65,12 +65,6 @@ function readSettings(path: string): Settings | { error: string } {
 }
 
 /**
- * Merge the project's enabled set with the user's global one.
- *
- * Project wins on conflict, matching how Claude Code layers them: a repo that
- * switches a plugin off has made a decision the global default should not undo.
- */
-/**
  * Where Claude Code keeps user-level settings.
  *
  * NOT `$HOME/.claude`. Claude Code exports `CLAUDE_CONFIG_DIR` to child
@@ -115,6 +109,11 @@ export function readEnablement(opts: {
 	const merged: Record<string, unknown> = {};
 	const problems: string[] = [];
 
+	// Merge the project's enabled set with the user's global one. Global
+	// first, project second: `Object.assign` lets a later source overwrite
+	// an earlier one key-for-key, so the project layer wins on conflict -
+	// matching how Claude Code layers them, where a repo that switches a
+	// plugin off has made a decision the global default should not undo.
 	for (const path of [globalPath, projectPath]) {
 		if (path === null || !existsSync(path)) continue;
 		const settings = readSettings(path);

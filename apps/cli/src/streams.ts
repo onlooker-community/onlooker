@@ -64,6 +64,39 @@ export const EVENT_OUTPUT_TOLERANCE_MS = 60 * 60 * 1000;
 const OS_METADATA_FILES: readonly string[] = [".DS_Store", "Thumbs.db"];
 
 /**
+ * How old the freshest evidence behind a `recording` verdict may be before
+ * "nothing contradicts a clean bill" stops counting as one. The design's
+ * third deliberately arbitrary number, after `STALL_THRESHOLD` and
+ * `CADENCE_FLOOR_MULTIPLIER`, and recorded the same way.
+ *
+ * Exists because the `output: null` branch and the no-`writeHooks` fallback
+ * both compare two timestamps belonging to the SAME plugin - a hook's `.last`
+ * against the newest event, or the newest event against the output's own
+ * mtime. When a plugin stops entirely, both freeze together: the gap
+ * between them goes to ~0 or negative, every "is the gap too big" check
+ * passes trivially, and the branch falls through to `recording` with no
+ * bound on how old that evidence actually is. `now` reached `judge()` from
+ * the very first round of this feature, but until this constant existed it
+ * was consulted only by `clearsCadenceFloor`, which returns `true` on every
+ * path that reaches it today - no verdict in this file was ever bounded by
+ * wall time at all. Reproduced live: three streams silent for a month, each
+ * reporting `recording`, `doctor` exiting 0 - the exact failure this
+ * command exists to remove.
+ *
+ * Defaulted to 14 days: the outage that motivated this whole feature went
+ * roughly 3.5 weeks unnoticed, so 14 days catches that shape with margin,
+ * while still tolerating an ordinary two-week gap in a plugin's own
+ * activity - a repo nobody opened over a slow stretch, say - without a
+ * false alarm.
+ *
+ * Only ever narrows a `recording` verdict toward `unknown` - it must never
+ * soften a `stopped` one. Both places that consult it do so only after the
+ * gap check has already had its chance to return `stopped`; stale evidence
+ * with a large gap stays `stopped`, unchanged.
+ */
+export const RECORDING_FRESHNESS_LIMIT_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
  * One known stream: where its output lands, what it calls its events, and
  * which hooks trigger it.
  *
@@ -485,6 +518,24 @@ export const STREAMS: readonly StreamEntry[] = [
 		// (governor-ledger.sh:29 - `${ONLOOKER_DIR}/governance/ledgers`),
 		// its files named by UUID, not project key, at no depth. A machine-
 		// wide walk is the correct - and only - reading for this entry.
+		//
+		// A known, accepted consequence of that: governor's two axes are
+		// scoped differently. `outputAt` comes from the machine-wide walk
+		// above; `lastEvent` and the write-hook firing count both come from
+		// THIS repo's own sessions only, the same session scoping every
+		// other entry gets (see `scanEvents`'s `sessionIds` and
+		// `surveyStreams`'s `scanHooks` call). Two repos on one machine, one
+		// with governor silent for months and the other writing to the
+		// shared ledger daily, would let the busy sibling's writes read as
+		// evidence for the silent repo - the exact busy-sibling masking
+		// `perProjectFreshness` exists to prevent elsewhere, left open here
+		// on purpose because there is no key to scope the ledger walk by at
+		// all. Not fixable by having governor abstain either: its event and
+		// hook axes ARE correctly scoped and ARE real evidence for this
+		// repo specifically, so reporting `unknown` unconditionally would
+		// throw away signal this table can actually measure. Documented
+		// rather than papered over - a future entry with the same shape
+		// should make the same call, deliberately, not by accident.
 	},
 	{
 		plugin: "historian",
@@ -562,7 +613,15 @@ export const STREAMS: readonly StreamEntry[] = [
 		// decline without writing to `lessons/`. This is the same shape as
 		// assayer and archivist, one layer deeper. With no writeHooks,
 		// judge() falls back to comparing event recency against output
-		// recency instead.
+		// recency instead - which means librarian's own headline case, the
+		// empty lesson pool this table exists to catch, is now
+		// `unknown`-grade detection, not `stopped`-grade: a session firing
+		// with `lessons/` never created reads `unknown` ("cannot tell
+		// 'nothing to write yet' from 'broken'"), never a confident
+		// `stopped`. Still surfaced - `unknown` exits 1, same as `stopped`
+		// does - just without the specific write-hook evidence that would
+		// let this table say so with certainty. A real, accepted trade, not
+		// a silent regression.
 	},
 	{
 		plugin: "lineage",
@@ -584,8 +643,25 @@ export const STREAMS: readonly StreamEntry[] = [
 		// `sessions/<session_id>.json` (scribe-capture.sh) is a heartbeat
 		// written on the first prompt of every session; the real output is
 		// `<key>/<date>-<session>.md`, written only by scribe-stop. Both are
-		// direct children of `scribe/`, so `subpath` cannot separate them -
-		// `ignore` removes the heartbeat directory from contention instead.
+		// direct children of `scribe/`, so `subpath` cannot separate them.
+		//
+		// `ignore` is unreachable for scribe's own VERDICT. scribe is
+		// `perProject` with no `subpath` of its own, so `judge()` walks it
+		// through `perProjectFreshness`, which iterates `projectKeys`
+		// directly (`walkKeys`) rather than `readdirSync`-ing `scribe/` and
+		// filtering the results afterward - `scribe/sessions` is a SIBLING
+		// of the per-key directories, never itself a project key (and could
+		// not be even by accident: `scanEvents` only accepts 12-hex project
+		// keys), so it is never enumerated as a candidate key on that path,
+		// `ignore` or not. Also unreachable on the footer's path -
+		// `anyDataFreshness` walks the raw root with no `ignore` argument at
+		// all, by design (see its own comment). The one place this actually
+		// applies is `outputFreshness`'s flat branch, called directly in
+		// this file's own unit tests but never by anything in the survey's
+		// real flow for a `perProject` entry like this one. Kept as
+		// documentation of scribe's real layout, and because
+		// `outputFreshness` is an exported, independently-used primitive -
+		// but do not assume it does anything for scribe's verdict.
 		ignore: ["sessions"],
 		events: ["scribe"],
 		// No writeHooks: scribe-capture and scribe-session-start are
@@ -1288,6 +1364,20 @@ function toleranceFor(entry: StreamEntry): number {
 			);
 }
 
+/**
+ * Whether `evidence` (an ISO timestamp) is recent enough, relative to
+ * `now`, to still support a `recording` verdict - see
+ * `RECORDING_FRESHNESS_LIMIT_MS`. Called only after the gap check between
+ * two timestamps has already had its chance to return `stopped`, so this
+ * never softens that outcome - it only narrows `recording` toward
+ * `unknown` when the two timestamps agree, but agree a long time ago.
+ */
+function isFreshEnoughToRecord(evidence: string, now: Date): boolean {
+	return (
+		now.getTime() - new Date(evidence).getTime() <= RECORDING_FRESHNESS_LIMIT_MS
+	);
+}
+
 function judge(
 	entry: StreamEntry | undefined,
 	fresh: ReturnType<typeof outputFreshness> | undefined,
@@ -1419,6 +1509,17 @@ function computeVerdict(
 				detail: `${newestHook} fired ${hookLast.slice(0, 10)}, but the last event was ${lastEvent.slice(0, 10)}`,
 			};
 		}
+		// The gap is small - but a plugin that stopped entirely freezes both
+		// timestamps together, so a small gap alone is not evidence of
+		// health. See `RECORDING_FRESHNESS_LIMIT_MS`: the freshest of the two
+		// must also be recent, not merely mutually consistent.
+		const freshest = hookLast > lastEvent ? hookLast : lastEvent;
+		if (!isFreshEnoughToRecord(freshest, now)) {
+			return {
+				kind: "unknown",
+				detail: `no evidence newer than ${freshest.slice(0, 10)} - too old to certify as recording`,
+			};
+		}
 		return {
 			kind: "recording",
 			detail: `last event ${lastEvent.slice(0, 10)}`,
@@ -1461,10 +1562,13 @@ function computeVerdict(
 			// "nothing yet" may legitimately last, the same reasoning
 			// `writeHooks` already carries everywhere else in this
 			// function. An entry WITH a write hook has no such excuse -
-			// librarian-session-end IS the writer, so events firing with no
-			// lesson ever produced is exactly what "stopped" means, and
+			// bursar-session-end IS the writer, so events firing with no
+			// output ever produced is exactly what "stopped" means, and
 			// softening that would hide the case this feature exists to
-			// catch.
+			// catch. librarian used to be this section's example - it no
+			// longer qualifies, since librarian-session-end is not a
+			// reliable write signal either (see librarian's own table
+			// entry) - so it now takes this branch's OTHER path, below.
 			if (writeHooks.length === 0) {
 				return {
 					kind: "unknown",
@@ -1565,6 +1669,16 @@ function computeVerdict(
 				detail: `events since ${lastEvent.slice(0, 10)}, but ${outputLabel(entry)} last changed on ${outputAt.slice(0, 10)}`,
 			};
 		}
+		// The gap is small - but a plugin that stopped entirely freezes both
+		// timestamps together, so a small gap alone is not evidence of
+		// health. See `RECORDING_FRESHNESS_LIMIT_MS`.
+		const freshest = lastEvent > outputAt ? lastEvent : outputAt;
+		if (!isFreshEnoughToRecord(freshest, now)) {
+			return {
+				kind: "unknown",
+				detail: `no evidence newer than ${freshest.slice(0, 10)} - too old to certify as recording`,
+			};
+		}
 		return {
 			kind: "recording",
 			detail: `output last changed ${outputAt.slice(0, 10)}`,
@@ -1590,6 +1704,18 @@ function computeVerdict(
 				detail: `${hook} fired ${record.firedSince} times since ${outputLabel(entry)} last changed on ${outputAt.slice(0, 10)}`,
 			};
 		}
+	}
+
+	// A firing count that never crosses STALL_THRESHOLD is not evidence of
+	// health on its own - a plugin that stopped entirely never crosses it
+	// either. See `RECORDING_FRESHNESS_LIMIT_MS`: `outputAt` itself, the only
+	// evidence this branch has, must also be recent. bursar - enabled on this
+	// repo - takes exactly this branch.
+	if (!isFreshEnoughToRecord(outputAt, now)) {
+		return {
+			kind: "unknown",
+			detail: `no evidence newer than ${outputAt.slice(0, 10)} - too old to certify as recording`,
+		};
 	}
 
 	return {

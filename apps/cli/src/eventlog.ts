@@ -26,12 +26,11 @@ export interface EventScan {
 	lastByPrefix: Record<string, string>;
 	/** `project_key` values seen on events from sessions rooted at `root`, sorted. */
 	projectKeys: string[];
-	/** How many sessions started in `root`. */
-	sessions: number;
 	/**
-	 * The session IDs `sessions` counts, for a caller (`scanHooks`, via its
-	 * own `sessionIds` option) that needs to scope a second source to the
-	 * same sessions this join already trusts. Empty when `root` is `null`.
+	 * The session IDs that started in `root`, for a caller (`scanHooks`, via
+	 * its own `sessionIds` option) that needs to scope a second source to
+	 * the same sessions this join already trusts. Empty when `root` is
+	 * `null`.
 	 */
 	sessionIds: string[];
 	/** Lines that would not parse. Counted, never skipped silently. */
@@ -160,7 +159,6 @@ export async function scanEvents(opts: {
 		// map it drives into must not have a prototype to collide with.
 		lastByPrefix: Object.create(null) as Record<string, string>,
 		projectKeys: [],
-		sessions: 0,
 		sessionIds: [],
 		unreadable: 0,
 		missing: false,
@@ -328,17 +326,15 @@ export async function scanEvents(opts: {
 		// command makes elsewhere (it is why an unenabled-but-writing stream
 		// goes in a footer rather than the fault list), so any failure here
 		// reports `missing` and discards the data that would drive a verdict.
-		// `projectKeys`, `sessions`, and `sessionIds` need no reset - they
-		// are only assigned after the loop above, so at this point they are
-		// still their initial `[]`/`0`/`[]`. `unreadable` is left alone too
-		// - a scan can honestly have seen bad lines before a failure like
-		// this one.
+		// `projectKeys` and `sessionIds` need no reset - they are only
+		// assigned after the loop above, so at this point they are still
+		// their initial `[]`. `unreadable` is left alone too - a scan can
+		// honestly have seen bad lines before a failure like this one.
 		scan.missing = true;
 		scan.lastByPrefix = Object.create(null) as Record<string, string>;
 		return scan;
 	}
 
-	scan.sessions = mine.size;
 	scan.sessionIds = [...mine].sort((a, b) => a.localeCompare(b));
 	const keys = new Set<string>();
 	// `lastByPrefix` folded in from the per-session buffer here too, once,

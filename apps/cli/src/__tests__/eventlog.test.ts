@@ -103,7 +103,7 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.projectKeys).toEqual(["6a7678979e31"]);
-		expect(scan.sessions).toBe(1);
+		expect(scan.sessionIds).toEqual(["mine"]);
 	});
 
 	// The only "foreign" fixture above is `/repo/elsewhere`, which even a
@@ -131,7 +131,7 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.projectKeys).toEqual([]);
-		expect(scan.sessions).toBe(0);
+		expect(scan.sessionIds).toEqual([]);
 	});
 
 	// Regression: `within()` used to build `root + sep` unconditionally, so
@@ -159,7 +159,7 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.projectKeys).toEqual(["6a7678979e31"]);
-		expect(scan.sessions).toBe(1);
+		expect(scan.sessionIds).toEqual(["mine"]);
 	});
 
 	// Append-only does not mean well-ordered: a hook that fires from
@@ -184,7 +184,7 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.projectKeys).toEqual(["6a7678979e31"]);
-		expect(scan.sessions).toBe(1);
+		expect(scan.sessionIds).toEqual(["mine"]);
 	});
 
 	// The mirror image of the bug `perProjectFreshness` fixed, on the event
@@ -249,10 +249,10 @@ describe("scanEvents", () => {
 		expect(scan.lastByPrefix.lineage).toBe("2026-09-02T00:00:00Z");
 	});
 
-	// `sessions` has always been a count; `scanHooks` needs the actual set
-	// to scope its own firings to the same sessions this join already
-	// trusts.
-	it("returns the session ids rooted at the given directory, not just their count", async () => {
+	// `scanHooks` needs the actual set of session ids, not just how many
+	// there were, to scope its own firings to the same sessions this join
+	// already trusts.
+	it("returns the session ids rooted at the given directory", async () => {
 		const root = "/repo/onlooker";
 		const env = withEvents([
 			{
@@ -270,7 +270,6 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.sessionIds).toEqual(["mine"]);
-		expect(scan.sessions).toBe(1);
 	});
 
 	// `project_key` comes from `payload`, written by any of sixteen

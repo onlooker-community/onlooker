@@ -825,9 +825,13 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
+		// Pinned close to the evidence rather than left to the real clock:
+		// once RECORDING_FRESHNESS_LIMIT_MS exists, a `recording` verdict is
+		// genuinely time-dependent here, not just theoretically so.
+		const now = new Date("2026-09-03T00:00:00Z");
 		expect(
 			verdictFor(
-				await surveyStreams({ cwd, home, configDir, env }),
+				await surveyStreams({ cwd, home, configDir, env, now }),
 				"inspector",
 			)?.kind,
 		).toBe("recording");
@@ -881,7 +885,9 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to the evidence - see the inspector test above.
+		const now = new Date("2026-09-03T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "ecosystem")?.kind).toBe("recording");
 	});
 
@@ -1055,7 +1061,11 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to the evidence rather than left to the real clock:
+		// once the firing-count branch is bound by RECORDING_FRESHNESS_LIMIT_MS
+		// too, a `recording` verdict is genuinely time-dependent here.
+		const now = new Date("2026-08-11T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("recording");
 	});
 
@@ -1098,7 +1108,9 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to the evidence - see the inspector test above.
+		const now = new Date("2026-09-03T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
 	});
 
@@ -1164,7 +1176,9 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to the evidence - see the inspector test above.
+		const now = new Date("2026-09-03T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "assayer")?.kind).toBe("recording");
 	});
 
@@ -1197,7 +1211,12 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to the evidence - see the inspector test above. This
+		// one MUST be pinned, not merely for future stability: the evidence
+		// is already weeks old relative to the real clock, so it would fail
+		// immediately without this once RECORDING_FRESHNESS_LIMIT_MS exists.
+		const now = new Date("2026-08-03T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "cartographer")?.kind).toBe("recording");
 	});
 
@@ -1614,7 +1633,11 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		// Pinned close to OUR OWN session's evidence (2026-08-01), not the
+		// excluded foreign session's (2026-09-02) - this must be pinned, not
+		// merely for stability, once RECORDING_FRESHNESS_LIMIT_MS exists.
+		const now = new Date("2026-08-02T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
 	});
 
@@ -1647,6 +1670,174 @@ describe("surveyStreams", () => {
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("unknown");
+	});
+
+	// The final review's high-severity finding, reproduced directly: a
+	// plugin that stops entirely - no more output, no more events - has
+	// both timestamps freeze together, so the GAP between them stays small
+	// even as the evidence itself goes stale. Neither fallback branch was
+	// ever bounded by wall time before this fix - `now` reached judge() and
+	// was only ever consulted by clearsCadenceFloor, which returns `true` on
+	// every path that reaches it. counsel/governor/tribunal on the real
+	// machine hit exactly this: silent for a month, reported `recording`,
+	// `doctor` exiting 0.
+	it("reports the writeHooks-less output fallback unknown, not recording, when its freshest evidence is stale even though the gap is small", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					// 5 seconds after the output - well inside
+					// EVENT_OUTPUT_TOLERANCE_MS - but both are now a month old.
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const now = new Date("2026-08-31T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		const verdict = verdictFor(survey, "lineage");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"2026-08-01",
+		);
+	});
+
+	// The same bound, applied to the output:null branch (finding 2): if a
+	// plugin is removed from hooks.json or its directory disappears, its
+	// hook's `.last` and its newest event freeze together at the same
+	// instant, `gapMs` stays near zero, and it would read `recording`
+	// forever while printing an increasingly stale date. inspector and
+	// ecosystem sit on exactly this shape today - nothing in the branch
+	// would change if either died tomorrow, without this bound.
+	it("reports the output:null branch unknown, not recording, when its freshest evidence is stale even though the gap is small", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-08-01T00:00:00Z",
+					session_id: "s",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "session-start-tracker",
+					timestamp: "2026-08-01T00:00:05Z",
+					status: "success",
+				},
+			],
+		});
+		const now = new Date("2026-08-31T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		const verdict = verdictFor(survey, "ecosystem");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"2026-08-01",
+		);
+	});
+
+	// The bound must never soften an alarm: stale evidence plus a large gap
+	// is still `stopped`, not downgraded to `unknown`. This is already true
+	// by construction (the freshness check sits after the gap check, never
+	// before it), but it is worth locking in explicitly given how easy it
+	// would be to place the new check first by accident.
+	it("still reports stopped, not unknown, when stale evidence also shows a large gap", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					// Both stale AND a large gap from the output.
+					timestamp: "2026-08-20T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const now = new Date("2026-08-31T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
+	});
+
+	// The same bound, applied to the third branch: an entry WITH a trusted
+	// writeHooks list (bursar) whose firing count never crosses
+	// STALL_THRESHOLD falls through to `recording` on `outputAt` alone, with
+	// no comparison against `now` at all - this branch was left out of the
+	// first pass on this bound because the finding that prompted it only
+	// reproduced the other two. It matters here specifically because bursar,
+	// which this repo enables, takes this branch: output frozen months ago
+	// plus routine, below-threshold session-end firings reads a clean
+	// `recording` off arbitrarily old evidence forever.
+	it("reports the firing-count branch unknown, not recording, when output is stale even though the firing count stays below threshold", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			hooks: [
+				{
+					hook: "bursar-session-end",
+					// One firing, well below STALL_THRESHOLD (5).
+					timestamp: "2026-08-01T01:00:00Z",
+					status: "success",
+					session_id: MACHINE_SESSION_ID,
+				},
+			],
+		});
+		const now = new Date("2026-08-31T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"2026-08-01",
+		);
+	});
+
+	// The bound must not weaken `stopped` on this branch either: a firing
+	// count that DOES cross STALL_THRESHOLD is `stopped` regardless of how
+	// stale the output is - the stopped-loop runs, and returns, before the
+	// new freshness check is ever reached.
+	it("still reports stopped, not unknown, on the firing-count branch when stale output also shows enough firings to stall", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			hooks: Array.from({ length: 6 }, (_, i) => ({
+				hook: "bursar-session-end",
+				timestamp: `2026-08-${String(2 + i).padStart(2, "0")}T00:00:00Z`,
+				status: "success",
+				session_id: MACHINE_SESSION_ID,
+			})),
+		});
+		const now = new Date("2026-08-31T00:00:00Z");
+		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
 	});
 });
 
