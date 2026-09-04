@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
 import { status } from "./commands/status";
 import { sync } from "./commands/sync";
@@ -11,6 +12,7 @@ export const USAGE = `onlooker - push approved lessons to app.onlooker.dev
   onlooker link     connect this machine with a token from the Machines page
   onlooker sync     push every approved lesson
   onlooker status   what is linked, and what is waiting
+  onlooker doctor   which plugin streams are still recording
 `;
 
 /**
@@ -33,6 +35,13 @@ export async function run(argv: string[]): Promise<number> {
 			console.log(await sync({}));
 		} else if (command === "status") {
 			console.log(await status({}));
+		} else if (command === "doctor") {
+			// The only command that returns its own exit code. A stopped
+			// stream is a finding rather than an exception, so it cannot
+			// travel out through the catch below without losing the report.
+			const report = await doctor({});
+			console.log(report.text);
+			return report.code;
 		} else if (
 			command === undefined ||
 			command === "--help" ||

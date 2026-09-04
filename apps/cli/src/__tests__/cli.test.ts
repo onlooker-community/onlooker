@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Failure } from "../api";
 import { run } from "../cli";
+import { doctor } from "../commands/doctor";
 import { sync } from "../commands/sync";
 
 // Wraps the real `sync` rather than replacing it, so the last test in this file
@@ -13,7 +14,14 @@ vi.mock("../commands/sync", async (importOriginal) => {
 	return { sync: vi.fn(actual.sync) };
 });
 
+// Mocked rather than wrapped: `doctor` surveys the real machine, and these
+// tests exist to pin the dispatch branch's plumbing, not to re-run the
+// survey. `streams.test.ts` and `doctor.test.ts` already cover the survey
+// itself.
+vi.mock("../commands/doctor", () => ({ doctor: vi.fn() }));
+
 const mockedSync = vi.mocked(sync);
+const mockedDoctor = vi.mocked(doctor);
 const invoke = (...args: string[]) => run(["node", "onlooker", ...args]);
 
 let out: string[] = [];
@@ -91,6 +99,34 @@ describe("run", () => {
 		expect(await invoke("snyc")).toBe(1);
 		expect(err.join("\n")).toMatch(/unknown command: snyc/);
 		expect(out).toEqual([]);
+	});
+
+	it("lists doctor in the usage text", async () => {
+		await invoke("--help");
+		expect(out.join("\n")).toContain("onlooker doctor");
+	});
+
+	// `doctor` is the one command that hands `run` its own exit code instead
+	// of throwing one, so the mapping above cannot stand in for it. Both
+	// codes are covered on purpose: a stopped stream turning into exit 1 is
+	// the entire reason this command exists, and a regression that dropped
+	// `report.code` in favor of the shared `return 0` would still pass every
+	// other test in this file.
+	it("returns doctor's own code, and prints its report to stdout", async () => {
+		mockedDoctor.mockResolvedValueOnce({
+			text: "all streams recording",
+			code: 0,
+		});
+		expect(await invoke("doctor")).toBe(0);
+		expect(out.join("\n")).toContain("all streams recording");
+		expect(err).toEqual([]);
+	});
+
+	it("returns doctor's own code when it found something wrong", async () => {
+		mockedDoctor.mockResolvedValueOnce({ text: "bursar stopped", code: 1 });
+		expect(await invoke("doctor")).toBe(1);
+		expect(out.join("\n")).toContain("bursar stopped");
+		expect(err).toEqual([]);
 	});
 
 	// The real `sync`, not the injected failure: the mapping above is only worth
