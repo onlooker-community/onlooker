@@ -1,0 +1,101 @@
+# The manifest bump is the release trigger. Merging a pull request that
+# changes apps/cli/package.json's version cuts the tag, the tag drives
+# release-cli.yml, and that drives the Homebrew tap. Nothing here decides what
+# the version should be - a person still does, in the pull request that earns
+# it, which is exactly where 7af44e2 argued the bump belonged.
+#
+# Separate from release-cli.yml on the same principle that keeps that file out
+# of deploy.yml: this decides *when* to release, and that decides *what* a
+# release is. Neither should be able to break the other by being edited.
+name: Tag CLI release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/cli/package.json"
+  # Backfill and recovery. The paths filter only fires on a future change to
+  # the manifest, so a version already sitting on main when this landed has no
+  # other way to get its tag from here, and a run that failed before pushing
+  # needs a way to be retried without touching the manifest again.
+  workflow_dispatch:
+
+# Two merges touching the manifest in quick succession would otherwise race to
+# read it. Not cancel-in-progress: a canceled run leaves a merged bump with no
+# tag and no release, which is the silent-gap failure this whole line of work
+# exists to remove.
+concurrency:
+  group: tag-cli
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Existing tags are the state this job reads to decide whether it has
+          # already run for this version. The default shallow checkout fetches
+          # none of them, which would make every run look like the first.
+          fetch-depth: 0
+
+      - name: Read the version
+        id: manifest
+        run: echo "version=$(jq -r .version apps/cli/package.json)" >> "$GITHUB_OUTPUT"
+
+      # The paths filter fires on any change to the manifest, not only a
+      # version change - adding a dependency hits it too. An existing tag is
+      # how this job tells those apart, and it is also what makes
+      # workflow_dispatch safe to press twice.
+      - name: Has this version been tagged?
+        id: existing
+        env:
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/cli-v${VERSION}" >/dev/null; then
+            echo "cli-v${VERSION} already exists. Nothing to cut."
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cli-v${VERSION} does not exist yet."
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A tag pushed with the default GITHUB_TOKEN does not start a workflow -
+      # GitHub blocks that so a workflow cannot trigger itself - which would
+      # land the tag and leave release-cli.yml waiting forever for an event
+      # that never comes. An App installation token carries no such
+      # restriction. Same App as the tap push, which has to be installed on
+      # this repository too; see the runbook.
+      - name: Mint a token that can trigger the release
+        id: token
+        if: steps.existing.outputs.tagged == 'false'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Cut the tag
+        if: steps.existing.outputs.tagged == 'false'
+        env:
+          # Public user data, so it goes through the repository token. The
+          # installation token is spent on the tag push and nothing else.
+          GH_TOKEN: ${{ github.token }}
+          TAG_TOKEN: ${{ steps.token.outputs.token }}
+          APP_SLUG: ${{ steps.token.outputs.app-slug }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          BOT_ID="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${BOT_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          # Annotated, because every cli-v* tag this repository already carries
+          # is annotated and `git describe` treats the two kinds differently.
+          git tag -a "cli-v${VERSION}" -m "CLI ${VERSION}"
+          git push \
+            "https://x-access-token:${TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/cli-v${VERSION}"
+          echo "Pushed cli-v${VERSION}. release-cli.yml takes it from here."
