@@ -14,6 +14,7 @@ import {
 	doctorLines,
 	exitCodeFor,
 	mtimeToIso,
+	opportunitiesSince,
 	outputFreshness,
 	outputLabel,
 	STALL_THRESHOLD,
@@ -2056,6 +2057,56 @@ describe("exitCodeFor", () => {
 				surveyOf({
 					verdicts: [{ plugin: "brandnew", verdict: { kind: "no-rule" } }],
 				}),
+			),
+		).toBe(1);
+	});
+});
+
+describe("opportunitiesSince", () => {
+	const events = {
+		sessionStarts: {
+			a: "2026-09-01T00:00:00.000Z",
+			b: "2026-09-02T00:00:00.000Z",
+			c: "2026-09-03T00:00:00.000Z",
+			subagent: "2026-09-04T00:00:00.000Z",
+		},
+	};
+	// `subagent` started but ran no hooks, so it was never an opportunity.
+	const hooks = { sessionsWithRecords: ["a", "b", "c"] };
+
+	it("counts only sessions that ran hooks, after the cutoff", () => {
+		expect(opportunitiesSince(events, hooks, "2026-09-01T12:00:00.000Z")).toBe(
+			2,
+		);
+	});
+
+	it("does not count a subagent session that ran no hooks", () => {
+		// Everything after 2026-09-03 is `subagent` alone.
+		expect(opportunitiesSince(events, hooks, "2026-09-03T12:00:00.000Z")).toBe(
+			0,
+		);
+	});
+
+	it("counts nothing when no session ran a hook", () => {
+		expect(
+			opportunitiesSince(
+				events,
+				{ sessionsWithRecords: [] },
+				"2026-01-01T00:00:00.000Z",
+			),
+		).toBe(0);
+	});
+
+	// The precision trap: hook-health writes second precision, the event log
+	// writes milliseconds, and `'Z'` (0x5A) sorts above `'.'` (0x2E) - so a
+	// lexical compare reads this cutoff as LATER than the session start and
+	// returns 0. It is earlier by 500ms and the session counts.
+	it("compares instants, not strings, across the two logs' formats", () => {
+		expect(
+			opportunitiesSince(
+				{ sessionStarts: { a: "2026-09-01T00:00:00.500Z" } },
+				{ sessionsWithRecords: ["a"] },
+				"2026-09-01T00:00:00Z",
 			),
 		).toBe(1);
 	});

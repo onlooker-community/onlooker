@@ -2,6 +2,7 @@ import { lstatSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { onlookerDir } from "./config";
 import { type Enablement, findUp, readEnablement } from "./enablement";
+import type { EventScan, HookScan } from "./eventlog";
 import { scanEvents, scanHooks } from "./eventlog";
 
 /**
@@ -1103,6 +1104,42 @@ export function outputLabel(entry: StreamEntry): string {
 		return join(entry.output, "*", entry.subpath);
 	if (isPerProject(entry)) return join(entry.output, "*");
 	return entry.output;
+}
+
+/**
+ * How many opportunities this repo has had since `iso` - sessions of its own
+ * that also ran the hook machinery.
+ *
+ * The denominator every stall verdict is measured against, and deliberately
+ * NOT a count of `session.start` events. `session.start` includes subagent
+ * sessions, which run no hooks and so were never a chance for any plugin to
+ * act: 240 of this repo's 246 sessions in the measured window were exactly
+ * that, including one block of 91 consecutive sessions across 27 hours in
+ * which no hook fired anywhere. Counted raw, every plugin on the machine -
+ * ecosystem across all 11,422 sessions included - shows a longest silent run
+ * of exactly 91, because 91 belongs to the session stream rather than to any
+ * plugin. A threshold would have to sit above 91 to avoid false alarms while
+ * only 35 sessions elapsed across the three and a half weeks the real outage
+ * went unnoticed; no value satisfies both. Counting opportunities instead
+ * drops that floor to 1.
+ *
+ * Epoch comparison, not lexical: `iso` can arrive from either log, and the
+ * two write different precision. See `scanHooks`'s `since` comment for the
+ * full trap.
+ */
+export function opportunitiesSince(
+	events: Pick<EventScan, "sessionStarts">,
+	hooks: Pick<HookScan, "sessionsWithRecords">,
+	iso: string,
+): number {
+	const ran = new Set(hooks.sessionsWithRecords);
+	const cutoff = new Date(iso).getTime();
+	let count = 0;
+	for (const session of Object.keys(events.sessionStarts)) {
+		if (!ran.has(session)) continue;
+		if (new Date(events.sessionStarts[session]).getTime() > cutoff) count++;
+	}
+	return count;
 }
 
 /**
