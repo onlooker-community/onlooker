@@ -1,4 +1,10 @@
-name: Deploy to Cloudflare
+# Not "Deploy to Cloudflare". Verification is the invariant and deploying is
+# the exception: all three deploy and publish jobs are gated on main and push,
+# so a pull request runs four jobs and deploys nothing at all. A push to main
+# deploys only the surfaces `changes` reports, and publishes a package to npm
+# that has nothing to do with Cloudflare. The old name described the last job
+# on the happy path as though it were the workflow.
+name: Verify and deploy
 
 on:
   push:
