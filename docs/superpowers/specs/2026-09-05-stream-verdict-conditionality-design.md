@@ -347,7 +347,14 @@ table has no signal that would tell you whether that is expected." That is
 
 This cannot introduce a false `stopped` — `unknown` never accuses — so it
 costs nothing against the false positives this document exists to fix. It
-restores librarian and archivist to `unknown`, and `doctor` to exit 1.
+restores librarian to `unknown`, and `doctor` to exit 1.
+
+Measured after implementing it, which corrected this paragraph: **archivist
+stays `recording`.** Its output was written on 2026-08-07 and is merely a
+month old, and age is not evidence — only absence is. An earlier draft of this
+section predicted both would flip, which was wrong about archivist and is
+recorded here rather than quietly amended, because the difference between "old"
+and "never" is the entire content of this rule.
 
 An entry whose output exists but is merely old still reads `recording` where
 there is no write signal. Age alone is not evidence, for the reasons the
