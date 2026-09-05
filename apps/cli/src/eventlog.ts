@@ -46,6 +46,18 @@ export interface EventScan {
 	 * `null`.
 	 */
 	sessionIds: string[];
+	/**
+	 * This repo's own sessions, each mapped to the ISO timestamp it started.
+	 * Empty when `root` is `null`. `sessionIds` is this object's keys,
+	 * sorted — the two are built from the same set and cannot disagree.
+	 *
+	 * The opportunity denominator needs the timestamps, not just the ids: a
+	 * verdict asks "how many chances has this plugin had SINCE the moment it
+	 * last showed life", and that is a count of sessions after a cutoff.
+	 * Earliest start per session wins, because a resumed session logs a
+	 * second `session.start` and it is still one opportunity.
+	 */
+	sessionStarts: Record<string, string>;
 	/** Lines that would not parse. Counted, never skipped silently. */
 	unreadable: number;
 	/**
@@ -174,6 +186,7 @@ export async function scanEvents(opts: {
 		lastByType: Object.create(null) as Record<string, string>,
 		projectKeys: [],
 		sessionIds: [],
+		sessionStarts: Object.create(null) as Record<string, string>,
 		unreadable: 0,
 		missing: false,
 	};
@@ -196,6 +209,11 @@ export async function scanEvents(opts: {
 	// the join happens once, after the pass, against whichever sessions
 	// turned out to be ours.
 	const keysBySession = new Map<string, Set<string>>();
+	// Earliest `session.start` per session of ours - see
+	// `EventScan.sessionStarts`. Kept separate from `mine` rather than
+	// replacing it: `mine` is a membership test used on the hot path of the
+	// fold, and this is the data behind it.
+	const startedAt = new Map<string, string>();
 	// Same reasoning as `keysBySession`, for the timestamp maps: whether a
 	// record's own session belongs to `mine` is not decided until the pass
 	// is done, so the newest timestamp is buffered per session first and
@@ -292,6 +310,10 @@ export async function scanEvents(opts: {
 			within(payload.working_directory, opts.root)
 		) {
 			mine.add(session);
+			const seen = startedAt.get(session);
+			if (seen === undefined || timestamp < seen) {
+				startedAt.set(session, timestamp);
+			}
 		}
 		if (
 			typeof payload.project_key === "string" &&
@@ -361,6 +383,7 @@ export async function scanEvents(opts: {
 	}
 
 	scan.sessionIds = [...mine].sort((a, b) => a.localeCompare(b));
+	for (const [session, at] of startedAt) scan.sessionStarts[session] = at;
 	const keys = new Set<string>();
 	// `lastByPrefix`/`lastByType` folded in from the per-session buffer here
 	// too, once, against only the sessions that turned out to be `mine` -

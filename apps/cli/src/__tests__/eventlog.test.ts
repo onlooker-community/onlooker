@@ -309,6 +309,37 @@ describe("scanEvents", () => {
 		expect(scan.sessionIds).toEqual(["mine"]);
 	});
 
+	it("records when each of this repo's own sessions started, and no one else's", async () => {
+		const root = "/repo/onlooker";
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T00:00:00.000Z",
+				session_id: "ours",
+				payload: { working_directory: root },
+			},
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-02T00:00:00.000Z",
+				session_id: "theirs",
+				payload: { working_directory: "/somewhere/else" },
+			},
+			// A resumed session logs a second start; the opportunity is the
+			// session, not each record of it, so the earliest wins.
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T06:00:00.000Z",
+				session_id: "ours",
+				payload: { working_directory: root },
+			},
+		]);
+
+		const scan = await scanEvents({ root, env });
+
+		expect(scan.sessionStarts).toEqual({ ours: "2026-09-01T00:00:00.000Z" });
+		expect(scan.sessionIds).toEqual(["ours"]);
+	});
+
 	// `project_key` comes from `payload`, written by any of sixteen
 	// independent shell plugins, and flows straight into a path join
 	// downstream (`streams.ts`'s `walkKeys`) once it becomes a project key.
