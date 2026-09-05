@@ -30,10 +30,19 @@ export const STALL_THRESHOLD = 5;
  * Floor 1, ceiling 6. Over the six opportunities this repo had between
  * 2026-08-30 and 2026-09-05: bursar fired in 6 of 6, and lineage, inspector
  * and assayer in 5 of 6 - so a healthy stream's longest silence was one
- * opportunity. Six opportunities have elapsed since the 2026-08-07 outage,
- * so five reports counsel `stopped` today rather than `unknown`. Five also
- * matches `STALL_THRESHOLD` for the same underlying reason: any stream may
- * lag its trigger by about one opportunity, and five clears that with room.
+ * opportunity, and six have elapsed since the 2026-08-07 outage. Five sits
+ * above the floor with margin and at or below the ceiling. It also matches
+ * `STALL_THRESHOLD` for the same underlying reason: any stream may lag its
+ * trigger by about one opportunity, and five clears that with room.
+ *
+ * The ceiling used to be argued by naming counsel - "five reports counsel
+ * `stopped` today rather than `unknown`" - and that is no longer true.
+ * counsel carries no `writeEvents`, because nothing consumes
+ * `writeGateHours` since the rule was unified and a seven-day gate judged
+ * against a five-opportunity window reads `stopped` on a healthy stream
+ * (see the entry's own comment, and `onlooker-1vt`). It therefore has no
+ * write axis to reach `stopped` on. The measurement above is unaffected -
+ * six opportunities did elapse - only the illustration went.
  *
  * The sample is six opportunities wide, because every enabled plugin's
  * hook-health history begins 2026-08-30. `onlooker-run` tracks rechecking
@@ -349,20 +358,28 @@ export const STREAMS: readonly StreamEntry[] = [
 		//
 		// The write question is answered by `writeEvents` instead. Of the
 		// four types assayer emits, `assayer.audit.complete` is the one at
-		// the write site: it is emitted at assayer-audit.sh:230 and the audit
-		// file lands at :239-251, with nothing between the two but the
-		// `SAFE_SESSION_ID` assignment on :238 - no bail, no gate, no
-		// conditional. `assayer.audit.started` (:137) sits before the whole
-		// claim loop and `assayer.claim.contradicted`/`.unverified` (:185,
-		// :199) fire per claim inside it, all three too early to mean the
-		// file was written.
+		// the write site: emitted at assayer-audit.sh:230, with the audit file
+		// written at :239-251 and nothing between the two but the
+		// `SAFE_SESSION_ID` assignment on :238. `assayer.audit.started` (:137)
+		// sits before the whole claim loop and `assayer.claim.contradicted`/
+		// `.unverified` (:185, :199) fire per claim inside it, all three too
+		// early to mean anything about the file.
 		//
-		// This clears the second half of the test as well as the first,
-		// which is what separates assayer from curator and echo below: every
-		// audit that runs writes a file, so a healthy assayer produces one
-		// per audit rather than only when it has something to report. The
-		// live ratio says the same thing - 534 `assayer.audit.complete`
+		// Adjacency, not a gate, and worth stating precisely rather than
+		// implying more. The emit PRECEDES the write, and the write itself
+		// ends `2>/dev/null || true`, so a failed write leaves the event
+		// standing - structurally what tribunal was rejected for below, minus
+		// tribunal's actual bail between the two. Kept anyway on two grounds:
+		// the error direction is a false `recording`, which is inside this
+		// design's conservative bias rather than against it, and every audit
+		// that starts reaches this point - 534 `assayer.audit.complete`
 		// against 534 `assayer.audit.started`, never one without the other.
+		//
+		// The second half of the test is what separates assayer from curator
+		// and echo below: every audit that runs writes a file, so a healthy
+		// assayer produces one per audit rather than only when it has
+		// something worth reporting. Its silence is therefore evidence, and
+		// theirs is not.
 		writeEvents: ["assayer.audit.complete"],
 		// `assayer/<key>/` per project - verified on disk.
 		perProject: true,
@@ -679,11 +696,12 @@ export const STREAMS: readonly StreamEntry[] = [
 		//
 		// Every type here is one of ecosystem's own canonical emissions, and
 		// for an `output: null` entry the emission IS the write - there is no
-		// file downstream of it to check. The six tool types come out of
+		// file downstream of it to check. The seven tool types come out of
 		// tool-history-tracker.sh:32, which appends whatever the mapper's
-		// switch on tool name returns (onlooker-event.mjs:431-506 -
-		// Read/Write/Edit/Bash/WebFetch/Agent, the Agent case splitting on
-		// PreToolUse for spawn and anything else for complete);
+		// switch on tool name returns - six cases at onlooker-event.mjs:431-506
+		// (Read/Write/Edit/Bash/WebFetch/Agent) producing seven types, because
+		// the Agent case splits on PreToolUse for spawn and anything else for
+		// complete;
 		// `tool.agent.spawn` has a second, dedicated site at
 		// agent-spawn-tracker.sh:158 through common.sh:39. `skill.invoked`
 		// comes from skill-usage-tracker.sh:42, `task.start`/`task.complete`
@@ -855,11 +873,15 @@ export const STREAMS: readonly StreamEntry[] = [
 		// and start certifying itself off its own event stream.
 		//
 		// Listed rather than reasoned away one by one because inspector is
-		// the entry where every path emits: inspector_emit_whole_file_skipped
-		// covers not-in-repo, an excluded path and no-extension-match
-		// (inspector-run.sh:305, :318), the check loop emits passed or failed
-		// per check (:262, :290), and a completed run always finishes with
-		// inspector.run.completed (:335). There is no path through
+		// the entry where every path emits. `inspector.check.skipped` has two
+		// separate emitters and they cover different halves of that claim:
+		// inspector_emit_whole_file_skipped (inspector-run.sh:308, emitting at
+		// :318) takes not-in-repo, an excluded path and no-extension-match,
+		// while _inspector_emit_skipped (:293, emitting at :305) takes the
+		// per-check bails - total_budget_exhausted, tool_missing and timeout,
+		// called from :169, :193 and :200. Past those the loop emits passed or
+		// failed per check (:262, :290) and a completed run always finishes
+		// with inspector.run.completed (:335). There is no path through
 		// inspector-post-write that writes without emitting, which is the
 		// same fact `writeHooks` above records from the other end.
 		writeEvents: [
@@ -1993,6 +2015,41 @@ function computeVerdict(
 	// Alive. Whether it should also have WRITTEN is a separate question, and
 	// only askable where the table records a signal for it.
 	if (lastWrite === undefined) {
+		// One thing is knowable even with no write signal at all: whether the
+		// output ever appeared. An entry that names a path which has never
+		// been written does not get a clean bill, because there is no history
+		// for its quiet to be ordinary against.
+		//
+		// Deliberately NOT the same test as "the output is old". Age is not
+		// evidence - a week-old scribe `.md` means nothing was worth
+		// distilling, which is the false alarm the whole write-signal design
+		// removes. Absence is different: nothing has ever come out of here,
+		// and this table holds no signal saying whether that is expected.
+		// `unknown` states exactly that and accuses no one, so it cannot
+		// reintroduce a false `stopped`.
+		//
+		// The case that forced it: all seven enabled plugins read `recording`
+		// and `doctor` exited 0 on the real machine, librarian included -
+		// whose `lessons/` has never existed here, and whose empty pool is
+		// what `onlooker-01x` was opened about. Certifying a machine whose
+		// output is known to be missing is the successful-looking silence this
+		// command exists to remove.
+		//
+		// `mtime === null` AND not `unreadable`: a path that could not be
+		// listed is unmeasured, not absent, and `judge()` already turns that
+		// into its own `unknown` after this returns. Reporting it as "never
+		// written" would state more than the walk found.
+		if (
+			entry.output !== null &&
+			fresh !== undefined &&
+			fresh.mtime === null &&
+			!fresh.unreadable
+		) {
+			return {
+				kind: "unknown",
+				detail: `alive since ${stamp(lastLife)}, but ${outputLabel(entry)} has never been written`,
+			};
+		}
 		return {
 			kind: "recording",
 			detail: `last sign of life ${stamp(lastLife)}`,

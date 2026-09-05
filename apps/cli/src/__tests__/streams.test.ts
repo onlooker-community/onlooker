@@ -933,6 +933,74 @@ const verdictFor = (
 const NOW = new Date("2026-09-05T12:00:00Z");
 
 describe("stream conditionality", () => {
+	// The pair that fixes the boundary between "old" and "never". Both entries
+	// are alive, both have no write signal, and the ONLY difference is whether
+	// their output has ever existed - so run together they pin that absence is
+	// what changes the verdict, not age and not the missing signal.
+	//
+	// The case that forced this: the finished table put all seven enabled
+	// plugins at `recording` and `doctor` at exit 0 on the real machine,
+	// librarian included, whose `lessons/` has never existed there. That is
+	// the successful-looking silence this command exists to remove.
+	it("does not certify a stream whose output has never been written", async () => {
+		// librarian's headline case. Its hook fires every session, it emits
+		// nothing at its lesson-write site so it has no `writeEvents` to name,
+		// and `lessons/` has never appeared. `recording` would be a clean bill
+		// on a machine whose output is known to be missing.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"librarian",
+		);
+		expect(v?.kind).toBe("unknown");
+		expect(v?.kind === "unknown" && v.detail).toContain("never been written");
+	});
+
+	it("still certifies a stream whose output exists but is merely old", async () => {
+		// The other side, and the reason the test above is keyed on absence
+		// rather than on age. Identical shape - alive, no write signal - except
+		// that one lesson file exists and is four weeks stale. Age is not
+		// evidence: with nothing in the table saying librarian owed a lesson
+		// this month, its quiet is ordinary. Keyed on age instead, this reads
+		// `stopped` and is the exact false alarm the design removed.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("librarian", "aaaaaaaaaaaa", "lessons", "l.json"),
+					"2026-08-07T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"librarian",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
 	it("does not call a conditional writer stopped just because its output is older than its events", async () => {
 		// scribe, healthy: sessions every day, nothing worth distilling for a
 		// week. No writeHooks and no writeEvents, so `lastWrite` is undefined
@@ -1147,11 +1215,16 @@ describe("stream conditionality", () => {
 	it("keeps an output:null stream's events as proof of life when they are not its write axis", async () => {
 		// The axis split exists so an entry's events cannot be compared against
 		// themselves - but it applies only where the events ARE the downstream
-		// being judged, which is `output: null` AND a trusted write hook.
-		// warden is the one entry that is the first without the second, so its
-		// events are not its downstream and must go on counting as liveness.
-		// Keyed on `output: null` alone, the split strips warden's only axis
-		// and reads a plugin that emitted today as never having run at all.
+		// being judged, which is `output: null` AND a non-empty `writeEvents`.
+		// warden is `output: null` and names none: its three types are the
+		// rare ones its own entry documents, so they are not its downstream
+		// and must go on counting as liveness. Keyed on `output: null` alone,
+		// the split strips warden's only axis and reads a plugin that emitted
+		// today as never having run at all.
+		//
+		// compass now has the same shape - `output: null`, no write axis - so
+		// warden is no longer the only entry this protects, but it stays the
+		// vehicle here because it is the one with events to lose.
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["warden"],
 			opportunities: 6,
@@ -1313,8 +1386,8 @@ describe("surveyStreams", () => {
 		);
 	});
 
-	// NOT events alone: for an `output: null` entry with a trusted write hook
-	// the axes SPLIT - its events are the downstream being judged, and its
+	// NOT events alone: for an `output: null` entry that names `writeEvents`
+	// the axes SPLIT - those events are the downstream being judged, and its
 	// hooks are the only proof of life left. A hook firing close behind the
 	// event is what makes this "recording"; without it there would be no
 	// liveness axis at all.
@@ -1934,16 +2007,18 @@ describe("surveyStreams", () => {
 
 	// A gated writer (writeGateHours set) that has never produced output must
 	// not be flagged: asserting `stopped` would condemn every brand-new
-	// counsel install before its first brief is even due.
+	// counsel install before its first brief is even due. That is what this
+	// test exists to prevent and it has never changed.
 	//
-	// `recording` now, where it was `unknown`, and for a different reason.
-	// The old rule could not tell "hasn't reached its first gate" from
-	// "broken" and abstained. The new one does not ask: counsel declares no
-	// write signal, so its missing output is not evidence about anything and
-	// the verdict rests on the events, which are arriving. Still not
-	// `stopped`, which is what this test exists to prevent - see the warden
-	// case above for the exit-code consequence of the softer answer.
-	it("reports a gated writer with no output recording rather than stopped", async () => {
+	// The verdict has moved twice. It was `unknown` because the old rule could
+	// not tell "hasn't reached its first gate" from "broken"; it became
+	// `recording` when a missing output stopped being evidence about anything;
+	// and it is `unknown` again now for a third and narrower reason - counsel
+	// names an `output` path that has never been written, and absence is not
+	// something this table will certify even where it has no write signal.
+	// Age would still read `recording`; see the librarian pair at the top of
+	// `stream conditionality` for the two halves side by side.
+	it("reports a gated writer with no output unknown rather than stopped", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["counsel"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1965,7 +2040,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "counsel")?.kind).toBe("recording");
+		expect(verdictFor(survey, "counsel")?.kind).toBe("unknown");
 	});
 
 	// Generalizes the counsel case above beyond gated writers: curator has
@@ -1974,7 +2049,12 @@ describe("surveyStreams", () => {
 	// findings/), and it declares no write signal for exactly that reason. A
 	// perfectly healthy curator that simply never had a finding must not
 	// read as `stopped` any more than a gated one does.
-	it("reports an ungated conditional writer with no output recording rather than stopped", async () => {
+	//
+	// `unknown` rather than `recording` for the same reason counsel is:
+	// `findings/` has never appeared here. Both halves of the claim hold at
+	// once - nothing accuses curator of stalling, and nothing certifies it
+	// either, which is what `unknown` means.
+	it("reports an ungated conditional writer with no output unknown rather than stopped", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["curator"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1996,7 +2076,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "curator")?.kind).toBe("recording");
+		expect(verdictFor(survey, "curator")?.kind).toBe("unknown");
 	});
 
 	// historian HAS a writeHook (historian-session-end IS the writer), and
@@ -2096,13 +2176,20 @@ describe("surveyStreams", () => {
 
 	// librarian's own shape: events present, output never written, and no
 	// amount of firing reads `stopped`, because no hook and no event this
-	// table records is write evidence for it. Where historian just above
-	// reaches `unknown` because it HAS a write signal that has never fired,
-	// librarian reaches `recording` because it has none to ask about - the
-	// two halves of the same rule, and the reason the empty-lesson-pool case
-	// librarian's table entry describes is still not detectable here. Task 7
-	// deciding librarian has a usable write event is what would change it.
-	it("reports librarian recording rather than stopped now that its write hook is no longer trusted", async () => {
+	// table records is write evidence for it - the verification pass confirmed
+	// there is nothing to name, since its lesson writers emit nothing at all.
+	//
+	// It reaches `unknown` by a different route than historian just above.
+	// historian HAS a write signal that has never fired; librarian has none to
+	// ask about, and lands on the absent-output rule instead - `lessons/` never
+	// existed, so no clean bill. Same verdict, two distinct reasons, and worth
+	// keeping both tests because a change could break one without the other.
+	//
+	// This is as close as the table gets to the empty-lesson-pool case
+	// librarian's entry describes: surfaced (`unknown` exits 1) but never a
+	// confident `stopped`. A lesson-write event upstream is what would change
+	// that.
+	it("reports librarian unknown rather than stopped now that its write hook is no longer trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -2130,7 +2217,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "librarian")?.kind).toBe("recording");
+		expect(verdictFor(survey, "librarian")?.kind).toBe("unknown");
 	});
 
 	// A fully-read log where the prefix never appears is not evidence the
@@ -2202,15 +2289,17 @@ describe("surveyStreams", () => {
 	// of either kind (see its table entry: six ordinary bail sites, plus a
 	// seventh "nothing extraction-worthy this session" no-op past all six).
 	//
-	// Alive on its hooks and unaskable about writes, so `recording` - where
-	// this used to read `unknown`. Ten firings with zero output ever written
-	// IS suspicious, and this rule cannot say so, exactly as before; what
-	// changed is that it no longer dresses that inability up as doubt about
-	// whether archivist is running. It plainly is running. Whether it is
-	// producing anything is the question this table cannot reach for
-	// archivist, and the honest reading of that is a clean bill on the one
-	// axis it can measure, not a hedge on both.
-	it("reports archivist recording, not stopped, from hook firing alone now that the hook is not trusted", async () => {
+	// Alive on its hooks and unaskable about writes - but `unknown`, not
+	// `recording`, because `archivist/` has never been written here. Ten
+	// firings with zero output ever produced IS suspicious, and this rule
+	// still cannot say `stopped`; what it can now refuse to do is call that a
+	// clean bill. archivist is plainly running, its output has never appeared,
+	// and this table holds no signal saying whether that is expected - which
+	// is `unknown`'s exact meaning.
+	//
+	// The assertion this test has always protected is the other edge, and it
+	// is unchanged: not `stopped` off hook firings alone.
+	it("reports archivist unknown, not stopped, from hook firing alone now that the hook is not trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["archivist"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -2230,7 +2319,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "archivist")?.kind).toBe("recording");
+		expect(verdictFor(survey, "archivist")?.kind).toBe("unknown");
 	});
 
 	// The same entry gone quiet, which is the half archivist CAN still be
