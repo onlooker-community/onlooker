@@ -29,7 +29,7 @@ pnpm --filter @onlooker/cli lint        # must stay 0 errors, 0 warnings
 pnpm --filter @onlooker/cli typecheck
 ```
 
-Baseline before this plan: **257 tests passing across 13 files**, `apps/cli` lint clean.
+Baseline before this plan: **259 tests passing across 13 files**, `apps/cli` lint clean. (Measured at `04afe28`. An earlier draft said 257, taken from a report dated 2026-09-04; two tests landed after it.)
 
 ---
 
@@ -1412,7 +1412,7 @@ pnpm lint
 ./node_modules/.bin/turbo run test --force
 ```
 
-Expected: `apps/cli` 0 errors 0 warnings; the rest of the monorepo at its existing warning baseline, unchanged. Report the test count against the 257 baseline and account for the difference.
+Expected: `apps/cli` 0 errors 0 warnings; the rest of the monorepo at its existing warning baseline, unchanged. Report the test count against the 259 baseline and account for the difference.
 
 - [ ] **Step 3: Real-machine check**
 
@@ -1443,6 +1443,6 @@ Use the `/pr` skill. The PR should lead with the measurement that reshaped the d
 
 **Known soft spots, flagged rather than hidden.**
 
-- Task 6 Step 8 says "other tests will fail" without enumerating which. That is honest — the current 257 tests were written against branches this task deletes, and predicting the exact set would be guesswork. The instruction to justify each rewrite individually, and the prohibition on deleting tests to go green, is the control.
+- Task 6 Step 8 says "other tests will fail" without enumerating which. That is honest — the current tests were written against branches this task deletes, and predicting the exact set would be guesswork. The instruction to justify each rewrite individually, and the prohibition on deleting tests to go green, is the control.
 - Task 7 is one task covering seventeen entries. It resists splitting: the decision rule is identical for each, and the entries share one file and one guard test. If it runs long, split by entry group at execution time rather than restructuring the plan.
 - `machine()` gains `opportunities` and `subagentSessions` options in Task 6. Those helper edits are specified in prose rather than as a finished diff, because the helper's internals depend on how it currently threads `cwd` into the fixture rows, which the implementer will have in front of them.
