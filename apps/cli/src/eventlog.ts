@@ -24,6 +24,19 @@ export interface EventScan {
 	 * `root` is `null`, meaning the caller never asked for scoping at all.
 	 */
 	lastByPrefix: Record<string, string>;
+	/**
+	 * Newest ISO timestamp per FULL `event_type`, from sessions rooted at
+	 * `root` — the same scoping `lastByPrefix` gets, one level finer.
+	 *
+	 * Exists because `StreamEntry.writeEvents` names full types rather than
+	 * prefixes, and it has to: `governor.session.complete` fires 2774 times
+	 * and implies nothing about output, while `governor.gate.checked` fires
+	 * 84 times and does. `lastByPrefix` takes the newest across the whole
+	 * family, so the unconditional type masks the conditional one — which is
+	 * exactly right for asking "did this plugin run?" and useless for asking
+	 * "should its output have moved?".
+	 */
+	lastByType: Record<string, string>;
 	/** `project_key` values seen on events from sessions rooted at `root`, sorted. */
 	projectKeys: string[];
 	/**
@@ -158,6 +171,7 @@ export async function scanEvents(opts: {
 		// life of the CLI invocation. The event log is untrusted input; the
 		// map it drives into must not have a prototype to collide with.
 		lastByPrefix: Object.create(null) as Record<string, string>,
+		lastByType: Object.create(null) as Record<string, string>,
 		projectKeys: [],
 		sessionIds: [],
 		unreadable: 0,
@@ -182,15 +196,19 @@ export async function scanEvents(opts: {
 	// the join happens once, after the pass, against whichever sessions
 	// turned out to be ours.
 	const keysBySession = new Map<string, Set<string>>();
-	// Same reasoning, for `lastByPrefix`: whether a record's own session
-	// belongs to `mine` is not decided until the pass is done, so the
-	// newest timestamp per prefix is buffered per session first and folded
-	// into `scan.lastByPrefix` afterward, once, against only the sessions
-	// that turned out to be ours. Only used when `opts.root !== null` -
-	// when it is `null` there is no scoping to do, and `lastByPrefix` is
-	// still updated directly, machine-wide, exactly as before this field
-	// existed.
-	const prefixBySession = new Map<string, Record<string, string>>();
+	// Same reasoning as `keysBySession`, for the timestamp maps: whether a
+	// record's own session belongs to `mine` is not decided until the pass
+	// is done, so the newest timestamp is buffered per session first and
+	// folded into `scan.lastByPrefix`/`scan.lastByType` afterward, once,
+	// against only the sessions that turned out to be ours. Only used when
+	// `opts.root !== null` - when it is `null` there is no scoping to do and
+	// both maps are updated directly, machine-wide, exactly as before.
+	//
+	// Keyed by FULL `event_type`, with the prefix derived at fold time
+	// rather than buffered alongside it. One buffer, not two: the prefix is
+	// a pure function of the type, so storing both would be storing the same
+	// information twice per session.
+	const typeBySession = new Map<string, Record<string, string>>();
 
 	let stream: ReturnType<typeof createReadStream>;
 	try {
@@ -241,9 +259,12 @@ export async function scanEvents(opts: {
 
 		if (opts.root === null) {
 			// No root to scope by, so the caller never asked for scoping at
-			// all - `lastByPrefix` stays machine-wide, updated directly.
+			// all - both maps stay machine-wide, updated directly.
 			if (timestamp > (scan.lastByPrefix[prefix] ?? "")) {
 				scan.lastByPrefix[prefix] = timestamp;
+			}
+			if (timestamp > (scan.lastByType[type] ?? "")) {
+				scan.lastByType[type] = timestamp;
 			}
 			return;
 		}
@@ -257,13 +278,13 @@ export async function scanEvents(opts: {
 		// bill" reasoning `streams.ts`'s `judge()` applies everywhere else.
 		if (typeof session !== "string") return;
 
-		let sessionPrefixes = prefixBySession.get(session);
-		if (!sessionPrefixes) {
-			sessionPrefixes = Object.create(null) as Record<string, string>;
-			prefixBySession.set(session, sessionPrefixes);
+		let sessionTypes = typeBySession.get(session);
+		if (!sessionTypes) {
+			sessionTypes = Object.create(null) as Record<string, string>;
+			typeBySession.set(session, sessionTypes);
 		}
-		if (timestamp > (sessionPrefixes[prefix] ?? "")) {
-			sessionPrefixes[prefix] = timestamp;
+		if (timestamp > (sessionTypes[type] ?? "")) {
+			sessionTypes[type] = timestamp;
 		}
 
 		if (
@@ -326,27 +347,35 @@ export async function scanEvents(opts: {
 		// command makes elsewhere (it is why an unenabled-but-writing stream
 		// goes in a footer rather than the fault list), so any failure here
 		// reports `missing` and discards the data that would drive a verdict.
-		// `projectKeys` and `sessionIds` need no reset - they are only
-		// assigned after the loop above, so at this point they are still
-		// their initial `[]`. `unreadable` is left alone too - a scan can
-		// honestly have seen bad lines before a failure like this one.
+		// `lastByType` is discarded for the same reason `lastByPrefix` is: a
+		// truncated map would let a caller certify a stream's write signal
+		// off evidence this module could not fully read. `projectKeys` and
+		// `sessionIds` need no reset - they are only assigned after the loop
+		// above, so at this point they are still their initial `[]`.
+		// `unreadable` is left alone too - a scan can honestly have seen bad
+		// lines before a failure like this one.
 		scan.missing = true;
 		scan.lastByPrefix = Object.create(null) as Record<string, string>;
+		scan.lastByType = Object.create(null) as Record<string, string>;
 		return scan;
 	}
 
 	scan.sessionIds = [...mine].sort((a, b) => a.localeCompare(b));
 	const keys = new Set<string>();
-	// `lastByPrefix` folded in from the per-session buffer here too, once,
-	// against only the sessions that turned out to be `mine` - see
-	// `prefixBySession`'s own comment. A no-op when `opts.root === null`:
-	// `prefixBySession` was never populated in that branch, since
-	// `lastByPrefix` was already updated directly, machine-wide, inline.
+	// `lastByPrefix`/`lastByType` folded in from the per-session buffer here
+	// too, once, against only the sessions that turned out to be `mine` -
+	// see `typeBySession`'s own comment. A no-op when `opts.root === null`:
+	// `typeBySession` was never populated in that branch, since both maps
+	// were already updated directly, machine-wide, inline.
 	for (const session of mine) {
-		const sessionPrefixes = prefixBySession.get(session);
-		if (sessionPrefixes) {
-			for (const prefix of Object.keys(sessionPrefixes)) {
-				const timestamp = sessionPrefixes[prefix];
+		const sessionTypes = typeBySession.get(session);
+		if (sessionTypes) {
+			for (const type of Object.keys(sessionTypes)) {
+				const timestamp = sessionTypes[type];
+				if (timestamp > (scan.lastByType[type] ?? "")) {
+					scan.lastByType[type] = timestamp;
+				}
+				const prefix = type.split(".")[0];
 				if (timestamp > (scan.lastByPrefix[prefix] ?? "")) {
 					scan.lastByPrefix[prefix] = timestamp;
 				}

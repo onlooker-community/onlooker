@@ -227,6 +227,43 @@ describe("scanEvents", () => {
 		expect(scan.lastByPrefix.lineage).toBe("2026-08-01T00:00:01Z");
 	});
 
+	it("records the newest timestamp per full event type, not only per prefix", async () => {
+		const root = "/repo/onlooker";
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T00:00:00.000Z",
+				session_id: "s",
+				payload: { working_directory: root },
+			},
+			{
+				event_type: "lineage.change.recorded",
+				timestamp: "2026-09-01T01:00:00.000Z",
+				session_id: "s",
+				payload: {},
+			},
+			{
+				event_type: "lineage.scan.skipped",
+				timestamp: "2026-09-01T02:00:00.000Z",
+				session_id: "s",
+				payload: {},
+			},
+		]);
+
+		const scan = await scanEvents({ root, env });
+
+		// The prefix keeps taking the newest across the whole family...
+		expect(scan.lastByPrefix.lineage).toBe("2026-09-01T02:00:00.000Z");
+		// ...while each type keeps its own, which is what a write signal needs:
+		// `lineage.change.recorded` implies a write, `lineage.scan.skipped` does not.
+		expect(scan.lastByType["lineage.change.recorded"]).toBe(
+			"2026-09-01T01:00:00.000Z",
+		);
+		expect(scan.lastByType["lineage.scan.skipped"]).toBe(
+			"2026-09-01T02:00:00.000Z",
+		);
+	});
+
 	// `root === null` means the caller never asked for scoping at all (most
 	// of this file's own tests use it that way) - `lastByPrefix` stays
 	// machine-wide in that case, exactly as before this fix.
