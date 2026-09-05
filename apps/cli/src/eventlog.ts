@@ -439,6 +439,28 @@ export interface HookScan {
 	 * catching a real outage. See the design's *The window* section.
 	 */
 	sessionsWithRecords: string[];
+	/**
+	 * Per hook name, the sessions THAT hook fired in, sorted - the same
+	 * records and the same scoping `sessionsWithRecords` is built from, one
+	 * level finer. A hook that never fired in scope is absent, not empty, for
+	 * the same reason it gets no `hooks` entry: `undefined` is what "no
+	 * evidence of our own" means here.
+	 *
+	 * The union answers "was this session a chance for ANY plugin to act",
+	 * which is the right denominator for asking whether a plugin has gone
+	 * silent and the wrong one for asking whether its output should have
+	 * moved. Measured: in the six sessions after lineage's ledger last moved,
+	 * nobody edited a file, `lineage-post-tool-use` fired in none of them, and
+	 * a union denominator charged lineage for all six and called a healthy
+	 * stream `STOPPED`. A session in which an entry's own trigger never fired
+	 * was never a chance for that entry to write.
+	 *
+	 * No threshold is folded in: unlike `hooks[…].firedSince`, this counts a
+	 * firing on either side of `since`. The caller measures its own window
+	 * from its own cutoff (`streams.ts`'s `opportunitiesSince`), and a set
+	 * already narrowed by a different one would silently intersect two.
+	 */
+	sessionsByHook: Record<string, string[]>;
 }
 
 export async function scanHooks(opts: {
@@ -468,6 +490,10 @@ export async function scanHooks(opts: {
 		unreadable: 0,
 		missing: false,
 		sessionsWithRecords: [],
+		// `Object.create(null)` for the same reason `hooks` above gets one:
+		// the keys are hook names, and a hook named `__proto__` must not
+		// resolve through `Object.prototype` for the caller reading it.
+		sessionsByHook: Object.create(null) as Record<string, string[]>,
 	};
 
 	const path = join(
@@ -499,6 +525,12 @@ export async function scanHooks(opts: {
 	// below, so when scoping was requested this is already the
 	// intersection the denominator wants and needs no second pass.
 	const ranHooks = new Set<string>();
+
+	// The same sessions, kept per hook - see `HookScan.sessionsByHook`. A
+	// `Map` rather than the result object directly, so a read that dies
+	// partway leaves the scan's own field empty rather than half-filled; it is
+	// folded in after the loop alongside `sessionsWithRecords`.
+	const byHook = new Map<string, Set<string>>();
 
 	// See `scanEvents`'s identical `processLine` for why the final line is
 	// held back and run through this a beat later than every other line.
@@ -545,7 +577,19 @@ export async function scanHooks(opts: {
 		// An unattributable firing proves a hook ran but not WHERE, so it
 		// cannot make any session an opportunity - excluded here even on the
 		// unscoped path, where it is still counted as a firing above.
-		if (typeof session === "string") ranHooks.add(session);
+		//
+		// Both sets are recorded BEFORE the `since` filter below: a firing
+		// that predates the threshold is still a firing, and neither set is
+		// about the threshold. See `HookScan.sessionsByHook`.
+		if (typeof session === "string") {
+			ranHooks.add(session);
+			let sessions = byHook.get(hook);
+			if (!sessions) {
+				sessions = new Set();
+				byHook.set(hook, sessions);
+			}
+			sessions.add(session);
+		}
 
 		if (!scan.hooks[hook])
 			scan.hooks[hook] = { firedSince: 0, okSince: 0, last: "" };
@@ -611,7 +655,10 @@ export async function scanHooks(opts: {
 		// mistakenly trust either way - firedSince/okSince/last are just
 		// undercounts of a scan that did not finish, so any failure here
 		// reports `missing` and discards them rather than handing a caller a
-		// table that looks complete but is not.
+		// table that looks complete but is not. `sessionsWithRecords` and
+		// `sessionsByHook` need no reset for the same reason `scanEvents`'s
+		// `sessionIds` does not: both are assigned only after the loop below,
+		// so a failure here leaves them at their empty initial values.
 		scan.missing = true;
 		scan.hooks = Object.create(null) as Record<
 			string,
@@ -621,5 +668,10 @@ export async function scanHooks(opts: {
 	}
 
 	scan.sessionsWithRecords = [...ranHooks].sort((a, b) => a.localeCompare(b));
+	for (const [hook, sessions] of byHook) {
+		scan.sessionsByHook[hook] = [...sessions].sort((a, b) =>
+			a.localeCompare(b),
+		);
+	}
 	return scan;
 }

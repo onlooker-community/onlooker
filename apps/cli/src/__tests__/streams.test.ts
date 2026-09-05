@@ -776,6 +776,7 @@ function opportunityRows(
 	cwd: string,
 	count: number,
 	endingOn: string,
+	triggerHook?: string,
 ): { events: unknown[]; hooks: unknown[] } {
 	const events: unknown[] = [];
 	const hooks: unknown[] = [];
@@ -800,6 +801,16 @@ function opportunityRows(
 			status: "success",
 			session_id: id,
 		});
+		// The entry-under-test's own trigger, inside the session it fired in -
+		// see `machine`'s `triggerHook`.
+		if (triggerHook !== undefined) {
+			hooks.push({
+				hook: triggerHook,
+				timestamp: `${date}T00:00:01Z`,
+				status: "success",
+				session_id: id,
+			});
+		}
 	}
 	return { events, hooks };
 }
@@ -852,6 +863,20 @@ function machine(opts: {
 	 * count as opportunities.
 	 */
 	subagentSessions?: number;
+	/**
+	 * A hook belonging to the entry under test, fired once inside each
+	 * generated opportunity.
+	 *
+	 * The write window counts only opportunities in which the entry's OWN
+	 * trigger fired (`computeVerdict`), so a fixture that pins every firing on
+	 * one off-window session - `MACHINE_SESSION_ID`, which starts in 1970 -
+	 * proves the hook ran somewhere and leaves the write axis nothing to
+	 * count. Real logs attribute a firing to the session it happened in; this
+	 * is how a fixture says "the trigger ran in every one of these sessions
+	 * and the output still did not move," which is what a stalled writer
+	 * actually looks like.
+	 */
+	triggerHook?: string;
 }): { cwd: string; home: string; configDir: string; env: NodeJS.ProcessEnv } {
 	const dir = mkdtempSync(join(tmpdir(), "onlooker-survey-"));
 	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
@@ -880,6 +905,7 @@ function machine(opts: {
 			cwd,
 			opts.opportunities,
 			opts.opportunitiesEndingOn ?? LAST_OPPORTUNITY,
+			opts.triggerHook,
 		);
 		events.push(...rows.events);
 		hooks.push(...rows.hooks);
@@ -1110,6 +1136,15 @@ describe("stream conditionality", () => {
 		// The false negative this design must not lose. lineage-post-tool-use
 		// fires constantly; `lineage.change.recorded` is emitted at the ledger
 		// write site, so its silence IS the writes stopping.
+		//
+		// The hook fires in five of the six opportunities, one per session, and
+		// that is the point rather than fixture decoration: the write window
+		// counts only opportunities this entry's OWN trigger fired in, so a
+		// single firing in the newest session - what this fixture held while
+		// the denominator was every session that ran any hook - is now one
+		// opportunity, not six, and reads `recording`. Five is exactly
+		// `SESSION_STALL_THRESHOLD`, so this also pins the boundary the verdict
+		// turns on.
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1128,6 +1163,64 @@ describe("stream conditionality", () => {
 					payload: {},
 				},
 			],
+			// `opportunities: 6` places `opp-0` on 2026-08-31 and runs forward a
+			// day at a time to `opp-5` on 2026-09-05 (see `opportunityRows`);
+			// `opp-0` is left out so the count is five rather than all six.
+			hooks: [
+				["opp-1", "2026-09-01"],
+				["opp-2", "2026-09-02"],
+				["opp-3", "2026-09-03"],
+				["opp-4", "2026-09-04"],
+				["opp-5", "2026-09-05"],
+			].map(([session, date]) => ({
+				hook: "lineage-post-tool-use",
+				timestamp: `${date}T11:00:00Z`,
+				status: "success",
+				session_id: session,
+			})),
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("stopped");
+		expect(v?.kind === "stopped" && v.detail).toContain("5 sessions ago");
+	});
+
+	it("does not call a stream stopped for sessions its own trigger never fired in", async () => {
+		// The bug this narrower denominator exists to remove, measured on the
+		// real machine: lineage read `STOPPED` because its ledger had not moved
+		// in six sessions, in none of which anyone edited a file - so
+		// lineage-post-tool-use fired in none of them either, and all six
+		// counted against it anyway.
+		//
+		// Same shape as the frozen-ledger fixture above, and deliberately: the
+		// two differ only in how many of the six opportunities the trigger
+		// actually fired in. One is the false negative that must stay caught,
+		// this is the false positive that must not be raised, and no rule that
+		// reads the two the same way can be right about both.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-30T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-08-30T00:00:00.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+			// One firing, in the newest opportunity, so the plugin is alive and
+			// the only question left is the write one. The other five sessions
+			// ran the hook machinery - `opportunityRows` gives each one a
+			// `session-start-tracker` record - and asked nothing of lineage.
 			hooks: [
 				{
 					hook: "lineage-post-tool-use",
@@ -1141,7 +1234,7 @@ describe("stream conditionality", () => {
 			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
 			"lineage",
 		);
-		expect(v?.kind).toBe("stopped");
+		expect(v?.kind).toBe("recording");
 	});
 
 	it("reports unknown, not stopped, when too few opportunities have elapsed to judge", async () => {
@@ -1330,7 +1423,7 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
-			// Placed to end on the write hook's own last firing, so bursar is
+			// The write hook fires inside every one of the six, so bursar is
 			// unambiguously ALIVE and the only thing that can stall it is its
 			// output: all six opportunities postdate our key's frozen mtime,
 			// none of them postdate the hook. If the sibling's key leaked into
@@ -1338,6 +1431,7 @@ describe("surveyStreams", () => {
 			// read `recording` instead.
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-06-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -1350,12 +1444,6 @@ describe("surveyStreams", () => {
 					"2026-09-02T00:00:00Z",
 				],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
@@ -1375,9 +1463,12 @@ describe("surveyStreams", () => {
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			// Six opportunities, all after the frozen output and none after the
-			// last hook firing: alive, and not writing.
+			// last hook firing: alive, and not writing. The hook fires inside
+			// each of them, which is what makes all six count against the
+			// output - see `machine`'s `triggerHook`.
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-08-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -1385,12 +1476,6 @@ describe("surveyStreams", () => {
 				],
 				[join("bursar", "sessions", "today.jsonl"), "2026-09-02T00:00:00Z"],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		const verdict = verdictFor(survey, "bursar");
@@ -1472,20 +1557,19 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["inspector"],
 			opportunities: 6,
+			// "Keep firing" is now literal: `inspector-post-write` fires in
+			// each of the six, so each of them was a genuine chance for an
+			// event to land and none did. A single firing in the newest
+			// session - what this fixture held while the write window counted
+			// every session that ran any hook - is one opportunity, and one is
+			// not evidence of anything.
+			triggerHook: "inspector-post-write",
 			events: [
 				{
 					event_type: "inspector.check.passed",
 					timestamp: "2026-08-07T00:00:00Z",
 					session_id: "opp-0",
 					payload: {},
-				},
-			],
-			hooks: [
-				{
-					hook: "inspector-post-write",
-					timestamp: "2026-09-05T06:00:00Z",
-					status: "success",
-					session_id: "opp-5",
 				},
 			],
 		});
@@ -1858,6 +1942,11 @@ describe("surveyStreams", () => {
 			projectKeys: ["aaaaaaaaaaaa"],
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-09-02",
+			// The trigger fires in all six, so all six were chances to record a
+			// change. Without it the fixture asserts a stall across sessions
+			// that never invoked lineage at all, which is the false positive
+			// the write window's own denominator now rules out.
+			triggerHook: "lineage-post-tool-use",
 			files: [
 				[
 					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
@@ -2426,18 +2515,13 @@ describe("surveyStreams", () => {
 			// well-supported `stopped` as before, reached by the new rule.
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-06-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-06-01T00:00:00Z",
 				],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const base = env.ONLOOKER_DIR as string;
 		mkdirSync(join(base, "elsewhere-target"), { recursive: true });
@@ -2788,25 +2872,34 @@ describe("surveyStreams", () => {
 	// `stopped` through it rather than through liveness: the opportunities
 	// are placed to end on the last hook firing, so bursar is demonstrably
 	// alive across all six and the sole thing that has not moved is the
-	// output. Six firings sit on top of it - once enough to cross
-	// STALL_THRESHOLD by themselves - and contribute nothing to the finding.
+	// output.
+	//
+	// The firings decide WHICH sessions the write axis may count - each one
+	// makes its session a chance for bursar to write - and their number is
+	// still not the finding. Twelve firings in six sessions would read the
+	// same, and one firing in one session would read `recording` however many
+	// times it was repeated, which is what the count-the-firings rule this
+	// replaced could never say.
 	it("reports stopped from opportunities elapsed since the last write, not from the write hook's firing count", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-08-07",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
+			// A second firing in each session, on top of the one `triggerHook`
+			// places: the quantity must change nothing.
 			hooks: Array.from({ length: 6 }, (_, i) => ({
 				hook: "bursar-session-end",
-				timestamp: `2026-08-${String(2 + i).padStart(2, "0")}T00:00:00Z`,
+				timestamp: `2026-08-${String(2 + i).padStart(2, "0")}T00:00:02Z`,
 				status: "success",
-				session_id: MACHINE_SESSION_ID,
+				session_id: `opp-${i}`,
 			})),
 		});
 		const survey = await surveyStreams({
@@ -3077,6 +3170,39 @@ describe("opportunitiesSince", () => {
 				"2026-01-01T00:00:00.000Z",
 			),
 		).toBe(0);
+	});
+
+	// The write window's narrower denominator. `b` and `c` are the sessions
+	// the entry's own trigger fired in; `a` ran hooks, but none of this
+	// entry's, so it was never a chance for this entry to write.
+	it("counts only sessions in the restricting set when one is given", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", ["b", "c"]),
+		).toBe(2);
+	});
+
+	// The restriction narrows the denominator, it does not replace it: a
+	// session that ran no hook at all is not an opportunity however it was
+	// named.
+	it("still requires a hook record from a session in the restricting set", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", [
+				"subagent",
+			]),
+		).toBe(0);
+	});
+
+	// An entry whose trigger fired nowhere had no chance to write anywhere,
+	// which is the whole point: the count is 0 and no threshold can be reached
+	// through it. Distinct from omitting the argument, which is what the
+	// liveness window does and must keep doing.
+	it("counts nothing for an empty restricting set, and everything for none", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", []),
+		).toBe(0);
+		expect(opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z")).toBe(
+			3,
+		);
 	});
 
 	// The precision trap: hook-health writes second precision, the event log

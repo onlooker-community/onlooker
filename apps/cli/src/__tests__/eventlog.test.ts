@@ -677,6 +677,65 @@ describe("scanHooks", () => {
 		expect(all.sessionsWithRecords).toEqual(["ours", "theirs"]);
 	});
 
+	// The union answers "was this session a chance for ANY plugin to act,"
+	// which is the wrong question for the write axis: a session in which
+	// lineage's own hook never fired was never a chance for lineage's ledger
+	// to move, and charging it for one is the false positive that put a
+	// healthy lineage at `STOPPED` on the real machine. Both sessions below ran
+	// the hook machinery; only one of them was lineage's.
+	it("records which sessions each hook fired in, not only which ran hooks at all", async () => {
+		const env = withHooks([
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T00:00:00Z",
+				"success",
+				"edited",
+			),
+			firing(
+				"bursar-session-end",
+				"2026-09-02T00:00:00Z",
+				"success",
+				"read-only",
+			),
+			// Scoped out, like every other count here: another repo's session
+			// firing this hook says nothing about ours.
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-03T00:00:00Z",
+				"success",
+				"theirs",
+			),
+			// Unattributable, so it cannot make any session anything.
+			firing("lineage-post-tool-use", "2026-09-04T00:00:00Z"),
+		]);
+		const scan = await scanHooks({
+			since: {},
+			sessionIds: ["edited", "read-only"],
+			env,
+		});
+		expect(scan.sessionsWithRecords).toEqual(["edited", "read-only"]);
+		expect(scan.sessionsByHook["lineage-post-tool-use"]).toEqual(["edited"]);
+		expect(scan.sessionsByHook["bursar-session-end"]).toEqual(["read-only"]);
+	});
+
+	// Attribution is recorded before the `since` filter, and has to be: a
+	// firing that predates the output's own mtime is still a firing, and
+	// `sessionsByHook` means "the sessions this hook fired in" with no
+	// threshold folded into it. The caller measures its own window from its
+	// own cutoff (see `opportunitiesSince`); a set already narrowed by a
+	// different one would silently intersect two windows.
+	it("attributes a session even when the firing predates the hook's threshold", async () => {
+		const env = withHooks([
+			firing("assayer-stop", "2026-08-01T00:00:00Z", "success", "early"),
+		]);
+		const scan = await scanHooks({
+			since: { "assayer-stop": "2026-08-07T00:00:00Z" },
+			env,
+		});
+		expect(scan.hooks["assayer-stop"].firedSince).toBe(0);
+		expect(scan.sessionsByHook["assayer-stop"]).toEqual(["early"]);
+	});
+
 	// `since[hook]` carries millisecond precision (`mtimeToIso`, always via
 	// `Date#toISOString()`); hook-health.jsonl writes second precision.
 	// Lexically "...:45Z" sorts ABOVE "...:45.123Z" ('Z' is 0x5A, '.' is
@@ -764,6 +823,11 @@ describe("scanHooks", () => {
 		});
 		expect(scan.missing).toBe(true);
 		expect(scan.hooks).toEqual({});
+		// Both session sets are assigned only after the read loop finishes, so
+		// a truncated pass yields empty rather than a partial attribution a
+		// caller would read as a complete one.
+		expect(scan.sessionsByHook).toEqual({});
+		expect(scan.sessionsWithRecords).toEqual([]);
 	});
 
 	it("counts a line that will not parse instead of throwing", async () => {

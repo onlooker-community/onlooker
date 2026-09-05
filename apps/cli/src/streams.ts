@@ -1490,6 +1490,17 @@ export function outputLabel(entry: StreamEntry): string {
  * went unnoticed; no value satisfies both. Counting opportunities instead
  * drops that floor to 1.
  *
+ * `restrictTo` narrows that further, to sessions the caller has some reason
+ * to count - `computeVerdict` passes the sessions an entry's own hooks fired
+ * in when it asks the WRITE question, because a session in which the entry's
+ * trigger never fired was never a chance for it to write. It narrows rather
+ * than replaces: a session named there that ran no hook at all is still not
+ * an opportunity. Omitted means no narrowing, which is what the liveness
+ * question wants and must keep wanting - narrowing that one would be
+ * circular, since an entry whose hooks never fire would generate none of its
+ * own opportunities and could never be judged silent, the exact
+ * enabled-but-never-runs case liveness exists to catch.
+ *
  * Epoch comparison, not lexical: `iso` can arrive from either log, and the
  * two write different precision. See `scanHooks`'s `since` comment for the
  * full trap.
@@ -1498,12 +1509,18 @@ export function opportunitiesSince(
 	events: Pick<EventScan, "sessionStarts">,
 	hooks: Pick<HookScan, "sessionsWithRecords">,
 	iso: string,
+	restrictTo?: readonly string[],
 ): number {
 	const ran = new Set(hooks.sessionsWithRecords);
+	// `undefined` means "no narrowing requested"; a real array, even an empty
+	// one, means "exactly these" - the same distinction `scanHooks`'s
+	// `sessionIds` draws, and for the same reason.
+	const only = restrictTo === undefined ? null : new Set(restrictTo);
 	const cutoff = new Date(iso).getTime();
 	let count = 0;
 	for (const session of Object.keys(events.sessionStarts)) {
 		if (!ran.has(session)) continue;
+		if (only !== null && !only.has(session)) continue;
 		if (new Date(events.sessionStarts[session]).getTime() > cutoff) count++;
 	}
 	return count;
@@ -2086,7 +2103,31 @@ function computeVerdict(
 		};
 	}
 
-	const sinceWrite = opportunitiesSince(events, hooks, lastWrite);
+	// The write window, and the one place the denominator narrows. Liveness
+	// above counts every opportunity this repo had; this counts only the ones
+	// in which THIS entry's own trigger fired, because a session that never
+	// invoked the entry was never a chance for it to write. lineage measured
+	// the difference: six opportunities since its ledger last moved, no file
+	// edited in any of them, `lineage-post-tool-use` fired in none of them,
+	// and the broad denominator charged it for all six and called a healthy
+	// stream `STOPPED` - this document's own false positive, reintroduced by
+	// its own denominator. Detection is untouched: five opportunities in which
+	// the trigger DID fire with nothing recorded is still the frozen-ledger
+	// shape, and still `stopped`.
+	//
+	// An entry naming no hooks would produce an empty set and could never
+	// reach `stopped` on this axis. No table entry has that shape, and if one
+	// ever does, resting on liveness alone is the conservative direction taken
+	// everywhere else here.
+	const triggeredIn = new Set<string>();
+	for (const hook of entry.hooks) {
+		for (const session of hooks.sessionsByHook[hook] ?? []) {
+			triggeredIn.add(session);
+		}
+	}
+	const sinceWrite = opportunitiesSince(events, hooks, lastWrite, [
+		...triggeredIn,
+	]);
 	// Name the axis that actually moved, which is not always a path.
 	// `outputLabel` renders "(none)" for an `output: null` entry, so building
 	// this from it alone reports "(none) last changed 2026-08-07" on the one
