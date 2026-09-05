@@ -10,23 +10,37 @@ import { scanEvents, scanHooks } from "./eventlog";
  * machinery, see `opportunitiesSince` - may pass with no sign of life from a
  * stream before its silence reads as a stall rather than as quiet.
  *
- * The design's only arbitrary number, and recorded as such - but read off
- * measured data rather than picked and justified afterward, which is what
- * went wrong with the wall-clock constant it replaces.
+ * The design's only arbitrary number, and now recorded as arbitrary in a
+ * stronger sense than before: **there is no measured floor above it.** The
+ * value is not justified by a healthy stream's longest silence. It is
+ * justified by `firesEverySession`, which bounds WHO liveness may accuse so
+ * that a wrong count cannot reach a healthy entry in the first place.
  *
- * Floor 1, ceiling 6. Over the six opportunities this repo had between
- * 2026-08-30 and 2026-09-05: bursar fired in 6 of 6, and lineage, inspector
- * and assayer in 5 of 6 - so a healthy stream's longest silence was one
- * opportunity, and six have elapsed since the 2026-08-07 outage. Five sits
- * above the floor with margin and at or below the ceiling.
+ * What the first measurement said, and why it was wrong. This docstring
+ * used to read "Floor 1, ceiling 6. Over the six opportunities this repo had
+ * between 2026-08-30 and 2026-09-05: bursar fired in 6 of 6, and lineage,
+ * inspector and assayer in 5 of 6." Re-measured over the SAME window after
+ * the implementation sessions ran: **31 opportunities**, in which bursar
+ * fired in 13, lineage in 6, inspector in 6 and assayer in 5. The numerators
+ * barely moved; the denominator grew fivefold, because parallel-agent waves
+ * manufacture opportunities in which most triggers have no reason to fire.
+ * The longest healthy silent run in that window is therefore **8**, not 1 -
+ * above this threshold, not below it.
  *
- * It also absorbs the ordering effect the retired firing-count threshold was
- * set for: every stream can legitimately lag its own trigger by about one
- * opportunity - `bursar-session-start` fires at the top of a session whose
- * output is not written until `bursar-session-end` - and five clears that
- * without modeling it per plugin, leaving margin for a plugin that batches
- * writes. Detection is untouched by the margin; the real bursar outage
- * reached 71 firings.
+ * Raising the value to clear 8 would buy time rather than correctness, which
+ * is why it was not raised. 8 is not a property of any plugin: it is the size
+ * of the largest parallel-agent wave, and in an agent-driven repo that has no
+ * ceiling. The fix taken instead is `firesEverySession` - an entry may reach
+ * `stopped` on liveness only where the table records that its hooks fire in
+ * every session, which makes it immune to a wave by construction.
+ *
+ * What five still buys, and this part survived the re-measurement: it absorbs
+ * the ordering effect the retired firing-count threshold was set for. Every
+ * stream can legitimately lag its own trigger by about one opportunity -
+ * `bursar-session-start` fires at the top of a session whose output is not
+ * written until `bursar-session-end` - and five clears that without modeling
+ * it per plugin, leaving margin for a plugin that batches writes. Detection
+ * is untouched by the margin; the real bursar outage reached 71 firings.
  *
  * The ceiling used to be argued by naming counsel - "five reports counsel
  * `stopped` today rather than `unknown`" - and that is no longer true.
@@ -34,12 +48,12 @@ import { scanEvents, scanHooks } from "./eventlog";
  * `writeGateHours` since the rule was unified and a seven-day gate judged
  * against a five-opportunity window reads `stopped` on a healthy stream
  * (see the entry's own comment, and `onlooker-1vt`). It therefore has no
- * write axis to reach `stopped` on. The measurement above is unaffected -
- * six opportunities did elapse - only the illustration went.
+ * write axis to reach `stopped` on.
  *
- * The sample is six opportunities wide, because every enabled plugin's
- * hook-health history begins 2026-08-30. `onlooker-run` tracks rechecking
- * this once the enabled set has roughly a month of history.
+ * `onlooker-run` tracks rechecking this once the enabled set has roughly a
+ * month of history - now as a recheck of the write axis, since liveness no
+ * longer rests on the count alone. Its own description was written from the
+ * six-opportunity sample and is superseded by the numbers above.
  */
 export const SESSION_STALL_THRESHOLD = 5;
 
@@ -226,6 +240,74 @@ export interface StreamEntry {
 	 */
 	writeEvents?: readonly string[];
 	/**
+	 * Whether EVERY hook in `hooks` fires in every session, so that this
+	 * entry's last sign of life cannot go stale while sessions are running.
+	 *
+	 * The permission slip for the liveness half of `computeVerdict`, and the
+	 * only thing that lets an entry reach `stopped` on it. Silence is evidence
+	 * of a stall only if something was due; for an entry whose hooks fire on a
+	 * trigger the session may simply never hit, silence is the ordinary shape
+	 * of an ordinary session, and the verdict degrades to `unknown`.
+	 *
+	 * The false positive that put this here: `inspector` read
+	 * `STOPPED - last sign of life 2026-09-05 21:30, 8 sessions ago` seven
+	 * minutes after `inspector-post-write` last fired, on a healthy inspector.
+	 * Eight subagent sessions started in those seven minutes; every one of
+	 * them counts as an opportunity, because every one of them ran
+	 * ecosystem's trackers, and not one of them was a Write - so inspector's
+	 * trigger COULD not fire, and eight opportunities were charged against it
+	 * for sessions that never asked it for anything. An entry whose hooks are
+	 * session-level is immune to that wave by construction: its hooks fire in
+	 * subagent sessions too, so each of the eight refreshes its last-seen
+	 * instant rather than aging it.
+	 *
+	 * Raising `SESSION_STALL_THRESHOLD` does not fix this. The wave's size is
+	 * the number of agents dispatched at once, which in an agent-driven repo
+	 * has no ceiling - the same window that once held six opportunities held
+	 * 31 after a few implementation sessions. Bounding WHO may be accused is
+	 * the fix; bounding HOW MANY only buys time. `onlooker-run` tracks the
+	 * threshold recheck this displaced.
+	 *
+	 * The write axis asks the same question and answers it differently, by
+	 * narrowing its denominator to the sessions the entry's own hooks fired
+	 * in. That narrowing keys on all of `hooks` too, and `onlooker-kqc4`
+	 * records where doing so is wrong for a conditional WRITER - librarian,
+	 * whose session-level hooks fire every session while its lessons are
+	 * written rarely and legitimately. The two fields are mirrors of each
+	 * other and neither substitutes for the other: this one says the trigger
+	 * was due, kqc4 asks whether a WRITE was.
+	 *
+	 * This is the same question the write axis already asks - was this
+	 * session a real chance for this entry? - answered for liveness the only
+	 * non-circular way available. Not by counting the entry's own firings,
+	 * which would compare a signal against itself, but by recording ahead of
+	 * time whether they were due.
+	 *
+	 * Set from the hook's TRIGGER, read out of each plugin's `hooks.json`,
+	 * never inferred from the hook's name. Exactly one shape qualifies:
+	 * `SessionStart`, `SessionEnd` or `Stop`, matched `*`. Those fire once per
+	 * session whatever the session does, including a subagent session that
+	 * runs no tools at all.
+	 *
+	 * Nothing else does. `PreToolUse`/`PostToolUse` on any matcher is
+	 * conditional on that tool being used; `PreCompact` is conditional on a
+	 * compaction; `UserPromptSubmit` is conditional on a human prompt, which a
+	 * subagent session driven by the Task tool never submits.
+	 *
+	 * ALL of `hooks`, not merely one of them, and undefined is the answer
+	 * wherever that cannot be established. Abstaining is the direction taken
+	 * everywhere in this design: a `stopped` withheld from a dead stream is a
+	 * missed alarm, and a `stopped` handed to a live one is the false alarm
+	 * this whole module exists to remove. The cost is real and is recorded
+	 * per entry - archivist, historian, scribe and governor each carry a
+	 * session-level hook that would in fact keep their liveness fresh, and
+	 * each is held back by one conditional sibling in the same list.
+	 *
+	 * See each entry below for its hooks' trigger types and why they do or do
+	 * not settle the question.
+	 */
+	firesEverySession?: boolean;
+	/**
 	 * Whether this entry's output is organized as `<output>/<key>[/<subpath>]`
 	 * - one subtree per project this machine has ever touched - rather than
 	 * as one flat tree beneath `output`.
@@ -282,6 +364,15 @@ export const STREAMS: readonly StreamEntry[] = [
 		// parent of them, so `subpath` cannot separate it out; `ignore` can.
 		ignore: ["manifest.json"],
 		hooks: ["archivist-extract", "archivist-inject"],
+		// No firesEverySession, and archivist is the cleanest example of what
+		// the all-of-`hooks` rule costs. archivist-inject IS session-level
+		// (SessionStart `*`, archivist's hooks.json), so archivist's liveness
+		// would in fact stay fresh through an agent wave - but
+		// archivist-extract is PreCompact, matched `manual` and `auto`, and a
+		// session that never fills its context never compacts. One
+		// conditional sibling is enough to withhold the flag, which is the
+		// direction the field's docstring commits to.
+
 		// NOT archivist-inject, which runs at SessionStart and only reads -
 		// that part still holds. But archivist-extract itself is NOT a
 		// reliable write signal either, on a closer read than the original
@@ -325,6 +416,12 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: "assayer",
 		events: ["assayer"],
 		hooks: ["assayer-stop"],
+		// assayer-stop is Stop `*` (assayer's hooks.json) - one hook, and it
+		// runs at the end of every session including a subagent's. Nothing
+		// here is conditional on a tool, a prompt or a compaction, so a run of
+		// opportunities with no assayer firing in any of them really is
+		// assayer having stopped, not the sessions having had no use for it.
+		firesEverySession: true,
 		// NOT writeHooks: ["assayer-stop"], despite being its only hook.
 		// assayer-stop.sh registers hook health at line 35, then has SEVEN
 		// bail sites before it ever writes an audit - no repo root (:94), no
@@ -370,6 +467,13 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: join("bursar", "projects"),
 		events: ["bursar"],
 		hooks: ["bursar-session-start", "bursar-session-end"],
+		// SessionStart `*` and SessionEnd `*` (bursar's hooks.json): both ends
+		// of every session, neither conditional on anything the session does.
+		// This is the entry the liveness axis was calibrated on - bursar fired
+		// in more opportunities than any other plugin in the measured window -
+		// and it is the shape the axis must keep accusing, since the
+		// 2026-08-07 outage this module was built for was bursar's.
+		firesEverySession: true,
 		// NOT bursar-session-start, which fires a whole session before the
 		// write bursar-session-end performs - the "one session of lag"
 		// `SESSION_STALL_THRESHOLD` leaves room for. Counting
@@ -446,6 +550,14 @@ export const STREAMS: readonly StreamEntry[] = [
 		// Liveness is the honest axis until a gated writer has a denominator
 		// that respects its gate. Tracked as `onlooker-1vt`.
 		hooks: ["cartographer-post-write", "cartographer-session-start"],
+		// No firesEverySession. cartographer-session-start is SessionStart
+		// `*`, but cartographer-post-write is PostToolUse matched Write, Edit
+		// and MultiEdit (cartographer's hooks.json) - the same trigger shape
+		// as inspector's, and the one that produced the false `stopped`. A
+		// read-only session fires it zero times, so it cannot be treated as
+		// due. cartographer keeps no write axis either, so with the flag
+		// withheld it cannot reach `stopped` at all - see `onlooker-1vt`,
+		// which is what would give a gated writer its axis back.
 	},
 	{
 		plugin: "compass",
@@ -464,6 +576,14 @@ export const STREAMS: readonly StreamEntry[] = [
 			"compass-record-write",
 			"compass-session-start",
 		],
+		// No firesEverySession. Only compass-session-start is session-level
+		// (SessionStart `*`); the other three are tool-scoped in compass's
+		// hooks.json - compass-bash-gate on PreToolUse Bash,
+		// compass-pre-tool-use on PreToolUse Write/Edit/MultiEdit,
+		// compass-record-write on PostToolUse Write/Edit/MultiEdit. The same
+		// conditionality that emptied this entry's writeHooks and writeEvents
+		// withholds the flag, one axis up.
+
 		// No writeHooks, reversing an earlier call on this entry. It used to
 		// read `["compass-bash-gate"]`, justified as "a write-pattern match
 		// reliably emits" - true, and not the claim the field makes. The
@@ -539,6 +659,13 @@ export const STREAMS: readonly StreamEntry[] = [
 		// else here, and it reverses the moment `writeGateHours` has a
 		// consumer again. Tracked as `onlooker-1vt`.
 		hooks: ["counsel-session-start"],
+		// counsel-session-start is SessionStart `*` (counsel's hooks.json) -
+		// its only hook, and unconditional. Note what this does and does not
+		// say: the HOOK is due every session, which is what liveness asks.
+		// Whether the brief gets WRITTEN is gated to once per seven days, and
+		// that is the separate question the entry declines to answer by naming
+		// no writeEvents (see this entry's comment above, and `onlooker-1vt`).
+		firesEverySession: true,
 		// `counsel/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -578,6 +705,11 @@ export const STREAMS: readonly StreamEntry[] = [
 		// this machine's 139k-entry log, against 4,894 `curator.scan.
 		// complete` - the ratio is the same fact stated in numbers.
 		hooks: ["curator-session-start"],
+		// curator-session-start is SessionStart `*` (curator's hooks.json) -
+		// its only hook, and unconditional. As with counsel, this is a claim
+		// about the trigger only: curator writes findings only when the memory
+		// store has a problem, which is why it names no writeEvents.
+		firesEverySession: true,
 	},
 	{
 		plugin: "echo",
@@ -603,6 +735,11 @@ export const STREAMS: readonly StreamEntry[] = [
 		// detected` (:277, :292) are rarer still and fire per finding, not
 		// per write.
 		hooks: ["echo-stop-gate"],
+		// echo-stop-gate is Stop `*` (echo's hooks.json) - its only hook, and
+		// it runs at the end of every session. Its analytical work is
+		// conditional on there being an agent prompt worth revising, which is
+		// why it names no writeEvents; the firing itself is not.
+		firesEverySession: true,
 		// `echo/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -634,6 +771,26 @@ export const STREAMS: readonly StreamEntry[] = [
 			"context-compact-tracker",
 			"worktree-tracker",
 		],
+		// No firesEverySession, and the fourteen are not close to unanimous.
+		// Only three are session-level in ecosystem's hooks.json -
+		// session-start-tracker and memory-recall-tracker on SessionStart `*`,
+		// session-end-tracker on SessionEnd `*`. The rest are conditional on
+		// something the session may never do: tool-sequence-tracker on
+		// PreToolUse `*`, agent-spawn-tracker on PreToolUse Agent,
+		// skill-usage-tracker on PreToolUse Skill and UserPromptExpansion,
+		// tool-history-tracker on PostToolUse `*` and PostToolUseFailure `*`,
+		// turn-tracker / session-duration-tracker / prompt-rule-injector on
+		// UserPromptSubmit, pre-compact-tracker on PreCompact,
+		// context-compact-tracker on PostCompact, task-tracker on
+		// TaskCreated/TaskCompleted, worktree-tracker on
+		// WorktreeCreate/WorktreeRemove.
+		//
+		// Detection of the 2026-08-07 outage does not depend on this flag and
+		// must not be read as depending on it. That shape is trackers dead
+		// while hooks keep firing, which is a WRITE-axis verdict off
+		// `writeEvents` below - liveness reads fresh throughout, by
+		// construction, which is exactly why the write axis exists here.
+
 		// Four of the fourteen never call an emit function that touches any
 		// of the five prefixes above, for any input, ever - read in full,
 		// not inferred:
@@ -757,6 +914,13 @@ export const STREAMS: readonly StreamEntry[] = [
 			"governor-session-start",
 			"governor-stop",
 		],
+		// No firesEverySession, and this one is held back by a narrow matcher
+		// rather than a broad one. governor-session-start (SessionStart `*`)
+		// and governor-stop (Stop `*`) are session-level, but
+		// governor-pre-tool-use and governor-post-tool-use are matched Task
+		// alone in governor's hooks.json - so they fire only in a session that
+		// dispatches a subagent, which most sessions never do.
+
 		// NOT perProject, checked directly (not inferred): `~/.onlooker/
 		// governance/` holds one flat `ledgers/` directory
 		// (governor-ledger.sh:29 - `${ONLOOKER_DIR}/governance/ledgers`),
@@ -791,6 +955,14 @@ export const STREAMS: readonly StreamEntry[] = [
 		subpath: "sessions",
 		events: ["historian"],
 		hooks: ["historian-prompt-submit", "historian-session-end"],
+		// No firesEverySession, withheld on the UserPromptSubmit half.
+		// historian-session-end is SessionEnd `*` and would carry liveness on
+		// its own; historian-prompt-submit is UserPromptSubmit (historian's
+		// hooks.json), and a subagent session driven by the Task tool submits
+		// no user prompt at all - which is precisely the session shape that
+		// manufactured the wave. Recorded as a cost of the all-of-`hooks`
+		// rule, not as a claim that historian is fragile.
+
 		// NOT historian-prompt-submit, which fires on every prompt and
 		// writes nothing analytical by itself.
 		//
@@ -835,6 +1007,16 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: null,
 		events: ["inspector"],
 		hooks: ["inspector-post-write"],
+		// No firesEverySession, and this is the entry the field was added for.
+		// inspector-post-write is PostToolUse matched Write, Edit and
+		// MultiEdit (inspector's hooks.json) and nothing else, so a session
+		// that edits no file never triggers inspector at all. Eight such
+		// sessions in seven minutes read `STOPPED - last sign of life
+		// 2026-09-05 21:30, 8 sessions ago` on a healthy inspector; with the
+		// flag withheld the same evidence reads `unknown`, which is the true
+		// answer. inspector keeps its write axis, so a session that DID write
+		// and produced no `inspector.*` event still counts against it.
+
 		// Its matcher already scopes it to Write/Edit/MultiEdit only
 		// (inspector's hooks.json), so the tool-name/missing-target guards
 		// inside the script are dead code, not a routine skip. Past those,
@@ -886,6 +1068,12 @@ export const STREAMS: readonly StreamEntry[] = [
 		subpath: "lessons",
 		events: ["librarian"],
 		hooks: ["librarian-session-end", "librarian-session-start"],
+		// SessionEnd `*` and SessionStart `*` (librarian's hooks.json), both
+		// unconditional. librarian is the entry `doctor` currently reports as
+		// `unknown ... has never been written` on this machine, and that
+		// verdict comes from the never-written-output branch rather than from
+		// liveness - the flag does not change it either way.
+		firesEverySession: true,
 		// NOT librarian-session-start, which writes nothing - that part
 		// still holds. But librarian-session-end is not reliable either: it
 		// is a multi-stage pipeline with FOUR session-level bail sites
@@ -938,6 +1126,14 @@ export const STREAMS: readonly StreamEntry[] = [
 		// plugin ran, nothing more, and the write question is answered by
 		// `writeEvents` below instead.
 		hooks: ["lineage-post-tool-use"],
+		// No firesEverySession. lineage-post-tool-use is PostToolUse matched
+		// Write, Edit, MultiEdit and Bash (lineage's hooks.json) - broader
+		// than inspector's, and still conditional: a session that reads and
+		// answers without touching a tool fires it zero times. lineage reached
+		// four of the 31 opportunities in the measured window without firing,
+		// one short of the threshold, so this is the same latent false
+		// positive as inspector's rather than a different case.
+
 		// `lineage.change.recorded` is emitted at the ledger write site
 		// itself (`lineage-post-tool-use.sh:261` and `:340`, both immediately
 		// after the record is appended), so the emission and the write are
@@ -998,6 +1194,12 @@ export const STREAMS: readonly StreamEntry[] = [
 		// `onlooker.artifact.ready` (:252) is out on identification anyway -
 		// archivist, counsel and librarian emit it too.
 		hooks: ["scribe-capture", "scribe-session-start", "scribe-stop"],
+		// No firesEverySession, withheld on scribe-capture alone.
+		// scribe-session-start (SessionStart `*`) and scribe-stop (Stop `*`)
+		// are session-level; scribe-capture is UserPromptSubmit (scribe's
+		// hooks.json), which a subagent session never fires. Same shape as
+		// historian, and the same recorded cost.
+
 		// `scribe/<key>/` per project - its own table comment above already
 		// documents the `<key>/<date>-<session>.md` layout.
 		perProject: true,
@@ -1024,6 +1226,9 @@ export const STREAMS: readonly StreamEntry[] = [
 		// the output directory may not exist yet. The second half fails too,
 		// for the reason above.
 		hooks: ["tribunal-stop-gate"],
+		// tribunal-stop-gate is Stop `*` (tribunal's hooks.json) - its only
+		// hook, unconditional, and the same shape as echo's.
+		firesEverySession: true,
 		// `tribunal/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -1041,6 +1246,15 @@ export const STREAMS: readonly StreamEntry[] = [
 			"warden-pre-tool-use",
 			"warden-session-start",
 		],
+		// No firesEverySession. warden-session-start is SessionStart `*`, but
+		// warden-pre-tool-use is PreToolUse on Write/Edit/MultiEdit/Bash and
+		// warden-post-tool-use is PostToolUse on WebFetch/Read (warden's
+		// hooks.json) - both conditional on the session using those tools.
+		// warden's write axis is already empty, so with the flag withheld it
+		// can no longer reach `stopped` on either axis. That is the intended
+		// reading of an entry whose every signal is rare by design: on a
+		// machine nobody has attacked, warden's silence is health.
+
 		// No writeHooks, deliberately: none of the three ever reliably
 		// emits. warden-session-start (every SessionStart) only creates the
 		// gate directory - no warden_emit_event call anywhere in the
@@ -1989,6 +2203,27 @@ function computeVerdict(
 
 	const sinceLife = opportunitiesSince(events, hooks, lastLife);
 	if (sinceLife >= SESSION_STALL_THRESHOLD) {
+		// The count is met; whether it MEANS anything depends on the entry.
+		// Liveness counts every opportunity this repo had, and an opportunity
+		// is any session that ran the hook machinery at all - so for an entry
+		// whose hooks fire only on a trigger, the count is largely made of
+		// sessions that never asked it for anything. Eight subagent sessions
+		// in seven minutes, none of them a Write, put a healthy inspector at
+		// eight. See `firesEverySession`, which records the entries the table
+		// can say this of and why each one does or does not qualify.
+		//
+		// Deliberately a return rather than a fall-through to the write axis.
+		// The two axes move together here: an entry silent on liveness had few
+		// triggered sessions by definition, so its narrowed `sinceWrite` is
+		// small and would read `recording` - a clean bill handed out on the
+		// strength of evidence we just declined to trust. `unknown` says the
+		// true thing and accuses no one.
+		if (entry.firesEverySession !== true) {
+			return {
+				kind: "unknown",
+				detail: `last sign of life ${stampFor(lastLife, now)}, ${sinceLife} sessions ago, none of which had to trigger it`,
+			};
+		}
 		return {
 			kind: "stopped",
 			detail: `last sign of life ${stampFor(lastLife, now)}, ${sinceLife} sessions ago`,
@@ -2040,9 +2275,15 @@ function computeVerdict(
 	}
 
 	if (lastWrite === "") {
+		// Same split `moved` makes below, and for the same reason: on the
+		// `output: null` branch the downstream IS the event stream, so "no
+		// output written yet" names a file for a stream that writes none.
+		// The `(none) last changed` bug one branch down, missed here.
 		return {
 			kind: "unknown",
-			detail: `alive since ${stampFor(lastLife, now)}, but no output written yet`,
+			detail: eventsAreTheWriteAxis
+				? `alive since ${stampFor(lastLife, now)}, but no ${entry.plugin} event has landed yet`
+				: `alive since ${stampFor(lastLife, now)}, but no output written yet`,
 		};
 	}
 
