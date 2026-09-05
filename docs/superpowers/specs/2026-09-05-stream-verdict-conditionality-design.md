@@ -397,6 +397,51 @@ mislaid: *count trigger firings since the output last moved — the denominator
 self-calibrates.* The unified rule kept the self-calibrating idea for liveness
 and quietly generalized it away for writes.
 
+### Liveness may only accuse an entry whose trigger should have fired *(amended 2026-09-05)*
+
+The previous amendment fixed the write window and explicitly left liveness
+broad, arguing that narrowing it to the entry's own firings would be circular.
+That argument is correct and the conclusion drawn from it was not. The whole-
+branch review reproduced this against the real logs:
+
+```
+inspector  STOPPED  last sign of life 2026-09-05 21:30, 8 sessions ago
+```
+
+Seven minutes after `inspector-post-write` last fired, on a healthy inspector.
+Eight subagent sessions started in those seven minutes; each is an opportunity
+because each runs ecosystem's trackers, and none was a Write, so inspector's
+trigger could not fire. Measured frequency: **4 of the 31 opportunity-starts
+since 2026-08-30**, with lineage and assayer both reaching 4 in the same window
+— one short of accusing.
+
+**It also invalidated this document's own calibration.** The threshold was set
+from six opportunities in that window. Re-measured after the implementation
+sessions: **31**. The plugins' firing counts barely moved; the denominator grew
+fivefold because agent waves manufacture opportunities in which most triggers
+have no reason to fire. The measured floor is no longer 1 but **8** — above the
+threshold of 5 — and it is not a property of any plugin. It is the size of the
+largest parallel-agent wave, which in an agent-driven repo has no ceiling.
+
+Raising the threshold therefore buys time rather than correctness.
+
+**The fix is to bound who may be accused, not how many.** An entry may reach
+`stopped` on liveness only where the table records that **its hooks fire in
+every session**. An entry whose trigger is conditional — `inspector-post-write`
+on a Write, `lineage-post-tool-use` on tool use, `compass-bash-gate` on a Bash
+call, warden's pair on rare gate outcomes — degrades to `unknown` instead.
+
+This targets exactly the failing case and nothing else. An entry with
+session-level hooks is immune to the wave by construction: its hooks fire in
+subagent sessions too, so its last-seen instant never goes stale during one.
+And it is the same question the write axis already asks — *was this session a
+real chance for this entry?* — answered for liveness the only non-circular way
+available: not by counting the entry's own firings, but by recording whether
+they were due.
+
+The conservative direction, as everywhere else here: where the table cannot say
+a trigger was due, the verdict abstains rather than accuses.
+
 ### Gated writers are unprotected until the cadence floor returns *(amended 2026-09-05)*
 
 Unifying the rule retired `clearsCadenceFloor` and `toleranceFor`, and nothing
