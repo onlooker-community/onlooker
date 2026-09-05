@@ -322,6 +322,55 @@ This tightens the rule rather than loosening it: an entry that names no
 which is the conservative direction already chosen everywhere else in this
 document.
 
+### An output that never appeared is not a clean bill *(amended 2026-09-05)*
+
+The rule above returns `recording` for a live entry with no write signal, on
+the stated grounds that whether it writes is its own business. Running the
+finished table against the real machine showed where that goes too far.
+
+Every one of the seven enabled plugins read `recording` and `doctor` exited
+**0** — including librarian, whose `lessons/` directory has never existed on
+this machine, and whose empty pool is the thing `onlooker-01x` was opened
+about. librarian emits nothing at its lesson-write site (`librarian-lesson-
+storage.sh`, `-transform.sh` and `-promote.sh` contain no emit call at all),
+so it has no write signal to name and fell into the no-downstream-axis case.
+
+Certifying a machine whose output is known to be missing is the
+successful-looking silence this arena keeps finding, and this command exists
+to remove it.
+
+**So: where an entry has an `output` path that has never been written, the
+verdict is `unknown`, not `recording`, even with no write signal.** The
+honest statement is "it is running, its output has never appeared, and this
+table has no signal that would tell you whether that is expected." That is
+`unknown`'s exact meaning.
+
+This cannot introduce a false `stopped` — `unknown` never accuses — so it
+costs nothing against the false positives this document exists to fix. It
+restores librarian and archivist to `unknown`, and `doctor` to exit 1.
+
+An entry whose output exists but is merely old still reads `recording` where
+there is no write signal. Age alone is not evidence, for the reasons the
+`writeSignals` section gives; absence is different, because there is no
+history to be quiet about.
+
+### Gated writers are unprotected until the cadence floor returns *(amended 2026-09-05)*
+
+Unifying the rule retired `clearsCadenceFloor` and `toleranceFor`, and nothing
+now consumes `writeGateHours`. On this repo's denominator — roughly one
+opportunity a day — five elapse on day five of counsel's seven-day interval,
+so a perfectly on-schedule counsel would read `stopped` two days in seven.
+
+Naming a write event on a gated entry is exactly what switches that branch on,
+so counsel and cartographer carry none, and this document's earlier assignment
+of `counsel: ["counsel.brief.generated"]` is **withheld** pending a fix. The
+source justification for it holds (brief written `counsel-brief.sh:305`, emit
+`:322`); only the cadence protection is missing.
+
+The trade is deliberate: a false negative (a broken counsel reads `recording`)
+in place of a false positive (a healthy one reads `stopped`), which is the
+direction taken everywhere else here. Tracked as `onlooker-1vt`.
+
 ### Detail strings must survive a sub-day gap
 
 `compass-bash-gate fired 2026-09-05, but the last event was 2026-09-05` is a
