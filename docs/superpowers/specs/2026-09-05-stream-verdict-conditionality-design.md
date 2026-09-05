@@ -162,13 +162,21 @@ The verdict:
 
 | `alive` | `lastWrite` | Verdict |
 | --- | --- | --- |
-| no | — | `stopped`, naming the opportunity count it was silent across |
+| no | — | `unknown` — a fresh enable and a dead stream look identical *(corrected 2026-09-05)* |
 | yes | undefined | `recording` — the plugin runs; whether it writes is its own business |
 | yes | recent | `recording` |
 | yes | stale past the window | `stopped`, naming the opportunity count since the last write |
 
-Both `stopped` rows use the same denominator — opportunities, defined below —
-and neither consults wall time.
+The first row originally read `stopped`, naming the count it was silent
+across. That contradicted this document's own *When the rule refuses to judge*
+section, and the contradiction was live: measured against the real machine, a
+plugin enabled minutes ago on a repo with 11,422 sessions read `stopped`
+immediately, because the count of opportunities "since never" is the count of
+all of them. The prose governs and the table is corrected to match — with no
+last-seen instant there is no cutoff to measure from, so no `stopped` is
+honestly reachable.
+
+Only one row can now produce `stopped`, and it consults no wall time.
 
 This is what restores full detection for lineage: `lineage.change.recorded` is
 a `writeEvent`, so `lastWrite` is defined, and writes stopping while
