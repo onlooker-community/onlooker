@@ -384,6 +384,39 @@ is the capability neither repo can demonstrate alone — but running it here
 before ecosystem soaks it would invert the cadence ordering that exists to keep
 latency attributable.
 
+> **Amended 2026-09-05: archivist and librarian are now enabled.** The arena set
+> is seven, not five. Taken deliberately and against this paragraph, for a
+> reason it did not weigh: librarian is the only plugin in the marketplace that
+> writes `lessons/`, and `apps/cli/src/pipeline.ts` reads exactly that path, so
+> the lesson pool stays empty for as long as this cohort stays deferred. The
+> pool is the product; measuring the arena without it measures nothing anyone
+> receives.
+>
+> Both stated preconditions were re-measured rather than assumed:
+>
+> - **Store size.** 502 MB, down from the 824 MB above. 111 MB of that is
+>   `buffer.db`, the retired Go agent's undelivered backlog — 115,520 events,
+>   last written 2026-08-29, read by nothing in the current CLI. Removing it
+>   would put the store under half the figure this deferral was written
+>   against.
+> - **Retention policy.** One now exists — `retention_days: 365`,
+>   `max_age_days: 180`, `prune_daily_cap_chunks: 5000` — but it belongs to
+>   **historian**, which stays disabled. So nothing prunes what archivist and
+>   librarian write, and this precondition is met only in name. Accepted
+>   knowingly; revisit if the store resumes growing.
+>
+> **`onlooker doctor` reports a fault until the first lesson lands.** librarian's
+> `STREAMS` entry sets `subpath: "lessons"` precisely because an empty pool is
+> the failure the table exists to catch, and no `lessons/` directory exists for
+> any of the fifteen project keys under `~/.onlooker/librarian/`, including both
+> of this repo's. That verdict is correct, not a regression. Lessons are rare by
+> construction — archivist bails at six routine sites before writing, librarian
+> at four more plus a durability filter, a classifier, a tombstone check, and a
+> lesson transform with its own pregate — so expect the red to persist.
+>
+> The rest of the cohort stays deferred, and historian is still the one to
+> revisit first for the reason given above.
+
 **A wave schedule of this repo's own.** Rejected in conversation: it roughly
 doubles the measurement work for signal that mostly duplicates `ecosystem-449`.
 The contrast is the product, not a second corpus.
