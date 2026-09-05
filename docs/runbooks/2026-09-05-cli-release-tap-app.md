@@ -167,7 +167,7 @@ and the old manual path still works: download it, commit it to the tap.
 | `Resource not accessible by integration` | The App is not installed on the repository being written to, or lacks Contents write |
 | `cli-vX.Y.Z ships X.Y.Z, apps/cli/package.json says …` | The tag was pushed without the manifest bump. Fix the manifest, delete and re-push the tag |
 | Job succeeds, log says `Tap already at X.Y.Z` | Not a failure. A re-run of an already-released tag regenerates a byte-identical formula and correctly pushes nothing |
-| `tag-cli` pushed a tag but no release ran | The tag was pushed with `GITHUB_TOKEN` rather than the App token. Tags pushed by `GITHUB_TOKEN` never start a workflow |
+| `tag-cli` pushed a tag but no release ran | The tag went up as `GITHUB_TOKEN`, and tags pushed by `GITHUB_TOKEN` never start a workflow. Check that `actions/checkout` still has `persist-credentials: false` — without it, checkout writes `GITHUB_TOKEN` into local git config as an Authorization header that beats the push URL's credentials, so the App token is minted and silently ignored. This happened on the first dispatch |
 
 **Retrying is safe.** Every step that writes something checks first: the
 release is created or updated in place, the tap push no-ops on an identical
