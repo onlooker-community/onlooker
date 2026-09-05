@@ -409,10 +409,37 @@ latency attributable.
 > `STREAMS` entry sets `subpath: "lessons"` precisely because an empty pool is
 > the failure the table exists to catch, and no `lessons/` directory exists for
 > any of the fifteen project keys under `~/.onlooker/librarian/`, including both
-> of this repo's. That verdict is correct, not a regression. Lessons are rare by
-> construction — archivist bails at six routine sites before writing, librarian
-> at four more plus a durability filter, a classifier, a tombstone check, and a
-> lesson transform with its own pregate — so expect the red to persist.
+> of this repo's. That verdict is correct, not a regression.
+>
+> **Corrected 2026-09-05, same day.** The paragraph above originally went on to
+> say lessons are rare by construction, so expect the red to persist. That
+> prognosis was wrong, and the evidence against it was sitting in
+> `~/.onlooker/buffer.db` — 115,520 events from 2026-06-29 to 2026-08-29, the
+> retired agent's backlog, read only because it was moved aside rather than
+> deleted.
+>
+> librarian was never idle in that window. It emitted 9,383 events: 4,836
+> `scan.started`, 710 `scan.complete`, and 3,837 `candidate.dropped`. **Every one
+> of the 3,837 drops carries `reason: "filter_marker_missing"`** — one reason,
+> not a distribution. `librarian_durability_filter` is an allowlist: an artifact
+> survives only if its text contains one of
+> `durability_filter.marker_phrases`, and the plugin ships thirteen defaults
+> including `"because"`. Three thousand eight hundred artifacts containing none
+> of them is not credible.
+>
+> The likely cause is a defect this repo has already met twice. That list is
+> read through `librarian_config_get`, and the vendored `config-loader.sh` used
+> to hardcode `$HOME/.claude`; this machine exports
+> `CLAUDE_CONFIG_DIR=~/.claude-personal` and has no `~/.claude`, so the read
+> returned nothing and the allowlist was empty. Fixed upstream in `057a40d`
+> (#237) and present in the installed version — the same bug `280248b` fixed in
+> `readEnablement`.
+>
+> So the pool was not empty because lessons are rare. It was empty because the
+> filter could never say yes. Expect lessons on the fixed version, and treat a
+> pool that stays empty for long as a signal to re-open `onlooker-01x` rather
+> than as the system working as intended. Stated as strong inference, not
+> proof: the empty array cannot be observed retroactively.
 >
 > The rest of the cohort stays deferred, and historian is still the one to
 > revisit first for the reason given above.
