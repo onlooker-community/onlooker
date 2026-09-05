@@ -33,6 +33,12 @@ jobs:
   tag:
     name: Tag the release
     runs-on: ubuntu-latest
+    # Read-only on purpose. The tag is pushed with the App token, and this
+    # makes that structural rather than a convention: GITHUB_TOKEN cannot push
+    # here even if something later reintroduces it as the credential, so the
+    # silent failure below cannot come back wearing a different hat.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,6 +46,18 @@ jobs:
           # already run for this version. The default shallow checkout fetches
           # none of them, which would make every run look like the first.
           fetch-depth: 0
+          # Without this, checkout writes GITHUB_TOKEN into this repository's
+          # local git config as an `http.https://github.com/.extraheader`
+          # Authorization header, and that header beats any credentials in a
+          # push URL. The tag then goes up as GITHUB_TOKEN no matter which
+          # token the URL carries - and a tag pushed by GITHUB_TOKEN never
+          # starts a workflow.
+          #
+          # Measured, not theorized: the first dispatch minted the App token,
+          # pushed cli-v2.2.0, reported success, and release-cli.yml never
+          # ran. The App token was never used. This one line is the whole
+          # difference between a tag that releases and a tag that sits there.
+          persist-credentials: false
 
       - name: Read the version
         id: manifest
