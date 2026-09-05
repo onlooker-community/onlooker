@@ -660,6 +660,18 @@ describe("stampFor", () => {
 			stampFor("2026-09-05T11:55:00Z", new Date("2026-09-05T12:00:00Z")),
 		).toBe("2026-09-05 11:55");
 	});
+
+	// The two cases above sit at 7 days and 5 minutes, so neither touches the
+	// comparison's own edge: relaxing `>=` to `>` leaves both green. The
+	// docstring commits to "a day or more" being date-only, and exactly one
+	// day is the only input that says which side of the boundary that is.
+	it("prints a date at exactly the boundary, which counts as a day or more", () => {
+		const iso = "2026-09-05T11:55:00Z";
+		const reference = new Date(
+			new Date(iso).getTime() + 24 * 60 * 60 * 1000, // 2026-09-06T11:55:00Z
+		);
+		expect(stampFor(iso, reference)).toBe("2026-09-05");
+	});
 });
 
 describe("outputLabel", () => {

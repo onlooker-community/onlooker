@@ -1478,7 +1478,9 @@ export function outputLabel(entry: StreamEntry): string {
  * in when it asks the WRITE question, because a session in which the entry's
  * trigger never fired was never a chance for it to write. It narrows rather
  * than replaces: a session named there that ran no hook at all is still not
- * an opportunity. Omitted means no narrowing, which is what the liveness
+ * an opportunity. A `ReadonlySet` or an array, so a caller that already holds
+ * a set is not made to flatten one this function would rebuild. Omitted means
+ * no narrowing, which is what the liveness
  * question wants and must keep wanting - narrowing that one would be
  * circular, since an entry whose hooks never fire would generate none of its
  * own opportunities and could never be judged silent, the exact
@@ -1492,13 +1494,21 @@ export function opportunitiesSince(
 	events: Pick<EventScan, "sessionStarts">,
 	hooks: Pick<HookScan, "sessionsWithRecords">,
 	iso: string,
-	restrictTo?: readonly string[],
+	// A `ReadonlySet` as well as an array, so `computeVerdict` - which builds
+	// its narrowing as a `Set` already - can hand it straight over instead of
+	// spreading into an array this function would immediately re-wrap.
+	restrictTo?: ReadonlySet<string> | readonly string[],
 ): number {
 	const ran = new Set(hooks.sessionsWithRecords);
-	// `undefined` means "no narrowing requested"; a real array, even an empty
-	// one, means "exactly these" - the same distinction `scanHooks`'s
+	// `undefined` means "no narrowing requested"; a real collection, even an
+	// empty one, means "exactly these" - the same distinction `scanHooks`'s
 	// `sessionIds` draws, and for the same reason.
-	const only = restrictTo === undefined ? null : new Set(restrictTo);
+	const only =
+		restrictTo === undefined
+			? null
+			: restrictTo instanceof Set
+				? restrictTo
+				: new Set(restrictTo);
 	const cutoff = new Date(iso).getTime();
 	let count = 0;
 	for (const session of Object.keys(events.sessionStarts)) {
@@ -2058,9 +2068,7 @@ function computeVerdict(
 			triggeredIn.add(session);
 		}
 	}
-	const sinceWrite = opportunitiesSince(events, hooks, lastWrite, [
-		...triggeredIn,
-	]);
+	const sinceWrite = opportunitiesSince(events, hooks, lastWrite, triggeredIn);
 	// Name the axis that actually moved, which is not always a path.
 	// `outputLabel` renders "(none)" for an `output: null` entry, so building
 	// this from it alone reports "(none) last changed 2026-08-07" on the one

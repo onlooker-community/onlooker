@@ -678,8 +678,9 @@ export async function scanHooks(opts: {
 		// reports `missing` and discards them rather than handing a caller a
 		// table that looks complete but is not. `sessionsWithRecords` and
 		// `sessionsByHook` need no reset for the same reason `scanEvents`'s
-		// `sessionIds` does not: both are assigned only after the loop below,
-		// so a failure here leaves them at their empty initial values.
+		// `sessionIds` does not: both are assigned only after the loop above
+		// completes, past this catch, so a failure here leaves them at their
+		// empty initial values.
 		scan.missing = true;
 		scan.hooks = Object.create(null) as Record<
 			string,
