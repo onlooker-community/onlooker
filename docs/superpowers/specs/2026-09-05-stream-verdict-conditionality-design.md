@@ -283,6 +283,37 @@ It also resolves compass without a special case: `compass-bash-gate` is in
 `hooks`, so it counts toward liveness, and is not in `writeEvents`, so an hour
 of read-only Bash can no longer produce `stopped`.
 
+### The same circularity exists one level down, on the event side *(amended 2026-09-05)*
+
+The bound above was written about hook records and is incomplete. Found during
+implementation, confirmed twice by running the built code.
+
+An opportunity requires a `session.start` event, because that is what
+`sessionStarts` is built from. `session` is one of ecosystem's own tracked
+prefixes (`events: ["session", "tool", "skill", "memory", "task"]`). For an
+`output: null` entry the downstream axis is the newest event across those
+prefixes — so ecosystem's `lastWrite` is always at least as new as the newest
+opportunity, `opportunitiesSince(…, lastWrite)` is pinned at **0** by
+construction, and ecosystem can never reach `stopped` on its write axis.
+
+The cost is specific and bad: ecosystem's trackers dying on 2026-08-07 while
+its hooks kept firing is the incident this entire feature was built to catch,
+and it is exactly the shape this axis exists for. Liveness still catches it if
+the hooks stop too, but the hooks did not stop.
+
+**Resolution: for an `output: null` entry the downstream axis is
+`writeEvents`, not every prefix in `events`.** ecosystem names its
+non-`session` types there; the denominator's own event type is simply not one
+of the signals it is judged against. The circularity disappears because the
+table can now say which events mean real work, which is the same thing
+`writeEvents` already does for every other entry — no new concept, and no
+special case buried in the scan.
+
+This tightens the rule rather than loosening it: an entry that names no
+`writeEvents` has no downstream axis at all and is judged on liveness alone,
+which is the conservative direction already chosen everywhere else in this
+document.
+
 ### Detail strings must survive a sub-day gap
 
 `compass-bash-gate fired 2026-09-05, but the last event was 2026-09-05` is a
