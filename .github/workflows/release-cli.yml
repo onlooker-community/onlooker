@@ -94,10 +94,25 @@ jobs:
           Homebrew will not load this formula until the tap is trusted, and
           that applies to upgrading an existing install too.
           EOF
-          gh release create "${GITHUB_REF_NAME}" \
-            "onlooker-${{ steps.package.outputs.version }}.tar.gz" \
-            --title "CLI ${{ steps.package.outputs.version }}" \
-            --notes-file notes.md
+          # Idempotent, because the steps most likely to fail come after this
+          # one and `gh release create` is a hard error on a tag that already
+          # has a release. Measured on cli-v2.2.0: the token mint failed, the
+          # release was already published, and the job could not be retried at
+          # all - the first run poisoned every retry, so the only ways out were
+          # deleting a public release or pushing the formula by hand.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} exists. Updating it in place."
+            gh release upload "${GITHUB_REF_NAME}" \
+              "onlooker-${{ steps.package.outputs.version }}.tar.gz" --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "CLI ${{ steps.package.outputs.version }}" \
+              --notes-file notes.md
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              "onlooker-${{ steps.package.outputs.version }}.tar.gz" \
+              --title "CLI ${{ steps.package.outputs.version }}" \
+              --notes-file notes.md
+          fi
 
       - name: Write the formula
         run: |
