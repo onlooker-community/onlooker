@@ -1077,6 +1077,90 @@ describe("stream conditionality", () => {
 		);
 		expect(v?.kind).toBe("unknown");
 	});
+
+	it("keeps an output:null stream's events as proof of life when they are not its write axis", async () => {
+		// The axis split exists so an entry's events cannot be compared against
+		// themselves - but it applies only where the events ARE the downstream
+		// being judged, which is `output: null` AND a trusted write hook.
+		// warden is the one entry that is the first without the second, so its
+		// events are not its downstream and must go on counting as liveness.
+		// Keyed on `output: null` alone, the split strips warden's only axis
+		// and reads a plugin that emitted today as never having run at all.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["warden"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "warden.threat.detected",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"warden",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("does not let an output:null stream's own events certify that same event stream", async () => {
+		// The other half of the axis split, and the half that actually bites.
+		// inspector's events ARE its downstream here, so they cannot also be
+		// its proof of life - that would compare a signal against itself and
+		// answer "the events are recent, therefore the events are recent."
+		// With its hook absent from hook-health there is no independent
+		// liveness axis left, and `unknown` is the honest reading.
+		//
+		// This is the case that distinguishes the split from its absence.
+		// Where the hook is NEWER than the events - the ecosystem outage shape
+		// - including events in liveness changes nothing, because the newest
+		// wins either way; both the fixtures above pass with the split removed
+		// entirely. Only a fresh event over a stale-or-missing hook separates
+		// them: without the split this reads `recording`, off nothing but the
+		// event stream vouching for itself.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"inspector",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
+
+	it("reports unknown, not stopped, for a plugin newly enabled on a repo with a long history", async () => {
+		// Forty opportunities, none of them compass's. The window is wide, but
+		// compass has no last-seen instant for that width to be measured
+		// against: a plugin enabled an hour ago and one that died before this
+		// log began present identically, both with every opportunity behind
+		// them and nothing of their own in front.
+		//
+		// A `stopped` keyed on the window alone therefore fires on every fresh
+		// enable on any active machine - this repo has 11,422 sessions behind
+		// it - which is the same class of false positive the whole rule exists
+		// to remove, and the design rules it out by name.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["compass"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 40,
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"compass",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
 });
 
 describe("surveyStreams", () => {
@@ -1255,7 +1339,20 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "inspector")?.kind).toBe("stopped");
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("stopped");
+		// The detail has to name the axis that actually stalled. For an
+		// `output: null` entry that is the event stream, and `outputLabel`
+		// renders "(none)" for one - so a detail built from it reports
+		// "(none) last changed 2026-08-07", naming a path that does not exist.
+		// The branch this replaced said "the last event was 2026-08-07", and
+		// the replacement must not be less specific than what it removed.
+		expect(verdict?.kind === "stopped" && verdict.detail).not.toContain(
+			"(none)",
+		);
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"inspector event",
+		);
 	});
 
 	// ecosystem stays the vehicle here, where the overlap noted above is
@@ -1370,14 +1467,15 @@ describe("surveyStreams", () => {
 	// Real output on disk is not, by itself, a sign the stream is running -
 	// the file is there, and nothing has emitted or fired in six chances.
 	//
-	// This asserted `unknown` under the old rule, which had output present
-	// and no hook-health record to compare it against and so abstained. The
-	// output's mtime is not consulted at all now (librarian declares no write
-	// signal), and the six silent opportunities settle it the other way. NOT
-	// `librarian/k/x.json`: a plain file outside `lessons/` resolves
-	// `outputFreshness` to `{ mtime: null }`, so the fixture would no longer
-	// be about a stream that HAS output.
-	it("reports stopped when a stream has output on disk but has gone silent", async () => {
+	// `unknown`, as before this change, but no longer for the reason the old
+	// rule gave (output present, no hook record to compare it against). The
+	// output's mtime is not consulted at all now, since librarian declares no
+	// write signal; what settles it is that librarian has never been seen
+	// alive here, so the six opportunities have no last-seen instant to be
+	// counted from. NOT `librarian/k/x.json`: a plain file outside `lessons/`
+	// resolves `outputFreshness` to `{ mtime: null }`, so the fixture would
+	// no longer be about a stream that HAS output.
+	it("reports unknown when a stream has output on disk but was never seen running", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1394,7 +1492,7 @@ describe("surveyStreams", () => {
 				await surveyStreams({ cwd, home, configDir, env, now: NOW }),
 				"librarian",
 			)?.kind,
-		).toBe("stopped");
+		).toBe("unknown");
 	});
 
 	it("carries the unknown enablement through rather than inventing an empty set", async () => {
@@ -1915,13 +2013,12 @@ describe("surveyStreams", () => {
 	// stream is healthy - "recording" with nothing to corroborate it
 	// contradicts the check this function makes for a truncated log.
 	//
-	// `stopped` now, not `unknown`, and the strengthening is the point. The
-	// old rule had a real mtime and nothing to compare it against, so it
-	// abstained. The new one has something the old one did not: six
-	// opportunities in which lineage emitted no event and fired no hook.
-	// Silence measured against a known number of chances is a finding, where
-	// silence measured against nothing is not.
-	it("reports stopped, not recording, when the event log is readable but the stream's prefix never appears", async () => {
+	// Still `unknown`, and deliberately not the `stopped` that six silent
+	// opportunities might seem to support. Nothing here distinguishes lineage
+	// having died from lineage having been enabled a moment ago on a repo with
+	// six sessions of history, because it has never been seen alive either
+	// way. What the assertion pins is the other edge: not `recording`.
+	it("reports unknown, not recording, when the event log is readable but the stream's prefix never appears", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -1944,9 +2041,9 @@ describe("surveyStreams", () => {
 			now: NOW,
 		});
 		const verdict = verdictFor(survey, "lineage");
-		expect(verdict?.kind).toBe("stopped");
-		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"no events and no hook firings",
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no sign of life yet",
 		);
 	});
 
@@ -2230,15 +2327,20 @@ describe("surveyStreams", () => {
 	// sessions, none of them are ours, so bursar-session-end has no records
 	// attributable to us at all and bursar has shown no sign of life here.
 	//
-	// The assertion moved from `unknown` to `stopped`, and the fixture gained
-	// opportunities placed BEFORE the output's own mtime, both to keep this
-	// discriminating. Under the new rule a foreign firing counted as ours
-	// would supply liveness rather than a stall - the danger runs the
-	// opposite way from the reviewer's original reproduction - and with no
-	// opportunities at all every verdict is `unknown` regardless, so the old
-	// fixture would have passed with the session scoping deleted outright.
-	// Placed this way the scoped answer is `stopped` and the leaked one
-	// `recording`, so the assertion fails if and only if the scoping does.
+	// The verdict is `unknown` either way you might first expect, so the
+	// fixture is what carries this test: the opportunities sit BEFORE the
+	// output's own mtime, which makes the two outcomes differ. Scoped
+	// correctly, bursar has no record of its own and was never seen alive, so
+	// `unknown`. With the scoping removed, the foreign firings become
+	// bursar's liveness, nothing has been asked of it since, and it reads
+	// `recording`.
+	//
+	// Both halves of that had to be arranged deliberately. Under the new rule
+	// a leaked foreign firing supplies liveness rather than a stall - the
+	// danger runs the opposite way from the reviewer's original reproduction -
+	// and with no opportunities at all every verdict is `unknown` regardless,
+	// so the original fixture would have passed with the session scoping
+	// deleted outright.
 	it("does not let a different repo's session's firings stand in for this repo's own liveness", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
@@ -2269,7 +2371,14 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("unknown");
+		// Specifically "never seen alive", not "too thin a window" - the six
+		// opportunities clear the threshold, so only the first of the two
+		// abstentions can be the one reached.
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no sign of life yet",
+		);
 	});
 
 	// The final review's high-severity finding, reproduced directly: a

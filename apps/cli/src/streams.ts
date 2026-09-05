@@ -748,10 +748,14 @@ export const STREAMS: readonly StreamEntry[] = [
 		// machine that has not been blocked recently, this is not a
 		// hypothetical gap: this repo's own event log holds tool activity
 		// continuing well past the last recorded `warden.*` event
-		// (2026-08-01T21:13:33Z). With no hook reliably implying an
-		// emission, judge() reports `unknown` rather than trusting every
-		// hook's raw firing - see `computeVerdict`'s `entry.output === null`
-		// branch.
+		// (2026-08-01T21:13:33Z).
+		//
+		// With no hook reliably implying an emission, warden's events are not
+		// treated as a downstream to judge - so `computeVerdict` never asks
+		// the write question of it, and its verdict rests on liveness alone.
+		// That makes warden the one `output: null` entry whose events still
+		// count as proof of life; see `eventsAreTheWriteAxis`, which exists to
+		// keep the axis split from stripping them.
 	},
 ];
 
@@ -1545,6 +1549,19 @@ function computeVerdict(
 	const writeHooks = entry.writeHooks ?? [];
 	const writeEvents = entry.writeEvents ?? [];
 
+	/**
+	 * Whether this entry's own EVENTS are the downstream being judged, rather
+	 * than a file on disk.
+	 *
+	 * Tracked as a flag rather than re-derived from `entry.output === null`
+	 * further down, because the two are not the same question and reading one
+	 * for the other is a real bug: warden is `output: null` with no trusted
+	 * write hook, so its events are NOT its downstream, and stripping them
+	 * from liveness on the strength of `output` alone leaves it with no axis
+	 * at all - a warden that emitted this morning reads as never having run.
+	 */
+	let eventsAreTheWriteAxis = false;
+
 	let lastWrite: string | undefined;
 	if (entry.output === null) {
 		// An `output: null` stream writes no files by design, so its EVENTS
@@ -1563,6 +1580,7 @@ function computeVerdict(
 		// warden reads stopped the moment routine activity outruns its rare
 		// emissions.
 		if (writeHooks.length > 0) {
+			eventsAreTheWriteAxis = true;
 			lastWrite = "";
 			for (const prefix of entry.events) {
 				lastWrite = newerOf(lastWrite, events.lastByPrefix[prefix] ?? "");
@@ -1579,10 +1597,11 @@ function computeVerdict(
 		// folded in here.
 	}
 
-	// For an `output: null` entry the event axis is the downstream being
-	// judged, so it cannot also serve as proof of life - that would compare
-	// a signal against itself and never report anything.
-	if (entry.output === null) {
+	// Where the events are the downstream being judged, they cannot also serve
+	// as proof of life - that would compare a signal against itself and never
+	// report anything. Only there: see `eventsAreTheWriteAxis` for the entry
+	// this narrower condition exists to protect.
+	if (eventsAreTheWriteAxis) {
 		lastLife = "";
 		for (const hook of entry.hooks) {
 			lastLife = newerOf(lastLife, hooks.hooks[hook]?.last ?? "");
@@ -1591,35 +1610,45 @@ function computeVerdict(
 
 	// --- the denominator ------------------------------------------------
 	// Opportunities this repo has had at all, and the width of the window
-	// every count below is read against. Nothing can be judged against a
-	// window narrower than the rule's own threshold: a plugin enabled an
-	// hour ago, a repo nobody has opened in a month, and a machine whose
-	// whole hook system has stopped all arrive here with too few chances for
-	// any silence to mean anything, and `unknown` is the only true answer to
-	// each. This is the guard that REPLACES the wall clock rather than
-	// merely deleting it - a 14-day limit called every stream dead across
-	// the three weeks this repo ran no sessions at all, when in truth
-	// nothing had been asked of any of them.
+	// every count below is read against. Two different things can make that
+	// width unusable, and they are checked separately below: the entry having
+	// no last-seen instant to measure from, and the window itself being
+	// narrower than the rule's own threshold.
 	//
 	// The epoch as a cutoff, so this counts every opportunity ever seen.
 	const window = opportunitiesSince(events, hooks, "1970-01-01T00:00:00.000Z");
-	if (window < SESSION_STALL_THRESHOLD) {
+
+	// Never seen alive here at all, which is not the same as having gone
+	// quiet. A stall is a count of opportunities measured FROM some last-seen
+	// instant, and this entry has none - so however wide the window, there is
+	// nothing for its width to be measured against. A plugin enabled an hour
+	// ago and one that died before this log began present identically: every
+	// opportunity behind them, nothing of their own in front.
+	//
+	// Reporting `stopped` off the window alone therefore fires on every fresh
+	// enable on any active machine - this repo has 11,422 sessions behind it -
+	// which is the same false positive the rest of this rule exists to
+	// remove. The design settles it by name: a plugin enabled an hour ago
+	// "has not had the opportunities that would make its silence mean
+	// anything", and `unknown` there "is not a weaker answer than `stopped` -
+	// it is the only true one."
+	if (lastLife === "") {
 		return {
 			kind: "unknown",
-			detail:
-				lastLife === ""
-					? `no sign of life yet, and only ${window} sessions to judge from`
-					: `last sign of life ${stamp(lastLife)}, and only ${window} sessions to judge from`,
+			detail: `no sign of life yet across ${window} sessions - a fresh enable looks the same`,
 		};
 	}
 
-	if (lastLife === "") {
-		// Opportunities have passed - enough of them - with no event and no
-		// hook firing at all. Nothing distinguishes a fresh enable from a
-		// broken one except that count, and it has been met.
+	// Alive at some point, but against too thin a window for the counts below
+	// to carry weight: a repo nobody has opened in a month, or a machine whose
+	// whole hook system has stopped. This is the guard that REPLACES the wall
+	// clock rather than merely deleting it - a 14-day limit called every
+	// stream dead across the three weeks this repo ran no sessions at all,
+	// when in truth nothing had been asked of any of them.
+	if (window < SESSION_STALL_THRESHOLD) {
 		return {
-			kind: "stopped",
-			detail: `no events and no hook firings across ${window} sessions`,
+			kind: "unknown",
+			detail: `last sign of life ${stamp(lastLife)}, and only ${window} sessions to judge from`,
 		};
 	}
 
@@ -1648,17 +1677,24 @@ function computeVerdict(
 	}
 
 	const sinceWrite = opportunitiesSince(events, hooks, lastWrite);
+	// Name the axis that actually moved, which is not always a path.
+	// `outputLabel` renders "(none)" for an `output: null` entry, so building
+	// this from it alone reports "(none) last changed 2026-08-07" on the one
+	// branch where the downstream IS the event stream - a verdict naming a
+	// path that does not exist, and less specific than the branch it replaced
+	// ("the last event was 2026-08-07").
+	const moved = eventsAreTheWriteAxis
+		? `the last ${entry.plugin} event landed ${stamp(lastWrite)}`
+		: `${outputLabel(entry)} last changed ${stamp(lastWrite)}`;
+
 	if (sinceWrite >= SESSION_STALL_THRESHOLD) {
 		return {
 			kind: "stopped",
-			detail: `${outputLabel(entry)} last changed ${stamp(lastWrite)}, ${sinceWrite} sessions ago, while the stream kept running`,
+			detail: `${moved}, ${sinceWrite} sessions ago, while the stream kept running`,
 		};
 	}
 
-	return {
-		kind: "recording",
-		detail: `${outputLabel(entry)} last changed ${stamp(lastWrite)}`,
-	};
+	return { kind: "recording", detail: moved };
 }
 
 /**
