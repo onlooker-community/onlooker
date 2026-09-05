@@ -647,6 +647,36 @@ describe("scanHooks", () => {
 		expect(scan.hooks["bursar-session-end"].firedSince).toBe(2);
 	});
 
+	// The opportunity denominator: a session only counts as one if it
+	// demonstrably ran hooks, scoped the same way firings themselves are. An
+	// unattributable firing (no session_id) proves a hook ran but not where,
+	// so it cannot make anyone an opportunity.
+	it("records which sessions ran hooks at all, scoped the same way firings are", async () => {
+		const env = withHooks([
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T00:00:00Z",
+				"success",
+				"ours",
+			),
+			firing("bursar-session-end", "2026-09-01T01:00:00Z", "success", "ours"),
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T02:00:00Z",
+				"success",
+				"theirs",
+			),
+			firing("lineage-post-tool-use", "2026-09-01T03:00:00Z"),
+		]);
+
+		const scoped = await scanHooks({ since: {}, sessionIds: ["ours"], env });
+		expect(scoped.sessionsWithRecords).toEqual(["ours"]);
+
+		// Unscoped keeps its machine-wide contract, minus the unattributable one.
+		const all = await scanHooks({ since: {}, env });
+		expect(all.sessionsWithRecords).toEqual(["ours", "theirs"]);
+	});
+
 	// `since[hook]` carries millisecond precision (`mtimeToIso`, always via
 	// `Date#toISOString()`); hook-health.jsonl writes second precision.
 	// Lexically "...:45Z" sorts ABOVE "...:45.123Z" ('Z' is 0x5A, '.' is

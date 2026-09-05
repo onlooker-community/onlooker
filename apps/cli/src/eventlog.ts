@@ -424,6 +424,21 @@ export interface HookScan {
 	hooks: Record<string, { firedSince: number; okSince: number; last: string }>;
 	unreadable: number;
 	missing: boolean;
+	/**
+	 * Sessions in which any hook fired at all, sorted — narrowed to
+	 * `sessionIds` when that option was given, so it means "sessions of
+	 * OURS that ran the hook machinery".
+	 *
+	 * This is the opportunity denominator. A session absent from this set
+	 * asked nothing of any plugin and must not count against one: 240 of
+	 * this repo's 246 sessions in the measured window were subagent
+	 * sessions running no hooks, including a single block of 91 consecutive
+	 * ones over 27 hours. Counting those, every plugin on the machine shows
+	 * a longest silent run of exactly 91 - a property of the session stream,
+	 * not of any plugin, and one no threshold can be set above while still
+	 * catching a real outage. See the design's *The window* section.
+	 */
+	sessionsWithRecords: string[];
 }
 
 export async function scanHooks(opts: {
@@ -452,6 +467,7 @@ export async function scanHooks(opts: {
 		>,
 		unreadable: 0,
 		missing: false,
+		sessionsWithRecords: [],
 	};
 
 	const path = join(
@@ -477,6 +493,12 @@ export async function scanHooks(opts: {
 	// this set" - see `opts.sessionIds`'s own docstring.
 	const scoped =
 		opts.sessionIds === undefined ? null : new Set(opts.sessionIds);
+
+	// Sessions that demonstrably ran hooks - see
+	// `HookScan.sessionsWithRecords`. Populated AFTER the scope filter
+	// below, so when scoping was requested this is already the
+	// intersection the denominator wants and needs no second pass.
+	const ranHooks = new Set<string>();
 
 	// See `scanEvents`'s identical `processLine` for why the final line is
 	// held back and run through this a beat later than every other line.
@@ -516,10 +538,14 @@ export async function scanHooks(opts: {
 		// one that is attributable but not ours - the reviewer's
 		// reproduction (a single unrelated session's firing) is exactly
 		// this shape, just attributable.
+		const session = record.session_id;
 		if (scoped !== null) {
-			const session = record.session_id;
 			if (typeof session !== "string" || !scoped.has(session)) return;
 		}
+		// An unattributable firing proves a hook ran but not WHERE, so it
+		// cannot make any session an opportunity - excluded here even on the
+		// unscoped path, where it is still counted as a firing above.
+		if (typeof session === "string") ranHooks.add(session);
 
 		if (!scan.hooks[hook])
 			scan.hooks[hook] = { firedSince: 0, okSince: 0, last: "" };
@@ -594,5 +620,6 @@ export async function scanHooks(opts: {
 		return scan;
 	}
 
+	scan.sessionsWithRecords = [...ranHooks].sort((a, b) => a.localeCompare(b));
 	return scan;
 }
