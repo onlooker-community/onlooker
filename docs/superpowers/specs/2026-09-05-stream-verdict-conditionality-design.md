@@ -162,12 +162,13 @@ The verdict:
 
 | `alive` | `lastWrite` | Verdict |
 | --- | --- | --- |
-| no | — | `stopped`, naming the session count it was silent across |
+| no | — | `stopped`, naming the opportunity count it was silent across |
 | yes | undefined | `recording` — the plugin runs; whether it writes is its own business |
 | yes | recent | `recording` |
-| yes | stale past the window | `stopped`, naming the session count since the last write |
+| yes | stale past the window | `stopped`, naming the opportunity count since the last write |
 
-Both `stopped` rows use the same denominator, and neither consults wall time.
+Both `stopped` rows use the same denominator — opportunities, defined below —
+and neither consults wall time.
 
 This is what restores full detection for lineage: `lineage.change.recorded` is
 a `writeEvent`, so `lastWrite` is defined, and writes stopping while
@@ -178,7 +179,7 @@ second row instead of `stopped`.
 
 Note the inversion this makes explicit. Today the firing count is keyed on
 `writeHooks` — the trigger — and compared against output. Here the count is of
-*sessions*, the liveness axis is the plugin's whole hook and event set, and
+*opportunities*, the liveness axis is the plugin's whole hook and event set, and
 `writeSignals` only decides whether the write question gets asked at all. That
 removes the need for `writeHooks` and `writeEvents` to be counted differently
 from one another, which is what made an event-shaped write signal awkward to
@@ -188,53 +189,95 @@ express under the old rule.
 window rather than merely deleted — bursar reaches that line today. The
 reasoning it encodes survives intact: a count that never crosses its threshold
 is not evidence of health, because a plugin that stopped entirely never crosses
-it either. Only the unit changes, from wall-clock days to sessions.
+it either. Only the unit changes, from wall-clock days to opportunities.
 
-### The window, and when it refuses to judge
+### The window: opportunities, not sessions *(amended 2026-09-05)*
 
-The window in both `stopped` rows is counted in **this repo's own sessions**
-since the timestamp in question, never in wall-clock time. A stream is silent
-past the window when at least `SESSION_STALL_THRESHOLD` sessions have started
-and finished without it showing the sign of life being measured.
+An earlier draft of this section counted **this repo's own sessions**. That
+does not work, and the correction is the most important measurement in this
+document.
 
-The degradation case the table above does not cover: **if fewer than
-`SESSION_STALL_THRESHOLD` sessions have run at all, no `stopped` verdict is
-reachable and the verdict is `unknown`.** This is the case that matters most
-and the one a wall clock gets backwards. A plugin enabled an hour ago, or a
-repo nobody has opened in a month, has not had the opportunities that would
-make silence meaningful. Saying `unknown` there is not a weaker answer than
-`stopped` — it is the only true one.
+`session.start` events include subagent sessions. This repo logged 246 of them
+since the 2026-08-07 outage, but 240 were subagent sessions in which the hook
+set never ran at all — they were never an opportunity for any plugin to act.
+The proof is a single block of **91 consecutive sessions, spanning 27 hours on
+2026-09-03 and 2026-09-04, in which not one hook fired**: the subagent burst
+from this feature's predecessor being implemented. Every plugin measured shows
+a longest-silent-run of exactly 91, ecosystem across all 11,422 sessions
+included, because 91 is a property of the session stream rather than of any
+plugin.
 
-`SESSION_STALL_THRESHOLD` is this design's one new arbitrary number, and is
-recorded as such, exactly like `STALL_THRESHOLD` and
-`CADENCE_FLOOR_MULTIPLIER` before it.
+That sets a noise floor no threshold can clear. A value must exceed 91 to
+avoid false alarms, and only 35 sessions elapsed across the three and a half
+weeks the outage went unnoticed. **No value satisfies both.** A raw session
+count is the wrong unit.
 
-**Its value is deliberately not fixed here.** It is set in the implementation
-plan, against two constraints that can be measured rather than argued: it must
-be large enough that this repo's quietest real stretch does not trip it, and
-small enough that the 2026-08-07 outage would have been caught well inside the
-three and a half weeks it actually went unnoticed. The session history in this
-document is the input to that calculation. Picking the number before doing the
-arithmetic is how the 14-day constant got chosen, and it is the part of that
-constant this design is correcting.
+**The window is counted in opportunities**: sessions in which the hook
+machinery demonstrably ran, evidenced by a hook-health record for that
+session. A subagent session that runs no hooks contributes nothing to any
+denominator, which is correct — nothing was asked of any plugin during it.
 
-This **replaces** `RECORDING_FRESHNESS_LIMIT_MS` rather than sitting beside it.
-The argument is this repo's own session history:
+Recalibrated on that denominator, for the four plugins with hook-health
+history in this repo:
 
-```
-2026-08-07  457 sessions
-            (nothing at all, 2026-08-08 through 2026-08-29)
-2026-08-30   33 sessions
-...
-2026-09-05   24 sessions
+| plugin | opportunities since 2026-08-30 | fired in | longest silent run |
+| --- | --- | --- | --- |
+| bursar | 6 | 6 | 0 |
+| lineage | 6 | 5 | 1 |
+| inspector | 6 | 5 | 1 |
+| assayer | 6 | 5 | 1 |
 
-total since 2026-08-08: 246
-```
+The noise floor drops from 91 to **1**, and **6** opportunities have elapsed
+since the outage. Floor and ceiling now separate.
 
-A 14-day wall clock calls every stream dead across that three-week hole, when
-in truth nothing was asked of any of them. A session count abstains there
-correctly, and then says counsel produced nothing across 246 opportunities —
-which is a diagnosis rather than an abstention.
+### `SESSION_STALL_THRESHOLD` = 5
+
+This design's one new arbitrary number, recorded as such exactly like
+`STALL_THRESHOLD` and `CADENCE_FLOOR_MULTIPLIER` before it — but chosen from
+the table above rather than picked and justified afterward, which is the
+failure mode the 14-day constant represents.
+
+Five sits above the measured floor of 1 with margin, and at or below the 6
+opportunities that have elapsed since the outage, so counsel would be reported
+`stopped` now rather than `unknown`. It is also the same value as
+`STALL_THRESHOLD`, for the same underlying reason: every stream may
+legitimately lag its trigger by about one opportunity, and five clears that
+with room.
+
+**The sample is thin, and that is recorded rather than hidden.** Every enabled
+plugin's hook-health history begins on 2026-08-30, so the floor of 1 rests on
+six opportunities. Rechecking it once the enabled set has roughly a month of
+history is filed as `onlooker-run`. The number is correct on the evidence
+available and is not claimed to be more than that.
+
+### When the rule refuses to judge
+
+**If fewer than `SESSION_STALL_THRESHOLD` opportunities have elapsed, no
+`stopped` verdict is reachable and the verdict is `unknown`.** This is the
+case that matters most and the one a wall clock gets backwards. A plugin
+enabled an hour ago, or a repo nobody has opened in a month, has not had the
+opportunities that would make its silence mean anything. `unknown` there is
+not a weaker answer than `stopped` — it is the only true one.
+
+This is why the window **replaces** `RECORDING_FRESHNESS_LIMIT_MS` rather than
+sitting beside it. This repo ran no sessions at all between 2026-08-08 and
+2026-08-29. A 14-day clock calls every stream dead across that three-week
+hole, when in truth nothing was asked of any of them; an opportunity count
+abstains there correctly, and then reports counsel `stopped` once real
+opportunities resume and it produces nothing across them.
+
+### The reference-hook circularity, and its bound
+
+An opportunity is established by *any* hook-health record for the session, not
+by a nominated reference hook. That matters because nominating one — an
+ecosystem tracker, say — would make ecosystem's own verdict circular, judging
+it against a denominator it alone defines.
+
+Using any record leaves a narrower, acknowledged limitation: if the entire
+hook system stops, every denominator goes to zero and every verdict degrades
+to `unknown` rather than `stopped`. That is the correct failure direction —
+the survey cannot measure anything, so it certifies nothing — and it is the
+same promise `events.missing` and `measurable.length === 0` already make.
 
 It also resolves compass without a special case: `compass-bash-gate` is in
 `hooks`, so it counts toward liveness, and is not in `writeEvents`, so an hour
@@ -254,10 +297,19 @@ No new modules. The change is contained to:
 - `apps/cli/src/streams.ts` — the `StreamEntry.writeEvents` field, its
   per-entry values and comments, the restructured `computeVerdict`, the new
   threshold, and the removal of `RECORDING_FRESHNESS_LIMIT_MS`.
-- `apps/cli/src/eventlog.ts` — `EventScan` gains session timestamps so the
-  denominator can be counted. `scanEvents` already parses `session.start`
-  events with `working_directory` to build `sessionIds`; it currently discards
-  the timestamps.
+- `apps/cli/src/eventlog.ts` — both scans gain what the opportunity count
+  needs, which neither currently retains:
+  - `scanEvents` already parses `session.start` events with
+    `working_directory` to build `sessionIds`, and discards the timestamps.
+    `EventScan` gains those timestamps so this repo's sessions can be ordered
+    and counted from a given moment.
+  - `scanHooks` aggregates by hook name and does not retain which sessions it
+    saw at all. `HookScan` gains the set of sessions in which any hook fired,
+    which is what turns a session into an opportunity.
+
+An opportunity is the intersection: a session of this repo's that also appears
+in the hook scan. Neither source can produce it alone, which is why both
+change.
 
 `RECORDING_FRESHNESS_LIMIT_MS` is exported and referenced by name in
 `streams.test.ts`. Removing it is a deliberate, breaking change to this
@@ -268,7 +320,7 @@ module's surface, not an oversight.
 Unchanged in kind: a source that cannot be read yields `unknown`, never
 `recording`. The existing `events.missing` and `measurable.length === 0` guards
 keep their current behavior. The new denominator inherits the same rule — if
-the session count cannot be established, the verdict is `unknown`.
+the opportunity count cannot be established, the verdict is `unknown`.
 
 ## Verification pass *(approved)*
 
@@ -294,10 +346,17 @@ and `lineage.change.recorded` stopped must read `stopped`. Under today's code
 that case is a false negative; under the new rule `writeEvents` catches it. A
 test that passes both before and after is not exercising the change.
 
-The idle-machine case: a stream silent across a period with too few sessions
-reads `unknown`, not `stopped`. This is the case `RECORDING_FRESHNESS_LIMIT_MS`
-gets wrong and is the reason it is being removed, so it needs a test that would
-fail against the old constant.
+The idle-machine case: a stream silent across a period with too few
+opportunities reads `unknown`, not `stopped`. This is the case
+`RECORDING_FRESHNESS_LIMIT_MS` gets wrong and is the reason it is being
+removed, so it needs a test that would fail against the old constant.
+
+The subagent case, which is the measurement that changed this design and so
+must not regress: a fixture with many sessions of this repo's but hook-health
+records for only a few of them must count only the few. Build it at the shape
+that was measured — on the order of ninety sessions, no hook records for any
+of them — and assert the stream reads `unknown` rather than `stopped`. Against
+a raw `session.start` denominator this test fails; that is the point of it.
 
 ## Follow-ups not taken here
 
