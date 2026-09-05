@@ -20,6 +20,7 @@ import {
 	SESSION_STALL_THRESHOLD,
 	STALL_THRESHOLD,
 	STREAMS,
+	stampFor,
 	surveyStreams,
 } from "../streams";
 
@@ -644,6 +645,22 @@ describe("mtimeToIso", () => {
 
 	it("converts an in-range mtime normally", () => {
 		expect(mtimeToIso(0)).toBe(new Date(0).toISOString());
+	});
+});
+
+describe("stampFor", () => {
+	it("prints a date for a gap measured in days", () => {
+		expect(
+			stampFor("2026-09-05T11:55:00Z", new Date("2026-09-12T00:00:00Z")),
+		).toBe("2026-09-05");
+	});
+
+	it("prints the time too when the gap is under a day, so the detail can explain itself", () => {
+		// The compass verdict that read "fired 2026-09-05, but the last event
+		// was 2026-09-05" - two identical dates presented as a discrepancy.
+		expect(
+			stampFor("2026-09-05T11:55:00Z", new Date("2026-09-05T12:00:00Z")),
+		).toBe("2026-09-05 11:55");
 	});
 });
 

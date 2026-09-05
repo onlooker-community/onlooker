@@ -1603,17 +1603,18 @@ export async function surveyStreams(opts: {
 	configDir?: string;
 	env?: NodeJS.ProcessEnv;
 	/**
-	 * Injectable clock. No verdict consults it today - the rule counts
+	 * Injectable clock. No verdict decision consults it - the rule counts
 	 * opportunities, not elapsed time, and the wall-clock freshness limit it
-	 * replaced is gone - but the option stays: detail-string formatting needs
-	 * a reference instant to decide whether a stamp must carry the time as
-	 * well as the date, and every caller in the suite already threads one.
-	 * Removing it would churn every fixture for a field about to be read
-	 * again.
+	 * replaced is gone - but detail-string formatting does: `stampFor` needs
+	 * a reference instant to decide whether a timestamp must carry the time
+	 * as well as the date, so a sub-day gap does not render as two identical
+	 * dates. Defaults to the real clock at the edge, the same pattern as
+	 * `clearsCadenceFloor`'s own `now`.
 	 */
 	now?: Date;
 }): Promise<StreamSurvey> {
 	const env = opts.env ?? process.env;
+	const now = opts.now ?? new Date();
 	// `configDir` and `env` are threaded rather than defaulted inside
 	// readEnablement: without them a test inherits the developer's real
 	// CLAUDE_CONFIG_DIR and reads their actual settings.json.
@@ -1681,7 +1682,13 @@ export async function surveyStreams(opts: {
 	// straight over it keeps verdicts alphabetical without a second sort.
 	const verdicts = enabled.map((plugin) => ({
 		plugin,
-		verdict: judge(known.get(plugin), freshness.get(plugin), events, hooks),
+		verdict: judge(
+			known.get(plugin),
+			freshness.get(plugin),
+			events,
+			hooks,
+			now,
+		),
 	}));
 
 	// Footer: streams holding ANY data - not just analytical output - that
@@ -1781,9 +1788,23 @@ function newerOf(a: string, b: string): string {
 	return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
-/** Date for a detail string. Task 8 widens this to include the time when the gap is under a day. */
-function stamp(iso: string): string {
-	return iso.slice(0, 10);
+/**
+ * How a timestamp reads inside a verdict's detail.
+ *
+ * Date alone for anything a day or more old, which is every ordinary stall.
+ * Date and time when the gap is under a day, because a date-only rendering
+ * of a sub-day gap produces a detail that refutes itself - the real verdict
+ * this fixes read `compass-bash-gate fired 2026-09-05, but the last event
+ * was 2026-09-05`, presenting two identical strings as a discrepancy, on a
+ * gap of 2h55m.
+ *
+ * `reference` is passed rather than read from a clock so callers stay
+ * testable - see `surveyStreams`'s `now`.
+ */
+export function stampFor(iso: string, reference: Date): string {
+	const gap = reference.getTime() - new Date(iso).getTime();
+	if (gap >= 24 * 60 * 60 * 1000) return iso.slice(0, 10);
+	return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
 }
 
 function judge(
@@ -1791,6 +1812,7 @@ function judge(
 	fresh: ReturnType<typeof outputFreshness> | undefined,
 	events: Awaited<ReturnType<typeof scanEvents>>,
 	hooks: Awaited<ReturnType<typeof scanHooks>>,
+	now: Date,
 ): Verdict {
 	if (entry === undefined) return { kind: "no-rule" };
 
@@ -1808,7 +1830,7 @@ function judge(
 		};
 	}
 
-	const verdict = computeVerdict(entry, fresh, events, hooks);
+	const verdict = computeVerdict(entry, fresh, events, hooks, now);
 
 	// A stale symlink - a relocated checkout leaving `<old-key> -> <moved
 	// checkout>` behind, say - makes `unreadable` true without changing
@@ -1848,6 +1870,7 @@ function computeVerdict(
 	fresh: ReturnType<typeof outputFreshness> | undefined,
 	events: Awaited<ReturnType<typeof scanEvents>>,
 	hooks: Awaited<ReturnType<typeof scanHooks>>,
+	now: Date,
 ): Verdict {
 	// Unreadable sources never yield a clean bill - the promise this module
 	// makes everywhere. Checked before anything else so no branch below can
@@ -2000,7 +2023,7 @@ function computeVerdict(
 	if (window < SESSION_STALL_THRESHOLD) {
 		return {
 			kind: "unknown",
-			detail: `last sign of life ${stamp(lastLife)}, and only ${window} sessions to judge from`,
+			detail: `last sign of life ${stampFor(lastLife, now)}, and only ${window} sessions to judge from`,
 		};
 	}
 
@@ -2008,7 +2031,7 @@ function computeVerdict(
 	if (sinceLife >= SESSION_STALL_THRESHOLD) {
 		return {
 			kind: "stopped",
-			detail: `last sign of life ${stamp(lastLife)}, ${sinceLife} sessions ago`,
+			detail: `last sign of life ${stampFor(lastLife, now)}, ${sinceLife} sessions ago`,
 		};
 	}
 
@@ -2047,19 +2070,19 @@ function computeVerdict(
 		) {
 			return {
 				kind: "unknown",
-				detail: `alive since ${stamp(lastLife)}, but ${outputLabel(entry)} has never been written`,
+				detail: `alive since ${stampFor(lastLife, now)}, but ${outputLabel(entry)} has never been written`,
 			};
 		}
 		return {
 			kind: "recording",
-			detail: `last sign of life ${stamp(lastLife)}`,
+			detail: `last sign of life ${stampFor(lastLife, now)}`,
 		};
 	}
 
 	if (lastWrite === "") {
 		return {
 			kind: "unknown",
-			detail: `alive since ${stamp(lastLife)}, but no output written yet`,
+			detail: `alive since ${stampFor(lastLife, now)}, but no output written yet`,
 		};
 	}
 
@@ -2071,8 +2094,8 @@ function computeVerdict(
 	// path that does not exist, and less specific than the branch it replaced
 	// ("the last event was 2026-08-07").
 	const moved = eventsAreTheWriteAxis
-		? `the last ${entry.plugin} event landed ${stamp(lastWrite)}`
-		: `${outputLabel(entry)} last changed ${stamp(lastWrite)}`;
+		? `the last ${entry.plugin} event landed ${stampFor(lastWrite, now)}`
+		: `${outputLabel(entry)} last changed ${stampFor(lastWrite, now)}`;
 
 	if (sinceWrite >= SESSION_STALL_THRESHOLD) {
 		return {
