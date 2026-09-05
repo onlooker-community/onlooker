@@ -146,15 +146,26 @@ describe("STREAMS", () => {
 	// means "reliably implies an EVENT was emitted" instead (see its own
 	// docstring). Fix round 2 read all four `output: null` scripts in full:
 	// inspector's one hook always emits on the only tool calls its matcher
-	// ever lets through, so it is trusted; compass's other three hooks never
-	// emit at all, leaving only its Bash write-pattern gate; ecosystem's
-	// fourteen split five ways once each was actually read, not inferred
-	// from its tracker-sounding name (see its own table comment for the
-	// full account); warden's three hooks all fire far more often than they
-	// ever emit, leaving nothing to trust at all.
+	// ever lets through, so it is trusted; ecosystem's fourteen split five
+	// ways once each was actually read, not inferred from its
+	// tracker-sounding name (see its own table comment for the full account);
+	// warden's three hooks all fire far more often than they ever emit,
+	// leaving nothing to trust at all.
+	//
+	// compass moved from the trusted column to the empty one in the
+	// verification pass. Its `["compass-bash-gate"]` was justified as "a
+	// write-pattern match reliably emits", which is true and is not the claim
+	// - the hook fires on EVERY Bash call, registers with hook-health before
+	// deciding the command is read-only (compass-bash-gate.sh:29 against
+	// :98), and the EXIT trap logs that firing exactly as it logs a real one.
+	// The bead records the consequence as a live false positive.
+	//
+	// Nothing in `computeVerdict` reads this field for an `output: null`
+	// entry anymore - `writeEvents` is that branch's axis - so it is pinned
+	// as recorded research rather than as behavior.
 	it("pins which output:null entries have a hook that reliably implies an emission", () => {
 		expect(entryFor("inspector").writeHooks).toEqual(["inspector-post-write"]);
-		expect(entryFor("compass").writeHooks).toEqual(["compass-bash-gate"]);
+		expect(entryFor("compass").writeHooks).toBeUndefined();
 		expect(entryFor("ecosystem").writeHooks).toEqual([
 			"session-start-tracker",
 			"session-end-tracker",
@@ -167,6 +178,61 @@ describe("STREAMS", () => {
 			"worktree-tracker",
 		]);
 		expect(entryFor("warden").writeHooks).toBeUndefined();
+	});
+
+	// The verification pass's result, pinned so a later edit has to argue with
+	// it. Five entries name write events and twelve do not, and the twelve are
+	// the load-bearing half: an entry with no `writeEvents` and no
+	// `writeHooks` has no downstream axis at all and rests on liveness, which
+	// cannot produce a false `stopped`. Each entry's own comment carries the
+	// file and line; this only fixes the shape of the answer.
+	it("pins which entries have an event whose silence is evidence", () => {
+		const named = Object.fromEntries(
+			STREAMS.filter((e) => (e.writeEvents ?? []).length > 0).map((e) => [
+				e.plugin,
+				e.writeEvents,
+			]),
+		);
+		expect(named).toEqual({
+			assayer: ["assayer.audit.complete"],
+			bursar: ["bursar.session.recorded"],
+			lineage: ["lineage.change.recorded"],
+			inspector: [
+				"inspector.check.passed",
+				"inspector.check.failed",
+				"inspector.check.skipped",
+				"inspector.run.completed",
+			],
+			ecosystem: [
+				"tool.shell.exec",
+				"tool.file.read",
+				"tool.file.write",
+				"tool.file.edit",
+				"tool.web.fetch",
+				"tool.agent.spawn",
+				"tool.agent.complete",
+				"skill.invoked",
+				"memory.recalled",
+				"task.start",
+				"task.complete",
+			],
+		});
+	});
+
+	// The circularity that changed this design, stated as an invariant rather
+	// than left to the fixture below to catch. An opportunity is established
+	// by a `session.start` event, so a `writeEvents` set containing one is
+	// always at least as new as the newest opportunity and
+	// `opportunitiesSince` returns 0 against it by construction - the entry
+	// can never reach `stopped` on its own write axis. ecosystem is the entry
+	// this bites, because `session` is one of its tracked prefixes.
+	it("names no write event that would pin its own opportunity count", () => {
+		for (const entry of STREAMS) {
+			expect(
+				entry.writeEvents ?? [],
+				`${entry.plugin}: a session.* write event pins opportunitiesSince at 0`,
+			).not.toContain("session.start");
+		}
 	});
 
 	it("declares no writeEvents naming an event type its own entry does not emit", () => {
@@ -1297,20 +1363,21 @@ describe("surveyStreams", () => {
 	// only proof of life, so hooks running past a frozen event stream means
 	// the emissions have stopped even though the trigger has not.
 	//
-	// Moved from ecosystem to inspector, and NOT because inspector is a
-	// better example - ecosystem's 2026-08-07 tracker outage is still the
-	// real-world shape this describes. It is that ecosystem can no longer
-	// reach this verdict at all, for a structural reason worth recording:
-	// `session` is one of ecosystem's tracked prefixes, and `session.start`
-	// is the single event type that establishes an opportunity
-	// (`scanEvents`, and see `opportunitiesSince`). So every opportunity in
-	// the denominator is itself an ecosystem event, ecosystem's event axis
-	// can never be older than the newest opportunity, and the count since it
-	// is pinned at zero by construction. This is the reference-hook
-	// circularity the design bounds for hook records, reappearing one level
-	// down on the event side, where it was not anticipated. inspector has
-	// the identical entry shape - `output: null` with a trusted write hook -
-	// and no such overlap, so the rule itself is still pinned here.
+	// Moved from ecosystem to inspector when ecosystem could not reach this
+	// verdict at all: `session` is one of its tracked prefixes and
+	// `session.start` is the single event type that establishes an
+	// opportunity (`scanEvents`, and see `opportunitiesSince`), so with the
+	// axis built from every prefix in `events`, ecosystem's event axis could
+	// never be older than the newest opportunity and the count since it was
+	// pinned at zero by construction. That was the reference-hook circularity
+	// the design bounds for hook records, reappearing one level down on the
+	// event side where it was not anticipated.
+	//
+	// It is fixed - the axis is `writeEvents` now, and ecosystem's set leaves
+	// `session.start` out - and the case it blocked is the test two below
+	// this one. inspector stays the vehicle here anyway: it has the identical
+	// entry shape and its four types are its whole prefix, so the rule is
+	// pinned on the simpler of the two.
 	it("reports an output:null stream stopped when its hooks keep firing but its events have stopped landing", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["inspector"],
@@ -1355,21 +1422,78 @@ describe("surveyStreams", () => {
 		);
 	});
 
-	// ecosystem stays the vehicle here, where the overlap noted above is
-	// harmless: the opportunities' own `session.start` rows are exactly the
-	// events a healthy ecosystem is supposed to be emitting, so a fixture in
-	// which it is recording and one in which the denominator is populated are
-	// the same fixture.
+	// ecosystem stays the vehicle here, but the fixture had to gain a tracker
+	// event to stay honest. It used to carry nothing but what `opportunities`
+	// generates, and passed on the strength of those `session.start` rows
+	// alone - which is the circularity itself, the denominator's own signal
+	// certifying the stream that emits it. With the axis narrowed to
+	// `writeEvents`, ecosystem now correctly reads `unknown` off that fixture:
+	// its trackers produced nothing, so nothing says they are working.
+	//
+	// One `tool.file.edit`, the type tool-history-tracker appends on every
+	// Edit, is what "its events move together with its hooks" actually means
+	// for this entry.
 	it("reports an output:null stream recording when its hooks and events move together", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["ecosystem"],
 			opportunities: 6,
 			opportunitiesEndingOn: "2026-09-02",
+			events: [
+				{
+					event_type: "tool.file.edit",
+					timestamp: "2026-09-02T12:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
 		});
 		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-09-03T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "ecosystem")?.kind).toBe("recording");
+	});
+
+	// The incident this whole feature was built for, reachable for the first
+	// time. ecosystem's trackers died on 2026-08-07 while its hooks went on
+	// firing - so liveness says it is fine, and only the write axis can catch
+	// it. Under the previous rule it could not: the axis was every prefix in
+	// `events`, `session` is one of them, and the opportunities' own
+	// `session.start` rows kept `lastWrite` pinned to the newest opportunity
+	// forever.
+	//
+	// Run this fixture against the prefix-wide axis and it reads `recording`,
+	// which is the point of it - a test that passes before the change is not
+	// exercising the change.
+	//
+	// The last tracker output lands in the FIRST of the six opportunities and
+	// nothing follows it, so five opportunities have gone by with the hooks
+	// firing into them and no tracker emitting. It has to sit in one of
+	// those sessions rather than in an older invented one: `scanEvents`
+	// attributes an event to this repo only through a `session.start` whose
+	// `working_directory` is the temp `cwd`, which `machine()` alone can fill
+	// in, so an event in an unknown session is dropped rather than counted
+	// old.
+	it("reports ecosystem stopped when its trackers stop while its hooks keep firing", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "tool.file.edit",
+					timestamp: "2026-08-31T00:00:02.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+		});
+		const verdict = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"ecosystem",
+		);
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"ecosystem event",
+		);
 	});
 
 	// Events exist, but hook-health holds nothing at all - so there are no
