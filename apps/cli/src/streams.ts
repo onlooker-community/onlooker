@@ -18,6 +18,30 @@ import { scanEvents, scanHooks } from "./eventlog";
 export const STALL_THRESHOLD = 5;
 
 /**
+ * How many opportunities - sessions of this repo's that ran the hook
+ * machinery, see `opportunitiesSince` - may pass with no sign of life from a
+ * stream before its silence reads as a stall rather than as quiet.
+ *
+ * The design's one new arbitrary number, recorded as such exactly like
+ * `STALL_THRESHOLD` and `CADENCE_FLOOR_MULTIPLIER` - but read off measured
+ * data rather than picked and justified afterward, which is what went wrong
+ * with the wall-clock constant it replaces.
+ *
+ * Floor 1, ceiling 6. Over the six opportunities this repo had between
+ * 2026-08-30 and 2026-09-05: bursar fired in 6 of 6, and lineage, inspector
+ * and assayer in 5 of 6 - so a healthy stream's longest silence was one
+ * opportunity. Six opportunities have elapsed since the 2026-08-07 outage,
+ * so five reports counsel `stopped` today rather than `unknown`. Five also
+ * matches `STALL_THRESHOLD` for the same underlying reason: any stream may
+ * lag its trigger by about one opportunity, and five clears that with room.
+ *
+ * The sample is six opportunities wide, because every enabled plugin's
+ * hook-health history begins 2026-08-30. `onlooker-run` tracks rechecking
+ * this once the enabled set has roughly a month of history.
+ */
+export const SESSION_STALL_THRESHOLD = 5;
+
+/**
  * How many write-gate intervals must elapse, past a gated writer's own
  * cadence, before its output's silence is trusted as a real stall rather
  * than an ordinary gap between scheduled writes. See `StreamEntry.
@@ -193,6 +217,31 @@ export interface StreamEntry {
 	 * than inferred from its name, the bail sites that justified the call.
 	 */
 	writeHooks?: readonly string[];
+	/**
+	 * The event types whose emission is reliable evidence that this entry's
+	 * analytical output was WRITTEN - the exact mirror of `writeHooks`, one
+	 * level down.
+	 *
+	 * Full `event_type` values, never prefixes, because conditionality is a
+	 * property of the type rather than of the plugin:
+	 * `governor.session.complete` fires on every session and implies nothing
+	 * about output, while `governor.gate.checked` fires only when a gate is
+	 * checked. `events` above stays prefix-keyed, because it answers the
+	 * different question of whether the plugin ran at all, and there the
+	 * masking is exactly what you want.
+	 *
+	 * Undefined or empty means no event this entry emits implies a write.
+	 * That is the conservative direction and the common one: scribe emits
+	 * per prompt from `scribe-capture` while `scribe-stop` writes only when
+	 * there is something to distill, and `curator.scan.complete` fires on
+	 * every scan whether or not any finding changed. Together with
+	 * `writeHooks` this decides whether `computeVerdict` may ask the write
+	 * question at all - see its `lastWrite`.
+	 *
+	 * Every value here was read out of the plugin's source, not inferred
+	 * from its name. Each entry below records the file and line.
+	 */
+	writeEvents?: readonly string[];
 	/**
 	 * Whether this entry's output is organized as `<output>/<key>[/<subpath>]`
 	 * - one subtree per project this machine has ever touched - rather than

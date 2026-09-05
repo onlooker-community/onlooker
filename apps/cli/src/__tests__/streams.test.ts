@@ -17,6 +17,7 @@ import {
 	opportunitiesSince,
 	outputFreshness,
 	outputLabel,
+	SESSION_STALL_THRESHOLD,
 	STALL_THRESHOLD,
 	STREAMS,
 	surveyStreams,
@@ -166,6 +167,20 @@ describe("STREAMS", () => {
 			"worktree-tracker",
 		]);
 		expect(entryFor("warden").writeHooks).toBeUndefined();
+	});
+
+	it("declares no writeEvents naming an event type its own entry does not emit", () => {
+		for (const entry of STREAMS) {
+			for (const type of entry.writeEvents ?? []) {
+				// A write event must belong to a prefix this entry already
+				// tracks, or the rule would look it up in a map that is scoped
+				// to different prefixes and silently never find it.
+				expect(
+					entry.events.some((prefix) => type.startsWith(`${prefix}.`)),
+					`${entry.plugin}: writeEvents entry ${type} matches none of its events prefixes`,
+				).toBe(true);
+			}
+		}
 	});
 });
 
@@ -635,6 +650,17 @@ describe("STALL_THRESHOLD", () => {
 	// Five clears that with margin. The real outage hit 71.
 	it("sits above one session of legitimate lag", () => {
 		expect(STALL_THRESHOLD).toBe(5);
+	});
+});
+
+describe("SESSION_STALL_THRESHOLD", () => {
+	it("sets a session stall threshold above the measured noise floor", () => {
+		// Floor is 1: over the six opportunities this repo had between
+		// 2026-08-30 and 2026-09-05, bursar fired in 6, and lineage, inspector
+		// and assayer each in 5 - a longest healthy silent run of 1. Ceiling is
+		// those same 6. See onlooker-run for the recheck.
+		expect(SESSION_STALL_THRESHOLD).toBeGreaterThan(1);
+		expect(SESSION_STALL_THRESHOLD).toBeLessThanOrEqual(6);
 	});
 });
 
