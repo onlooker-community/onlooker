@@ -361,6 +361,42 @@ there is no write signal. Age alone is not evidence, for the reasons the
 `writeSignals` section gives; absence is different, because there is no
 history to be quiet about.
 
+### The write window counts the entry's own trigger, not every session *(amended 2026-09-05)*
+
+Shipping the finished rule against the real machine produced this:
+
+```
+lineage  STOPPED  lineage/* last changed 2026-09-05 21:37, 5 sessions ago,
+                  while the stream kept running
+```
+
+lineage was healthy. In the six sessions since its ledger last moved there
+were **zero edit-shaped tool events** — nobody edited a file in that repo —
+and `lineage-post-tool-use` fired in **zero of the six**. All six counted
+against it anyway, because an opportunity was defined as any session that ran
+*any* hook.
+
+That is the false positive this document exists to remove, reintroduced by its
+own denominator. A session in which an entry's trigger never fired was never a
+chance for that entry to write, and charging it for one is the same category
+error as judging scribe by an output it had no reason to produce.
+
+**So the write window counts only opportunities in which this entry's own
+hooks fired.** For lineage that is 0 of the last 6, comfortably under the
+threshold, and it reads `recording`. Detection survives intact: five sessions
+in which `lineage-post-tool-use` fired with nothing recorded is still exactly
+the frozen-ledger shape, and still `stopped`.
+
+**The liveness window keeps the broad denominator**, and must. Narrowing that
+one would be circular — an entry whose hooks never fire would generate zero of
+its own opportunities and could never be judged silent, which is precisely the
+"enabled but never runs" case liveness exists to catch.
+
+This restores what the predecessor design already knew and the unification
+mislaid: *count trigger firings since the output last moved — the denominator
+self-calibrates.* The unified rule kept the self-calibrating idea for liveness
+and quietly generalized it away for writes.
+
 ### Gated writers are unprotected until the cadence floor returns *(amended 2026-09-05)*
 
 Unifying the rule retired `clearsCadenceFloor` and `toleranceFor`, and nothing
