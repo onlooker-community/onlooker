@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
-	clearsCadenceFloor,
 	doctorLines,
 	exitCodeFor,
 	mtimeToIso,
@@ -18,7 +17,6 @@ import {
 	outputFreshness,
 	outputLabel,
 	SESSION_STALL_THRESHOLD,
-	STALL_THRESHOLD,
 	STREAMS,
 	stampFor,
 	surveyStreams,
@@ -664,41 +662,6 @@ describe("stampFor", () => {
 	});
 });
 
-describe("clearsCadenceFloor", () => {
-	// counsel's brief is gated to once per 168 hours (synthesis_interval_
-	// days: 7). A stall verdict must not fire just because STALL_THRESHOLD's
-	// firing count was crossed inside that window - the writer legitimately
-	// has not run yet. This is the most important test in this block.
-	it("does not clear the floor while inside the gate window", () => {
-		const mtime = "2026-09-01T00:00:00Z";
-		const now = new Date("2026-09-03T00:00:00Z"); // 48h later; gate is 168h.
-		expect(clearsCadenceFloor(entryFor("counsel"), mtime, now)).toBe(false);
-	});
-
-	// Twice the gate (336h here) clears margin the same way STALL_THRESHOLD
-	// clears one session's worth of legitimate lag.
-	it("clears the floor once twice the gate has elapsed", () => {
-		const mtime = "2026-08-01T00:00:00Z";
-		const now = new Date("2026-08-15T01:00:00Z"); // 337h later; floor is 336h.
-		expect(clearsCadenceFloor(entryFor("counsel"), mtime, now)).toBe(true);
-	});
-
-	// A plain entry's trigger IS its writer - STALL_THRESHOLD was already
-	// the whole rule for it, and this field's absence must not add a floor
-	// that was never asked for.
-	it("always clears the floor for an entry with no write gate", () => {
-		const mtime = "2026-09-02T23:59:00Z";
-		const now = new Date("2026-09-03T00:00:00Z"); // 1 minute later.
-		expect(clearsCadenceFloor(entryFor("bursar"), mtime, now)).toBe(true);
-	});
-
-	it("clears the floor when there is no mtime to measure elapsed time against", () => {
-		expect(clearsCadenceFloor(entryFor("counsel"), null, new Date())).toBe(
-			true,
-		);
-	});
-});
-
 describe("outputLabel", () => {
 	it("renders a subpath entry with a wildcard key segment", () => {
 		expect(outputLabel(entryFor("librarian"))).toBe(
@@ -727,21 +690,18 @@ describe("outputLabel", () => {
 	});
 });
 
-describe("STALL_THRESHOLD", () => {
-	// Every stream in the table can legitimately lag its trigger by one
-	// session; bursar-session-start fires before bursar-session-end writes.
-	// Five clears that with margin. The real outage hit 71.
-	it("sits above one session of legitimate lag", () => {
-		expect(STALL_THRESHOLD).toBe(5);
-	});
-});
-
 describe("SESSION_STALL_THRESHOLD", () => {
 	it("sets a session stall threshold above the measured noise floor", () => {
 		// Floor is 1: over the six opportunities this repo had between
 		// 2026-08-30 and 2026-09-05, bursar fired in 6, and lineage, inspector
 		// and assayer each in 5 - a longest healthy silent run of 1. Ceiling is
 		// those same 6. See onlooker-run for the recheck.
+		//
+		// The floor also has to clear one session of ordinary ordering lag,
+		// which the retired firing-count threshold was set for on its own:
+		// bursar-session-start fires before bursar-session-end writes. Five
+		// clears that too, and the real outage hit 71 firings, so the margin
+		// costs no detection.
 		expect(SESSION_STALL_THRESHOLD).toBeGreaterThan(1);
 		expect(SESSION_STALL_THRESHOLD).toBeLessThanOrEqual(6);
 	});
@@ -1833,8 +1793,8 @@ describe("surveyStreams", () => {
 	});
 
 	// bursar-session-start fires a whole session before bursar-session-end
-	// performs the real write - the exact ordering lag STALL_THRESHOLD was
-	// built to tolerate. Counting session-start's own firings anyway would
+	// performs the real write - the exact ordering lag any stall threshold
+	// has to tolerate. Counting session-start's own firings anyway would
 	// flag a healthy bursar the moment new sessions keep opening, regardless
 	// of whether session-end is writing just fine. writeHooks is what keeps
 	// a non-write hook's firing from being read as evidence either way.
@@ -1983,9 +1943,9 @@ describe("surveyStreams", () => {
 	// repo root, no project key, no claude/jq on PATH, no transcript, empty
 	// final message, empty claude -p response), measured on a live machine
 	// at roughly 10 firings per audit. Before this fix, assayer's writeHooks
-	// trusted every one of those 200 firings as evidence of a write, and
-	// STALL_THRESHOLD = 5 crossed within hours of any quiet stretch even
-	// while assayer was healthy.
+	// trusted every one of those 200 firings as evidence of a write, and a
+	// firing-count threshold of 5 was crossed within hours of any quiet
+	// stretch even while assayer was healthy.
 	//
 	// assayer now has neither a write hook nor a write event, so the write
 	// question is not asked of it at all: its verdict rests on liveness
@@ -2030,14 +1990,15 @@ describe("surveyStreams", () => {
 	// gap before the next one is a healthy stream, not a stall.
 	//
 	// The mechanism that protects it has changed underneath the test. It used
-	// to be `toleranceFor`'s cadence term widening the permitted gap between
-	// events and output mtime from one hour to 48. There is no such gap
-	// measurement anymore: cartographer declares no write signal of either
-	// kind, so the write question is not asked of it at all and the age of
+	// to be a cadence term widening the permitted gap between events and
+	// output mtime from one hour to 48. There is no such gap measurement
+	// anymore: cartographer declares no write signal of either kind, so the
+	// write question is not asked of it at all and the age of
 	// `runs/audit-1.json` is never consulted. The protection now comes from
 	// the entry's own silence about writes rather than from a tolerance
-	// tuned per plugin - which is why `writeGateHours` may turn out to have
-	// no consumer left. The behavior this test pins is unchanged.
+	// tuned per plugin, which is why `writeGateHours` currently has no
+	// consumer - see `onlooker-1vt`. The behavior this test pins is
+	// unchanged.
 	it("does not report a gated writer with no write signal stopped over an ordinary gap between its runs", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["cartographer"],
@@ -2186,8 +2147,8 @@ describe("surveyStreams", () => {
 	});
 
 	// historian HAS a writeHook (historian-session-end IS the writer), and
-	// this used to assert `stopped` for a write hook that had fired past
-	// STALL_THRESHOLD with no session ever indexed.
+	// this used to assert `stopped` for a write hook that had fired past the
+	// old firing-count threshold with no session ever indexed.
 	//
 	// It is `unknown` now, and that is a deliberate, load-bearing softening
 	// rather than an accident of the rewrite - the single largest loss of

@@ -421,6 +421,27 @@ export async function scanEvents(opts: {
  * would give six dead streams a clean bill.
  */
 export interface HookScan {
+	/**
+	 * Per hook name: how many times it fired past `scanHooks`'s `since`
+	 * cutoff, how many of those reported success, and the newest firing seen
+	 * at all. A hook absent from this record has no firing in scope, which is
+	 * not the same as one that fired zero times - see the scope filter in
+	 * `scanHooks`.
+	 *
+	 * `last` is the live field: it is what `streams.ts` reads as a stream's
+	 * sign of life, and it is recorded before the `since` filter, so the
+	 * cutoff never moves it.
+	 *
+	 * `firedSince` and `okSince` are RETAINED UNREAD pending `onlooker-d7g`.
+	 * They were the numerator of the firing-count rule the unified verdict
+	 * replaced with an opportunity count, and no verdict consults either one
+	 * now. `onlooker-d7g` owns the choice between surfacing them - "fired 73
+	 * times, 71 succeeded, produced no output" is a materially stronger
+	 * sentence than "fired 73 times", because it forecloses the reader's
+	 * first guess that the hook was erroring - and dropping them from this
+	 * interface. Deciding it here, inside an unrelated dead-code sweep,
+	 * would settle that bead by default rather than on its merits.
+	 */
 	hooks: Record<string, { firedSince: number; okSince: number; last: string }>;
 	unreadable: number;
 	missing: boolean;

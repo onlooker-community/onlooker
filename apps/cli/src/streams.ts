@@ -6,34 +6,27 @@ import type { EventScan, HookScan } from "./eventlog";
 import { scanEvents, scanHooks } from "./eventlog";
 
 /**
- * How many trigger firings with no output movement count as stopped.
- *
- * The design's only arbitrary number, and recorded as such. Every stream in
- * the table can legitimately lag its trigger by one session -
- * `bursar-session-start` fires at the top of a session whose output is not
- * written until `bursar-session-end`. Five clears that ordering effect without
- * modeling it per plugin, and leaves margin for a plugin that batches writes.
- * The real bursar outage reached 71.
- */
-export const STALL_THRESHOLD = 5;
-
-/**
  * How many opportunities - sessions of this repo's that ran the hook
  * machinery, see `opportunitiesSince` - may pass with no sign of life from a
  * stream before its silence reads as a stall rather than as quiet.
  *
- * The design's one new arbitrary number, recorded as such exactly like
- * `STALL_THRESHOLD` and `CADENCE_FLOOR_MULTIPLIER` - but read off measured
- * data rather than picked and justified afterward, which is what went wrong
- * with the wall-clock constant it replaces.
+ * The design's only arbitrary number, and recorded as such - but read off
+ * measured data rather than picked and justified afterward, which is what
+ * went wrong with the wall-clock constant it replaces.
  *
  * Floor 1, ceiling 6. Over the six opportunities this repo had between
  * 2026-08-30 and 2026-09-05: bursar fired in 6 of 6, and lineage, inspector
  * and assayer in 5 of 6 - so a healthy stream's longest silence was one
  * opportunity, and six have elapsed since the 2026-08-07 outage. Five sits
- * above the floor with margin and at or below the ceiling. It also matches
- * `STALL_THRESHOLD` for the same underlying reason: any stream may lag its
- * trigger by about one opportunity, and five clears that with room.
+ * above the floor with margin and at or below the ceiling.
+ *
+ * It also absorbs the ordering effect the retired firing-count threshold was
+ * set for: every stream can legitimately lag its own trigger by about one
+ * opportunity - `bursar-session-start` fires at the top of a session whose
+ * output is not written until `bursar-session-end` - and five clears that
+ * without modeling it per plugin, leaving margin for a plugin that batches
+ * writes. Detection is untouched by the margin; the real bursar outage
+ * reached 71 firings.
  *
  * The ceiling used to be argued by naming counsel - "five reports counsel
  * `stopped` today rather than `unknown`" - and that is no longer true.
@@ -49,40 +42,6 @@ export const STALL_THRESHOLD = 5;
  * this once the enabled set has roughly a month of history.
  */
 export const SESSION_STALL_THRESHOLD = 5;
-
-/**
- * How many write-gate intervals must elapse, past a gated writer's own
- * cadence, before its output's silence is trusted as a real stall rather
- * than an ordinary gap between scheduled writes. See `StreamEntry.
- * writeGateHours` and `clearsCadenceFloor`.
- *
- * Mirrors `STALL_THRESHOLD`'s own reasoning: every stream can legitimately
- * lag its trigger by one session, and five clears that with margin. A
- * gated writer - counsel's brief, cartographer's audit - can legitimately
- * lag by one full `writeGateHours` interval, and two clears that with the
- * same kind of margin.
- */
-export const CADENCE_FLOOR_MULTIPLIER = 2;
-
-/**
- * How much newer the latest event could be than the output's own mtime before
- * that gap read as a stall, back when an entry with no `writeHooks` was judged
- * by comparing the two.
- *
- * Arbitrary, like `STALL_THRESHOLD` and `CADENCE_FLOOR_MULTIPLIER`, and
- * recorded as such. A plugin writes its output file and emits its event
- * inside the same hook run, so ordinarily the two move together within
- * seconds; an hour is generous margin for that ordinary jitter (a slow
- * write, clock skew between the two) without hiding a real stall, which
- * opens a gap measured in days.
- *
- * That comparison is gone. `computeVerdict` counts opportunities and never
- * measures a gap in milliseconds, and an entry with no write signal is now
- * judged on liveness alone rather than against its output's age. Retained,
- * like `toleranceFor` - its only remaining reader - pending the decision on
- * whether `StreamEntry.writeGateHours` still has a consumer at all.
- */
-export const EVENT_OUTPUT_TOLERANCE_MS = 60 * 60 * 1000;
 
 /**
  * Filesystem noise an OS can drop into any directory it has browsed,
@@ -154,15 +113,36 @@ export interface StreamEntry {
 	 * `hooks` rather than writing on every firing.
 	 *
 	 * Undefined for the common case, where the hook IS the writer and
-	 * `STALL_THRESHOLD` alone is the whole rule. Set only for a stream whose
-	 * trigger fires far more often than its writer actually runs: counsel's
-	 * brief generation is gated to once per `synthesis_interval_days` (7
-	 * days = 168 hours, counsel's config.json:3) while `counsel-session-
-	 * start` fires every session; cartographer's audit is gated to once per
-	 * `audit_interval_hours` (24, cartographer's config.json:5) while
-	 * `cartographer-post-write` fires on every Write. Without this,
-	 * `STALL_THRESHOLD` alone reports a perfectly healthy, on-schedule gate
-	 * as a stall. See `clearsCadenceFloor`.
+	 * `SESSION_STALL_THRESHOLD` alone is the whole rule. Set only for a
+	 * stream whose trigger fires far more often than its writer actually
+	 * runs: counsel's brief generation is gated to once per
+	 * `synthesis_interval_days` (7 days = 168 hours, counsel's
+	 * config.json:3) while `counsel-session-start` fires every session;
+	 * cartographer's audit is gated to once per `audit_interval_hours` (24,
+	 * cartographer's config.json:5) while `cartographer-post-write` fires on
+	 * every Write.
+	 *
+	 * RETAINED UNREAD, pending `onlooker-1vt`. Nothing consumes this field:
+	 * the two functions that did - `clearsCadenceFloor` and `toleranceFor` -
+	 * measured a gap in wall-clock milliseconds, which is exactly what the
+	 * unified rule replaced with a count of opportunities, so restoring them
+	 * would reintroduce the wall clock rather than fix anything. The field
+	 * is kept because it is the measurement, not the mechanism: 168 and 24
+	 * were read out of those two plugins' own config files, and the fix
+	 * `onlooker-1vt` describes - scaling the opportunity threshold by an
+	 * entry's own gate - needs exactly these numbers. Deleting them would
+	 * mean re-deriving them from another repository's source.
+	 *
+	 * The margin that fix wants is two gate intervals, and the reasoning is
+	 * the retired `CADENCE_FLOOR_MULTIPLIER`'s, preserved here because the
+	 * constant went with its readers: a gated writer - counsel's brief,
+	 * cartographer's audit - can legitimately be one full interval late, and
+	 * two clears that with the same kind of margin `SESSION_STALL_THRESHOLD`
+	 * leaves an ungated stream.
+	 *
+	 * Until then, neither entry names any `writeEvents`, so neither is
+	 * judged on a write axis at all and the missing allowance cannot produce
+	 * a false `stopped`. See both entries' own comments in `STREAMS`.
 	 */
 	writeGateHours?: number;
 	/**
@@ -352,7 +332,7 @@ export const STREAMS: readonly StreamEntry[] = [
 		// (:102), no transcript (:104), empty final assistant message
 		// (:112), empty `claude -p` response (:140) - all ordinary, not
 		// exceptional. Measured on a live machine: 395 assayer-stop firings
-		// against 39 audit files, roughly 10:1. At STALL_THRESHOLD = 5,
+		// against 39 audit files, roughly 10:1. At a stall threshold of 5,
 		// assayer crossed into `stopped` within hours of any quiet stretch -
 		// the lineage false positive again, on a plugin this repo enables.
 		//
@@ -392,7 +372,7 @@ export const STREAMS: readonly StreamEntry[] = [
 		hooks: ["bursar-session-start", "bursar-session-end"],
 		// NOT bursar-session-start, which fires a whole session before the
 		// write bursar-session-end performs - the "one session of lag"
-		// STALL_THRESHOLD was originally papering over. Counting
+		// `SESSION_STALL_THRESHOLD` leaves room for. Counting
 		// session-start's own firings would flag a healthy bursar the
 		// moment new sessions keep opening, regardless of whether
 		// session-end is writing just fine.
@@ -436,9 +416,10 @@ export const STREAMS: readonly StreamEntry[] = [
 		// `cartographer-post-write` fires on every Write, but an audit only
 		// runs once per `audit_interval_hours` - 24 by default
 		// (config.json:5) - via cartographer-session-start.sh:45-57's own
-		// elapsed-time gate. Without this, `STALL_THRESHOLD` can be crossed
-		// within a single busy day on a perfectly healthy stream. See
-		// `clearsCadenceFloor`.
+		// elapsed-time gate. Without an allowance for that gate, a stall
+		// threshold can be crossed within a single busy day on a perfectly
+		// healthy stream. Retained unread pending `onlooker-1vt` - see the
+		// field's own docstring.
 		writeGateHours: 24,
 		events: ["cartographer"],
 		// No writeHooks: cartographer-post-write fires on every Write, but
@@ -456,13 +437,14 @@ export const STREAMS: readonly StreamEntry[] = [
 		// The deciding one is the gate, and it applies to counsel below
 		// identically - these two are the only entries with `writeGateHours`
 		// set at all. Nothing enforces that gate against the window anymore:
-		// `clearsCadenceFloor` and `toleranceFor` are both idle since the
-		// rule was unified, so the window counts opportunities with no idea
-		// that this writer only tries once a day. Five opportunities inside
-		// one 24-hour interval - a single busy day - would read `stopped` on
-		// a stream that is exactly on schedule, and naming a write event here
-		// is precisely what switches that branch on. Liveness is the honest
-		// axis until a gated writer has a denominator that respects its gate.
+		// the two functions that read the field went with the wall clock when
+		// the rule was unified, so the window counts opportunities with no
+		// idea that this writer only tries once a day. Five opportunities
+		// inside one 24-hour interval - a single busy day - would read
+		// `stopped` on a stream that is exactly on schedule, and naming a
+		// write event here is precisely what switches that branch on.
+		// Liveness is the honest axis until a gated writer has a denominator
+		// that respects its gate. Tracked as `onlooker-1vt`.
 		hooks: ["cartographer-post-write", "cartographer-session-start"],
 	},
 	{
@@ -520,10 +502,11 @@ export const STREAMS: readonly StreamEntry[] = [
 		// `counsel-session-start` fires every session, but real brief
 		// generation is gated by `counsel_brief_is_stale`
 		// (counsel-brief.sh:89) to once per `synthesis_interval_days` - 7
-		// days, 168 hours, by default (config.json:3). Without this, a
-		// normal week of 6+ sessions crosses `STALL_THRESHOLD` with zero
-		// output movement on a perfectly healthy, on-schedule stream. See
-		// `clearsCadenceFloor`.
+		// days, 168 hours, by default (config.json:3). Without an allowance
+		// for that gate, a normal week of 6+ sessions crosses a stall
+		// threshold with zero output movement on a perfectly healthy,
+		// on-schedule stream. Retained unread pending `onlooker-1vt` - see
+		// the field's own docstring.
 		writeGateHours: 168,
 		events: ["counsel"],
 		// No writeHooks: its only hook fires every session while the brief
@@ -537,8 +520,8 @@ export const STREAMS: readonly StreamEntry[] = [
 		// on the period bounds parsing. What does not hold is the second half
 		// of the test, for the same reason as cartographer above -
 		// `writeGateHours: 168` says a healthy counsel writes once a WEEK,
-		// and the window has no idea, because `clearsCadenceFloor` went idle
-		// when the rule was unified.
+		// and the window has no idea, because the field's only two readers
+		// were wall-clock ones and went when the rule was unified.
 		//
 		// Measured against this repo's own denominator that is not a
 		// hypothetical: six opportunities in the six days to 2026-09-05, so
@@ -554,7 +537,7 @@ export const STREAMS: readonly StreamEntry[] = [
 		// 2026-08-07 would go unreported. That is a false negative traded for
 		// a recurring false positive, the same direction taken everywhere
 		// else here, and it reverses the moment `writeGateHours` has a
-		// consumer again.
+		// consumer again. Tracked as `onlooker-1vt`.
 		hooks: ["counsel-session-start"],
 		// `counsel/<key>/` per project - verified on disk.
 		perProject: true,
@@ -1527,41 +1510,6 @@ export function opportunitiesSince(
 }
 
 /**
- * Whether enough time has passed since `mtime` for a firing-count stall
- * verdict to be trusted, given `entry`'s own write gate (if any). Exported
- * for Task 5's `judge()`, which is expected to require BOTH this AND its
- * own firing-count-past-`STALL_THRESHOLD` check before calling a gated
- * stream stopped - this function answers only the elapsed-time half.
- *
- * Exists because `STALL_THRESHOLD` alone assumes every trigger firing
- * should move output - true when the hook IS the writer, false when the
- * writer is rate-gated behind it. See `StreamEntry.writeGateHours` for the
- * concrete counsel/cartographer cases this covers.
- *
- * Entries without `writeGateHours` always clear this - their trigger IS
- * their writer, so `STALL_THRESHOLD` was already the whole rule and this
- * adds nothing for them. An entry with no `mtime` also always clears it -
- * there is no gate interval to measure elapsed time against, and "never
- * produced anything" is a distinct verdict from "stopped producing," not
- * this function's concern.
- *
- * `now` is injectable, defaulting to the real clock at the edge, so this -
- * and anything Task 5 builds on it - stays testable without depending on
- * wall time, the same `env`-threading pattern used throughout this file.
- */
-export function clearsCadenceFloor(
-	entry: StreamEntry,
-	mtime: string | null,
-	now: Date = new Date(),
-): boolean {
-	if (entry.writeGateHours === undefined || mtime === null) return true;
-	const elapsedMs = now.getTime() - new Date(mtime).getTime();
-	const floorMs =
-		entry.writeGateHours * CADENCE_FLOOR_MULTIPLIER * 60 * 60 * 1000;
-	return elapsedMs >= floorMs;
-}
-
-/**
  * What one stream's three sources add up to.
  *
  * `unknown` is deliberately distinct from `recording`. A stream we could not
@@ -1625,8 +1573,8 @@ export async function surveyStreams(opts: {
 	 * replaced is gone - but detail-string formatting does: `stampFor` needs
 	 * a reference instant to decide whether a timestamp must carry the time
 	 * as well as the date, so a sub-day gap does not render as two identical
-	 * dates. Defaults to the real clock at the edge, the same pattern as
-	 * `clearsCadenceFloor`'s own `now`.
+	 * dates. Defaults to the real clock at the edge, the same way `env` and
+	 * `configDir` are threaded rather than reached for throughout this file.
 	 */
 	now?: Date;
 }): Promise<StreamSurvey> {
@@ -1656,6 +1604,17 @@ export async function surveyStreams(opts: {
 
 	// Mtimes first, so the hook scan can count firings *since* each output
 	// last moved in one pass rather than retaining every timestamp.
+	//
+	// The `since` map is the cutoff for `HookScan`'s `firedSince`/`okSince`,
+	// and no verdict reads either one anymore - the unified rule counts
+	// opportunities from a last-seen instant instead. Both counters, and
+	// therefore this map, are held pending `onlooker-d7g`, which owns the
+	// choice between surfacing them in a `stopped` verdict's detail ("fired
+	// 73 times, 71 succeeded, produced no output" forecloses the reader's
+	// first guess, that the hook was erroring) and dropping them from
+	// `HookScan`. Nothing else in the scan depends on the cutoff: a hook's
+	// `last` is recorded before the `since` filter runs, so liveness is
+	// unaffected either way.
 	const freshness = new Map<string, ReturnType<typeof outputFreshness>>();
 	const since: Record<string, string> = {};
 	for (const plugin of enabled) {
@@ -1678,13 +1637,13 @@ export async function surveyStreams(opts: {
 
 	// `sessionIds` scopes hook firings to this repo's own sessions, the same
 	// way `events.lastByPrefix` was already scoped inside `scanEvents` -
-	// without it, a single unrelated repo's session firing a write hook 90
-	// times pushes `firedSince` past `STALL_THRESHOLD` on a stream this
-	// repo's own sessions never touched. Passed only when `root` is
-	// non-null, mirroring `scanEvents`'s own scoping condition exactly: no
-	// root means no repo context to scope by at all, so `scanHooks` keeps
-	// its unscoped default rather than being handed an empty set that would
-	// scope every hook to nothing.
+	// without it, a single unrelated repo's session firing a hook makes that
+	// hook's `last` a sign of life here, and a stream this repo's own
+	// sessions never touched reads alive on another repo's activity.
+	// Passed only when `root` is non-null, mirroring `scanEvents`'s own
+	// scoping condition exactly: no root means no repo context to scope by
+	// at all, so `scanHooks` keeps its unscoped default rather than being
+	// handed an empty set that would scope every hook to nothing.
 	const hooks = await scanHooks({
 		since,
 		sessionIds: root === null ? undefined : events.sessionIds,
@@ -1764,32 +1723,6 @@ export async function surveyStreams(opts: {
 		footer,
 		faults,
 	};
-}
-
-/**
- * The gap the old rule allowed between two triggers' timestamps before it
- * read as a stall, given `entry`'s own write gate (if any).
- *
- * Both callers are gone. The two branches this served - the `output: null`
- * one comparing a hook's `last` firing against the newest event, and the
- * no-`writeHooks` fallback comparing the newest event against the output's
- * own mtime - were the timestamp-gap half of the pair of questions the
- * unified rule replaced with an opportunity count. Nothing in this file
- * measures a gap in milliseconds anymore.
- *
- * Retained, unreferenced, pending the decision on whether
- * `StreamEntry.writeGateHours` still has a consumer at all: this and
- * `clearsCadenceFloor` are its only two readers, and both are now idle.
- * Exported only so it survives `noUnusedLocals` while that decision is
- * outstanding - not because anything outside this module should call it.
- */
-export function toleranceFor(entry: StreamEntry): number {
-	return entry.writeGateHours === undefined
-		? EVENT_OUTPUT_TOLERANCE_MS
-		: Math.max(
-				EVENT_OUTPUT_TOLERANCE_MS,
-				CADENCE_FLOOR_MULTIPLIER * entry.writeGateHours * 60 * 60 * 1000,
-			);
 }
 
 /**
