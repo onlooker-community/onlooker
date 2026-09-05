@@ -25,6 +25,20 @@ jobs:
           # setup-node in deploy.yml disables it for the same reason.
           package-manager-cache: false
 
+      # The tag decides what ships - Package below reads the version out of
+      # GITHUB_REF_NAME - and nothing under apps/cli/src reads the manifest, so
+      # a manifest left behind at the previous version breaks nothing here and
+      # is wrong everywhere a human looks. Catch it before the build rather
+      # than after the release is published and the tap has the number.
+      - name: Check the tag against the manifest
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#cli-v}"
+          PKG_VERSION="$(jq -r .version apps/cli/package.json)"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::${GITHUB_REF_NAME} ships ${TAG_VERSION}, apps/cli/package.json says ${PKG_VERSION}"
+            exit 1
+          fi
+
       # pnpm is installed the way deploy.yml installs it, not via
       # pnpm/action-setup. Every action in this repository is an official
       # actions/* one, and a release workflow is a poor place to introduce the
@@ -62,10 +76,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Homebrew 6 refuses to load a formula from a third-party tap until
+          # the tap is trusted, and it refuses on upgrade as well as on a first
+          # install - measured on 6.0.21 against a machine that had already
+          # tapped and already installed. Anyone arriving here is about to hit
+          # that, so the notes say it before brew does. onlooker-284 covers
+          # saying it in the places people read before a release page.
+          cat > notes.md <<'EOF'
+          Push approved lessons to app.onlooker.dev.
+
+          ```
+          brew tap onlooker-community/tap
+          brew trust onlooker-community/tap
+          brew install onlooker
+          ```
+
+          Homebrew will not load this formula until the tap is trusted, and
+          that applies to upgrading an existing install too.
+          EOF
           gh release create "${GITHUB_REF_NAME}" \
             "onlooker-${{ steps.package.outputs.version }}.tar.gz" \
             --title "CLI ${{ steps.package.outputs.version }}" \
-            --notes "Push approved lessons to app.onlooker.dev."
+            --notes-file notes.md
 
       - name: Write the formula
         run: |
@@ -75,7 +107,78 @@ jobs:
             "${{ steps.package.outputs.sha256 }}" > onlooker.rb
           cat onlooker.rb
 
+      # Kept, and deliberately ahead of the push below rather than after it.
+      # This used to be the only way the formula left the job; now it is the
+      # fallback for when the push fails, and a fallback that only uploads on
+      # the happy path is not one. Ordering it here also takes onlooker-d8z
+      # (upload-artifact on the deprecated Node 20) off the critical path.
       - uses: actions/upload-artifact@v4
         with:
           name: formula
           path: onlooker.rb
+
+      # github.token is scoped to this repository and cannot write to the tap.
+      # A GitHub App installation token rather than a fine-grained PAT: this
+      # one is minted per run and dies in an hour, the private key behind it
+      # has no 366-day expiry to forget, and the App belongs to the org instead
+      # of to one person's account.
+      #
+      # actions/create-github-app-token is published by the actions org, so the
+      # no-third-party-actions rule further up still holds.
+      - name: Mint a token for the tap
+        id: tap
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap
+
+      # The step that was missing: until now the release was two steps and only
+      # the first was automated, so `brew upgrade` served the previous version
+      # for as long as it took someone to remember. Measured at 2 minutes once
+      # and 32 minutes the next time.
+      #
+      # The tap's main carries two org-level rulesets. Main Branch Base wants
+      # linear history, which one commit on a fresh clone gives it. Require
+      # Pull Request has to list this App as a bypass actor - if it does not,
+      # this step fails on a protected-branch rejection and the artifact above
+      # is the way out. See docs/runbooks/2026-09-05-cli-release-tap-app.md.
+      - name: Push the formula to the tap
+        env:
+          # The lookup below reads public user data, so it goes through the
+          # repository token. The installation token is spent on the tap and
+          # nothing else.
+          GH_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ steps.tap.outputs.token }}
+          APP_SLUG: ${{ steps.tap.outputs.app-slug }}
+          VERSION: ${{ steps.package.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          # Committing as the App's own bot identity, which needs its numeric
+          # user id. Anything else shows up in the tap's history as an unlinked
+          # author and loses the trail back to which App pushed it.
+          BOT_ID="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+
+          # Not a shallow clone. The tap is a README and one formula, so --depth
+          # buys nothing measurable, and pushing from a shallow clone is a class
+          # of failure worth not owning.
+          git clone \
+            "https://x-access-token:${TAP_TOKEN}@github.com/${OWNER}/homebrew-tap.git" tap
+          cp onlooker.rb tap/Formula/onlooker.rb
+          cd tap
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${BOT_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          # Re-running an already-released tag regenerates a byte-identical
+          # formula, because write-formula.mjs varies only url, sha256 and
+          # version. Pushing nothing is the right answer there, not a failure.
+          if git diff --quiet; then
+            echo "Tap already at ${VERSION}. Nothing to push."
+            exit 0
+          fi
+
+          git add Formula/onlooker.rb
+          git commit -m "chore(onlooker): bump to ${VERSION} :package:" -m \
+            "Generated by scripts/write-formula.mjs from the cli-v${VERSION} release in ${OWNER}/onlooker. Edit the generator, not this file."
+          git push
