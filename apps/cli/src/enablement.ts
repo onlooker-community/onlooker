@@ -72,11 +72,28 @@ interface Settings {
 	enabledPlugins?: Record<string, unknown>;
 }
 
-function readSettings(path: string): Settings | { error: string } {
+/**
+ * A read that either produced settings or a reason it could not.
+ *
+ * Tagged with `ok` rather than discriminated on the presence of an `error`
+ * key, because the value being discriminated is parsed from a file: a
+ * settings.json holding its own top-level `error` was read as a failure, its
+ * whole layer discarded, and its non-string value rendered into the reason as
+ * `[object Object]`. A discriminant a file's content can satisfy is not a
+ * discriminant.
+ */
+type SettingsRead =
+	| { ok: true; settings: Settings }
+	| { ok: false; error: string };
+
+function readSettings(path: string): SettingsRead {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
 		if (typeof parsed !== "object" || parsed === null) {
-			return { error: `${path} could not be read: not a JSON object` };
+			return {
+				ok: false,
+				error: `${path} could not be read: not a JSON object`,
+			};
 		}
 		const settings = parsed as Settings;
 		const { enabledPlugins } = settings;
@@ -92,12 +109,16 @@ function readSettings(path: string): Settings | { error: string } {
 				Array.isArray(enabledPlugins))
 		) {
 			return {
+				ok: false,
 				error: `${path} could not be read: enabledPlugins is not an object`,
 			};
 		}
-		return settings;
+		return { ok: true, settings };
 	} catch (error) {
-		return { error: `${path} could not be read: ${(error as Error).message}` };
+		return {
+			ok: false,
+			error: `${path} could not be read: ${(error as Error).message}`,
+		};
 	}
 }
 
@@ -171,13 +192,14 @@ export function readEnablement(opts: {
 		project === null ? null : join(project, ".claude", "settings.local.json"),
 	]) {
 		if (path === null || !existsSync(path)) continue;
-		const settings = readSettings(path);
-		if ("error" in settings) {
-			problems.push(settings.error);
+		const read = readSettings(path);
+		if (!read.ok) {
+			problems.push(read.error);
 			continue;
 		}
-		if (settings.enabledPlugins === undefined) continue;
-		Object.assign(merged, settings.enabledPlugins);
+		const { enabledPlugins } = read.settings;
+		if (enabledPlugins === undefined) continue;
+		Object.assign(merged, enabledPlugins);
 		sources.push(path);
 	}
 

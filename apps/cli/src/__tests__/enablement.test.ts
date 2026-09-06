@@ -276,6 +276,22 @@ describe("readEnablement", () => {
 		expect(found.kind).toBe("unknown");
 	});
 
+	// `readSettings` used to return its failure as `{ error }` and its success
+	// as the parsed settings, so the caller discriminated on `"error" in
+	// settings` - a test the file's own content can satisfy. A settings.json
+	// with a top-level `error` key had its whole layer discarded, and the
+	// non-string value rendered into the reason as `[object Object]`.
+	it("reads a settings file that has a top-level error key of its own", () => {
+		const { cwd } = project({
+			error: { code: 500, message: "left over from something else" },
+			enabledPlugins: { "bursar@onlooker-community": true },
+		});
+		const found = readEnablement({ cwd, home: bareHome(), env: {} });
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual(["bursar"]);
+	});
+
 	// `cwd` is wherever the command was run, not the repo root, so a walk
 	// starting there let a subdirectory's settings shadow the repo's own.
 	it("reads the repo root's settings, not a subdirectory's", () => {
