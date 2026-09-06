@@ -231,31 +231,37 @@ describe("STREAMS", () => {
 	});
 
 	// The other half of the verification pass, and the one that decides who
-	// liveness may accuse. Seven entries assert that every hook they name
-	// fires in every session; ten do not, and the ten are the load-bearing
-	// half - an entry without the flag cannot reach `stopped` on liveness at
-	// all, however long it has been quiet.
+	// liveness may accuse. Four entries assert that every hook they name is
+	// due in every session; thirteen do not, and the thirteen are the
+	// load-bearing half - an entry without the flag cannot reach `stopped` on
+	// liveness at all, however long it has been quiet.
 	//
-	// Each of the seven is a `SessionStart`, `SessionEnd` or `Stop` hook
-	// matched `*` in its plugin's own hooks.json, and nothing else. Each of
-	// the ten carries at least one hook that a session can legitimately never
-	// fire - a tool matcher, `PreCompact`, or `UserPromptSubmit`, which a
-	// subagent session never submits. Every entry's own comment carries which
-	// hook and which trigger; this fixes the shape of the answer so a later
-	// edit has to argue with it.
+	// Each of the four names only `SessionStart` or `SessionEnd` hooks matched
+	// `*` in its plugin's own hooks.json. Each of the thirteen carries at
+	// least one hook a session can legitimately never fire - a tool matcher,
+	// `PreCompact`, `UserPromptSubmit`, or `Stop`.
+	//
+	// `Stop` is the one that moved. An earlier draft counted it session-level
+	// and gave the flag to assayer, echo and tribunal on that basis; measured
+	// over the same 31 opportunities, `Stop` was delivered in 13 while both
+	// session events were delivered in 31. The three lost the flag rather than
+	// the measurement being rounded off - see the field's docstring. Every
+	// entry's own comment carries which hook and which trigger; this fixes the
+	// shape of the answer so a later edit has to argue with it.
 	it("pins which entries' hooks are due in every session", () => {
 		const flagged = STREAMS.filter((e) => e.firesEverySession === true).map(
 			(e) => e.plugin,
 		);
-		expect(flagged).toEqual([
-			"assayer",
-			"bursar",
-			"counsel",
-			"curator",
-			"echo",
-			"librarian",
-			"tribunal",
-		]);
+		expect(flagged).toEqual(["bursar", "counsel", "curator", "librarian"]);
+		// No `Stop`-only entry may hold the flag. Asserted by name rather than
+		// left to the list above, because the list would also pass if someone
+		// re-added the flag and edited the expectation to match.
+		for (const plugin of ["assayer", "echo", "tribunal"]) {
+			expect(
+				entryFor(plugin).firesEverySession,
+				`${plugin}: a Stop hook reached 13 of 31 opportunities, not 31`,
+			).toBeUndefined();
+		}
 		// The four `output: null` entries are all in the other column, which
 		// is the widest consequence of the rule and is asserted rather than
 		// left implicit: every one of them carries a tool-scoped hook, so the
@@ -2876,27 +2882,32 @@ describe("surveyStreams", () => {
 	// design's own claim for this case - see the spec's note that counsel
 	// would now be reported stopped rather than unknown.
 	//
-	// assayer rather than lineage, for the reason `firesEverySession` exists.
+	// bursar rather than lineage, for the reason `firesEverySession` exists.
 	// Both froze here, so nothing fired in any of the six - and for lineage
 	// that is not a finding, since a session that edits no file was never a
-	// chance for `lineage-post-tool-use` to run. `assayer-stop` is Stop `*`
-	// and was due in all six, so its silence is the positive finding this
-	// test is about. The shape is unchanged: output and event frozen five
-	// seconds apart, a month before the window.
+	// chance for `lineage-post-tool-use` to run. bursar's two hooks are
+	// SessionStart `*` and SessionEnd `*`, both delivered in every one of the
+	// six, so its silence is the positive finding this test is about. The
+	// shape is unchanged: output and event frozen five seconds apart, a month
+	// before the window.
+	//
+	// This test hosted assayer for one round and moved off it: `assayer-stop`
+	// is a Stop hook, `Stop` reached 13 of 31 measured opportunities, and the
+	// flag it depended on was withdrawn.
 	it("reports stopped, not recording, when a stream's two axes agree only because both froze", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["assayer"],
+			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			opportunities: 6,
 			files: [
 				[
-					join("assayer", "aaaaaaaaaaaa", "audit-1.json"),
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
 			events: [
 				{
-					event_type: "assayer.audit.complete",
+					event_type: "bursar.session.recorded",
 					// 5 seconds after the output: the two agree, and agreed a
 					// month before the first of the six opportunities.
 					timestamp: "2026-08-01T00:00:05Z",
@@ -2912,7 +2923,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		const verdict = verdictFor(survey, "assayer");
+		const verdict = verdictFor(survey, "bursar");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"2026-08-01",
@@ -2985,25 +2996,27 @@ describe("surveyStreams", () => {
 	});
 
 	// The counterfactual, on the same arithmetic: nine opportunities, one
-	// firing in the first, eight silent. `assayer-stop` is Stop `*`, so all
-	// eight really were chances for assayer to run, and its silence really is
-	// a stall. Without this the rule above could be satisfied by never
-	// accusing anyone, which would remove the false positive by removing the
-	// feature.
+	// firing in the first, eight silent. `counsel-session-start` is
+	// SessionStart `*`, delivered in every session, so all eight really were
+	// chances for counsel to run and its silence really is a stall. Without
+	// this the rule above could be satisfied by never accusing anyone, which
+	// would remove the false positive by removing the feature.
+	//
+	// counsel rather than assayer, which hosted this for one round: a Stop
+	// hook reached 13 of 31 measured opportunities, so assayer no longer holds
+	// the flag this test needs. counsel also has no write axis, which sharpens
+	// the test - the `stopped` can only have come from liveness.
 	it("still accuses an unconditional-trigger entry across the same silent window", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["assayer"],
+			plugins: ["counsel"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			opportunities: 9,
 			files: [
-				[
-					join("assayer", "aaaaaaaaaaaa", "audit-1.json"),
-					"2026-08-28T00:00:00Z",
-				],
+				[join("counsel", "aaaaaaaaaaaa", "brief.md"), "2026-08-28T00:00:00Z"],
 			],
 			hooks: [
 				{
-					hook: "assayer-stop",
+					hook: "counsel-session-start",
 					timestamp: "2026-08-28T00:00:01Z",
 					status: "success",
 					session_id: "opp-0",
@@ -3011,7 +3024,7 @@ describe("surveyStreams", () => {
 			],
 			events: [
 				{
-					event_type: "assayer.audit.complete",
+					event_type: "counsel.brief.generated",
 					timestamp: "2026-08-28T00:00:02Z",
 					session_id: "opp-0",
 					payload: {},
@@ -3025,10 +3038,93 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		const verdict = verdictFor(survey, "assayer");
+		const verdict = verdictFor(survey, "counsel");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"8 sessions ago",
+		);
+	});
+
+	// The other two entries that hold the flag, given the same behavioral
+	// coverage rather than only the table pin.
+	//
+	// The reason is the mutation check the re-review applied to this field: if
+	// flipping an entry's flag to `false` breaks only the pin, the pin is
+	// asserting the table's contents and nothing is asserting that the flag
+	// CHANGES A VERDICT. curator and librarian were in exactly that state -
+	// bursar and counsel each broke three and two behavioral tests, curator
+	// and librarian broke none. Two entries' worth of liveness detection was
+	// resting on an assertion about a boolean.
+	//
+	// Both are liveness-only in the shape that matters here: curator names no
+	// writeEvents at all, and librarian's `lessons/` never appears in these
+	// fixtures, so the `stopped` can only have come from the liveness branch.
+	it("reports curator stopped once it has gone silent across the window", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["curator"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			// All six postdate curator's last sign of life.
+			opportunities: 6,
+			files: [
+				[
+					join("curator", "aaaaaaaaaaaa", "findings", "f-1.json"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "curator.scan.complete",
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "curator");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"last sign of life",
+		);
+	});
+
+	it("reports librarian stopped once it has gone silent across the window", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("librarian", "aaaaaaaaaaaa", "lessons", "lesson-1.json"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "librarian");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"last sign of life",
 		);
 	});
 
@@ -3137,25 +3233,26 @@ describe("surveyStreams", () => {
 	// for a thin window - placing that check where it could see a stream with
 	// a full window behind it would turn every real alarm into an abstention.
 	//
-	// assayer rather than lineage, for the same reason as the two-axes test
+	// bursar rather than lineage, for the same reason as the two-axes test
 	// above: the guard under test is the window one, and it can only be shown
 	// not to soften an alarm on an entry the alarm can still reach. Nothing
 	// about the fixture's shape changes - stale evidence, large gap, full
-	// window.
+	// window. assayer hosted this for one round; see the two-axes test for
+	// why it no longer holds the flag.
 	it("still reports stopped, not unknown, when stale evidence also shows a large gap", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["assayer"],
+			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
 			opportunities: 6,
 			files: [
 				[
-					join("assayer", "aaaaaaaaaaaa", "audit-1.json"),
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
 			events: [
 				{
-					event_type: "assayer.audit.complete",
+					event_type: "bursar.session.recorded",
 					// Both stale AND a large gap from the output.
 					timestamp: "2026-08-20T00:00:00Z",
 					session_id: MACHINE_SESSION_ID,
@@ -3170,7 +3267,7 @@ describe("surveyStreams", () => {
 			env,
 			now: NOW,
 		});
-		expect(verdictFor(survey, "assayer")?.kind).toBe("stopped");
+		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
 	});
 
 	// bursar, which this repo enables, and the case that used to fall through

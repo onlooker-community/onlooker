@@ -285,14 +285,40 @@ export interface StreamEntry {
 	 *
 	 * Set from the hook's TRIGGER, read out of each plugin's `hooks.json`,
 	 * never inferred from the hook's name. Exactly one shape qualifies:
-	 * `SessionStart`, `SessionEnd` or `Stop`, matched `*`. Those fire once per
-	 * session whatever the session does, including a subagent session that
-	 * runs no tools at all.
+	 * `SessionStart` or `SessionEnd`, matched `*`. Those two are delivered in
+	 * every session whatever the session does, including a subagent session
+	 * that runs no tools at all.
 	 *
 	 * Nothing else does. `PreToolUse`/`PostToolUse` on any matcher is
 	 * conditional on that tool being used; `PreCompact` is conditional on a
 	 * compaction; `UserPromptSubmit` is conditional on a human prompt, which a
 	 * subagent session driven by the Task tool never submits.
+	 *
+	 * **An earlier draft of this rule also admitted `Stop` matched `*`, and
+	 * the logs disproved it.** Grouping hook-health by `hook_event` over the
+	 * same 31 opportunities the threshold was re-measured against:
+	 *
+	 *   SessionStart  31 / 31
+	 *   SessionEnd    31 / 31
+	 *   Stop          13 / 31
+	 *
+	 * Eighteen opportunities delivered both session events and no `Stop` at
+	 * all. `Stop` is a turn-level event that a session can end without ever
+	 * reaching, so a `Stop`-matched hook is conditional in exactly the sense
+	 * this field is about - and assayer, echo and tribunal held the flag on
+	 * that false premise until the measurement was taken. They do not hold it
+	 * now. `assayer-stop` itself fired in 6 of the 31; what had kept assayer
+	 * off `stopped` during the wave was its `assayer.*` event prefix feeding
+	 * liveness, not the property the flag claimed.
+	 *
+	 * The claim is about the EVENT being delivered, not about the plugin
+	 * being loaded. `bursar-session-start` fired in only 13 of the 31 because
+	 * bursar is not installed in every session that touches this repo; in the
+	 * ones where it is, `SessionStart` never failed to arrive. A plugin absent
+	 * from a session is the enablement question, which `readEnablement`
+	 * answers separately. Measured longest `sinceLife` over the window for the
+	 * entries that hold the flag: bursar 2, librarian 2, counsel and curator 0
+	 * - all far below `SESSION_STALL_THRESHOLD`.
 	 *
 	 * ALL of `hooks`, not merely one of them, and undefined is the answer
 	 * wherever that cannot be established. Abstaining is the direction taken
@@ -301,7 +327,8 @@ export interface StreamEntry {
 	 * this whole module exists to remove. The cost is real and is recorded
 	 * per entry - archivist, historian, scribe and governor each carry a
 	 * session-level hook that would in fact keep their liveness fresh, and
-	 * each is held back by one conditional sibling in the same list.
+	 * each is held back by one conditional sibling in the same list; echo and
+	 * tribunal have no other axis at all and are now unaccusable outright.
 	 *
 	 * See each entry below for its hooks' trigger types and why they do or do
 	 * not settle the question.
@@ -416,12 +443,23 @@ export const STREAMS: readonly StreamEntry[] = [
 		output: "assayer",
 		events: ["assayer"],
 		hooks: ["assayer-stop"],
-		// assayer-stop is Stop `*` (assayer's hooks.json) - one hook, and it
-		// runs at the end of every session including a subagent's. Nothing
-		// here is conditional on a tool, a prompt or a compaction, so a run of
-		// opportunities with no assayer firing in any of them really is
-		// assayer having stopped, not the sessions having had no use for it.
-		firesEverySession: true,
+		// No firesEverySession, and this entry is why the rule stopped
+		// admitting `Stop`. assayer-stop is Stop `*` (assayer's hooks.json),
+		// which an earlier draft read as session-level; the logs disagree.
+		// Over the 31 opportunities the threshold was re-measured against,
+		// `Stop` was delivered in 13 and `assayer-stop` fired in 6, while
+		// SessionStart and SessionEnd were delivered in all 31. A session can
+		// end without ever reaching a Stop, so its silence is not evidence.
+		//
+		// assayer is the live case rather than a hypothetical: it is enabled
+		// here, and it reached a `sinceLife` of 3 during the same agent wave
+		// that drove inspector to 8. What held it there was the `assayer`
+		// event prefix above feeding liveness, not the property the flag
+		// asserted - so the flag was carrying no weight it could justify.
+		//
+		// The cost is bounded, unlike echo's and tribunal's: assayer keeps
+		// `writeEvents` below, so a session that ran it and produced no audit
+		// event still counts against it on the write axis.
 		// NOT writeHooks: ["assayer-stop"], despite being its only hook.
 		// assayer-stop.sh registers hook health at line 35, then has SEVEN
 		// bail sites before it ever writes an audit - no repo root (:94), no
@@ -735,11 +773,19 @@ export const STREAMS: readonly StreamEntry[] = [
 		// detected` (:277, :292) are rarer still and fire per finding, not
 		// per write.
 		hooks: ["echo-stop-gate"],
-		// echo-stop-gate is Stop `*` (echo's hooks.json) - its only hook, and
-		// it runs at the end of every session. Its analytical work is
-		// conditional on there being an agent prompt worth revising, which is
-		// why it names no writeEvents; the firing itself is not.
-		firesEverySession: true,
+		// No firesEverySession. echo-stop-gate is Stop `*` (echo's
+		// hooks.json), and `Stop` was delivered in only 13 of the 31 measured
+		// opportunities against 31 of 31 for both session events - see the
+		// field's docstring for why that disqualifies it. echo-stop-gate
+		// itself fired in 0 of the 31 here, echo not being enabled in this
+		// repo.
+		//
+		// echo pays the full cost: its only hook is a Stop hook and it names
+		// no writeEvents, so it now has no axis that can reach `stopped` at
+		// all. Deliberate. A `stopped` withheld from a dead echo is a missed
+		// alarm; a `stopped` handed to a live one off a turn-level event that
+		// most sessions never deliver is the false alarm this module exists to
+		// remove.
 		// `echo/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -1226,9 +1272,13 @@ export const STREAMS: readonly StreamEntry[] = [
 		// the output directory may not exist yet. The second half fails too,
 		// for the reason above.
 		hooks: ["tribunal-stop-gate"],
-		// tribunal-stop-gate is Stop `*` (tribunal's hooks.json) - its only
-		// hook, unconditional, and the same shape as echo's.
-		firesEverySession: true,
+		// No firesEverySession, the same call as echo's and for the same
+		// measurement. tribunal-stop-gate is Stop `*` (tribunal's hooks.json),
+		// `Stop` reached 13 of 31 opportunities against 31 of 31 for the two
+		// session events, and tribunal-stop-gate itself fired in 8 of the 31.
+		// One hook, no writeEvents, so tribunal is unaccusable outright now -
+		// the same accepted cost echo pays.
+
 		// `tribunal/<key>/` per project - verified on disk.
 		perProject: true,
 	},
@@ -2062,7 +2112,27 @@ function computeVerdict(
 	// brief; warden only on a blocked gate or a detected threat), and
 	// archivist has no distinguishing prefix at all - its only emission,
 	// onlooker.artifact.ready, is shared. Hooks cover all of them, because
-	// hook-health's EXIT trap registers a firing before any bail path.
+	// hook-health's EXIT trap registers a firing before a hook's OWN bail
+	// paths.
+	//
+	// "Before any bail path" is what this used to say, and it is not true.
+	// Five scripts put a recursion guard ABOVE `hook_health_register`, so a
+	// firing that trips the guard is never logged at all: assayer-stop.sh:20
+	// against :28, echo-stop-gate.sh:18 against :34,
+	// tribunal-stop-gate.sh:21 against :37 (whose own comment records the
+	// placement as deliberate - a nested invocation must not chain a second
+	// EXIT trap), counsel-session-start.sh:25 against :34, and
+	// librarian-session-end.sh:21 against :29.
+	//
+	// It does not undermine the two entries here that still hold
+	// `firesEverySession`. The guards key on an env var the plugin exports
+	// before spawning its own `claude -p` child, so they trip only inside a
+	// subprocess that plugin started itself - not in an ordinary session, and
+	// never in a session where the plugin did not already run once and log
+	// that first firing. librarian's other hook, librarian-session-start,
+	// carries no guard at all (register at :23). What the gap does mean is
+	// that a hook firing count is a floor rather than a census, which is why
+	// nothing in this module counts firings anymore.
 	let lastLife = "";
 	for (const prefix of entry.events) {
 		lastLife = newerOf(lastLife, events.lastByPrefix[prefix] ?? "");
