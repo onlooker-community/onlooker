@@ -76,6 +76,54 @@ describe("shapeFailures", () => {
 		).toHaveLength(1);
 	});
 
+	// The same trap the nested-object fix removed, surviving one type over.
+	// An array expectation fell through to `got === want`, a reference
+	// comparison against a fresh literal, which is always false - so an array
+	// expectation could not be written, nobody wrote one, and array contents
+	// went unasserted. Latent only because no case used one, which is exactly
+	// how the object version stayed hidden.
+	it("passes an array expectation whose elements match", () => {
+		expect(shapeFailures({ xs: [1, 2] }, { xs: [1, 2] })).toEqual([]);
+	});
+
+	it("catches an element whose value differs", () => {
+		const failures = shapeFailures({ xs: [1, 2] }, { xs: [1, 3] });
+		expect(failures).toEqual(['"xs[1]" should be 3, got number']);
+	});
+
+	it("recurses into an object inside an array", () => {
+		expect(
+			shapeFailures({ xs: [{ a: "s" }] }, { xs: [{ a: expectString }] }),
+		).toEqual([]);
+		expect(
+			shapeFailures({ xs: [{ a: 1 }] }, { xs: [{ a: expectString }] }),
+		).toEqual(['"xs[0].a" should be a non-empty string, got number']);
+	});
+
+	// Length is part of an array expectation in a way extra keys are not part
+	// of an object one: an object's extra keys are the fields a real response
+	// carries beyond what a case pins, while an array's extra element is a
+	// different answer at a position the expectation named.
+	it("reports a length mismatch rather than comparing what overlaps", () => {
+		const failures = shapeFailures({ xs: [1, 2, 3] }, { xs: [1, 2] });
+		expect(failures).toEqual(['"xs" should have 2 elements, got 3']);
+	});
+
+	it("reports an array expectation against a non-array", () => {
+		expect(shapeFailures({ xs: "nope" }, { xs: [1] })).toEqual([
+			'"xs" should be an array, got string',
+		]);
+	});
+
+	it("recurses into an array nested inside an object", () => {
+		expect(
+			shapeFailures(
+				{ error: { codes: ["a", "b"] } },
+				{ error: { codes: [expectString, expectString] } },
+			),
+		).toEqual([]);
+	});
+
 	it("reports a nested expectation against a non-object", () => {
 		const failures = shapeFailures(
 			{ error: "a string" },
