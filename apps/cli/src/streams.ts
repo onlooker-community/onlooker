@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { onlookerDir } from "./config";
-import { type Enablement, findUp, readEnablement } from "./enablement";
+import { type Enablement, readEnablement, repoRoot } from "./enablement";
 import type { EventScan, HookScan } from "./eventlog";
 import { scanEvents, scanHooks } from "./eventlog";
 
@@ -1822,12 +1822,6 @@ export interface StreamSurvey {
 	footer: Array<{ plugin: string; detail: string }>;
 	/** Problems reading the sources themselves, as opposed to any one stream. */
 	faults: string[];
-}
-
-/** Repo root for the session join: nearest ancestor holding a `.git`. */
-function repoRoot(cwd: string): string | null {
-	const dotGit = findUp(cwd, ".git");
-	return dotGit === null ? null : dirname(dotGit);
 }
 
 /**

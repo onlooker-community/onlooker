@@ -25,6 +25,21 @@ function bareHome(): string {
 	return mkdtempSync(join(tmpdir(), "onlooker-home-"));
 }
 
+/** Marks `dir` as a git repository, so `repoRoot` resolves to it. */
+function markRepo(dir: string): string {
+	mkdirSync(join(dir, ".git"), { recursive: true });
+	return dir;
+}
+
+/** Writes a `.claude/<name>` settings file under an existing directory. */
+function writeSettings(dir: string, name: string, settings: unknown): void {
+	mkdirSync(join(dir, ".claude"), { recursive: true });
+	writeFileSync(
+		join(dir, ".claude", name),
+		typeof settings === "string" ? settings : JSON.stringify(settings),
+	);
+}
+
 /** A temp config dir holding a user-level `settings.json`. */
 function configDir(settings: unknown): string {
 	const dir = mkdtempSync(join(tmpdir(), "onlooker-cfg-"));
@@ -194,5 +209,88 @@ describe("readEnablement", () => {
 		expect(found.kind).toBe("found");
 		if (found.kind !== "found") return;
 		expect(found.plugins).toEqual([]);
+	});
+
+	// The shell chain this mirrors is `${CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-...}}`,
+	// and `:-` falls through on an empty value where JS `??` does not. A wrapper
+	// that runs `export CLAUDE_HOME="$SOME_UNSET_VAR"` exports the empty string,
+	// which the shell skips and this code took as the config dir - making the
+	// path relative and the user layer silently unreachable. That is the exact
+	// shape of ecosystem #237, the defect this function exists to avoid.
+	it("falls through an empty CLAUDE_HOME the way the shell chain does", () => {
+		const cfg = configDir({
+			enabledPlugins: { "assayer@onlooker-community": true },
+		});
+		const found = readEnablement({
+			cwd: mkdtempSync(join(tmpdir(), "onlooker-noproj-")),
+			home: bareHome(),
+			env: { CLAUDE_HOME: "", CLAUDE_CONFIG_DIR: cfg },
+		});
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual(["assayer"]);
+	});
+
+	// `settings.local.json` is the highest-precedence project layer in Claude
+	// Code and the file a `/plugin` toggle writes to. Missing it meant someone
+	// could switch a plugin off for this project and have doctor keep judging
+	// it against the stale committed value - a permanent false STOPPED in the
+	// command built to stop crying wolf.
+	it("lets settings.local.json win over settings.json", () => {
+		const { root, cwd } = project({
+			enabledPlugins: { "bursar@onlooker-community": true },
+		});
+		writeSettings(root, "settings.local.json", {
+			enabledPlugins: { "bursar@onlooker-community": false },
+		});
+		const found = readEnablement({ cwd, home: bareHome(), env: {} });
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual([]);
+	});
+
+	it("reads settings.local.json as a project layer of its own", () => {
+		const root = markRepo(mkdtempSync(join(tmpdir(), "onlooker-local-")));
+		writeSettings(root, "settings.local.json", {
+			enabledPlugins: { "lineage@onlooker-community": true },
+		});
+		const found = readEnablement({ cwd: root, home: bareHome(), env: {} });
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual(["lineage"]);
+	});
+
+	// The walk used to run to `/`, so a repo with no settings of its own
+	// inherited whatever an unrelated ancestor declared - a checkouts
+	// directory, or `$HOME/.claude` on a machine whose CLAUDE_CONFIG_DIR
+	// points elsewhere. Claude Code never loads those as project settings.
+	it("does not climb past the repo root for project settings", () => {
+		const outer = mkdtempSync(join(tmpdir(), "onlooker-outer-"));
+		writeSettings(outer, "settings.json", {
+			enabledPlugins: { "bursar@onlooker-community": true },
+		});
+		const repo = markRepo(join(outer, "repo"));
+		const cwd = join(repo, "apps", "cli");
+		mkdirSync(cwd, { recursive: true });
+		const found = readEnablement({ cwd, home: bareHome(), env: {} });
+		expect(found.kind).toBe("unknown");
+	});
+
+	// `cwd` is wherever the command was run, not the repo root, so a walk
+	// starting there let a subdirectory's settings shadow the repo's own.
+	it("reads the repo root's settings, not a subdirectory's", () => {
+		const repo = markRepo(mkdtempSync(join(tmpdir(), "onlooker-repo-")));
+		writeSettings(repo, "settings.json", {
+			enabledPlugins: { "bursar@onlooker-community": true },
+		});
+		const cwd = join(repo, "apps", "cli");
+		mkdirSync(cwd, { recursive: true });
+		writeSettings(cwd, "settings.json", {
+			enabledPlugins: { "bursar@onlooker-community": false },
+		});
+		const found = readEnablement({ cwd, home: bareHome(), env: {} });
+		expect(found.kind).toBe("found");
+		if (found.kind !== "found") return;
+		expect(found.plugins).toEqual(["bursar"]);
 	});
 });
