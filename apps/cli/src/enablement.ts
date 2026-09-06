@@ -31,6 +31,43 @@ export function findUp(startDir: string, relPath: string): string | null {
 	}
 }
 
+/**
+ * The git repository containing `cwd`, or null outside one.
+ *
+ * Lives here rather than beside its other caller in `streams.ts` because the
+ * project settings lookup below is what needs a repository boundary; the
+ * session join imports it back.
+ */
+export function repoRoot(cwd: string): string | null {
+	const dotGit = findUp(cwd, ".git");
+	return dotGit === null ? null : dirname(dotGit);
+}
+
+/**
+ * The directory whose `.claude/` holds this project's settings.
+ *
+ * The repository root rather than an ancestor walk from `cwd`, because that
+ * walk got the project wrong from both ends. Unbounded, it ran to `/` and
+ * merged whatever an unrelated ancestor declared - a checkouts directory, or
+ * `$HOME/.claude` on a machine whose `CLAUDE_CONFIG_DIR` points elsewhere, as
+ * this one's does. Started at `cwd`, which is wherever the command was run
+ * rather than the repo root, it let `apps/cli/.claude/settings.json` shadow
+ * the repository's own. Claude Code loads neither, so doctor's expected set
+ * could disagree with what actually runs - and every verdict beneath that line
+ * rests on it.
+ *
+ * Outside a repository there is no such boundary, so fall back to the nearest
+ * ancestor holding a `.claude` directory. That keeps the command usable in a
+ * plain directory without reintroducing the unbounded merge inside a repo,
+ * which is where the misread was reachable.
+ */
+function projectDir(cwd: string): string | null {
+	const root = repoRoot(cwd);
+	if (root !== null) return root;
+	const claude = findUp(cwd, ".claude");
+	return claude === null ? null : dirname(claude);
+}
+
 interface Settings {
 	enabledPlugins?: Record<string, unknown>;
 }
@@ -77,6 +114,13 @@ function readSettings(path: string): Settings | { error: string } {
  * the hardcoded path made the user settings layer silently unreachable for
  * every plugin in every session. Mirrored rather than shared, because the two
  * live in different repos - so the test above pins the precedence.
+ *
+ * `||` rather than `??` on purpose: the shell chain is built from `:-`, which
+ * falls through on an empty value, and `??` falls through only on null or
+ * undefined. A wrapper running `export CLAUDE_HOME="$SOME_UNSET_VAR"` exports
+ * the empty string; the shell skips it and `??` took it as the config dir,
+ * making `globalPath` the relative `settings.json` and the user layer silently
+ * unreachable. That is the same shape as #237 itself.
  */
 function userConfigDir(
 	env: NodeJS.ProcessEnv,
@@ -84,9 +128,9 @@ function userConfigDir(
 	override?: string,
 ): string {
 	return (
-		override ??
-		env.CLAUDE_HOME ??
-		env.CLAUDE_CONFIG_DIR ??
+		override ||
+		env.CLAUDE_HOME ||
+		env.CLAUDE_CONFIG_DIR ||
 		join(home, ".claude")
 	);
 }
@@ -99,7 +143,7 @@ export function readEnablement(opts: {
 	env?: NodeJS.ProcessEnv;
 }): Enablement {
 	const home = opts.home ?? homedir();
-	const projectPath = findUp(opts.cwd, join(".claude", "settings.json"));
+	const project = projectDir(opts.cwd);
 	const globalPath = join(
 		userConfigDir(opts.env ?? process.env, home, opts.configDir),
 		"settings.json",
@@ -114,7 +158,18 @@ export function readEnablement(opts: {
 	// an earlier one key-for-key, so the project layer wins on conflict -
 	// matching how Claude Code layers them, where a repo that switches a
 	// plugin off has made a decision the global default should not undo.
-	for (const path of [globalPath, projectPath]) {
+	//
+	// `settings.local.json` last, because it is the highest-precedence
+	// project layer in Claude Code and the file a `/plugin` toggle writes
+	// to. Skipping it meant someone could switch a plugin off for this
+	// project and have doctor keep judging it against the committed value,
+	// find no output, and report STOPPED forever - a permanent false
+	// positive in the command built to stop crying wolf.
+	for (const path of [
+		globalPath,
+		project === null ? null : join(project, ".claude", "settings.json"),
+		project === null ? null : join(project, ".claude", "settings.local.json"),
+	]) {
 		if (path === null || !existsSync(path)) continue;
 		const settings = readSettings(path);
 		if ("error" in settings) {
