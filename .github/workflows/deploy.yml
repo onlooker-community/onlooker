@@ -568,3 +568,42 @@ jobs:
             console.log(`Production deployment: ${status}`);
             console.log(`URL: ${deployment_url}`);
             console.log(`Commit: ${commit_sha}`);
+
+  # ============================================================================
+  # REQUIRED CHECK GATE
+  # ============================================================================
+  # The single context the org ruleset requires, so branch rules never name
+  # individual jobs. Renaming or adding a verification job above is a workflow
+  # change; it is not also a ruleset change in an org setting nobody reading
+  # this file can see.
+  #
+  # This is what makes "enable auto-merge" work at all. With no required check
+  # and zero required approvals, a pull request is mergeable the moment it
+  # opens, so GitHub has nothing to wait for and never offers the button.
+  #
+  # Every job that runs on a pull request is listed. A job that runs on a PR
+  # but is missing here can fail red while the gate reports green, which is
+  # worse than not gating it at all.
+  required:
+    name: All checks passed
+    runs-on: ubuntu-latest
+    needs: [quality, test, contract-version, changes]
+    # Without always(), one failed dependency skips the gate rather than
+    # failing it, and a skipped required check is pending forever.
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          # `contract-version` is pull-request-only, so it is skipped on a push
+          # to main - expected, not a failure. Anything other than success or
+          # skipped fails the gate.
+          for r in "${{ needs.quality.result }}" \
+                   "${{ needs.test.result }}" \
+                   "${{ needs.contract-version.result }}" \
+                   "${{ needs.changes.result }}"; do
+            if [[ "$r" != "success" && "$r" != "skipped" ]]; then
+              echo "One or more required checks failed (got: $r)"
+              exit 1
+            fi
+          done
+          echo "All required checks passed"
