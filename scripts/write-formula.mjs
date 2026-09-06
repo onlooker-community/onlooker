@@ -37,8 +37,27 @@ class Onlooker < Formula
   # No service block. This CLI has no daemon: it runs, syncs, and exits.
   # Anyone upgrading from the retired Go agent has a launchd job pointed at a
   # subcommand that no longer exists, and Homebrew cannot stop it for them.
+  #
+  # The trust note leads because it is the only line here that costs the reader
+  # something later. Naming the tap on the command line is itself consent -
+  # Homebrew's trust.rb explicitly_allowed? returns early when ARGV holds the
+  # tap or the full formula name - so installing by qualified name succeeds
+  # untrusted and lands right here, while a later bare brew upgrade names no
+  # tap, is refused, and skips the formula without saying why. Printing this
+  # after a successful install is not too late: it is the last moment we can
+  # reach someone who never needed brew trust to get this far. onlooker-284.
+  #
+  # No backticks anywhere in this file: the formula is one JS template literal,
+  # and an unescaped backtick ends it.
   def caveats
     <<~EOS
+      Trust this tap, or Homebrew will skip onlooker when you upgrade:
+
+        brew trust onlooker-community/tap
+
+      A bare brew upgrade names no tap, so an untrusted formula is refused
+      and passed over - on a machine where installing worked fine.
+
       If you previously ran the Onlooker agent as a service, stop it:
 
         brew services stop onlooker
