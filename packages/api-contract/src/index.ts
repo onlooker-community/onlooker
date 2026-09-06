@@ -571,42 +571,81 @@ export function shapeFailures(
 	return Object.entries(expected).flatMap(([key, want]) => {
 		const here = path ? `${path}.${key}` : key;
 		if (!(key in value)) return [`missing "${here}"`];
-		const got = value[key];
-
-		if (want === expectObject) {
-			return typeof got === "object" && got !== null && !Array.isArray(got)
-				? []
-				: [`"${here}" should be an object, got ${describe(got)}`];
-		}
-		if (want === expectArray) {
-			return Array.isArray(got)
-				? []
-				: [`"${here}" should be an array, got ${describe(got)}`];
-		}
-		if (want === expectString) {
-			return typeof got === "string" && got.length > 0
-				? []
-				: [`"${here}" should be a non-empty string, got ${describe(got)}`];
-		}
-
-		// A plain object expectation describes a nested shape, and is compared as
-		// a subset just like the top level. Before this branch existed the value
-		// fell through to `got === want` below - a reference comparison against a
-		// fresh object literal, which failed unconditionally. So nobody could
-		// write a nested expectation, everyone reached for `expectObject`, and
-		// that says nothing about the contents. A renamed `code` passed the suite.
-		//
-		// Placement relative to the symbol checks above is not load-bearing: the
-		// three expectations are `Symbol.for(...)` values, and `typeof aSymbol` is
-		// "symbol", so this guard cannot catch them wherever it sits.
-		if (typeof want === "object" && want !== null && !Array.isArray(want)) {
-			return shapeFailures(got, want as Record<string, unknown>, here);
-		}
-
-		return got === want
-			? []
-			: [`"${here}" should be ${String(want)}, got ${describe(got)}`];
+		return valueFailures(value[key], want, here);
 	});
+}
+
+/**
+ * One expected value against one actual value, at `here`.
+ *
+ * Extracted from `shapeFailures` so an array's elements are compared by the
+ * same rules as an object's properties. Inlined in the entry loop, the rules
+ * were reachable only from a key, so an element could never be a symbol
+ * expectation, a nested shape, or an array of its own.
+ */
+function valueFailures(got: unknown, want: unknown, here: string): string[] {
+	if (want === expectObject) {
+		return typeof got === "object" && got !== null && !Array.isArray(got)
+			? []
+			: [`"${here}" should be an object, got ${describe(got)}`];
+	}
+	if (want === expectArray) {
+		return Array.isArray(got)
+			? []
+			: [`"${here}" should be an array, got ${describe(got)}`];
+	}
+	if (want === expectString) {
+		return typeof got === "string" && got.length > 0
+			? []
+			: [`"${here}" should be a non-empty string, got ${describe(got)}`];
+	}
+
+	// An array expectation describes elements positionally, each compared by
+	// these same rules - so an element can itself be a symbol expectation, a
+	// nested shape, or another array. Before this branch existed an array fell
+	// through to `got === want` below, a reference comparison against a fresh
+	// literal that failed unconditionally: the same trap the nested-object
+	// branch removed, one type over, and reported the same misleading way -
+	// `"xs" should be 1,2, got an array` reads like a value mismatch rather
+	// than the impossibility it was.
+	//
+	// Length is checked rather than treated the way an object's extra keys
+	// are. An object's extras are the fields a real response carries beyond
+	// what a case pins; an array's extra element is a different answer at a
+	// position the expectation named.
+	if (Array.isArray(want)) {
+		if (!Array.isArray(got)) {
+			return [`"${here}" should be an array, got ${describe(got)}`];
+		}
+		if (got.length !== want.length) {
+			return [
+				`"${here}" should have ${want.length} elements, got ${got.length}`,
+			];
+		}
+		return want.flatMap((element, index) =>
+			valueFailures(got[index], element, `${here}[${index}]`),
+		);
+	}
+
+	// A plain object expectation describes a nested shape, and is compared as
+	// a subset just like the top level. Before this branch existed the value
+	// fell through to `got === want` below - a reference comparison against a
+	// fresh object literal, which failed unconditionally. So nobody could
+	// write a nested expectation, everyone reached for `expectObject`, and
+	// that says nothing about the contents. A renamed `code` passed the suite.
+	//
+	// Placement relative to the symbol checks above is not load-bearing: the
+	// three expectations are `Symbol.for(...)` values, and `typeof aSymbol` is
+	// "symbol", so this guard cannot catch them wherever it sits. The
+	// `!Array.isArray` half is kept for the same reason - the array branch
+	// above already claimed those, but the guard should not depend on it.
+	if (typeof want === "object" && want !== null && !Array.isArray(want)) {
+		return shapeFailures(got, want as Record<string, unknown>, here);
+	}
+
+	return got === want
+		? []
+		: [`"${here}" should be ${String(want)}, got ${describe(got)}`];
 }
 
 /** Forbidden substrings that do appear in the serialized body. */
