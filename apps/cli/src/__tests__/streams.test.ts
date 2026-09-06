@@ -1,4 +1,5 @@
 import {
+	appendFileSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -1906,6 +1907,46 @@ describe("surveyStreams", () => {
 		expect(survey.faults.join(" ")).toContain("onlooker-events.jsonl");
 	});
 
+	// Both logs are shared, append-only, and long - 151k and 223k lines on
+	// this machine, written by sixteen independent shell plugins. A single
+	// malformed line from months ago used to pin the exit code to 1 forever,
+	// with no way to clear it short of hand-editing the log, which left a CI
+	// job unable to tell "a stream stopped, go look" from "there is an old
+	// bad line in a shared file". The torn-write forgiveness in `scanEvents`
+	// exists precisely because such lines do occur.
+	//
+	// Reported, not faulted: a bad line only matters if it hid a stream's
+	// activity, and a stream whose activity is hidden reads as stale and
+	// exits 1 through its own `stopped` or `unknown` verdict. `missing` is
+	// still a fault - a log that cannot be read at all supports no verdict.
+	//
+	// A valid line follows the bad one in both fixtures on purpose: the last
+	// line of a file gets torn-write forgiveness, so a malformed line written
+	// last would be muted for a different reason and prove nothing.
+	it("reports an unreadable event-log line rather than faulting on it", async () => {
+		const m = machine({ plugins: [] });
+		appendFileSync(
+			join(String(m.env.ONLOOKER_DIR), "logs", "onlooker-events.jsonl"),
+			'{ this line was torn\n{"event_type":"onlooker.noop","timestamp":"2026-09-05T00:00:00.000Z","session_id":"after-the-bad-line"}\n',
+		);
+		const survey = await surveyStreams({ ...m, now: NOW });
+		expect(survey.faults).toEqual([]);
+		expect(survey.notes.join(" ")).toContain("could not be parsed");
+		expect(exitCodeFor(survey)).toBe(0);
+	});
+
+	it("reports an unreadable hook-health line rather than faulting on it", async () => {
+		const m = machine({ plugins: [] });
+		appendFileSync(
+			join(String(m.env.ONLOOKER_DIR), "logs", "hook-health.jsonl"),
+			'{ this line was torn\n{"hook":"session-start-tracker","timestamp":"2026-09-05T00:00:01Z","status":"success","session_id":"after-the-bad-line"}\n',
+		);
+		const survey = await surveyStreams({ ...m, now: NOW });
+		expect(survey.faults).toEqual([]);
+		expect(survey.notes.join(" ")).toContain("could not be parsed");
+		expect(exitCodeFor(survey)).toBe(0);
+	});
+
 	// bursar-session-start fires a whole session before bursar-session-end
 	// performs the real write - the exact ordering lag any stall threshold
 	// has to tolerate. Counting session-start's own firings anyway would
@@ -3518,6 +3559,7 @@ const surveyOf = (
 	verdicts: [],
 	footer: [],
 	faults: [],
+	notes: [],
 	...over,
 });
 
@@ -3574,6 +3616,18 @@ describe("doctorLines", () => {
 		).join("\n");
 		expect(lines).toContain("Not enabled here");
 		expect(lines).toContain("archivist");
+	});
+
+	// Demoting the unreadable count out of `faults` only stops it pinning the
+	// exit code; it must not stop a person seeing it. Rendered under its own
+	// label so the output distinguishes what a reader may want to look at
+	// from what the exit code is actually reacting to.
+	it("prints a note without calling it a fault", () => {
+		const lines = doctorLines(
+			surveyOf({ notes: ["2 event log line(s) could not be parsed"] }),
+		).join("\n");
+		expect(lines).toContain("2 event log line(s) could not be parsed");
+		expect(lines).not.toContain("Fault:");
 	});
 
 	// cartographer is exactly as long as the column padding was, so a naive
@@ -3681,6 +3735,16 @@ describe("exitCodeFor", () => {
 				surveyOf({ faults: ["logs/hook-health.jsonl could not be read"] }),
 			),
 		).toBe(1);
+	});
+
+	// A note is something a person may want to see, not a reason to stop -
+	// otherwise it would be a fault.
+	it("exits 0 on a note alone", () => {
+		expect(
+			exitCodeFor(
+				surveyOf({ notes: ["2 event log line(s) could not be parsed"] }),
+			),
+		).toBe(0);
 	});
 
 	it("exits 1 when the expected set is unknown", () => {
