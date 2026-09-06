@@ -442,6 +442,39 @@ they were due.
 The conservative direction, as everywhere else here: where the table cannot say
 a trigger was due, the verdict abstains rather than accuses.
 
+**Which shapes qualify, corrected.** The first implementation admitted three
+trigger shapes as session-level — `SessionStart`, `SessionEnd` and `Stop`,
+matched `*` — reasoning that each fires once per session whatever the session
+does. Measured over the same 31 opportunities:
+
+```
+SessionStart  present in 31 / 31
+SessionEnd    present in 31 / 31
+Stop          present in 13 / 31
+```
+
+Eighteen of those opportunities fired no `Stop` hook at all while firing both
+session hooks. `Stop` does not qualify, and the three entries admitted on it —
+assayer, echo and tribunal — did not earn the flag. assayer is the live case:
+enabled here, and it reached `sinceLife` 4 against a threshold of 5 during the
+same wave that drove inspector to 8. What held it there was its own event
+prefix feeding liveness, not the property the flag claimed.
+
+Only `SessionStart` and `SessionEnd` matched `*` qualify.
+
+The cost is named rather than absorbed: assayer keeps its write axis and stays
+accusable; echo and tribunal become liveness-only and so unaccusable, joining
+the six entries already in that position. That is a real detection loss on two
+plugins neither enabled on this machine nor measurable from its logs — which is
+exactly when this design abstains.
+
+A related premise is also wrong and worth recording, because `firesEverySession`
+leans on it: the claim that hook-health's `EXIT` trap registers a firing before
+any bail path does not hold for five plugins whose `*_NESTED` recursion guard
+sits *above* `hook_health_register`. For counsel and librarian the guard only
+trips inside subprocesses those plugins spawn themselves, so their flags
+survive; for the three `Stop` entries it compounds the shape problem.
+
 ### Gated writers are unprotected until the cadence floor returns *(amended 2026-09-05)*
 
 Unifying the rule retired `clearsCadenceFloor` and `toleranceFor`, and nothing
