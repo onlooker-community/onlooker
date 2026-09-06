@@ -184,9 +184,28 @@ describe("STREAMS", () => {
 	});
 
 	// The verification pass's result, pinned so a later edit has to argue with
-	// it. Five entries name write events and twelve do not, and the twelve are
-	// the load-bearing half: an entry with no `writeEvents` and no
-	// `writeHooks` has no downstream axis at all and rests on liveness alone.
+	// it. Seven entries name write events and ten do not, and the ten are the
+	// load-bearing half: an entry with no `writeEvents` and no `writeHooks`
+	// has no downstream axis at all and rests on liveness alone.
+	//
+	// counsel and cartographer are the two `onlooker-1vt` added, and they are
+	// the only entries with `writeGateHours` set. The verification pass
+	// withheld both - counsel against the design, which lists
+	// `["counsel.brief.generated"]` among its known assignments - because the
+	// window could not then see their gates: five opportunities inside one of
+	// counsel's seven-day intervals, or one busy day inside cartographer's
+	// 24-hour one, read `stopped` on a stream that was exactly on schedule.
+	// `GATE_INTERVAL_MARGIN` is the consumer that was missing. The source half
+	// of each test always held (brief written counsel-brief.sh:305, emit :322;
+	// run record run-audit.sh:371-382, emit :384).
+	//
+	// cartographer's second, thinner objection survives and is worth keeping
+	// visible: its emit is not gated on the write, so a failed
+	// `> "${run_file}.tmp" && mv -f` still falls through to
+	// `cartographer.audit.complete`. That skews `lastWrite` NEWER than the
+	// last real write, and a too-new `lastWrite` can only withhold `stopped`,
+	// never invent it - the same direction every other call here is decided
+	// in. `runs/` mtime remains the primary signal for the entry either way.
 	//
 	// That used to be written here as "liveness, which cannot produce a false
 	// `stopped`", and liveness produced one - a healthy inspector read
@@ -207,6 +226,8 @@ describe("STREAMS", () => {
 		expect(named).toEqual({
 			assayer: ["assayer.audit.complete"],
 			bursar: ["bursar.session.recorded"],
+			cartographer: ["cartographer.audit.complete"],
+			counsel: ["counsel.brief.generated"],
 			lineage: ["lineage.change.recorded"],
 			inspector: [
 				"inspector.check.passed",
@@ -2090,17 +2111,20 @@ describe("surveyStreams", () => {
 	// (`writeGateHours`), so a completed audit followed by an ordinary 26h
 	// gap before the next one is a healthy stream, not a stall.
 	//
-	// The mechanism that protects it has changed underneath the test. It used
-	// to be a cadence term widening the permitted gap between events and
-	// output mtime from one hour to 48. There is no such gap measurement
-	// anymore: cartographer declares no write signal of either kind, so the
-	// write question is not asked of it at all and the age of
-	// `runs/audit-1.json` is never consulted. The protection now comes from
-	// the entry's own silence about writes rather than from a tolerance
-	// tuned per plugin, which is why `writeGateHours` currently has no
-	// consumer - see `onlooker-1vt`. The behavior this test pins is
-	// unchanged.
-	it("does not report a gated writer with no write signal stopped over an ordinary gap between its runs", async () => {
+	// The mechanism that protects it has changed underneath the test twice,
+	// and the behavior it pins has survived both. It used to be a cadence term
+	// widening the permitted gap between events and output mtime from one hour
+	// to 48; then cartographer declared no write signal at all and the
+	// question went unasked; and now (`onlooker-1vt`) it names
+	// `cartographer.audit.complete` and is asked again.
+	//
+	// The 26h gap in this fixture is between the event and the mtime, and it
+	// no longer measures anything, because `lastWrite` takes the NEWER of the
+	// two rather than comparing them - the two were never evidence about each
+	// other for an entry like this. What answers the stall question instead is
+	// a count of opportunities past the gate floor, and there are none: the
+	// newest opportunity here predates the audit itself.
+	it("does not report a gated writer stopped over an ordinary gap between its runs", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["cartographer"],
 			projectKeys: ["aaaaaaaaaaaa"],
@@ -2130,18 +2154,58 @@ describe("surveyStreams", () => {
 		expect(verdictFor(survey, "cartographer")?.kind).toBe("recording");
 	});
 
+	// cartographer's half of `onlooker-1vt`, and the audit outage that used to
+	// go unreported. Its trigger keeps firing, `runs/` has not moved since
+	// July, and two 24-hour intervals is a floor a two-month silence clears
+	// many times over - so the opportunities counted here are ones in which an
+	// audit was genuinely due and did not happen.
+	it("reports cartographer stopped once its audit outlasts two gate intervals", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["cartographer"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 12,
+			triggerHook: "cartographer-session-start",
+			files: [
+				[
+					join("cartographer", "aaaaaaaaaaaa", "runs", "audit-1.json"),
+					"2026-07-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "cartographer.audit.complete",
+					timestamp: "2026-07-01T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "cartographer")?.kind).toBe("stopped");
+	});
+
 	// The counterpart, and the one whose mechanism the design deliberately
-	// replaced. A gated writer with no write signal can no longer be called
-	// stopped by a timestamp gap of any size - 51h past a 48h floor produced
-	// `stopped` under the old rule, and produces nothing now, because the
-	// comparison it rested on was between an event and an output mtime that
-	// were never evidence about each other for an entry like this.
+	// replaced. A gated writer can no longer be called stopped by a timestamp
+	// gap of any size - 51h past a 48h floor produced `stopped` under the old
+	// rule, and produces nothing now, because the comparison it rested on was
+	// between an event and an output mtime that were never evidence about
+	// each other for an entry like this. `onlooker-1vt` did not bring that
+	// comparison back: the gate floor it added moves the instant an
+	// opportunity count starts from, and never compares two timestamps for a
+	// verdict.
 	//
 	// What can still stop a gated writer is going quiet: no event and no hook
 	// firing across a full window of opportunities. That is the same alarm,
 	// raised off the axis that actually supports it, and it is what this
 	// test pins - the point being that `stopped` remains REACHABLE for a
-	// gated writer, so removing the false alarm did not cost the real one.
+	// gated writer on LIVENESS, which is a separate reachability claim from
+	// the write axis two tests below.
 	//
 	// counsel rather than cartographer, and the swap is the whole content of
 	// `firesEverySession`. Both are gated writers; only counsel's trigger is
@@ -2230,7 +2294,10 @@ describe("surveyStreams", () => {
 	// `recording` when a missing output stopped being evidence about anything;
 	// and it is `unknown` again now for a third and narrower reason - counsel
 	// names an `output` path that has never been written, and absence is not
-	// something this table will certify even where it has no write signal.
+	// something this table will certify. `onlooker-1vt` gave counsel a write
+	// signal and did not disturb this: the empty-`lastWrite` branch is
+	// reached before any counting, so the gate floor never enters into it and
+	// a first brief that is not yet due is still not evidence of a stall.
 	// Age would still read `recording`; see the librarian pair at the top of
 	// `stream conditionality` for the two halves side by side.
 	it("reports a gated writer with no output unknown rather than stopped", async () => {
@@ -2256,6 +2323,81 @@ describe("surveyStreams", () => {
 			now: NOW,
 		});
 		expect(verdictFor(survey, "counsel")?.kind).toBe("unknown");
+	});
+
+	// The false negative `onlooker-1vt` named, and the reason a gated writer
+	// needs a write axis at all: counsel's brief generation breaks, its
+	// `counsel-session-start` keeps firing every session, and liveness alone
+	// certifies the stream for as long as the outage lasts.
+	//
+	// Two full gate intervals is 14 days here; the brief last landed in July,
+	// so every one of these opportunities sits well past the floor and the
+	// gate is not what is keeping counsel quiet.
+	it("reports a gated writer stopped once its silence outlasts two gate intervals", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["counsel"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 12,
+			triggerHook: "counsel-session-start",
+			files: [
+				[join("counsel", "aaaaaaaaaaaa", "brief.json"), "2026-07-01T00:00:00Z"],
+			],
+			events: [
+				{
+					event_type: "counsel.brief.generated",
+					timestamp: "2026-07-01T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "counsel")?.kind).toBe("stopped");
+	});
+
+	// The false positive that giving counsel a write axis reintroduces if the
+	// window is left blind to its gate, and `onlooker-1vt`'s own arithmetic
+	// measured on this repo: about one opportunity a day against a seven-day
+	// gate, so five elapse on day five of every interval and a perfectly
+	// on-schedule counsel would read `stopped` for two days out of every
+	// seven.
+	//
+	// The brief landed on 2026-08-30 and the next one is not due until
+	// 2026-09-06, so every one of these six opportunities falls inside the
+	// gate. None of them was a chance to write, and a denominator that counts
+	// them is charging counsel for sessions in which it was correctly silent.
+	it("does not report an on-schedule gated writer stopped for opportunities inside its own gate", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["counsel"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			triggerHook: "counsel-session-start",
+			files: [
+				[join("counsel", "aaaaaaaaaaaa", "brief.json"), "2026-08-30T00:00:00Z"],
+			],
+			events: [
+				{
+					event_type: "counsel.brief.generated",
+					timestamp: "2026-08-30T00:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "counsel")?.kind).toBe("recording");
 	});
 
 	// Generalizes the counsel case above beyond gated writers: curator has

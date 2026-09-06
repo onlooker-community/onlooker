@@ -43,12 +43,15 @@ import { scanEvents, scanHooks } from "./eventlog";
  * is untouched by the margin; the real bursar outage reached 71 firings.
  *
  * The ceiling used to be argued by naming counsel - "five reports counsel
- * `stopped` today rather than `unknown`" - and that is no longer true.
- * counsel carries no `writeEvents`, because nothing consumes
- * `writeGateHours` since the rule was unified and a seven-day gate judged
- * against a five-opportunity window reads `stopped` on a healthy stream
- * (see the entry's own comment, and `onlooker-1vt`). It therefore has no
- * write axis to reach `stopped` on.
+ * `stopped` today rather than `unknown`" - and that argument is retired
+ * rather than restored. counsel has a write axis again (`onlooker-1vt`), but
+ * five is no longer what decides its verdict on its own: a gated writer is
+ * judged against `GATE_INTERVAL_MARGIN` intervals of its own gate first, and
+ * only the opportunities past that floor are counted toward this threshold.
+ * Five would have reported a healthy counsel `stopped` for two days out of
+ * every seven, which is what the floor exists to prevent - so the value is
+ * argued by the ungated entries above, and the gated pair no longer bears on
+ * it either way.
  *
  * `onlooker-run` tracks rechecking this once the enabled set has roughly a
  * month of history - now as a recheck of the write axis, since liveness no
@@ -56,6 +59,25 @@ import { scanEvents, scanHooks } from "./eventlog";
  * six-opportunity sample and is superseded by the numbers above.
  */
 export const SESSION_STALL_THRESHOLD = 5;
+
+/**
+ * How many of a gated writer's own intervals must elapse before the
+ * opportunities that follow count against it.
+ *
+ * The reasoning is the retired `CADENCE_FLOOR_MULTIPLIER`'s, and the value is
+ * the same: a gated writer - counsel's brief, cartographer's audit - can
+ * legitimately be one full interval late, and two clears that with the same
+ * kind of margin `SESSION_STALL_THRESHOLD` leaves an ungated stream.
+ *
+ * What changed with the unified rule is what the multiplier scales. The old
+ * constant widened a permitted gap in wall-clock milliseconds, which is
+ * exactly the measurement the opportunity count replaced; this one moves the
+ * instant from which opportunities are counted, so the answer stays a count
+ * of real chances to write. A gated writer still has to miss
+ * `SESSION_STALL_THRESHOLD` of those to be called `stopped` - the threshold
+ * is not scaled, only the window it reads.
+ */
+const GATE_INTERVAL_MARGIN = 2;
 
 /**
  * Filesystem noise an OS can drop into any directory it has browsed,
@@ -136,27 +158,19 @@ export interface StreamEntry {
 	 * cartographer's config.json:5) while `cartographer-post-write` fires on
 	 * every Write.
 	 *
-	 * RETAINED UNREAD, pending `onlooker-1vt`. Nothing consumes this field:
-	 * the two functions that did - `clearsCadenceFloor` and `toleranceFor` -
-	 * measured a gap in wall-clock milliseconds, which is exactly what the
-	 * unified rule replaced with a count of opportunities, so restoring them
-	 * would reintroduce the wall clock rather than fix anything. The field
-	 * is kept because it is the measurement, not the mechanism: 168 and 24
-	 * were read out of those two plugins' own config files, and the fix
-	 * `onlooker-1vt` describes - scaling the opportunity threshold by an
-	 * entry's own gate - needs exactly these numbers. Deleting them would
-	 * mean re-deriving them from another repository's source.
+	 * READ BY `computeVerdict`, which multiplies it by `GATE_INTERVAL_MARGIN`
+	 * and counts opportunities only from the instant that floor clears. The
+	 * field spent a release unread - `onlooker-1vt` - between the unified
+	 * rule retiring its two original readers and that floor replacing them,
+	 * and the distinction that gap turned on is worth keeping: the retired
+	 * `clearsCadenceFloor` and `toleranceFor` measured a gap in wall-clock
+	 * milliseconds, which is exactly what the unified rule replaced with a
+	 * count of opportunities. The floor moves the instant the count starts
+	 * from instead, so the answer is still a count of real chances to write.
 	 *
-	 * The margin that fix wants is two gate intervals, and the reasoning is
-	 * the retired `CADENCE_FLOOR_MULTIPLIER`'s, preserved here because the
-	 * constant went with its readers: a gated writer - counsel's brief,
-	 * cartographer's audit - can legitimately be one full interval late, and
-	 * two clears that with the same kind of margin `SESSION_STALL_THRESHOLD`
-	 * leaves an ungated stream.
-	 *
-	 * Until then, neither entry names any `writeEvents`, so neither is
-	 * judged on a write axis at all and the missing allowance cannot produce
-	 * a false `stopped`. See both entries' own comments in `STREAMS`.
+	 * The numbers are measurements rather than tuning: 168 and 24 are read
+	 * out of those two plugins' own config files, so changing either means
+	 * checking the plugin, not this table.
 	 */
 	writeGateHours?: number;
 	/**
@@ -560,42 +574,43 @@ export const STREAMS: readonly StreamEntry[] = [
 		// (config.json:5) - via cartographer-session-start.sh:45-57's own
 		// elapsed-time gate. Without an allowance for that gate, a stall
 		// threshold can be crossed within a single busy day on a perfectly
-		// healthy stream. Retained unread pending `onlooker-1vt` - see the
-		// field's own docstring.
+		// healthy stream - which is what `GATE_INTERVAL_MARGIN` now prevents,
+		// and what kept this entry off the write axis until `onlooker-1vt`.
 		writeGateHours: 24,
 		events: ["cartographer"],
+		writeEvents: ["cartographer.audit.complete"],
 		// No writeHooks: cartographer-post-write fires on every Write, but
 		// the audit it triggers is itself gated (writeGateHours above), so
 		// neither hook's firing reliably implies a write.
 		//
-		// No writeEvents either, on the closest call in the table.
-		// `cartographer.audit.complete` does sit next to the write - the run
-		// record lands at run-audit.sh:371-382 and the emit is :384 - but it
-		// is not gated on it: the write is `> "${run_file}.tmp" && mv -f`,
-		// and a failure there still falls through to the emit, unlike
-		// bursar's, which is inside the `if`. That alone would be a thin
-		// reason to decline.
+		// writeEvents was withheld until `onlooker-1vt`, on the closest call
+		// in the table, and one of the two reasons still stands. The deciding
+		// one no longer does: the window now counts only the opportunities
+		// past two of this entry's own 24-hour intervals, so a single busy
+		// day inside one interval can no longer read `stopped` on a stream
+		// that is exactly on schedule.
 		//
-		// The deciding one is the gate, and it applies to counsel below
-		// identically - these two are the only entries with `writeGateHours`
-		// set at all. Nothing enforces that gate against the window anymore:
-		// the two functions that read the field went with the wall clock when
-		// the rule was unified, so the window counts opportunities with no
-		// idea that this writer only tries once a day. Five opportunities
-		// inside one 24-hour interval - a single busy day - would read
-		// `stopped` on a stream that is exactly on schedule, and naming a
-		// write event here is precisely what switches that branch on.
-		// Liveness is the honest axis until a gated writer has a denominator
-		// that respects its gate. Tracked as `onlooker-1vt`.
+		// The surviving reason is the thin one. `cartographer.audit.complete`
+		// sits next to the write - the run record lands at
+		// run-audit.sh:371-382 and the emit is :384 - but it is not gated on
+		// it: the write is `> "${run_file}.tmp" && mv -f`, and a failure
+		// there still falls through to the emit, unlike bursar's, which is
+		// inside the `if`. The consequence is bounded and runs the safe way.
+		// `lastWrite` takes the NEWER of the event and `runs/` mtime, so a
+		// spurious emit can only hold `stopped` back, never invent it, and
+		// `runs/` remains the primary signal - `subpath` above is what makes
+		// that the analytical pass rather than a heartbeat.
 		hooks: ["cartographer-post-write", "cartographer-session-start"],
 		// No firesEverySession. cartographer-session-start is SessionStart
 		// `*`, but cartographer-post-write is PostToolUse matched Write, Edit
 		// and MultiEdit (cartographer's hooks.json) - the same trigger shape
 		// as inspector's, and the one that produced the false `stopped`. A
 		// read-only session fires it zero times, so it cannot be treated as
-		// due. cartographer keeps no write axis either, so with the flag
-		// withheld it cannot reach `stopped` at all - see `onlooker-1vt`,
-		// which is what would give a gated writer its axis back.
+		// due. The flag stays withheld now that `writeEvents` is set: what
+		// changed with `onlooker-1vt` is that cartographer can reach
+		// `stopped` on its WRITE axis, where the gate floor and `triggeredIn`
+		// both narrow the count. Liveness has neither narrowing, which is
+		// exactly why this flag is the one that must not be granted.
 	},
 	{
 		plugin: "compass",
@@ -663,46 +678,47 @@ export const STREAMS: readonly StreamEntry[] = [
 		// days, 168 hours, by default (config.json:3). Without an allowance
 		// for that gate, a normal week of 6+ sessions crosses a stall
 		// threshold with zero output movement on a perfectly healthy,
-		// on-schedule stream. Retained unread pending `onlooker-1vt` - see
-		// the field's own docstring.
+		// on-schedule stream - the allowance is `GATE_INTERVAL_MARGIN`, and
+		// its absence is what kept this entry off the write axis until
+		// `onlooker-1vt`.
 		writeGateHours: 168,
 		events: ["counsel"],
+		writeEvents: ["counsel.brief.generated"],
 		// No writeHooks: its only hook fires every session while the brief
 		// it triggers is gated (writeGateHours above), so firing does not
 		// imply a write.
 		//
-		// No writeEvents, and this one departs from the design, which lists
-		// `["counsel.brief.generated"]` among its known assignments. The
-		// source half of that holds: the brief JSON is written at
+		// writeEvents restores the design's own assignment, which lists
+		// `["counsel.brief.generated"]` and which the verification pass
+		// withheld. The source half always held: the brief JSON is written at
 		// counsel-brief.sh:305 and the event is emitted at :322, guarded only
-		// on the period bounds parsing. What does not hold is the second half
-		// of the test, for the same reason as cartographer above -
-		// `writeGateHours: 168` says a healthy counsel writes once a WEEK,
-		// and the window has no idea, because the field's only two readers
-		// were wall-clock ones and went when the rule was unified.
+		// on the period bounds parsing. The half that did not was the window,
+		// and it is the half that changed - `writeGateHours: 168` says a
+		// healthy counsel writes once a WEEK, and the count now starts two
+		// intervals after the last brief rather than at the brief itself.
 		//
-		// Measured against this repo's own denominator that is not a
-		// hypothetical: six opportunities in the six days to 2026-09-05, so
-		// about one a day, so five elapse on day five of every seven-day
-		// gate interval. A perfectly on-schedule counsel would read `stopped`
-		// for two days out of every seven. That is the class of false alarm
-		// this whole design exists to remove, so the assignment waits for the
-		// gate to be honored rather than shipping ahead of it.
+		// What that is worth, measured against this repo's own denominator
+		// rather than a hypothetical: six opportunities in the six days to
+		// 2026-09-05, so about one a day, so five elapse on day five of every
+		// seven-day gate interval. Shipping the assignment without the floor
+		// would have read `stopped` on an on-schedule counsel for two days
+		// out of every seven - the class of false alarm this whole design
+		// exists to remove, and the reason the order mattered.
 		//
-		// The cost is real and worth naming rather than burying: an enabled
+		// What it buys is the false negative the withholding cost: an enabled
 		// counsel whose brief generation breaks while counsel-session-start
-		// keeps firing reads `recording`, and the month of silence since
-		// 2026-08-07 would go unreported. That is a false negative traded for
-		// a recurring false positive, the same direction taken everywhere
-		// else here, and it reverses the moment `writeGateHours` has a
-		// consumer again. Tracked as `onlooker-1vt`.
+		// keeps firing read `recording`, and the silence since 2026-08-07
+		// went unreported. That is now reportable, and takes two weeks of
+		// missed opportunities to say - a fortnight's delay on a weekly
+		// writer, which is the margin, not a defect in it.
 		hooks: ["counsel-session-start"],
 		// counsel-session-start is SessionStart `*` (counsel's hooks.json) -
 		// its only hook, and unconditional. Note what this does and does not
 		// say: the HOOK is due every session, which is what liveness asks.
 		// Whether the brief gets WRITTEN is gated to once per seven days, and
-		// that is the separate question the entry declines to answer by naming
-		// no writeEvents (see this entry's comment above, and `onlooker-1vt`).
+		// that is the separate question the write axis answers on its own
+		// terms - `writeEvents` above supplies it, and `writeGateHours` keeps
+		// the seven days out of this flag's business.
 		firesEverySession: true,
 		// `counsel/<key>/` per project - verified on disk.
 		perProject: true,
@@ -2379,7 +2395,26 @@ function computeVerdict(
 			triggeredIn.add(session);
 		}
 	}
-	const sinceWrite = opportunitiesSince(events, hooks, lastWrite, triggeredIn);
+	// The second narrowing, and the one that gives `writeGateHours` a reader
+	// again. A gated writer's trigger fires far more often than the writer
+	// runs, so an opportunity that arrived while its gate was still shut was
+	// never a chance to write and must not be counted as one - the same claim
+	// `triggeredIn` makes about a session that never invoked the entry, one
+	// level further in. Measured on this repo, counsel's seven-day gate takes
+	// about six opportunities to elapse, so without this the count reaches
+	// five on day five of every interval and reports a writer that is exactly
+	// on schedule.
+	//
+	// Ungated entries are untouched: `writeGateHours` is undefined for all but
+	// counsel and cartographer, and the floor collapses to `lastWrite`.
+	const writeFloor =
+		entry.writeGateHours === undefined
+			? lastWrite
+			: new Date(
+					new Date(lastWrite).getTime() +
+						entry.writeGateHours * GATE_INTERVAL_MARGIN * 3_600_000,
+				).toISOString();
+	const sinceWrite = opportunitiesSince(events, hooks, writeFloor, triggeredIn);
 	// Name the axis that actually moved, which is not always a path.
 	// `outputLabel` renders "(none)" for an `output: null` entry, so building
 	// this from it alone reports "(none) last changed 2026-08-07" on the one
