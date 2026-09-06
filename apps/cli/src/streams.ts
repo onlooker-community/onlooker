@@ -1822,6 +1822,18 @@ export interface StreamSurvey {
 	footer: Array<{ plugin: string; detail: string }>;
 	/** Problems reading the sources themselves, as opposed to any one stream. */
 	faults: string[];
+	/**
+	 * Observations worth printing that no verdict rests on, and that the exit
+	 * code deliberately ignores.
+	 *
+	 * Separate from `faults` because the exit code is the only thing that
+	 * distinguishes them, and conflating the two cost the code its meaning:
+	 * both logs are shared, append-only, and long, so one malformed line from
+	 * months ago pinned `doctor` to exit 1 permanently with no way to clear it
+	 * short of hand-editing the log. A CI job could no longer tell "a stream
+	 * stopped, go look" from "there is an old bad line in a shared file".
+	 */
+	notes: string[];
 }
 
 /**
@@ -1874,13 +1886,21 @@ export async function surveyStreams(opts: {
 		env,
 	});
 	const faults: string[] = [];
+	// A log that could not be read at all stays a fault: it supports no
+	// verdict, so nothing below can certify anything. Individual lines that
+	// would not parse are a note instead - a bad line only matters if it hid
+	// a stream's activity, and a stream whose activity is hidden already
+	// reads as stale and exits 1 through its own `stopped` or `unknown`
+	// verdict. Faulting on the count as well bought no signal and cost the
+	// exit code its meaning, permanently, on one bad append.
+	const notes: string[] = [];
 
 	const root = repoRoot(opts.cwd);
 	const events = await scanEvents({ root, env });
 	if (events.missing)
 		faults.push("logs/onlooker-events.jsonl could not be read");
 	if (events.unreadable > 0) {
-		faults.push(`${events.unreadable} event log line(s) could not be parsed`);
+		notes.push(`${events.unreadable} event log line(s) could not be parsed`);
 	}
 
 	const enabled = enablement.kind === "found" ? enablement.plugins : [];
@@ -1934,8 +1954,10 @@ export async function surveyStreams(opts: {
 		env,
 	});
 	if (hooks.missing) faults.push("logs/hook-health.jsonl could not be read");
+	// Same split as the event log above, and for the same reason: this log is
+	// the longer of the two, 223k lines on this machine.
 	if (hooks.unreadable > 0) {
-		faults.push(`${hooks.unreadable} hook-health line(s) could not be parsed`);
+		notes.push(`${hooks.unreadable} hook-health line(s) could not be parsed`);
 	}
 
 	// `enabled` is already alphabetical (readEnablement sorts it), so mapping
@@ -2006,6 +2028,7 @@ export async function surveyStreams(opts: {
 		verdicts,
 		footer,
 		faults,
+		notes,
 	};
 }
 
@@ -2509,6 +2532,15 @@ export function doctorLines(survey: StreamSurvey): string[] {
 		for (const fault of survey.faults) lines.push(`Fault:    ${fault}`);
 	}
 
+	// Its own label, aligned with `Fault:`, rather than folded in with them.
+	// The exit code reacts to a fault and not to a note, and output that
+	// called both the same thing would leave a reader unable to tell which
+	// line is the reason the command exited 1.
+	if (survey.notes.length > 0) {
+		lines.push("");
+		for (const note of survey.notes) lines.push(`Note:     ${note}`);
+	}
+
 	return lines;
 }
 
@@ -2528,6 +2560,10 @@ export function doctorLines(survey: StreamSurvey): string[] {
  * one. `STREAMS`'s own docstring anticipates the vocabulary growing without
  * notice, which makes `no-rule` the expected steady state after any
  * marketplace addition, not a rare edge case worth softening.
+ *
+ * `notes` are ignored on purpose - reacting to one is what would make it a
+ * fault. See `StreamSurvey.notes` for why the unreadable-line counts moved
+ * there, and why `missing` did not.
  */
 export function exitCodeFor(survey: StreamSurvey): number {
 	if (survey.enablement.kind === "unknown") return 1;
