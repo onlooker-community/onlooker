@@ -49,6 +49,26 @@ export function diffSchema(expected, live) {
 					`${table}: index ${idx.name} unique is ${found.unique}, expected ${idx.unique}`,
 				);
 			}
+			// An index that exists, under the right name, with the right
+			// uniqueness, over the wrong columns was indistinguishable from a
+			// match. The missing-by-name half of a failed index migration was
+			// always caught above; this is the half that kept its name.
+			//
+			// Compared in order, and joined rather than set-compared: a
+			// composite index over (a, b) serves queries that one over (b, a)
+			// does not, so a reordering is drift.
+			//
+			// `?? []` on both sides: a snapshot generated before columns were
+			// recorded has no `columns` key, and reporting every index in an
+			// older snapshot as drift would be a worse failure than the blind
+			// spot this closes.
+			const wantColumns = (idx.columns ?? []).join(", ");
+			const gotColumns = (found.columns ?? []).join(", ");
+			if (wantColumns !== gotColumns) {
+				diffs.push(
+					`${table}: index ${idx.name} covers (${gotColumns}), expected (${wantColumns})`,
+				);
+			}
 		}
 		for (const idx of actual.indexes) {
 			if (!spec.indexes.find((i) => i.name === idx.name)) {
@@ -124,9 +144,21 @@ export function readLiveSchema(database, env) {
 			// a live index that matches by name but isn't UNIQUE is exactly the
 			// defect production had (see schema.ts on sessions_token_hash_idx),
 			// and a name-only comparison would pass it silently.
+			//
+			// index_info per index for the columns, because index_list does
+			// not carry them - one extra remote round-trip per index, paid at
+			// deploy time rather than per request. `seqno` is the position
+			// within the index, so ordering by it preserves the composite
+			// order the expectation pins.
 			indexes: d1Query(database, env, `PRAGMA index_list(${table})`)
 				.filter((r) => !r.name.startsWith("sqlite_"))
-				.map((r) => ({ name: r.name, unique: Boolean(r.unique) }))
+				.map((r) => ({
+					name: r.name,
+					unique: Boolean(r.unique),
+					columns: d1Query(database, env, `PRAGMA index_info(${r.name})`)
+						.sort((a, b) => a.seqno - b.seqno)
+						.map((c) => c.name),
+				}))
 				.sort((a, b) => a.name.localeCompare(b.name)),
 		};
 	}

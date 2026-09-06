@@ -9,7 +9,7 @@ const expected = {
 			{ name: "id", type: "TEXT", notnull: 1, pk: 1 },
 			{ name: "email", type: "TEXT", notnull: 1, pk: 0 },
 		],
-		indexes: [{ name: "users_email_idx", unique: true }],
+		indexes: [{ name: "users_email_idx", unique: true, columns: ["email"] }],
 	},
 };
 
@@ -62,5 +62,35 @@ describe("diffSchema", () => {
 	it("reports an unexpected extra table", () => {
 		const live = { ...expected, audit_logs: { columns: [], indexes: [] } };
 		expect(diffSchema(expected, live).join(" ")).toMatch(/audit_logs/);
+	});
+
+	// The dangerous half of an index migration IS already caught: if the DROP
+	// commits and the CREATE fails, the index goes missing by name, and that
+	// is checked above. The gap is specifically wrong-columns-same-name - an
+	// index that exists, under the right name, with the right uniqueness,
+	// over the wrong columns. Nothing distinguished that from a match.
+	it("reports an index whose columns changed under the same name", () => {
+		const live = structuredClone(expected);
+		live.users.indexes[0].columns = ["email_normalized"];
+		const diffs = diffSchema(expected, live);
+		expect(diffs.join(" ")).toMatch(/users_email_idx/);
+		expect(diffs.join(" ")).toMatch(/email_normalized/);
+	});
+
+	// Order is part of the index, not an incidental detail of how it is
+	// listed: a composite index over (a, b) serves queries that one over
+	// (b, a) does not.
+	it("reports a composite index whose column order changed", () => {
+		const composite = {
+			users: {
+				columns: expected.users.columns,
+				indexes: [
+					{ name: "users_pair_idx", unique: false, columns: ["a", "b"] },
+				],
+			},
+		};
+		const live = structuredClone(composite);
+		live.users.indexes[0].columns = ["b", "a"];
+		expect(diffSchema(composite, live)).not.toHaveLength(0);
 	});
 });
