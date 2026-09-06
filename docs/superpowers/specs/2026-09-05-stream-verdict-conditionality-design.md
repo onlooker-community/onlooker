@@ -492,6 +492,28 @@ The trade is deliberate: a false negative (a broken counsel reads `recording`)
 in place of a false positive (a healthy one reads `stopped`), which is the
 direction taken everywhere else here. Tracked as `onlooker-1vt`.
 
+**Resolved 2026-09-06.** `writeGateHours` has a consumer again, and it is not
+the retired cadence floor. `GATE_INTERVAL_MARGIN` (2, the old
+`CADENCE_FLOOR_MULTIPLIER`'s value and its reasoning) multiplies an entry's own
+gate and moves the instant from which opportunities are counted, so the write
+axis still answers with a count of real chances to write rather than a
+wall-clock gap — the distinction that made restoring the old functions the
+wrong fix. Both withheld assignments are now in the table:
+`counsel: ["counsel.brief.generated"]` as this document originally specified,
+and `cartographer: ["cartographer.audit.complete"]`.
+
+Cartographer's second objection survives and is recorded rather than resolved:
+its emit is not gated on the write succeeding, so a failed
+`> "${run_file}.tmp" && mv -f` still reaches `cartographer.audit.complete`.
+Because `lastWrite` takes the newer of the event and the `runs/` mtime, that
+can only withhold a `stopped`, never invent one, which is the safe direction.
+
+The order mattered and is worth keeping: shipping the assignments before the
+floor reproduces exactly the false positive this section was written to
+prevent. Both halves are pinned by tests — one that the gated pair can reach
+`stopped` once silence outlasts two intervals, one that an on-schedule counsel
+does not.
+
 ### Detail strings must survive a sub-day gap
 
 `compass-bash-gate fired 2026-09-05, but the last event was 2026-09-05` is a
