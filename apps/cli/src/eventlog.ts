@@ -24,6 +24,19 @@ export interface EventScan {
 	 * `root` is `null`, meaning the caller never asked for scoping at all.
 	 */
 	lastByPrefix: Record<string, string>;
+	/**
+	 * Newest ISO timestamp per FULL `event_type`, from sessions rooted at
+	 * `root` — the same scoping `lastByPrefix` gets, one level finer.
+	 *
+	 * Exists because `StreamEntry.writeEvents` names full types rather than
+	 * prefixes, and it has to: `governor.session.complete` fires 2774 times
+	 * and implies nothing about output, while `governor.gate.checked` fires
+	 * 84 times and does. `lastByPrefix` takes the newest across the whole
+	 * family, so the unconditional type masks the conditional one — which is
+	 * exactly right for asking "did this plugin run?" and useless for asking
+	 * "should its output have moved?".
+	 */
+	lastByType: Record<string, string>;
 	/** `project_key` values seen on events from sessions rooted at `root`, sorted. */
 	projectKeys: string[];
 	/**
@@ -33,6 +46,18 @@ export interface EventScan {
 	 * `null`.
 	 */
 	sessionIds: string[];
+	/**
+	 * This repo's own sessions, each mapped to the ISO timestamp it started.
+	 * Empty when `root` is `null`. `sessionIds` is this object's keys,
+	 * sorted — the two are built from the same set and cannot disagree.
+	 *
+	 * The opportunity denominator needs the timestamps, not just the ids: a
+	 * verdict asks "how many chances has this plugin had SINCE the moment it
+	 * last showed life", and that is a count of sessions after a cutoff.
+	 * Earliest start per session wins, because a resumed session logs a
+	 * second `session.start` and it is still one opportunity.
+	 */
+	sessionStarts: Record<string, string>;
 	/** Lines that would not parse. Counted, never skipped silently. */
 	unreadable: number;
 	/**
@@ -158,8 +183,10 @@ export async function scanEvents(opts: {
 		// life of the CLI invocation. The event log is untrusted input; the
 		// map it drives into must not have a prototype to collide with.
 		lastByPrefix: Object.create(null) as Record<string, string>,
+		lastByType: Object.create(null) as Record<string, string>,
 		projectKeys: [],
 		sessionIds: [],
+		sessionStarts: Object.create(null) as Record<string, string>,
 		unreadable: 0,
 		missing: false,
 	};
@@ -182,15 +209,24 @@ export async function scanEvents(opts: {
 	// the join happens once, after the pass, against whichever sessions
 	// turned out to be ours.
 	const keysBySession = new Map<string, Set<string>>();
-	// Same reasoning, for `lastByPrefix`: whether a record's own session
-	// belongs to `mine` is not decided until the pass is done, so the
-	// newest timestamp per prefix is buffered per session first and folded
-	// into `scan.lastByPrefix` afterward, once, against only the sessions
-	// that turned out to be ours. Only used when `opts.root !== null` -
-	// when it is `null` there is no scoping to do, and `lastByPrefix` is
-	// still updated directly, machine-wide, exactly as before this field
-	// existed.
-	const prefixBySession = new Map<string, Record<string, string>>();
+	// Earliest `session.start` per session of ours - see
+	// `EventScan.sessionStarts`. Kept separate from `mine` rather than
+	// replacing it: `mine` is a membership test used on the hot path of the
+	// fold, and this is the data behind it.
+	const startedAt = new Map<string, string>();
+	// Same reasoning as `keysBySession`, for the timestamp maps: whether a
+	// record's own session belongs to `mine` is not decided until the pass
+	// is done, so the newest timestamp is buffered per session first and
+	// folded into `scan.lastByPrefix`/`scan.lastByType` afterward, once,
+	// against only the sessions that turned out to be ours. Only used when
+	// `opts.root !== null` - when it is `null` there is no scoping to do and
+	// both maps are updated directly, machine-wide, exactly as before.
+	//
+	// Keyed by FULL `event_type`, with the prefix derived at fold time
+	// rather than buffered alongside it. One buffer, not two: the prefix is
+	// a pure function of the type, so storing both would be storing the same
+	// information twice per session.
+	const typeBySession = new Map<string, Record<string, string>>();
 
 	let stream: ReturnType<typeof createReadStream>;
 	try {
@@ -241,9 +277,12 @@ export async function scanEvents(opts: {
 
 		if (opts.root === null) {
 			// No root to scope by, so the caller never asked for scoping at
-			// all - `lastByPrefix` stays machine-wide, updated directly.
+			// all - both maps stay machine-wide, updated directly.
 			if (timestamp > (scan.lastByPrefix[prefix] ?? "")) {
 				scan.lastByPrefix[prefix] = timestamp;
+			}
+			if (timestamp > (scan.lastByType[type] ?? "")) {
+				scan.lastByType[type] = timestamp;
 			}
 			return;
 		}
@@ -257,13 +296,13 @@ export async function scanEvents(opts: {
 		// bill" reasoning `streams.ts`'s `judge()` applies everywhere else.
 		if (typeof session !== "string") return;
 
-		let sessionPrefixes = prefixBySession.get(session);
-		if (!sessionPrefixes) {
-			sessionPrefixes = Object.create(null) as Record<string, string>;
-			prefixBySession.set(session, sessionPrefixes);
+		let sessionTypes = typeBySession.get(session);
+		if (!sessionTypes) {
+			sessionTypes = Object.create(null) as Record<string, string>;
+			typeBySession.set(session, sessionTypes);
 		}
-		if (timestamp > (sessionPrefixes[prefix] ?? "")) {
-			sessionPrefixes[prefix] = timestamp;
+		if (timestamp > (sessionTypes[type] ?? "")) {
+			sessionTypes[type] = timestamp;
 		}
 
 		if (
@@ -271,6 +310,10 @@ export async function scanEvents(opts: {
 			within(payload.working_directory, opts.root)
 		) {
 			mine.add(session);
+			const seen = startedAt.get(session);
+			if (seen === undefined || timestamp < seen) {
+				startedAt.set(session, timestamp);
+			}
 		}
 		if (
 			typeof payload.project_key === "string" &&
@@ -326,27 +369,36 @@ export async function scanEvents(opts: {
 		// command makes elsewhere (it is why an unenabled-but-writing stream
 		// goes in a footer rather than the fault list), so any failure here
 		// reports `missing` and discards the data that would drive a verdict.
-		// `projectKeys` and `sessionIds` need no reset - they are only
-		// assigned after the loop above, so at this point they are still
-		// their initial `[]`. `unreadable` is left alone too - a scan can
-		// honestly have seen bad lines before a failure like this one.
+		// `lastByType` is discarded for the same reason `lastByPrefix` is: a
+		// truncated map would let a caller certify a stream's write signal
+		// off evidence this module could not fully read. `projectKeys` and
+		// `sessionIds` need no reset - they are only assigned after the loop
+		// above, so at this point they are still their initial `[]`.
+		// `unreadable` is left alone too - a scan can honestly have seen bad
+		// lines before a failure like this one.
 		scan.missing = true;
 		scan.lastByPrefix = Object.create(null) as Record<string, string>;
+		scan.lastByType = Object.create(null) as Record<string, string>;
 		return scan;
 	}
 
 	scan.sessionIds = [...mine].sort((a, b) => a.localeCompare(b));
+	for (const [session, at] of startedAt) scan.sessionStarts[session] = at;
 	const keys = new Set<string>();
-	// `lastByPrefix` folded in from the per-session buffer here too, once,
-	// against only the sessions that turned out to be `mine` - see
-	// `prefixBySession`'s own comment. A no-op when `opts.root === null`:
-	// `prefixBySession` was never populated in that branch, since
-	// `lastByPrefix` was already updated directly, machine-wide, inline.
+	// `lastByPrefix`/`lastByType` folded in from the per-session buffer here
+	// too, once, against only the sessions that turned out to be `mine` -
+	// see `typeBySession`'s own comment. A no-op when `opts.root === null`:
+	// `typeBySession` was never populated in that branch, since both maps
+	// were already updated directly, machine-wide, inline.
 	for (const session of mine) {
-		const sessionPrefixes = prefixBySession.get(session);
-		if (sessionPrefixes) {
-			for (const prefix of Object.keys(sessionPrefixes)) {
-				const timestamp = sessionPrefixes[prefix];
+		const sessionTypes = typeBySession.get(session);
+		if (sessionTypes) {
+			for (const type of Object.keys(sessionTypes)) {
+				const timestamp = sessionTypes[type];
+				if (timestamp > (scan.lastByType[type] ?? "")) {
+					scan.lastByType[type] = timestamp;
+				}
+				const prefix = type.split(".")[0];
 				if (timestamp > (scan.lastByPrefix[prefix] ?? "")) {
 					scan.lastByPrefix[prefix] = timestamp;
 				}
@@ -369,9 +421,67 @@ export async function scanEvents(opts: {
  * would give six dead streams a clean bill.
  */
 export interface HookScan {
+	/**
+	 * Per hook name: how many times it fired past `scanHooks`'s `since`
+	 * cutoff, how many of those reported success, and the newest firing seen
+	 * at all. A hook absent from this record has no firing in scope, which is
+	 * not the same as one that fired zero times - see the scope filter in
+	 * `scanHooks`.
+	 *
+	 * `last` is the live field: it is what `streams.ts` reads as a stream's
+	 * sign of life, and it is recorded before the `since` filter, so the
+	 * cutoff never moves it.
+	 *
+	 * `firedSince` and `okSince` are RETAINED UNREAD pending `onlooker-d7g`.
+	 * They were the numerator of the firing-count rule the unified verdict
+	 * replaced with an opportunity count, and no verdict consults either one
+	 * now. `onlooker-d7g` owns the choice between surfacing them - "fired 73
+	 * times, 71 succeeded, produced no output" is a materially stronger
+	 * sentence than "fired 73 times", because it forecloses the reader's
+	 * first guess that the hook was erroring - and dropping them from this
+	 * interface. Deciding it here, inside an unrelated dead-code sweep,
+	 * would settle that bead by default rather than on its merits.
+	 */
 	hooks: Record<string, { firedSince: number; okSince: number; last: string }>;
 	unreadable: number;
 	missing: boolean;
+	/**
+	 * Sessions in which any hook fired at all, sorted — narrowed to
+	 * `sessionIds` when that option was given, so it means "sessions of
+	 * OURS that ran the hook machinery".
+	 *
+	 * This is the opportunity denominator. A session absent from this set
+	 * asked nothing of any plugin and must not count against one: 240 of
+	 * this repo's 246 sessions in the measured window were subagent
+	 * sessions running no hooks, including a single block of 91 consecutive
+	 * ones over 27 hours. Counting those, every plugin on the machine shows
+	 * a longest silent run of exactly 91 - a property of the session stream,
+	 * not of any plugin, and one no threshold can be set above while still
+	 * catching a real outage. See the design's *The window* section.
+	 */
+	sessionsWithRecords: string[];
+	/**
+	 * Per hook name, the sessions THAT hook fired in, sorted - the same
+	 * records and the same scoping `sessionsWithRecords` is built from, one
+	 * level finer. A hook that never fired in scope is absent, not empty, for
+	 * the same reason it gets no `hooks` entry: `undefined` is what "no
+	 * evidence of our own" means here.
+	 *
+	 * The union answers "was this session a chance for ANY plugin to act",
+	 * which is the right denominator for asking whether a plugin has gone
+	 * silent and the wrong one for asking whether its output should have
+	 * moved. Measured: in the six sessions after lineage's ledger last moved,
+	 * nobody edited a file, `lineage-post-tool-use` fired in none of them, and
+	 * a union denominator charged lineage for all six and called a healthy
+	 * stream `STOPPED`. A session in which an entry's own trigger never fired
+	 * was never a chance for that entry to write.
+	 *
+	 * No threshold is folded in: unlike `hooks[…].firedSince`, this counts a
+	 * firing on either side of `since`. The caller measures its own window
+	 * from its own cutoff (`streams.ts`'s `opportunitiesSince`), and a set
+	 * already narrowed by a different one would silently intersect two.
+	 */
+	sessionsByHook: Record<string, string[]>;
 }
 
 export async function scanHooks(opts: {
@@ -400,6 +510,11 @@ export async function scanHooks(opts: {
 		>,
 		unreadable: 0,
 		missing: false,
+		sessionsWithRecords: [],
+		// `Object.create(null)` for the same reason `hooks` above gets one:
+		// the keys are hook names, and a hook named `__proto__` must not
+		// resolve through `Object.prototype` for the caller reading it.
+		sessionsByHook: Object.create(null) as Record<string, string[]>,
 	};
 
 	const path = join(
@@ -425,6 +540,18 @@ export async function scanHooks(opts: {
 	// this set" - see `opts.sessionIds`'s own docstring.
 	const scoped =
 		opts.sessionIds === undefined ? null : new Set(opts.sessionIds);
+
+	// Sessions that demonstrably ran hooks - see
+	// `HookScan.sessionsWithRecords`. Populated AFTER the scope filter
+	// below, so when scoping was requested this is already the
+	// intersection the denominator wants and needs no second pass.
+	const ranHooks = new Set<string>();
+
+	// The same sessions, kept per hook - see `HookScan.sessionsByHook`. A
+	// `Map` rather than the result object directly, so a read that dies
+	// partway leaves the scan's own field empty rather than half-filled; it is
+	// folded in after the loop alongside `sessionsWithRecords`.
+	const byHook = new Map<string, Set<string>>();
 
 	// See `scanEvents`'s identical `processLine` for why the final line is
 	// held back and run through this a beat later than every other line.
@@ -464,9 +591,25 @@ export async function scanHooks(opts: {
 		// one that is attributable but not ours - the reviewer's
 		// reproduction (a single unrelated session's firing) is exactly
 		// this shape, just attributable.
+		const session = record.session_id;
 		if (scoped !== null) {
-			const session = record.session_id;
 			if (typeof session !== "string" || !scoped.has(session)) return;
+		}
+		// An unattributable firing proves a hook ran but not WHERE, so it
+		// cannot make any session an opportunity - excluded here even on the
+		// unscoped path, where it is still counted as a firing above.
+		//
+		// Both sets are recorded BEFORE the `since` filter below: a firing
+		// that predates the threshold is still a firing, and neither set is
+		// about the threshold. See `HookScan.sessionsByHook`.
+		if (typeof session === "string") {
+			ranHooks.add(session);
+			let sessions = byHook.get(hook);
+			if (!sessions) {
+				sessions = new Set();
+				byHook.set(hook, sessions);
+			}
+			sessions.add(session);
 		}
 
 		if (!scan.hooks[hook])
@@ -533,7 +676,11 @@ export async function scanHooks(opts: {
 		// mistakenly trust either way - firedSince/okSince/last are just
 		// undercounts of a scan that did not finish, so any failure here
 		// reports `missing` and discards them rather than handing a caller a
-		// table that looks complete but is not.
+		// table that looks complete but is not. `sessionsWithRecords` and
+		// `sessionsByHook` need no reset for the same reason `scanEvents`'s
+		// `sessionIds` does not: both are assigned only after the loop above
+		// completes, past this catch, so a failure here leaves them at their
+		// empty initial values.
 		scan.missing = true;
 		scan.hooks = Object.create(null) as Record<
 			string,
@@ -542,5 +689,11 @@ export async function scanHooks(opts: {
 		return scan;
 	}
 
+	scan.sessionsWithRecords = [...ranHooks].sort((a, b) => a.localeCompare(b));
+	for (const [hook, sessions] of byHook) {
+		scan.sessionsByHook[hook] = [...sessions].sort((a, b) =>
+			a.localeCompare(b),
+		);
+	}
 	return scan;
 }

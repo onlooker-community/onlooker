@@ -10,14 +10,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
-	clearsCadenceFloor,
 	doctorLines,
 	exitCodeFor,
 	mtimeToIso,
+	opportunitiesSince,
 	outputFreshness,
 	outputLabel,
-	STALL_THRESHOLD,
+	SESSION_STALL_THRESHOLD,
 	STREAMS,
+	stampFor,
 	surveyStreams,
 } from "../streams";
 
@@ -115,10 +116,14 @@ describe("STREAMS", () => {
 		expect(entryFor("cartographer").subpath).toBe("runs");
 	});
 
-	// writeHooks pins which hooks a firing-count stall check may trust.
-	// bursar-session-start fires without implying a write; lineage has no
-	// reliable write hook at all, since its one hook name covers Bash as
-	// well as Edit/Write/MultiEdit.
+	// writeHooks records which of an entry's hooks reliably imply its real
+	// work happened, as against merely having run. It no longer gates a
+	// firing-count stall check - `a8de753` retired that check with the rest
+	// of the wall clock, and nothing counts hook firings anywhere now - so
+	// what this pins is the source reading itself, which is what the field's
+	// docstring says it is kept for. bursar-session-start fires without
+	// implying a write; lineage has no reliable write hook at all, since its
+	// one hook name covers Bash as well as Edit/Write/MultiEdit.
 	//
 	// archivist-extract, assayer-stop, and librarian-session-end were all
 	// pinned as reliable once (a source read that stopped at "this hook
@@ -144,15 +149,26 @@ describe("STREAMS", () => {
 	// means "reliably implies an EVENT was emitted" instead (see its own
 	// docstring). Fix round 2 read all four `output: null` scripts in full:
 	// inspector's one hook always emits on the only tool calls its matcher
-	// ever lets through, so it is trusted; compass's other three hooks never
-	// emit at all, leaving only its Bash write-pattern gate; ecosystem's
-	// fourteen split five ways once each was actually read, not inferred
-	// from its tracker-sounding name (see its own table comment for the
-	// full account); warden's three hooks all fire far more often than they
-	// ever emit, leaving nothing to trust at all.
+	// ever lets through, so it is trusted; ecosystem's fourteen split five
+	// ways once each was actually read, not inferred from its
+	// tracker-sounding name (see its own table comment for the full account);
+	// warden's three hooks all fire far more often than they ever emit,
+	// leaving nothing to trust at all.
+	//
+	// compass moved from the trusted column to the empty one in the
+	// verification pass. Its `["compass-bash-gate"]` was justified as "a
+	// write-pattern match reliably emits", which is true and is not the claim
+	// - the hook fires on EVERY Bash call, registers with hook-health before
+	// deciding the command is read-only (compass-bash-gate.sh:29 against
+	// :98), and the EXIT trap logs that firing exactly as it logs a real one.
+	// The bead records the consequence as a live false positive.
+	//
+	// Nothing in `computeVerdict` reads this field for an `output: null`
+	// entry anymore - `writeEvents` is that branch's axis - so it is pinned
+	// as recorded research rather than as behavior.
 	it("pins which output:null entries have a hook that reliably implies an emission", () => {
 		expect(entryFor("inspector").writeHooks).toEqual(["inspector-post-write"]);
-		expect(entryFor("compass").writeHooks).toEqual(["compass-bash-gate"]);
+		expect(entryFor("compass").writeHooks).toBeUndefined();
 		expect(entryFor("ecosystem").writeHooks).toEqual([
 			"session-start-tracker",
 			"session-end-tracker",
@@ -165,6 +181,140 @@ describe("STREAMS", () => {
 			"worktree-tracker",
 		]);
 		expect(entryFor("warden").writeHooks).toBeUndefined();
+	});
+
+	// The verification pass's result, pinned so a later edit has to argue with
+	// it. Five entries name write events and twelve do not, and the twelve are
+	// the load-bearing half: an entry with no `writeEvents` and no
+	// `writeHooks` has no downstream axis at all and rests on liveness alone.
+	//
+	// That used to be written here as "liveness, which cannot produce a false
+	// `stopped`", and liveness produced one - a healthy inspector read
+	// `STOPPED ... 8 sessions ago` across eight subagent sessions that could
+	// not have triggered it. What makes the sentence true now is
+	// `firesEverySession`: liveness may only accuse an entry whose hooks were
+	// due in every session - seven of the seventeen, a different seven from
+	// the five here - and every other entry abstains rather than accusing.
+	// Each entry's own comment carries the file and line; this only fixes the
+	// shape of the answer.
+	it("pins which entries have an event whose silence is evidence", () => {
+		const named = Object.fromEntries(
+			STREAMS.filter((e) => (e.writeEvents ?? []).length > 0).map((e) => [
+				e.plugin,
+				e.writeEvents,
+			]),
+		);
+		expect(named).toEqual({
+			assayer: ["assayer.audit.complete"],
+			bursar: ["bursar.session.recorded"],
+			lineage: ["lineage.change.recorded"],
+			inspector: [
+				"inspector.check.passed",
+				"inspector.check.failed",
+				"inspector.check.skipped",
+				"inspector.run.completed",
+			],
+			ecosystem: [
+				"tool.shell.exec",
+				"tool.file.read",
+				"tool.file.write",
+				"tool.file.edit",
+				"tool.web.fetch",
+				"tool.agent.spawn",
+				"tool.agent.complete",
+				"skill.invoked",
+				"memory.recalled",
+				"task.start",
+				"task.complete",
+			],
+		});
+	});
+
+	// The other half of the verification pass, and the one that decides who
+	// liveness may accuse. Four entries assert that every hook they name is
+	// due in every session; thirteen do not, and the thirteen are the
+	// load-bearing half - an entry without the flag cannot reach `stopped` on
+	// liveness at all, however long it has been quiet.
+	//
+	// Each of the four names only `SessionStart` or `SessionEnd` hooks matched
+	// `*` in its plugin's own hooks.json. Each of the thirteen carries at
+	// least one hook a session can legitimately never fire - a tool matcher,
+	// `PreCompact`, `UserPromptSubmit`, or `Stop`.
+	//
+	// `Stop` is the one that moved. An earlier draft counted it session-level
+	// and gave the flag to assayer, echo and tribunal on that basis; measured
+	// over the same 31 opportunities, `Stop` was delivered in 13 while both
+	// session events were delivered in 31. The three lost the flag rather than
+	// the measurement being rounded off - see the field's docstring. Every
+	// entry's own comment carries which hook and which trigger; this fixes the
+	// shape of the answer so a later edit has to argue with it.
+	it("pins which entries' hooks are due in every session", () => {
+		const flagged = STREAMS.filter((e) => e.firesEverySession === true).map(
+			(e) => e.plugin,
+		);
+		expect(flagged).toEqual(["bursar", "counsel", "curator", "librarian"]);
+		// No `Stop`-only entry may hold the flag. Asserted by name rather than
+		// left to the list above, because the list would also pass if someone
+		// re-added the flag and edited the expectation to match.
+		for (const plugin of ["assayer", "echo", "tribunal"]) {
+			expect(
+				entryFor(plugin).firesEverySession,
+				`${plugin}: a Stop hook reached 13 of 31 opportunities, not 31`,
+			).toBeUndefined();
+		}
+		// The four `output: null` entries are all in the other column, which
+		// is the widest consequence of the rule and is asserted rather than
+		// left implicit: every one of them carries a tool-scoped hook, so the
+		// whole `output: null` half of the table rests on `writeEvents`.
+		for (const entry of STREAMS.filter((e) => e.output === null)) {
+			expect(
+				entry.firesEverySession,
+				`${entry.plugin}: an output:null entry with unconditional hooks needs its own reasoning`,
+			).toBeUndefined();
+		}
+	});
+
+	// The conservative default, as a rule rather than as seventeen separate
+	// readings: the flag is an assertion about EVERY hook in `hooks`, so an
+	// entry naming none of them has nothing to assert and must not claim it.
+	it("claims no unconditional trigger for an entry that names no hooks", () => {
+		for (const entry of STREAMS) {
+			if (entry.hooks.length > 0) continue;
+			expect(
+				entry.firesEverySession,
+				`${entry.plugin}: no hooks, so nothing fires every session`,
+			).toBeUndefined();
+		}
+	});
+
+	// The circularity that changed this design, stated as an invariant rather
+	// than left to the fixture below to catch. An opportunity is established
+	// by a `session.start` event, so a `writeEvents` set containing one is
+	// always at least as new as the newest opportunity and
+	// `opportunitiesSince` returns 0 against it by construction - the entry
+	// can never reach `stopped` on its own write axis. ecosystem is the entry
+	// this bites, because `session` is one of its tracked prefixes.
+	it("names no write event that would pin its own opportunity count", () => {
+		for (const entry of STREAMS) {
+			expect(
+				entry.writeEvents ?? [],
+				`${entry.plugin}: a session.* write event pins opportunitiesSince at 0`,
+			).not.toContain("session.start");
+		}
+	});
+
+	it("declares no writeEvents naming an event type its own entry does not emit", () => {
+		for (const entry of STREAMS) {
+			for (const type of entry.writeEvents ?? []) {
+				// A write event must belong to a prefix this entry already
+				// tracks, or the rule would look it up in a map that is scoped
+				// to different prefixes and silently never find it.
+				expect(
+					entry.events.some((prefix) => type.startsWith(`${prefix}.`)),
+					`${entry.plugin}: writeEvents entry ${type} matches none of its events prefixes`,
+				).toBe(true);
+			}
+		}
 	});
 });
 
@@ -565,38 +715,31 @@ describe("mtimeToIso", () => {
 	});
 });
 
-describe("clearsCadenceFloor", () => {
-	// counsel's brief is gated to once per 168 hours (synthesis_interval_
-	// days: 7). A stall verdict must not fire just because STALL_THRESHOLD's
-	// firing count was crossed inside that window - the writer legitimately
-	// has not run yet. This is the most important test in this block.
-	it("does not clear the floor while inside the gate window", () => {
-		const mtime = "2026-09-01T00:00:00Z";
-		const now = new Date("2026-09-03T00:00:00Z"); // 48h later; gate is 168h.
-		expect(clearsCadenceFloor(entryFor("counsel"), mtime, now)).toBe(false);
+describe("stampFor", () => {
+	it("prints a date for a gap measured in days", () => {
+		expect(
+			stampFor("2026-09-05T11:55:00Z", new Date("2026-09-12T00:00:00Z")),
+		).toBe("2026-09-05");
 	});
 
-	// Twice the gate (336h here) clears margin the same way STALL_THRESHOLD
-	// clears one session's worth of legitimate lag.
-	it("clears the floor once twice the gate has elapsed", () => {
-		const mtime = "2026-08-01T00:00:00Z";
-		const now = new Date("2026-08-15T01:00:00Z"); // 337h later; floor is 336h.
-		expect(clearsCadenceFloor(entryFor("counsel"), mtime, now)).toBe(true);
+	it("prints the time too when the gap is under a day, so the detail can explain itself", () => {
+		// The compass verdict that read "fired 2026-09-05, but the last event
+		// was 2026-09-05" - two identical dates presented as a discrepancy.
+		expect(
+			stampFor("2026-09-05T11:55:00Z", new Date("2026-09-05T12:00:00Z")),
+		).toBe("2026-09-05 11:55");
 	});
 
-	// A plain entry's trigger IS its writer - STALL_THRESHOLD was already
-	// the whole rule for it, and this field's absence must not add a floor
-	// that was never asked for.
-	it("always clears the floor for an entry with no write gate", () => {
-		const mtime = "2026-09-02T23:59:00Z";
-		const now = new Date("2026-09-03T00:00:00Z"); // 1 minute later.
-		expect(clearsCadenceFloor(entryFor("bursar"), mtime, now)).toBe(true);
-	});
-
-	it("clears the floor when there is no mtime to measure elapsed time against", () => {
-		expect(clearsCadenceFloor(entryFor("counsel"), null, new Date())).toBe(
-			true,
+	// The two cases above sit at 7 days and 5 minutes, so neither touches the
+	// comparison's own edge: relaxing `>=` to `>` leaves both green. The
+	// docstring commits to "a day or more" being date-only, and exactly one
+	// day is the only input that says which side of the boundary that is.
+	it("prints a date at exactly the boundary, which counts as a day or more", () => {
+		const iso = "2026-09-05T11:55:00Z";
+		const reference = new Date(
+			new Date(iso).getTime() + 24 * 60 * 60 * 1000, // 2026-09-06T11:55:00Z
 		);
+		expect(stampFor(iso, reference)).toBe("2026-09-05");
 	});
 });
 
@@ -628,12 +771,32 @@ describe("outputLabel", () => {
 	});
 });
 
-describe("STALL_THRESHOLD", () => {
-	// Every stream in the table can legitimately lag its trigger by one
-	// session; bursar-session-start fires before bursar-session-end writes.
-	// Five clears that with margin. The real outage hit 71.
-	it("sits above one session of legitimate lag", () => {
-		expect(STALL_THRESHOLD).toBe(5);
+describe("SESSION_STALL_THRESHOLD", () => {
+	it("keeps the threshold within the band its docstring argues for", () => {
+		// This used to assert a measured noise floor of 1, from six
+		// opportunities between 2026-08-30 and 2026-09-05 in which bursar
+		// fired in 6 and lineage, inspector and assayer in 5. Re-measured over
+		// the same window after the implementation sessions: 31 opportunities,
+		// with 13, 6, 6 and 5 firings - a longest healthy silent run of 8,
+		// which is ABOVE this threshold, not below it. There is no floor left
+		// to sit above. See the constant's own docstring, and onlooker-run,
+		// whose description still carries the six-opportunity sample.
+		//
+		// The value did not move, because 8 is the size of the largest agent
+		// wave rather than a property of any plugin, and chasing it upward
+		// buys time instead of correctness. What keeps a healthy stream safe
+		// is `firesEverySession` bounding who may be accused - pinned by its
+		// own tests, not by this one.
+		//
+		// What survives from the old reasoning, and is what this still
+		// asserts: the threshold must clear one session of ordinary ordering
+		// lag - bursar-session-start fires before bursar-session-end writes -
+		// and must stay small enough to catch a real outage, which reached 71
+		// firings. The upper bound is the six opportunities of the original
+		// sample, kept as the band the docstring argues within rather than as
+		// a measurement it still claims.
+		expect(SESSION_STALL_THRESHOLD).toBeGreaterThan(1);
+		expect(SESSION_STALL_THRESHOLD).toBeLessThanOrEqual(6);
 	});
 });
 
@@ -645,6 +808,65 @@ describe("STALL_THRESHOLD", () => {
  * the literal.
  */
 const MACHINE_SESSION_ID = "machine-project-keys";
+
+/** The day `machine()`'s generated opportunities end on unless a test moves them. */
+const LAST_OPPORTUNITY = "2026-09-05";
+
+/**
+ * `count` opportunities: sessions of this repo's, each carrying a hook
+ * record, on consecutive days ending on `endingOn`.
+ *
+ * A helper called from INSIDE `machine()` rather than rows a test assembles
+ * for itself, because an opportunity is a session of THIS repo's - which
+ * means `working_directory` has to be the real temp `cwd`, and `machine()` is
+ * what creates that. There is no path a caller could fill in beforehand.
+ *
+ * Dates run backward from `endingOn` so they land at or before the tests' own
+ * `NOW`: a fixture session in the future would still be counted by
+ * `opportunitiesSince` for a cutoff that has not happened yet.
+ */
+function opportunityRows(
+	cwd: string,
+	count: number,
+	endingOn: string,
+	triggerHook?: string,
+): { events: unknown[]; hooks: unknown[] } {
+	const events: unknown[] = [];
+	const hooks: unknown[] = [];
+	for (let i = 0; i < count; i++) {
+		const day = new Date(`${endingOn}T00:00:00.000Z`);
+		day.setUTCDate(day.getUTCDate() - (count - 1 - i));
+		const date = day.toISOString().slice(0, 10);
+		const id = `opp-${i}`;
+		events.push({
+			event_type: "session.start",
+			timestamp: `${date}T00:00:00.000Z`,
+			session_id: id,
+			payload: { working_directory: cwd },
+		});
+		// Any hook record at all is what makes a session an opportunity - the
+		// denominator is deliberately not keyed on a nominated reference hook,
+		// so this one's name is arbitrary and belongs to no entry under test
+		// except ecosystem's.
+		hooks.push({
+			hook: "session-start-tracker",
+			timestamp: `${date}T00:00:01Z`,
+			status: "success",
+			session_id: id,
+		});
+		// The entry-under-test's own trigger, inside the session it fired in -
+		// see `machine`'s `triggerHook`.
+		if (triggerHook !== undefined) {
+			hooks.push({
+				hook: triggerHook,
+				timestamp: `${date}T00:00:01Z`,
+				status: "success",
+				session_id: id,
+			});
+		}
+	}
+	return { events, hooks };
+}
 
 /**
  * Build a machine: a temp `$ONLOOKER_DIR` with both logs, plus a project tree
@@ -674,6 +896,40 @@ function machine(opts: {
 	 * wins any real entry's `lastEvent` computation against a 2026 fixture.
 	 */
 	projectKeys?: string[];
+	/**
+	 * How many opportunities this repo has had - see `opportunityRows`. Every
+	 * verdict is now measured against this denominator, so a fixture with
+	 * none of them can only ever read `unknown`.
+	 */
+	opportunities?: number;
+	/**
+	 * The day the generated opportunities end on, defaulting to
+	 * `LAST_OPPORTUNITY`. Set it when a fixture's own evidence predates that
+	 * default and the test needs the opportunities placed around the evidence
+	 * rather than a week after it.
+	 */
+	opportunitiesEndingOn?: string;
+	/**
+	 * Sessions of this repo's that ran no hook at all - the subagent shape
+	 * that made a raw `session.start` count unusable as a denominator. These
+	 * generate `session.start` rows and nothing else, so they must never
+	 * count as opportunities.
+	 */
+	subagentSessions?: number;
+	/**
+	 * A hook belonging to the entry under test, fired once inside each
+	 * generated opportunity.
+	 *
+	 * The write window counts only opportunities in which the entry's OWN
+	 * trigger fired (`computeVerdict`), so a fixture that pins every firing on
+	 * one off-window session - `MACHINE_SESSION_ID`, which starts in 1970 -
+	 * proves the hook ran somewhere and leaves the write axis nothing to
+	 * count. Real logs attribute a firing to the session it happened in; this
+	 * is how a fixture says "the trigger ran in every one of these sessions
+	 * and the output still did not move," which is what a stalled writer
+	 * actually looks like.
+	 */
+	triggerHook?: string;
 }): { cwd: string; home: string; configDir: string; env: NodeJS.ProcessEnv } {
 	const dir = mkdtempSync(join(tmpdir(), "onlooker-survey-"));
 	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
@@ -685,8 +941,37 @@ function machine(opts: {
 	onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
 
 	const events = [...(opts.events ?? [])];
-	if (opts.projectKeys !== undefined) {
+	const hooks = [...(opts.hooks ?? [])];
+	// A `.git` marker is what makes `repoRoot(cwd)` resolve, and without a
+	// root `scanEvents` populates neither `sessionIds` nor `sessionStarts` -
+	// so every option below that depends on "sessions of THIS repo's" needs
+	// it, not just `projectKeys`.
+	if (
+		opts.projectKeys !== undefined ||
+		opts.opportunities !== undefined ||
+		opts.subagentSessions !== undefined
+	) {
 		mkdirSync(join(cwd, ".git"), { recursive: true });
+	}
+	if (opts.opportunities !== undefined) {
+		const rows = opportunityRows(
+			cwd,
+			opts.opportunities,
+			opts.opportunitiesEndingOn ?? LAST_OPPORTUNITY,
+			opts.triggerHook,
+		);
+		events.push(...rows.events);
+		hooks.push(...rows.hooks);
+	}
+	for (let i = 0; i < (opts.subagentSessions ?? 0); i++) {
+		events.push({
+			event_type: "session.start",
+			timestamp: `2026-09-03T${String(i % 24).padStart(2, "0")}:00:00.000Z`,
+			session_id: `subagent-${i}`,
+			payload: { working_directory: cwd },
+		});
+	}
+	if (opts.projectKeys !== undefined) {
 		const sessionId = MACHINE_SESSION_ID;
 		events.push({
 			event_type: "session.start",
@@ -710,7 +995,7 @@ function machine(opts: {
 			`${lines.map((l) => JSON.stringify(l)).join("\n")}\n`,
 		);
 	if (!opts.skipEventsLog) write("onlooker-events.jsonl", events);
-	write("hook-health.jsonl", opts.hooks ?? []);
+	write("hook-health.jsonl", hooks);
 	for (const [rel, iso] of opts.files ?? [])
 		fileAt({ ONLOOKER_DIR: dir }, rel, iso);
 
@@ -737,6 +1022,449 @@ const verdictFor = (
 	plugin: string,
 ) => survey.verdicts.find((v) => v.plugin === plugin)?.verdict;
 
+/**
+ * The clock the conditionality cases run against, sitting just after the last
+ * day `opportunityRows` generates.
+ */
+const NOW = new Date("2026-09-05T12:00:00Z");
+
+describe("stream conditionality", () => {
+	// The pair that fixes the boundary between "old" and "never". Both entries
+	// are alive, both have no write signal, and the ONLY difference is whether
+	// their output has ever existed - so run together they pin that absence is
+	// what changes the verdict, not age and not the missing signal.
+	//
+	// The case that forced this: the finished table put all seven enabled
+	// plugins at `recording` and `doctor` at exit 0 on the real machine,
+	// librarian included, whose `lessons/` has never existed there. That is
+	// the successful-looking silence this command exists to remove.
+	it("does not certify a stream whose output has never been written", async () => {
+		// librarian's headline case. Its hook fires every session, it emits
+		// nothing at its lesson-write site so it has no `writeEvents` to name,
+		// and `lessons/` has never appeared. `recording` would be a clean bill
+		// on a machine whose output is known to be missing.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"librarian",
+		);
+		expect(v?.kind).toBe("unknown");
+		expect(v?.kind === "unknown" && v.detail).toContain("never been written");
+	});
+
+	it("still certifies a stream whose output exists but is merely old", async () => {
+		// The other side, and the reason the test above is keyed on absence
+		// rather than on age. Identical shape - alive, no write signal - except
+		// that one lesson file exists and is four weeks stale. Age is not
+		// evidence: with nothing in the table saying librarian owed a lesson
+		// this month, its quiet is ordinary. Keyed on age instead, this reads
+		// `stopped` and is the exact false alarm the design removed.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("librarian", "aaaaaaaaaaaa", "lessons", "l.json"),
+					"2026-08-07T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"librarian",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("does not call a conditional writer stopped just because its output is older than its events", async () => {
+		// scribe, healthy: sessions every day, nothing worth distilling for a
+		// week. No writeHooks and no writeEvents, so `lastWrite` is undefined
+		// and the output's age is not evidence about anything.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["scribe"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("scribe", "aaaaaaaaaaaa", "2026-08-29-s.md"),
+					"2026-08-29T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "scribe.captured",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"scribe",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("does not call a clean repo's curator stopped over months-old findings", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["curator"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("curator", "aaaaaaaaaaaa", "findings", "f.json"),
+					"2026-06-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "curator.scan.complete",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"curator",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("does not call compass stopped after an hour of read-only Bash", async () => {
+		// compass-bash-gate fires on every Bash; compass.* is emitted only on a
+		// write-pattern match. The gap between them is not evidence.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["compass"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "compass.gate.checked",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "compass-bash-gate",
+					timestamp: "2026-09-05T11:55:00Z",
+					status: "success",
+					session_id: "opp-5",
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"compass",
+		);
+		expect(v?.kind).not.toBe("stopped");
+	});
+
+	it("calls lineage stopped when its hook keeps firing but its write event has stopped", async () => {
+		// The false negative this design must not lose. lineage-post-tool-use
+		// fires constantly; `lineage.change.recorded` is emitted at the ledger
+		// write site, so its silence IS the writes stopping.
+		//
+		// The hook fires in five of the six opportunities, one per session, and
+		// that is the point rather than fixture decoration: the write window
+		// counts only opportunities this entry's OWN trigger fired in, so a
+		// single firing in the newest session - what this fixture held while
+		// the denominator was every session that ran any hook - is now one
+		// opportunity, not six, and reads `recording`. Five is exactly
+		// `SESSION_STALL_THRESHOLD`, so this also pins the boundary the verdict
+		// turns on.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-01-15T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-01-15T00:00:00.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+			// `opportunities: 6` places `opp-0` on 2026-08-31 and runs forward a
+			// day at a time to `opp-5` on 2026-09-05 (see `opportunityRows`);
+			// `opp-0` is left out so the count is five rather than all six.
+			hooks: [
+				["opp-1", "2026-09-01"],
+				["opp-2", "2026-09-02"],
+				["opp-3", "2026-09-03"],
+				["opp-4", "2026-09-04"],
+				["opp-5", "2026-09-05"],
+			].map(([session, date]) => ({
+				hook: "lineage-post-tool-use",
+				timestamp: `${date}T11:00:00Z`,
+				status: "success",
+				session_id: session,
+			})),
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("stopped");
+		expect(v?.kind === "stopped" && v.detail).toContain("5 sessions ago");
+	});
+
+	it("does not call a stream stopped for sessions its own trigger never fired in", async () => {
+		// The bug this narrower denominator exists to remove, measured on the
+		// real machine: lineage read `STOPPED` because its ledger had not moved
+		// in six sessions, in none of which anyone edited a file - so
+		// lineage-post-tool-use fired in none of them either, and all six
+		// counted against it anyway.
+		//
+		// Same shape as the frozen-ledger fixture above, and deliberately: the
+		// two differ only in how many of the six opportunities the trigger
+		// actually fired in. One is the false negative that must stay caught,
+		// this is the false positive that must not be raised, and no rule that
+		// reads the two the same way can be right about both.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-08-30T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-08-30T00:00:00.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+			// One firing, in the newest opportunity, so the plugin is alive and
+			// the only question left is the write one. The other five sessions
+			// ran the hook machinery - `opportunityRows` gives each one a
+			// `session-start-tracker` record - and asked nothing of lineage.
+			hooks: [
+				{
+					hook: "lineage-post-tool-use",
+					timestamp: "2026-09-05T11:00:00Z",
+					status: "success",
+					session_id: "opp-5",
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("reports unknown, not stopped, when too few opportunities have elapsed to judge", async () => {
+		// The idle-machine case, and the one the wall clock got backwards: a
+		// stream silent for months on a repo nobody has opened has not had the
+		// chances that would make its silence mean anything.
+		//
+		// The liveness event and the write event are deliberately DIFFERENT
+		// types. The design's own acceptance criterion is that this case must
+		// fail against the old constant, and a fixture whose only event is the
+		// frozen `lineage.change.recorded` does not: the old rule read the gap
+		// between events and output as zero and reached `unknown` through the
+		// wall clock instead - the same answer for the opposite reason, and a
+		// test that passes before and after is not exercising anything. With a
+		// recent `lineage.tool.observed` the old rule sees events outrunning a
+		// January output and reads `stopped`, which is exactly the false alarm
+		// the opportunity denominator exists to withhold.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 2,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-01-15T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-01-15T00:00:00.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+				// Alive, on the newest of the two opportunities - but not a
+				// write event, so it says nothing about the frozen ledger.
+				{
+					event_type: "lineage.tool.observed",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-1",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
+
+	it("does not count subagent sessions as opportunities", async () => {
+		// 91 sessions of ours, none of which ran a hook - the measured shape
+		// that made a raw session count unusable. Against a `session.start`
+		// denominator this reads `stopped`; it must read `unknown`.
+		//
+		// `session_id` is one of the 91, not a foreign one: an out-of-scope id
+		// leaves `lastByPrefix` empty, and the verdict then falls out of "no
+		// events to compare" without the denominator ever being consulted -
+		// the test would keep passing with the subagent filter removed
+		// entirely, which is the one thing it exists to pin.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			subagentSessions: 91,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-01-15T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "lineage.change.recorded",
+					timestamp: "2026-01-15T00:00:00.000Z",
+					session_id: "subagent-0",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
+
+	it("keeps an output:null stream's events as proof of life when they are not its write axis", async () => {
+		// The axis split exists so an entry's events cannot be compared against
+		// themselves - but it applies only where the events ARE the downstream
+		// being judged, which is `output: null` AND a non-empty `writeEvents`.
+		// warden is `output: null` and names none: its three types are the
+		// rare ones its own entry documents, so they are not its downstream
+		// and must go on counting as liveness. Keyed on `output: null` alone,
+		// the split strips warden's only axis and reads a plugin that emitted
+		// today as never having run at all.
+		//
+		// compass now has the same shape - `output: null`, no write axis - so
+		// warden is no longer the only entry this protects, but it stays the
+		// vehicle here because it is the one with events to lose.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["warden"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "warden.threat.detected",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"warden",
+		);
+		expect(v?.kind).toBe("recording");
+	});
+
+	it("does not let an output:null stream's own events certify that same event stream", async () => {
+		// The other half of the axis split, and the half that actually bites.
+		// inspector's events ARE its downstream here, so they cannot also be
+		// its proof of life - that would compare a signal against itself and
+		// answer "the events are recent, therefore the events are recent."
+		// With its hook absent from hook-health there is no independent
+		// liveness axis left, and `unknown` is the honest reading.
+		//
+		// This is the case that distinguishes the split from its absence.
+		// Where the hook is NEWER than the events - the ecosystem outage shape
+		// - including events in liveness changes nothing, because the newest
+		// wins either way; both the fixtures above pass with the split removed
+		// entirely. Only a fresh event over a stale-or-missing hook separates
+		// them: without the split this reads `recording`, off nothing but the
+		// event stream vouching for itself.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-09-05T09:00:00.000Z",
+					session_id: "opp-5",
+					payload: {},
+				},
+			],
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"inspector",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
+
+	it("reports unknown, not stopped, for a plugin newly enabled on a repo with a long history", async () => {
+		// Forty opportunities, none of them compass's. The window is wide, but
+		// compass has no last-seen instant for that width to be measured
+		// against: a plugin enabled an hour ago and one that died before this
+		// log began present identically, both with every opportunity behind
+		// them and nothing of their own in front.
+		//
+		// A `stopped` keyed on the window alone therefore fires on every fresh
+		// enable on any active machine - this repo has 11,422 sessions behind
+		// it - which is the same class of false positive the whole rule exists
+		// to remove, and the design rules it out by name.
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["compass"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 40,
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"compass",
+		);
+		expect(v?.kind).toBe("unknown");
+	});
+});
+
 describe("surveyStreams", () => {
 	// The bursar trap a third time, one level down: a per-project entry's
 	// freshness walk must be scoped to THIS repo's own project keys, not
@@ -748,6 +1476,15 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// The write hook fires inside every one of the six, so bursar is
+			// unambiguously ALIVE and the only thing that can stall it is its
+			// output: all six opportunities postdate our key's frozen mtime,
+			// none of them postdate the hook. If the sibling's key leaked into
+			// the walk, `lastWrite` would jump to 2026-09-02 and this would
+			// read `recording` instead.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-06-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -760,12 +1497,6 @@ describe("surveyStreams", () => {
 					"2026-09-02T00:00:00Z",
 				],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
@@ -773,10 +1504,24 @@ describe("surveyStreams", () => {
 
 	// The case the acceptance criterion names. Busy input, stale output, hook
 	// firing successfully throughout.
+	//
+	// The detail assertion moved from the hook's name to the output's label.
+	// The old rule reached `stopped` by counting one nominated hook's firings,
+	// so naming that hook was the evidence; the new one counts opportunities
+	// elapsed since the output last moved, and the hook that happened to fire
+	// during them is not part of the finding. What the verdict must still name
+	// is WHICH path stopped moving, which is what `outputLabel` renders.
 	it("reports a stream as stopped when its hook fires and its output does not move", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// Six opportunities, all after the frozen output and none after the
+			// last hook firing: alive, and not writing. The hook fires inside
+			// each of them, which is what makes all six count against the
+			// output - see `machine`'s `triggerHook`.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -784,36 +1529,39 @@ describe("surveyStreams", () => {
 				],
 				[join("bursar", "sessions", "today.jsonl"), "2026-09-02T00:00:00Z"],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		const verdict = verdictFor(survey, "bursar");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"bursar-session-end",
+			join("bursar", "projects"),
+		);
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"2026-08-07",
 		);
 	});
 
-	// NOT events alone: an output:null stream's only remaining axis is the
-	// event stream itself, and the event stream needs its own trigger to
-	// corroborate it, exactly like every other branch in this design (see
-	// the `entry.output === null` block below for why). A hook firing
-	// close behind the event is what makes this "recording" rather than
-	// "unknown" - without it, this fixture would have no hook records to
-	// compare against at all.
+	// NOT events alone: for an `output: null` entry that names `writeEvents`
+	// the axes SPLIT - those events are the downstream being judged, and its
+	// hooks are the only proof of life left. A hook firing close behind the
+	// event is what makes this "recording"; without it there would be no
+	// liveness axis at all.
+	//
+	// `session_id` is now load-bearing on both rows. Any option that makes
+	// this repo's sessions countable also creates the `.git` marker, and once
+	// `repoRoot` resolves, both scans scope to sessions rooted here - an
+	// unattributed hook record and a foreign session's event are both dropped
+	// before the verdict sees them.
 	it("reports a stream with no output path as recording when its events and hooks are both recent", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["inspector"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
 					event_type: "inspector.check.passed",
 					timestamp: "2026-09-02T00:00:00Z",
-					session_id: "s",
+					session_id: "opp-5",
 					payload: {},
 				},
 			],
@@ -822,12 +1570,12 @@ describe("surveyStreams", () => {
 					hook: "inspector-post-write",
 					timestamp: "2026-09-02T00:00:05Z",
 					status: "success",
+					session_id: "opp-5",
 				},
 			],
 		});
-		// Pinned close to the evidence rather than left to the real clock:
-		// once RECORDING_FRESHNESS_LIMIT_MS exists, a `recording` verdict is
-		// genuinely time-dependent here, not just theoretically so.
+		// No verdict reads the clock anymore, but every caller still threads
+		// one - see `surveyStreams`'s `now`.
 		const now = new Date("2026-09-03T00:00:00Z");
 		expect(
 			verdictFor(
@@ -837,63 +1585,150 @@ describe("surveyStreams", () => {
 		).toBe("recording");
 	});
 
-	// ecosystem's real shape, and the failure this whole feature exists to
-	// prevent: its trackers died 2026-08-07 (the real outage date), and the
-	// event log still holds session.*/tool.* records up to that day. With
-	// no output path to compare against, the trigger (its hooks) is the
-	// only remaining axis - if the hooks keep firing and the events do not
-	// follow, the events have stopped even though the trigger has not.
+	// The failure this whole feature exists to prevent: a stream whose hooks
+	// keep firing while its events stop landing. With no output path to
+	// compare against, the events ARE the downstream and the hooks are the
+	// only proof of life, so hooks running past a frozen event stream means
+	// the emissions have stopped even though the trigger has not.
+	//
+	// Moved from ecosystem to inspector when ecosystem could not reach this
+	// verdict at all: `session` is one of its tracked prefixes and
+	// `session.start` is the single event type that establishes an
+	// opportunity (`scanEvents`, and see `opportunitiesSince`), so with the
+	// axis built from every prefix in `events`, ecosystem's event axis could
+	// never be older than the newest opportunity and the count since it was
+	// pinned at zero by construction. That was the reference-hook circularity
+	// the design bounds for hook records, reappearing one level down on the
+	// event side where it was not anticipated.
+	//
+	// It is fixed - the axis is `writeEvents` now, and ecosystem's set leaves
+	// `session.start` out - and the case it blocked is the test two below
+	// this one. inspector stays the vehicle here anyway: it has the identical
+	// entry shape and its four types are its whole prefix, so the rule is
+	// pinned on the simpler of the two.
 	it("reports an output:null stream stopped when its hooks keep firing but its events have stopped landing", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["ecosystem"],
+			plugins: ["inspector"],
+			opportunities: 6,
+			// "Keep firing" is now literal: `inspector-post-write` fires in
+			// each of the six, so each of them was a genuine chance for an
+			// event to land and none did. A single firing in the newest
+			// session - what this fixture held while the write window counted
+			// every session that ran any hook - is one opportunity, and one is
+			// not evidence of anything.
+			triggerHook: "inspector-post-write",
 			events: [
 				{
-					event_type: "session.start",
+					event_type: "inspector.check.passed",
 					timestamp: "2026-08-07T00:00:00Z",
-					session_id: "s",
+					session_id: "opp-0",
 					payload: {},
 				},
 			],
-			hooks: [
-				{
-					hook: "session-start-tracker",
-					timestamp: "2026-09-02T00:00:00Z",
-					status: "success",
-				},
-			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "ecosystem")?.kind).toBe("stopped");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("stopped");
+		// The detail has to name the axis that actually stalled. For an
+		// `output: null` entry that is the event stream, and `outputLabel`
+		// renders "(none)" for one - so a detail built from it reports
+		// "(none) last changed 2026-08-07", naming a path that does not exist.
+		// The branch this replaced said "the last event was 2026-08-07", and
+		// the replacement must not be less specific than what it removed.
+		expect(verdict?.kind === "stopped" && verdict.detail).not.toContain(
+			"(none)",
+		);
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"inspector event",
+		);
 	});
 
+	// ecosystem stays the vehicle here, but the fixture had to gain a tracker
+	// event to stay honest. It used to carry nothing but what `opportunities`
+	// generates, and passed on the strength of those `session.start` rows
+	// alone - which is the circularity itself, the denominator's own signal
+	// certifying the stream that emits it. With the axis narrowed to
+	// `writeEvents`, ecosystem now correctly reads `unknown` off that fixture:
+	// its trackers produced nothing, so nothing says they are working.
+	//
+	// One `tool.file.edit`, the type tool-history-tracker appends on every
+	// Edit, is what "its events move together with its hooks" actually means
+	// for this entry.
 	it("reports an output:null stream recording when its hooks and events move together", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["ecosystem"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
-					event_type: "session.start",
-					timestamp: "2026-09-02T00:00:00Z",
-					session_id: "s",
+					event_type: "tool.file.edit",
+					timestamp: "2026-09-02T12:00:00.000Z",
+					session_id: "opp-5",
 					payload: {},
 				},
 			],
-			hooks: [
-				{
-					hook: "session-start-tracker",
-					timestamp: "2026-09-02T00:00:05Z",
-					status: "success",
-				},
-			],
 		});
-		// Pinned close to the evidence - see the inspector test above.
+		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-09-03T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "ecosystem")?.kind).toBe("recording");
 	});
 
-	// Events exist, but nothing in hook-health can corroborate them - a
-	// thing this rule could not measure does not get a clean bill, same as
-	// everywhere else in this design.
+	// The incident this whole feature was built for, reachable for the first
+	// time. ecosystem's trackers died on 2026-08-07 while its hooks went on
+	// firing - so liveness says it is fine, and only the write axis can catch
+	// it. Under the previous rule it could not: the axis was every prefix in
+	// `events`, `session` is one of them, and the opportunities' own
+	// `session.start` rows kept `lastWrite` pinned to the newest opportunity
+	// forever.
+	//
+	// Run this fixture against the prefix-wide axis and it reads `recording`,
+	// which is the point of it - a test that passes before the change is not
+	// exercising the change.
+	//
+	// The last tracker output lands in the FIRST of the six opportunities and
+	// nothing follows it, so five opportunities have gone by with the hooks
+	// firing into them and no tracker emitting. It has to sit in one of
+	// those sessions rather than in an older invented one: `scanEvents`
+	// attributes an event to this repo only through a `session.start` whose
+	// `working_directory` is the temp `cwd`, which `machine()` alone can fill
+	// in, so an event in an unknown session is dropped rather than counted
+	// old.
+	it("reports ecosystem stopped when its trackers stop while its hooks keep firing", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["ecosystem"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "tool.file.edit",
+					timestamp: "2026-08-31T00:00:02.000Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+		});
+		const verdict = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"ecosystem",
+		);
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"ecosystem event",
+		);
+	});
+
+	// Events exist, but hook-health holds nothing at all - so there are no
+	// opportunities, the denominator every count is read against cannot be
+	// established, and no verdict is reachable. This is also the shape a
+	// wholly unreadable hook log takes, which is why the window guard rather
+	// than a `hooks.missing` check is what covers it: both arrive here as an
+	// empty `sessionsWithRecords`, and both mean the same thing.
 	it("reports an output:null stream unknown when it has events but no hook records to compare", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["ecosystem"],
@@ -910,37 +1745,52 @@ describe("surveyStreams", () => {
 		expect(verdictFor(survey, "ecosystem")?.kind).toBe("unknown");
 	});
 
-	// warden's real shape, and fix round 3's own flagship case: warden-pre-
-	// tool-use fires on every Write/Edit/MultiEdit/Bash but only emits
-	// warden.gate.blocked once the gate is already closed; warden-post-
-	// tool-use fires on every WebFetch/Read but only emits
-	// warden.threat.detected on a positive scan hit. Before this fix,
-	// judge() trusted every one of these hooks' raw `.last` timestamps as
-	// the trigger axis, so ordinary tool activity outrunning a rare
-	// detection read as `stopped` - permanently, on any machine that has
-	// not been blocked recently, which is most of them. warden has no
-	// hook this table trusts as emission evidence at all (see its own
-	// table entry), so this now reads `unknown` - not a clean bill, but not
-	// a false alarm either.
-	it("reads warden as unknown, not permanently stopped, when its hooks fire constantly but rarely emit", async () => {
+	// warden's real shape: warden-pre-tool-use fires on every
+	// Write/Edit/MultiEdit/Bash but only emits warden.gate.blocked once the
+	// gate is already closed; warden-post-tool-use fires on every
+	// WebFetch/Read but only emits warden.threat.detected on a positive scan
+	// hit. The old rule trusted these hooks' raw `.last` timestamps as an
+	// emission axis, so ordinary tool activity outrunning a rare detection
+	// read `stopped` - permanently, on any machine not blocked recently.
+	//
+	// `recording` now, where it was `unknown`. warden declares no write
+	// signal of either kind, so the write question is not asked of it and
+	// there is nothing left to be uncertain about: its hooks are firing, and
+	// that is the entire claim the verdict makes. The design is explicit that
+	// an alive stream with no askable write question is `recording` - whether
+	// it writes "is its own business."
+	//
+	// This does change what `doctor` exits with for warden, from 1 to 0, and
+	// the same loosening applies to every entry that declares no write signal
+	// yet. Narrowing it back is what populating `writeEvents` across the
+	// table is for; until then these entries are judged on liveness alone.
+	it("reads warden as recording, not permanently stopped, when its hooks fire constantly but rarely emit", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["warden"],
+			opportunities: 6,
 			events: [
 				{
 					event_type: "warden.threat.detected",
 					timestamp: "2026-08-01T21:13:33Z",
-					session_id: "s",
+					session_id: "opp-0",
 					payload: {},
 				},
 			],
 			hooks: Array.from({ length: 200 }, (_, i) => ({
 				hook: "warden-pre-tool-use",
-				timestamp: `2026-09-${String(1 + (i % 2)).padStart(2, "0")}T00:00:00Z`,
+				timestamp: `2026-09-${String(4 + (i % 2)).padStart(2, "0")}T00:00:00Z`,
 				status: "success",
+				session_id: `opp-${4 + (i % 2)}`,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "warden")?.kind).toBe("unknown");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "warden")?.kind).toBe("recording");
 	});
 
 	// The vocabulary is owned by another repo. A plugin we have no rule for
@@ -965,17 +1815,22 @@ describe("surveyStreams", () => {
 		expect(survey.verdicts.map((v) => v.plugin)).not.toContain("archivist");
 	});
 
-	// A stream we could not measure does not get a clean bill. NOT
-	// `librarian/k/x.json` (a plain file outside `lessons/`) - that resolves
-	// `outputFreshness` to `{ mtime: null }` and exercises the `outputAt ===
-	// null` branch instead, leaving the `measurable.length === 0` branch
-	// this test names with zero coverage. `librarian/k/lessons/note.json` is
-	// real subpath output, so this only passes if that specific branch -
-	// output present, no matching hook-health record - is the one reached.
-	it("reports unknown when a stream has output but no hook to compare against", async () => {
+	// Real output on disk is not, by itself, a sign the stream is running -
+	// the file is there, and nothing has emitted or fired in six chances.
+	//
+	// `unknown`, as before this change, but no longer for the reason the old
+	// rule gave (output present, no hook record to compare it against). The
+	// output's mtime is not consulted at all now, since librarian declares no
+	// write signal; what settles it is that librarian has never been seen
+	// alive here, so the six opportunities have no last-seen instant to be
+	// counted from. NOT `librarian/k/x.json`: a plain file outside `lessons/`
+	// resolves `outputFreshness` to `{ mtime: null }`, so the fixture would
+	// no longer be about a stream that HAS output.
+	it("reports unknown when a stream has output on disk but was never seen running", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			files: [
 				[
 					join("librarian", "aaaaaaaaaaaa", "lessons", "note.json"),
@@ -985,7 +1840,7 @@ describe("surveyStreams", () => {
 		});
 		expect(
 			verdictFor(
-				await surveyStreams({ cwd, home, configDir, env }),
+				await surveyStreams({ cwd, home, configDir, env, now: NOW }),
 				"librarian",
 			)?.kind,
 		).toBe("unknown");
@@ -1031,8 +1886,8 @@ describe("surveyStreams", () => {
 	});
 
 	// bursar-session-start fires a whole session before bursar-session-end
-	// performs the real write - the exact ordering lag STALL_THRESHOLD was
-	// built to tolerate. Counting session-start's own firings anyway would
+	// performs the real write - the exact ordering lag any stall threshold
+	// has to tolerate. Counting session-start's own firings anyway would
 	// flag a healthy bursar the moment new sessions keep opening, regardless
 	// of whether session-end is writing just fine. writeHooks is what keeps
 	// a non-write hook's firing from being read as evidence either way.
@@ -1040,6 +1895,13 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// Six opportunities, of which four postdate the output's mtime -
+			// one short of the threshold, so the write axis is deliberately
+			// just inside the line while twenty session-start firings sit on
+			// top of it. If a firing count ever came back, this is where it
+			// would show.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-11",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -1061,9 +1923,7 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		// Pinned close to the evidence rather than left to the real clock:
-		// once the firing-count branch is bound by RECORDING_FRESHNESS_LIMIT_MS
-		// too, a `recording` verdict is genuinely time-dependent here.
+		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-08-11T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "bursar")?.kind).toBe("recording");
@@ -1074,13 +1934,16 @@ describe("surveyStreams", () => {
 	// hook name, and Bash outruns Edit roughly 30:1 (lineage's own
 	// hooks.json). A firing-count check built from it reads a perfectly
 	// healthy lineage as stalled after about five Bash calls with no edit.
-	// lineage has no writeHooks, so judge() must fall back to comparing
-	// event recency against output recency instead - and that comparison
-	// must not be swayed by however many times the hook itself fired.
-	it("reads a stream with no writeHooks as recording when events track its output, regardless of hook firings", async () => {
+	// lineage has no writeHooks, so its hook is a liveness signal only - and
+	// the verdict must not be swayed by however many times it fired.
+	it("reads a stream with no writeHooks as recording when its write event tracks its output, regardless of hook firings", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// Every opportunity predates the write, so nothing has been asked
+			// of lineage since it last recorded a change.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			files: [
 				[
 					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
@@ -1108,19 +1971,35 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		// Pinned close to the evidence - see the inspector test above.
+		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-09-03T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
 	});
 
-	// Same entry, but events keep arriving long after the file stopped
-	// moving - the gap the event-vs-output fallback exists to catch. If
-	// lineage genuinely broke, this is what that looks like.
-	it("reads a stream with no writeHooks as stopped when events outrun its output by more than the tolerance", async () => {
+	// Same entry, still alive, but nothing has been written across a full
+	// window of opportunities. If lineage genuinely broke, this is what that
+	// looks like.
+	//
+	// The fixture's two events used to be one. Under the old rule any
+	// `lineage.*` event outrunning the output's mtime by more than an hour
+	// read `stopped`, so a single recent `lineage.change.recorded` was the
+	// whole test - but that type is now a WRITE signal, and its arrival is
+	// proof the write happened rather than evidence against it. The stall
+	// this test names still exists; expressing it just needs the two axes
+	// separated, a liveness event that keeps arriving and a write event that
+	// does not.
+	it("reads a stream with no writeHooks as stopped when it stays alive while its write signal goes quiet", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
+			// The trigger fires in all six, so all six were chances to record a
+			// change. Without it the fixture asserts a stall across sessions
+			// that never invoked lineage at all, which is the false positive
+			// the write window's own denominator now rules out.
+			triggerHook: "lineage-post-tool-use",
 			files: [
 				[
 					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
@@ -1130,13 +2009,25 @@ describe("surveyStreams", () => {
 			events: [
 				{
 					event_type: "lineage.change.recorded",
-					timestamp: "2026-09-02T00:00:00Z",
+					timestamp: "2026-08-01T00:00:00.000Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+				{
+					event_type: "lineage.tool.observed",
+					timestamp: "2026-09-02T06:00:00.000Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
 	});
 
@@ -1145,16 +2036,29 @@ describe("surveyStreams", () => {
 	// repo root, no project key, no claude/jq on PATH, no transcript, empty
 	// final message, empty claude -p response), measured on a live machine
 	// at roughly 10 firings per audit. Before this fix, assayer's writeHooks
-	// trusted every one of those 200 firings as evidence of a write, and
-	// STALL_THRESHOLD = 5 crossed within hours of any quiet stretch even
-	// while assayer was healthy. With writeHooks removed, judge() falls
-	// back to the same event-vs-output comparison lineage above uses -
-	// assayer's own events are real and uniquely prefixed
-	// (`assayer.audit.*`, `assayer.claim.*`), so that fallback still works.
-	it("reads assayer as recording via the event-vs-output fallback, not a heavy stop-hook firing count", async () => {
+	// trusted every one of those 200 firings as evidence of a write, and a
+	// firing-count threshold of 5 was crossed within hours of any quiet
+	// stretch even while assayer was healthy.
+	//
+	// assayer has no write HOOK, so no count of firings is evidence of
+	// anything. It does have a write event - `d4a5f85` gave it
+	// `writeEvents: ["assayer.audit.complete"]` - so the write question IS
+	// asked of it, and this test asks it: the fixture supplies that very
+	// event five seconds after the audit file it accompanies, and both sit
+	// inside the window of opportunities. `lastWrite` is defined, the write
+	// axis is what returns `recording`, and the 200 firings change nothing,
+	// which is the whole point.
+	//
+	// The audit file's mtime is half of `lastWrite` here, alongside the event
+	// - but only as the instant to count FROM. What is gone is its age: the
+	// axis counts opportunities elapsed since that instant, never hours, and
+	// that comparison against a clock was the other half of the false alarm.
+	it("reads assayer as recording from its write event, not from a heavy stop-hook firing count", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["assayer"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			files: [
 				[
 					join("assayer", "aaaaaaaaaaaa", "audit-1.json"),
@@ -1176,24 +2080,32 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		// Pinned close to the evidence - see the inspector test above.
+		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-09-03T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "assayer")?.kind).toBe("recording");
 	});
 
-	// cartographer's real shape, and the cry-wolf bug fix round 1 quietly
-	// reintroduced: floorCleared was computed but never consulted in the
-	// no-writeHooks fallback, and cartographer/counsel are exactly the two
-	// entries that both set writeGateHours AND land in that fallback (their
-	// own writeHooks are omitted). A completed audit followed by an
-	// ordinary 26h gap before the next one - well inside cartographer's own
-	// 24h cadence, and within its 2x floor - must not read as a stall just
-	// because 26h is more than EVENT_OUTPUT_TOLERANCE_MS's one hour.
-	it("does not report a gated writer with no writeHooks stopped inside its own cadence floor", async () => {
+	// cartographer's real shape: an audit runs at most once per 24h
+	// (`writeGateHours`), so a completed audit followed by an ordinary 26h
+	// gap before the next one is a healthy stream, not a stall.
+	//
+	// The mechanism that protects it has changed underneath the test. It used
+	// to be a cadence term widening the permitted gap between events and
+	// output mtime from one hour to 48. There is no such gap measurement
+	// anymore: cartographer declares no write signal of either kind, so the
+	// write question is not asked of it at all and the age of
+	// `runs/audit-1.json` is never consulted. The protection now comes from
+	// the entry's own silence about writes rather than from a tolerance
+	// tuned per plugin, which is why `writeGateHours` currently has no
+	// consumer - see `onlooker-1vt`. The behavior this test pins is
+	// unchanged.
+	it("does not report a gated writer with no write signal stopped over an ordinary gap between its runs", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["cartographer"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-02",
 			files: [
 				[
 					join("cartographer", "aaaaaaaaaaaa", "runs", "audit-1.json"),
@@ -1203,27 +2115,86 @@ describe("surveyStreams", () => {
 			events: [
 				{
 					event_type: "cartographer.audit.complete",
-					// 26h after the output's mtime: past the 1h event tolerance,
-					// but well inside cartographer's own 2 * 24h = 48h floor.
+					// 26h after the output's mtime, and the newest opportunity
+					// is older still - so cartographer is alive and nothing has
+					// been asked of it since.
 					timestamp: "2026-08-02T02:00:00Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
 				},
 			],
 		});
-		// Pinned close to the evidence - see the inspector test above. This
-		// one MUST be pinned, not merely for future stability: the evidence
-		// is already weeks old relative to the real clock, so it would fail
-		// immediately without this once RECORDING_FRESHNESS_LIMIT_MS exists.
+		// No verdict reads the clock anymore - see `surveyStreams`'s `now`.
 		const now = new Date("2026-08-03T00:00:00Z");
 		const survey = await surveyStreams({ cwd, home, configDir, env, now });
 		expect(verdictFor(survey, "cartographer")?.kind).toBe("recording");
 	});
 
-	it("reports a gated writer with no writeHooks stopped once its cadence floor has cleared", async () => {
+	// The counterpart, and the one whose mechanism the design deliberately
+	// replaced. A gated writer with no write signal can no longer be called
+	// stopped by a timestamp gap of any size - 51h past a 48h floor produced
+	// `stopped` under the old rule, and produces nothing now, because the
+	// comparison it rested on was between an event and an output mtime that
+	// were never evidence about each other for an entry like this.
+	//
+	// What can still stop a gated writer is going quiet: no event and no hook
+	// firing across a full window of opportunities. That is the same alarm,
+	// raised off the axis that actually supports it, and it is what this
+	// test pins - the point being that `stopped` remains REACHABLE for a
+	// gated writer, so removing the false alarm did not cost the real one.
+	//
+	// counsel rather than cartographer, and the swap is the whole content of
+	// `firesEverySession`. Both are gated writers; only counsel's trigger is
+	// due in every session (`counsel-session-start`, SessionStart `*`), so
+	// only counsel's silence across the window is evidence of anything.
+	// cartographer's other hook is `cartographer-post-write`, which a session
+	// that edits nothing never fires - see the test below for what
+	// cartographer now reads in this same fixture.
+	it("reports a gated writer stopped once it has gone silent across a window of opportunities", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["counsel"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			// All six postdate counsel's last sign of life.
+			opportunities: 6,
+			files: [
+				[join("counsel", "aaaaaaaaaaaa", "brief.md"), "2026-08-01T00:00:00Z"],
+			],
+			events: [
+				{
+					event_type: "counsel.brief.generated",
+					timestamp: "2026-08-03T03:00:00Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "counsel")?.kind).toBe("stopped");
+	});
+
+	// The cost of the same rule, stated rather than hidden: cartographer in
+	// the fixture above - identical but for the plugin - can no longer be
+	// accused at all. Its `cartographer-session-start` would keep its
+	// liveness fresh through any agent wave, but `cartographer-post-write` is
+	// PostToolUse on Write/Edit/MultiEdit, and `firesEverySession` is withheld
+	// unless EVERY hook is unconditional. Six silent opportunities are
+	// therefore not evidence about cartographer, and `unknown` is the honest
+	// answer.
+	//
+	// A real detection loss, and the deliberate direction: the same rule that
+	// costs this is the rule that stops a healthy inspector reading `STOPPED`
+	// after eight subagent sessions. See `StreamEntry.firesEverySession`.
+	it("abstains rather than accusing a gated writer whose trigger need not have fired", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["cartographer"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			files: [
 				[
 					join("cartographer", "aaaaaaaaaaaa", "runs", "audit-1.json"),
@@ -1233,26 +2204,41 @@ describe("surveyStreams", () => {
 			events: [
 				{
 					event_type: "cartographer.audit.complete",
-					// 51h after the output's mtime: past the 48h floor.
 					timestamp: "2026-08-03T03:00:00Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "cartographer")?.kind).toBe("stopped");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "cartographer")?.kind).toBe("unknown");
 	});
 
-	// A gated writer (writeGateHours set) that has never produced output
-	// cannot be told apart from "hasn't reached its first gate yet" -
-	// clearsCadenceFloor needs an mtime to measure elapsed time against, and
-	// there is none here. Asserting `stopped` would flag every brand-new
-	// counsel install before its first brief is even due.
-	it("reports a gated writer with no output as unknown rather than stopped", async () => {
+	// A gated writer (writeGateHours set) that has never produced output must
+	// not be flagged: asserting `stopped` would condemn every brand-new
+	// counsel install before its first brief is even due. That is what this
+	// test exists to prevent and it has never changed.
+	//
+	// The verdict has moved twice. It was `unknown` because the old rule could
+	// not tell "hasn't reached its first gate" from "broken"; it became
+	// `recording` when a missing output stopped being evidence about anything;
+	// and it is `unknown` again now for a third and narrower reason - counsel
+	// names an `output` path that has never been written, and absence is not
+	// something this table will certify even where it has no write signal.
+	// Age would still read `recording`; see the librarian pair at the top of
+	// `stream conditionality` for the two halves side by side.
+	it("reports a gated writer with no output unknown rather than stopped", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["counsel"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
 					event_type: "counsel.something",
@@ -1262,20 +2248,33 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "counsel")?.kind).toBe("unknown");
 	});
 
 	// Generalizes the counsel case above beyond gated writers: curator has
 	// no writeGateHours at all, but its scan is conditional (a session with
 	// no memory store found writes only the manifest heartbeat, never
-	// findings/), and its writeHooks is empty for exactly that reason. A
+	// findings/), and it declares no write signal for exactly that reason. A
 	// perfectly healthy curator that simply never had a finding must not
 	// read as `stopped` any more than a gated one does.
-	it("reports an ungated conditional writer with no output as unknown rather than stopped", async () => {
+	//
+	// `unknown` rather than `recording` for the same reason counsel is:
+	// `findings/` has never appeared here. Both halves of the claim hold at
+	// once - nothing accuses curator of stalling, and nothing certifies it
+	// either, which is what `unknown` means.
+	it("reports an ungated conditional writer with no output unknown rather than stopped", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["curator"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
 					event_type: "curator.scan.complete",
@@ -1285,28 +2284,41 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "curator")?.kind).toBe("unknown");
 	});
 
-	// The counterpart: historian HAS a writeHook (historian-session-end IS
-	// the writer), so a write hook that has genuinely fired past
-	// STALL_THRESHOLD with no session ever indexed is exactly what "stopped"
-	// means - that is the whole feature. This must stay stopped, not soften
-	// into unknown alongside the conditional writers above. NOT a single
-	// firing - see the next test for why one event is not enough evidence.
+	// historian HAS a writeHook (historian-session-end IS the writer), and
+	// this used to assert `stopped` for a write hook that had fired past the
+	// old firing-count threshold with no session ever indexed.
 	//
-	// Previously used librarian for this pair. A closer read of librarian-
-	// session-end.sh (fix round 2) found it is not a reliable write signal
-	// either - a multi-stage pipeline with its own session-level bail sites
-	// plus a downstream classifier/durability/tombstone funnel any of which
-	// can decline without writing - so librarian's `writeHooks` was removed
-	// (see its table entry) and this pair moved to historian, the one
-	// remaining subpath-based entry a source read confirmed still qualifies.
-	it("still reports a stream with a writeHook stopped once its write hook has fired past the threshold with no output", async () => {
+	// It is `unknown` now, and that is a deliberate, load-bearing softening
+	// rather than an accident of the rewrite - the single largest loss of
+	// detection in this change, recorded here rather than buried. The new
+	// rule measures a write stall as opportunities elapsed SINCE THE LAST
+	// WRITE, and an entry that has never written has no such instant to
+	// count from. A write hook's own firing count is explicitly not a
+	// substitute: counting firings is the mechanism that produced every
+	// false positive this change removes, and reinstating it for this one
+	// case would reinstate them with it.
+	//
+	// So "has a write signal, has been alive, and has produced nothing ever"
+	// reads `unknown` - honest about being unmeasurable rather than
+	// asserting a stall the denominator cannot support. `unknown` still
+	// exits 1 (see `exitCodeFor`), so the machine-facing behavior for this
+	// case is unchanged; what is lost is the confident `stopped` label and
+	// the specific evidence behind it.
+	it("reports a stream with a writeHook that has never written as unknown, not stopped", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["historian"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			events: [
 				{
 					event_type: "historian.indexing.started",
@@ -1322,19 +2334,67 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "historian")?.kind).toBe("stopped");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "historian");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no output written yet",
+		);
+	});
+
+	// The same abstention on an `output: null` entry, where that wording is a
+	// lie. inspector writes no files anywhere: its downstream IS its event
+	// stream, so "no output written yet" names a file for a stream that has
+	// none, and a reader chasing it finds nothing to look at.
+	//
+	// The same family as `(none) last changed`, fixed one branch down when
+	// `moved` learned to name the event stream instead of `outputLabel`. This
+	// branch was missed; it says what the other one says.
+	it("names the event stream, not a file, when an output:null entry has emitted nothing", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			// Alive throughout - the trigger fires in every opportunity - and
+			// no `inspector.*` event has ever landed.
+			opportunities: 6,
+			triggerHook: "inspector-post-write",
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no inspector event has landed yet",
+		);
+		expect(verdict?.kind === "unknown" && verdict.detail).not.toContain(
+			"output written",
+		);
 	});
 
 	// historian's own too_short/transcript_unavailable skip paths still emit
 	// historian.indexing.complete and still fire historian-session-end. A
-	// single firing must not read `stopped` on a fresh checkout -
-	// STALL_THRESHOLD exists to prevent exactly this everywhere else in this
-	// function, and this branch was the one place it was not applied.
+	// single firing must not read `stopped` on a fresh checkout.
+	//
+	// The pair with the test above still holds, just at the same verdict from
+	// both ends now: an entry with a write signal that has never written is
+	// `unknown` whether its hook fired once or six times, because there is no
+	// last-write instant to count opportunities from either way.
 	it("does not report a stream stopped from a single write-hook firing with no output yet", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["historian"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
 					event_type: "historian.indexing.started",
@@ -1352,20 +2412,37 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "historian")?.kind).toBe("unknown");
 	});
 
-	// librarian's own new shape, after fix round 2 removed its writeHooks:
-	// events present, output never written, and - unlike historian just
-	// above - no amount of firing ever reads `stopped` anymore, because
-	// there is no longer a hook this table trusts as write evidence for it.
-	// This is the same "cannot tell nothing-to-write-yet from broken"
-	// fallback curator already takes, now shared by librarian too.
+	// librarian's own shape: events present, output never written, and no
+	// amount of firing reads `stopped`, because no hook and no event this
+	// table records is write evidence for it - the verification pass confirmed
+	// there is nothing to name, since its lesson writers emit nothing at all.
+	//
+	// It reaches `unknown` by a different route than historian just above.
+	// historian HAS a write signal that has never fired; librarian has none to
+	// ask about, and lands on the absent-output rule instead - `lessons/` never
+	// existed, so no clean bill. Same verdict, two distinct reasons, and worth
+	// keeping both tests because a change could break one without the other.
+	//
+	// This is as close as the table gets to the empty-lesson-pool case
+	// librarian's entry describes: surfaced (`unknown` exits 1) but never a
+	// confident `stopped`. A lesson-write event upstream is what would change
+	// that.
 	it("reports librarian unknown rather than stopped now that its write hook is no longer trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-09-02",
 			events: [
 				{
 					event_type: "librarian.scan.complete",
@@ -1381,45 +2458,68 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "librarian")?.kind).toBe("unknown");
 	});
 
 	// A fully-read log where the prefix never appears is not evidence the
 	// stream is healthy - "recording" with nothing to corroborate it
-	// contradicts the very next check this function makes for a truncated
-	// log.
+	// contradicts the check this function makes for a truncated log.
+	//
+	// Still `unknown`, and deliberately not the `stopped` that six silent
+	// opportunities might seem to support. Nothing here distinguishes lineage
+	// having died from lineage having been enabled a moment ago on a repo with
+	// six sessions of history, because it has never been seen alive either
+	// way. What the assertion pins is the other edge: not `recording`.
 	it("reports unknown, not recording, when the event log is readable but the stream's prefix never appears", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			files: [
 				[
 					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
-			// events (beyond the projectKeys-establishing ones machine()
-			// itself adds) are empty - the log is fully read, just empty for
-			// this prefix, not missing.
+			// events (beyond the projectKeys- and opportunity-establishing ones
+			// machine() itself adds) are empty - the log is fully read, just
+			// empty for this prefix, not missing.
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "lineage")?.kind).toBe("unknown");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "lineage");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no sign of life yet",
+		);
 	});
 
 	// A truncated or unreadable event scan clears lastByPrefix (scanEvents's
-	// own contract), so `lastEvent` reads exactly like "no events fired" and
-	// the no-writeHooks fallback would otherwise default to `recording` on a
-	// source it could not actually read - the writeHooks path already
-	// refuses to do this (`measurable.length === 0` reads `unknown` when
-	// hook-health itself is unreadable); this is the same promise for the
-	// event axis. NOT a per-project entry (lineage): `skipEventsLog` means
-	// `machine()`'s own projectKeys-establishing events never get written
-	// either, so a per-project entry would hit the "keys could not be
-	// determined" guard first and never reach the branch this test names.
-	// governor is flat (see its table comment), so it reaches this branch
-	// with no per-project interference.
-	it("reports unknown, not recording, when the event log is missing for a stream with no writeHooks", async () => {
+	// own contract), so a silent prefix reads exactly like "no events fired"
+	// and the rule would otherwise judge a source it could not read - and,
+	// with the window guard also blind to a log it cannot see, judge it as
+	// dead rather than merely unmeasured. `events.missing` is checked first
+	// in `computeVerdict` for exactly that reason, ahead of every other
+	// branch including the denominator.
+	//
+	// NOT a per-project entry (lineage): `skipEventsLog` means `machine()`'s
+	// own projectKeys-establishing events never get written either, so a
+	// per-project entry would hit the "keys could not be determined" guard
+	// first and never reach the check this test names. governor is flat (see
+	// its table comment), so it reaches it with no interference.
+	it("reports unknown, not recording, when the event log is missing", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["governor"],
 			skipEventsLog: true,
@@ -1432,24 +2532,27 @@ describe("surveyStreams", () => {
 	});
 
 	// archivist's only emission is shared with counsel and scribe, so no
-	// event prefix can identify it - `lastEvent` is permanently "". This
-	// entry used to have a hook-only fallback here that read a genuine
-	// outage as `stopped` once archivist-extract's own firings crossed
-	// STALL_THRESHOLD with nothing ever written. Fix round 2 removed
-	// archivist's `writeHooks` (see its table entry: six ordinary bail
-	// sites, plus a seventh "nothing extraction-worthy this session" no-op
-	// past all six) - since that hook-only fallback also only trusts
-	// `writeHooks`-filtered hooks, archivist lost that detection along with
-	// the false positive it was causing. A firing count this high, this
-	// consistently, with zero output ever written IS suspicious - but this
-	// design's own rule is that an unmeasured thing does not get a verdict
-	// asserted about it, and archivist genuinely has no axis left to measure
-	// with once its only hook cannot be trusted. `unknown` is the honest
-	// answer, not a downgrade applied by accident.
-	it("reports archivist unknown, not stopped, from heavy hook firing alone now that the hook is not trusted", async () => {
+	// event prefix can identify it - its `events` list is empty, and its
+	// hooks are the only axis it has at all. It also declares no write signal
+	// of either kind (see its table entry: six ordinary bail sites, plus a
+	// seventh "nothing extraction-worthy this session" no-op past all six).
+	//
+	// Alive on its hooks and unaskable about writes - but `unknown`, not
+	// `recording`, because `archivist/` has never been written here. Ten
+	// firings with zero output ever produced IS suspicious, and this rule
+	// still cannot say `stopped`; what it can now refuse to do is call that a
+	// clean bill. archivist is plainly running, its output has never appeared,
+	// and this table holds no signal saying whether that is expected - which
+	// is `unknown`'s exact meaning.
+	//
+	// The assertion this test has always protected is the other edge, and it
+	// is unchanged: not `stopped` off hook firings alone.
+	it("reports archivist unknown, not stopped, from hook firing alone now that the hook is not trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["archivist"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-19",
 			hooks: Array.from({ length: 10 }, (_, i) => ({
 				hook: "archivist-extract",
 				timestamp: `2026-08-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
@@ -1457,18 +2560,39 @@ describe("surveyStreams", () => {
 				session_id: MACHINE_SESSION_ID,
 			})),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		expect(verdictFor(survey, "archivist")?.kind).toBe("unknown");
 	});
 
-	// Same shape below STALL_THRESHOLD - was already `unknown` before fix
-	// round 2 for a different reason (too few firings to call it stopped);
-	// stays `unknown` after for the same reason as the test just above (no
-	// hook this table trusts as write evidence for archivist at all).
-	it("still reports archivist unknown when hooks have not crossed the threshold", async () => {
+	// The same entry gone quiet, which used to be the half archivist could
+	// still be judged on: two firings, both well before the six
+	// opportunities, and no event prefix to corroborate either way.
+	//
+	// `firesEverySession` took that half away, and archivist is the entry it
+	// costs the most - with no event prefix and no write signal of either
+	// kind, liveness was its only axis, so archivist is now unaccusable
+	// outright. The reason is one hook: `archivist-inject` is SessionStart
+	// `*` and would carry liveness on its own, but `archivist-extract` is
+	// PreCompact, and a session that never fills its context never compacts.
+	// The flag needs every hook to be unconditional, so archivist does not
+	// get it.
+	//
+	// Kept as an assertion rather than deleted, because a silent regression
+	// in either direction matters: if a later edit hands archivist the flag,
+	// this fails and the reasoning above has to be argued with; and the
+	// verdict must be `unknown` rather than `recording`, so the loss shows up
+	// in `doctor` as an abstention rather than as a clean bill.
+	it("abstains on archivist gone quiet, whose hooks need not have fired", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["archivist"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			hooks: [
 				{
 					hook: "archivist-extract",
@@ -1484,8 +2608,21 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "archivist")?.kind).toBe("unknown");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "archivist");
+		expect(verdict?.kind).toBe("unknown");
+		// Specifically the conditional-trigger abstention, not one of the
+		// other three `unknown`s this entry can reach - the count was met and
+		// was declined, which is the finding.
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"none of which had to trigger it",
+		);
 	});
 
 	// librarian's real output sits at `<key>/lessons`; a key that has only
@@ -1535,18 +2672,17 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// Alive throughout, output frozen across all six - the same
+			// well-supported `stopped` as before, reached by the new rule.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-06-29",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-06-01T00:00:00Z",
 				],
 			],
-			hooks: Array.from({ length: 20 }, (_, i) => ({
-				hook: "bursar-session-end",
-				timestamp: `2026-06-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
-				status: "success",
-				session_id: MACHINE_SESSION_ID,
-			})),
 		});
 		const base = env.ONLOOKER_DIR as string;
 		mkdirSync(join(base, "elsewhere-target"), { recursive: true });
@@ -1557,8 +2693,11 @@ describe("surveyStreams", () => {
 		const survey = await surveyStreams({ cwd, home, configDir, env });
 		const verdict = verdictFor(survey, "bursar");
 		expect(verdict?.kind).toBe("stopped");
+		// The stall's own evidence, still named: which path stopped moving.
+		// It was the write hook's name before the rule stopped counting hook
+		// firings - see the acceptance-criterion test above.
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"bursar-session-end",
+			join("bursar", "projects"),
 		);
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"could not be fully listed",
@@ -1574,6 +2713,12 @@ describe("surveyStreams", () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			// Ending on the last firing, so bursar is alive and `computeVerdict`
+			// returns `unknown` ("no output written yet") rather than a
+			// `stopped` - which `judge()` would deliberately let survive the
+			// unreadable walk, leaving the degrade this test names unexercised.
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-06-29",
 			// session_id set for consistency with every other session-scoped
 			// fixture in this suite - here it is not load-bearing (the key
 			// itself is entirely a symlink below, so outputAt is null and the
@@ -1603,13 +2748,33 @@ describe("surveyStreams", () => {
 	// The mirror image of the bug project-scoping the output walk fixed,
 	// running the other way: our own key sits frozen since 2026-08-01, but
 	// a single event from a DIFFERENT repo's session - never rooted here -
-	// landing 2026-09-02 must not read as evidence of OUR stream's
-	// recency. Our own session's own event, close behind the output's own
-	// mtime, is what makes this "recording."
+	// landing 2026-09-02 must not read as evidence of OUR stream's recency.
+	//
+	// The expectation flipped from `recording` to `stopped`, and the flip is
+	// what makes the test worth keeping. Asserting `recording` only ever
+	// proved that the foreign event did not HELP; under a rule where the
+	// newest write signal wins, a leaked foreign event lands on the healthy
+	// side of every threshold and the test passes whether the scoping works
+	// or not. Placed after our own frozen evidence, the six opportunities
+	// make the scoped answer `stopped` and the leaked one `recording` - so
+	// the assertion now fails if, and only if, the foreign session's event
+	// is counted as ours.
+	//
+	// `triggerHook` is what keeps that flip available now that liveness may
+	// only accuse an entry whose trigger was due. lineage's is not, so its
+	// liveness axis abstains; firing `lineage-post-tool-use` inside all six
+	// opportunities makes lineage unambiguously alive and moves the finding
+	// onto the write axis - which is where the leaked event would land
+	// anyway, `lineage.change.recorded` being a `writeEvents` type. Scoped
+	// correctly the six count against a 2026-08-01 write and read `stopped`;
+	// leaked, `lastWrite` jumps to 2026-09-02 and only three remain, which
+	// reads `recording`.
 	it("does not let a different repo's session's recent event mask this repo's own frozen stream", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["lineage"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			triggerHook: "lineage-post-tool-use",
 			files: [
 				[
 					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
@@ -1633,24 +2798,41 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		// Pinned close to OUR OWN session's evidence (2026-08-01), not the
-		// excluded foreign session's (2026-09-02) - this must be pinned, not
-		// merely for stability, once RECORDING_FRESHNESS_LIMIT_MS exists.
-		const now = new Date("2026-08-02T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
-		expect(verdictFor(survey, "lineage")?.kind).toBe("recording");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
 	});
 
-	// Same shape on the firing-count axis: 90 daily firings from a
-	// different repo's session, all after our own key's frozen mtime,
-	// would push firedSince well past STALL_THRESHOLD under no scoping at
-	// all - the reviewer's exact reproduction. Scoped to our own sessions,
-	// none of those firings are ours, so bursar-session-end has no records
-	// attributable to us at all.
-	it("does not let a different repo's session's firings push a stall past the threshold", async () => {
+	// Same shape on the hook axis: 90 daily firings from a different repo's
+	// session, all after our own key's frozen mtime. Scoped to our own
+	// sessions, none of them are ours, so bursar-session-end has no records
+	// attributable to us at all and bursar has shown no sign of life here.
+	//
+	// The verdict is `unknown` either way you might first expect, so the
+	// fixture is what carries this test: the opportunities sit BEFORE the
+	// output's own mtime, which makes the two outcomes differ. Scoped
+	// correctly, bursar has no record of its own and was never seen alive, so
+	// `unknown`. With the scoping removed, the foreign firings become
+	// bursar's liveness, nothing has been asked of it since, and it reads
+	// `recording`.
+	//
+	// Both halves of that had to be arranged deliberately. Under the new rule
+	// a leaked foreign firing supplies liveness rather than a stall - the
+	// danger runs the opposite way from the reviewer's original reproduction -
+	// and with no opportunities at all every verdict is `unknown` regardless,
+	// so the original fixture would have passed with the session scoping
+	// deleted outright.
+	it("does not let a different repo's session's firings stand in for this repo's own liveness", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-05-31",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -1668,102 +2850,409 @@ describe("surveyStreams", () => {
 				};
 			}),
 		});
-		const survey = await surveyStreams({ cwd, home, configDir, env });
-		expect(verdictFor(survey, "bursar")?.kind).toBe("unknown");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("unknown");
+		// Specifically "never seen alive", not "too thin a window" - the six
+		// opportunities clear the threshold, so only the first of the two
+		// abstentions can be the one reached.
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"no sign of life yet",
+		);
 	});
 
 	// The final review's high-severity finding, reproduced directly: a
-	// plugin that stops entirely - no more output, no more events - has
-	// both timestamps freeze together, so the GAP between them stays small
-	// even as the evidence itself goes stale. Neither fallback branch was
-	// ever bounded by wall time before this fix - `now` reached judge() and
-	// was only ever consulted by clearsCadenceFloor, which returns `true` on
-	// every path that reaches it. counsel/governor/tribunal on the real
-	// machine hit exactly this: silent for a month, reported `recording`,
-	// `doctor` exiting 0.
-	it("reports the writeHooks-less output fallback unknown, not recording, when its freshest evidence is stale even though the gap is small", async () => {
+	// plugin that stops entirely - no more output, no more events - has both
+	// timestamps freeze together, so the GAP between them stays small even as
+	// the evidence itself goes stale, and the old rule read that agreement as
+	// health. counsel/governor/tribunal on the real machine hit exactly this:
+	// silent for a month, reported `recording`, `doctor` exiting 0.
+	//
+	// The finding stands; the answer got stronger. A 14-day clock could only
+	// ever downgrade this to `unknown`, because elapsed time cannot tell a
+	// dead stream from an untouched repo. Opportunities can: six of them have
+	// passed and lineage showed no sign of life in any, which is a positive
+	// finding rather than an absence of one. `stopped`, not `unknown`, is the
+	// design's own claim for this case - see the spec's note that counsel
+	// would now be reported stopped rather than unknown.
+	//
+	// bursar rather than lineage, for the reason `firesEverySession` exists.
+	// Both froze here, so nothing fired in any of the six - and for lineage
+	// that is not a finding, since a session that edits no file was never a
+	// chance for `lineage-post-tool-use` to run. bursar's two hooks are
+	// SessionStart `*` and SessionEnd `*`, both delivered in every one of the
+	// six, so its silence is the positive finding this test is about. The
+	// shape is unchanged: output and event frozen five seconds apart, a month
+	// before the window.
+	//
+	// This test hosted assayer for one round and moved off it: `assayer-stop`
+	// is a Stop hook, `Stop` reached 13 of 31 measured opportunities, and the
+	// flag it depended on was withdrawn.
+	it("reports stopped, not recording, when a stream's two axes agree only because both froze", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["lineage"],
+			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			files: [
 				[
-					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
 			events: [
 				{
-					event_type: "lineage.change.recorded",
-					// 5 seconds after the output - well inside
-					// EVENT_OUTPUT_TOLERANCE_MS - but both are now a month old.
+					event_type: "bursar.session.recorded",
+					// 5 seconds after the output: the two agree, and agreed a
+					// month before the first of the six opportunities.
 					timestamp: "2026-08-01T00:00:05Z",
 					session_id: MACHINE_SESSION_ID,
 					payload: {},
 				},
 			],
 		});
-		const now = new Date("2026-08-31T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
-		const verdict = verdictFor(survey, "lineage");
-		expect(verdict?.kind).toBe("unknown");
-		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"2026-08-01",
 		);
 	});
 
-	// The same bound, applied to the output:null branch (finding 2): if a
-	// plugin is removed from hooks.json or its directory disappears, its
-	// hook's `.last` and its newest event freeze together at the same
-	// instant, `gapMs` stays near zero, and it would read `recording`
-	// forever while printing an increasingly stale date. inspector and
-	// ecosystem sit on exactly this shape today - nothing in the branch
-	// would change if either died tomorrow, without this bound.
-	it("reports the output:null branch unknown, not recording, when its freshest evidence is stale even though the gap is small", async () => {
+	// The whole-branch review's blocker, reproduced at the shape it was found
+	// at. Against the real logs truncated to 2026-09-05T21:38:03Z, `doctor`
+	// printed:
+	//
+	//   inspector  STOPPED  last sign of life 2026-09-05 21:30, 8 sessions ago
+	//
+	// seven minutes after `inspector-post-write` last fired, on an inspector
+	// that was recording perfectly well - the same logs on `main` read
+	// `recording`. Eight subagent sessions started in those seven minutes.
+	// Every one of them counts as an opportunity, because every one of them
+	// ran ecosystem's trackers, and not one of them was a Write - so
+	// inspector's only trigger could not fire in any of them, and eight
+	// opportunities were charged against it for sessions that never asked it
+	// for anything.
+	//
+	// The fixture is that arithmetic and nothing else: nine opportunities,
+	// inspector's trigger firing inside the first and never again, leaving
+	// `sinceLife` at exactly the 8 the real run reported. Each generated
+	// opportunity carries a `session-start-tracker` record and no inspector
+	// record, which is what a subagent session's hook-health really looks
+	// like. Days rather than minutes only because `opportunityRows` counts in
+	// days; no verdict reads the clock, so the spacing is not part of the
+	// finding.
+	//
+	// Against the previous rule this reads `stopped` - the assertion below is
+	// the bug. The detail is checked as well as the kind, because reaching
+	// `unknown` through the never-seen-alive branch or the thin-window branch
+	// would pass a bare `kind` check while proving nothing: the count has to
+	// be met and then declined.
+	it("does not accuse a conditional-trigger entry of stopping across sessions that never triggered it", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["ecosystem"],
+			plugins: ["inspector"],
+			opportunities: 9,
+			hooks: [
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-08-28T00:00:01Z",
+					status: "success",
+					session_id: "opp-0",
+				},
+			],
 			events: [
 				{
-					event_type: "session.start",
-					timestamp: "2026-08-01T00:00:00Z",
-					session_id: "s",
+					event_type: "inspector.check.passed",
+					timestamp: "2026-08-28T00:00:02Z",
+					session_id: "opp-0",
 					payload: {},
 				},
 			],
-			hooks: [
-				{
-					hook: "session-start-tracker",
-					timestamp: "2026-08-01T00:00:05Z",
-					status: "success",
-				},
-			],
 		});
-		const now = new Date("2026-08-31T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
-		const verdict = verdictFor(survey, "ecosystem");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).not.toBe("stopped");
 		expect(verdict?.kind).toBe("unknown");
 		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
-			"2026-08-01",
+			"8 sessions ago, none of which had to trigger it",
 		);
 	});
 
-	// The bound must never soften an alarm: stale evidence plus a large gap
-	// is still `stopped`, not downgraded to `unknown`. This is already true
-	// by construction (the freshness check sits after the gap check, never
-	// before it), but it is worth locking in explicitly given how easy it
-	// would be to place the new check first by accident.
-	it("still reports stopped, not unknown, when stale evidence also shows a large gap", async () => {
+	// The counterfactual, on the same arithmetic: nine opportunities, one
+	// firing in the first, eight silent. `counsel-session-start` is
+	// SessionStart `*`, delivered in every session, so all eight really were
+	// chances for counsel to run and its silence really is a stall. Without
+	// this the rule above could be satisfied by never accusing anyone, which
+	// would remove the false positive by removing the feature.
+	//
+	// counsel rather than assayer, which hosted this for one round: a Stop
+	// hook reached 13 of 31 measured opportunities, so assayer no longer holds
+	// the flag this test needs. counsel also has no write axis, which sharpens
+	// the test - the `stopped` can only have come from liveness.
+	it("still accuses an unconditional-trigger entry across the same silent window", async () => {
 		const { cwd, home, configDir, env } = machine({
-			plugins: ["lineage"],
+			plugins: ["counsel"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 9,
+			files: [
+				[join("counsel", "aaaaaaaaaaaa", "brief.md"), "2026-08-28T00:00:00Z"],
+			],
+			hooks: [
+				{
+					hook: "counsel-session-start",
+					timestamp: "2026-08-28T00:00:01Z",
+					status: "success",
+					session_id: "opp-0",
+				},
+			],
+			events: [
+				{
+					event_type: "counsel.brief.generated",
+					timestamp: "2026-08-28T00:00:02Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "counsel");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"8 sessions ago",
+		);
+	});
+
+	// The other two entries that hold the flag, given the same behavioral
+	// coverage rather than only the table pin.
+	//
+	// The reason is the mutation check the re-review applied to this field: if
+	// flipping an entry's flag to `false` breaks only the pin, the pin is
+	// asserting the table's contents and nothing is asserting that the flag
+	// CHANGES A VERDICT. curator and librarian were in exactly that state -
+	// bursar and counsel each broke three and two behavioral tests, curator
+	// and librarian broke none. Two entries' worth of liveness detection was
+	// resting on an assertion about a boolean.
+	//
+	// Both are liveness-only in the shape that matters here: curator names no
+	// writeEvents at all, and librarian's `lessons/` never appears in these
+	// fixtures, so the `stopped` can only have come from the liveness branch.
+	it("reports curator stopped once it has gone silent across the window", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["curator"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			// All six postdate curator's last sign of life.
+			opportunities: 6,
 			files: [
 				[
-					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					join("curator", "aaaaaaaaaaaa", "findings", "f-1.json"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
 			events: [
 				{
-					event_type: "lineage.change.recorded",
+					event_type: "curator.scan.complete",
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "curator");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"last sign of life",
+		);
+	});
+
+	it("reports librarian stopped once it has gone silent across the window", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["librarian"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("librarian", "aaaaaaaaaaaa", "lessons", "lesson-1.json"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "librarian.scan.complete",
+					timestamp: "2026-08-01T00:00:05Z",
+					session_id: MACHINE_SESSION_ID,
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "librarian");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"last sign of life",
+		);
+	});
+
+	// The same shape on an `output: null` entry (finding 2): if a plugin is
+	// removed from hooks.json or its directory disappears, its hook's `.last`
+	// and its newest event freeze together at the same instant and it would
+	// read `recording` forever while printing an increasingly stale date.
+	//
+	// inspector rather than ecosystem, for the structural reason recorded on
+	// the hooks-outrunning-events test above: ecosystem's own events are the
+	// denominator, so it cannot be shown frozen against a populated window.
+	//
+	// The expectation moved from `stopped` to `unknown`, and this is the
+	// widest thing `firesEverySession` costs: not one entry, but the whole
+	// `output: null` half of the table. All four of them - compass,
+	// ecosystem, inspector, warden - carry at least one tool-scoped hook, so
+	// none of them holds the flag, and none of them can reach `stopped` on
+	// liveness anymore. Both-axes-frozen is exactly the state the flag says
+	// is unreadable for such an entry: if nothing triggered it, nothing
+	// firing is not evidence.
+	//
+	// The finding this test guarded is not lost, it moved axis - see the test
+	// below, where the same removed-from-hooks.json shape reaches `stopped`
+	// through `writeEvents` once the trigger demonstrably fired. That is also
+	// the axis the real 2026-08-07 ecosystem outage is caught on.
+	it("abstains on an output:null stream whose axes froze without its trigger firing", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 6,
+			events: [
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-08-01T00:00:00Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+			hooks: [
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-08-01T00:00:05Z",
+					status: "success",
+					session_id: "opp-0",
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("unknown");
+		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+			"none of which had to trigger it",
+		);
+	});
+
+	// The finding the test above used to carry, on the axis that still
+	// supports it. Same `output: null` entry, same frozen event, but the
+	// trigger fires inside every one of the six opportunities - so inspector
+	// is demonstrably alive, every one of the six really was a chance for it
+	// to emit, and six chances taken with nothing emitted is the frozen
+	// downstream this module exists to catch.
+	//
+	// This is the shape of the 2026-08-07 outage generalized: hooks firing,
+	// downstream dead. Liveness could never have caught it - the hooks are
+	// what keep reading fresh - which is why narrowing liveness costs it
+	// nothing.
+	it("reports an output:null stream stopped when its trigger fired and nothing was emitted", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 6,
+			triggerHook: "inspector-post-write",
+			events: [
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-08-01T00:00:00Z",
+					session_id: "opp-0",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"2026-08-01",
+		);
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"while the stream kept running",
+		);
+	});
+
+	// An alarm must never be softened by the window guard: this stream's
+	// evidence is stale AND its two axes disagree, and the answer is still
+	// `stopped`. Worth keeping explicit now that the guard returns `unknown`
+	// for a thin window - placing that check where it could see a stream with
+	// a full window behind it would turn every real alarm into an abstention.
+	//
+	// bursar rather than lineage, for the same reason as the two-axes test
+	// above: the guard under test is the window one, and it can only be shown
+	// not to soften an alarm on an entry the alarm can still reach. Nothing
+	// about the fixture's shape changes - stale evidence, large gap, full
+	// window. assayer hosted this for one round; see the two-axes test for
+	// why it no longer holds the flag.
+	it("still reports stopped, not unknown, when stale evidence also shows a large gap", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-01T00:00:00Z",
+				],
+			],
+			events: [
+				{
+					event_type: "bursar.session.recorded",
 					// Both stale AND a large gap from the output.
 					timestamp: "2026-08-20T00:00:00Z",
 					session_id: MACHINE_SESSION_ID,
@@ -1771,24 +3260,30 @@ describe("surveyStreams", () => {
 				},
 			],
 		});
-		const now = new Date("2026-08-31T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
-		expect(verdictFor(survey, "lineage")?.kind).toBe("stopped");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
 	});
 
-	// The same bound, applied to the third branch: an entry WITH a trusted
-	// writeHooks list (bursar) whose firing count never crosses
-	// STALL_THRESHOLD falls through to `recording` on `outputAt` alone, with
-	// no comparison against `now` at all - this branch was left out of the
-	// first pass on this bound because the finding that prompted it only
-	// reproduced the other two. It matters here specifically because bursar,
-	// which this repo enables, takes this branch: output frozen months ago
-	// plus routine, below-threshold session-end firings reads a clean
-	// `recording` off arbitrarily old evidence forever.
-	it("reports the firing-count branch unknown, not recording, when output is stale even though the firing count stays below threshold", async () => {
+	// bursar, which this repo enables, and the case that used to fall through
+	// to a clean `recording` off arbitrarily old evidence: output frozen
+	// months ago plus routine, below-threshold session-end firings.
+	//
+	// Now `stopped` rather than the `unknown` the 14-day clock could manage.
+	// The reason the firing count no longer rescues it is the point of the
+	// whole change: one firing or a hundred, a hook's firings were never a
+	// measure of anything: the six opportunities that passed with no sign of
+	// life are.
+	it("reports stopped, not recording, when a stream froze despite a below-threshold firing count", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
@@ -1798,46 +3293,73 @@ describe("surveyStreams", () => {
 			hooks: [
 				{
 					hook: "bursar-session-end",
-					// One firing, well below STALL_THRESHOLD (5).
+					// One firing, and the last sign of life this entry has.
 					timestamp: "2026-08-01T01:00:00Z",
 					status: "success",
 					session_id: MACHINE_SESSION_ID,
 				},
 			],
 		});
-		const now = new Date("2026-08-31T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
 		const verdict = verdictFor(survey, "bursar");
-		expect(verdict?.kind).toBe("unknown");
-		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"2026-08-01",
 		);
 	});
 
-	// The bound must not weaken `stopped` on this branch either: a firing
-	// count that DOES cross STALL_THRESHOLD is `stopped` regardless of how
-	// stale the output is - the stopped-loop runs, and returns, before the
-	// new freshness check is ever reached.
-	it("still reports stopped, not unknown, on the firing-count branch when stale output also shows enough firings to stall", async () => {
+	// The write axis in isolation, and the only test here that reaches
+	// `stopped` through it rather than through liveness: the opportunities
+	// are placed to end on the last hook firing, so bursar is demonstrably
+	// alive across all six and the sole thing that has not moved is the
+	// output.
+	//
+	// The firings decide WHICH sessions the write axis may count - each one
+	// makes its session a chance for bursar to write - and their number is
+	// still not the finding. Twelve firings in six sessions would read the
+	// same, and one firing in one session would read `recording` however many
+	// times it was repeated, which is what the count-the-firings rule this
+	// replaced could never say.
+	it("reports stopped from opportunities elapsed since the last write, not from the write hook's firing count", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["bursar"],
 			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-07",
+			triggerHook: "bursar-session-end",
 			files: [
 				[
 					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
 					"2026-08-01T00:00:00Z",
 				],
 			],
+			// A second firing in each session, on top of the one `triggerHook`
+			// places: the quantity must change nothing.
 			hooks: Array.from({ length: 6 }, (_, i) => ({
 				hook: "bursar-session-end",
-				timestamp: `2026-08-${String(2 + i).padStart(2, "0")}T00:00:00Z`,
+				timestamp: `2026-08-${String(2 + i).padStart(2, "0")}T00:00:02Z`,
 				status: "success",
-				session_id: MACHINE_SESSION_ID,
+				session_id: `opp-${i}`,
 			})),
 		});
-		const now = new Date("2026-08-31T00:00:00Z");
-		const survey = await surveyStreams({ cwd, home, configDir, env, now });
-		expect(verdictFor(survey, "bursar")?.kind).toBe("stopped");
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "bursar");
+		expect(verdict?.kind).toBe("stopped");
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"while the stream kept running",
+		);
 	});
 });
 
@@ -2056,6 +3578,89 @@ describe("exitCodeFor", () => {
 				surveyOf({
 					verdicts: [{ plugin: "brandnew", verdict: { kind: "no-rule" } }],
 				}),
+			),
+		).toBe(1);
+	});
+});
+
+describe("opportunitiesSince", () => {
+	const events = {
+		sessionStarts: {
+			a: "2026-09-01T00:00:00.000Z",
+			b: "2026-09-02T00:00:00.000Z",
+			c: "2026-09-03T00:00:00.000Z",
+			subagent: "2026-09-04T00:00:00.000Z",
+		},
+	};
+	// `subagent` started but ran no hooks, so it was never an opportunity.
+	const hooks = { sessionsWithRecords: ["a", "b", "c"] };
+
+	it("counts only sessions that ran hooks, after the cutoff", () => {
+		expect(opportunitiesSince(events, hooks, "2026-09-01T12:00:00.000Z")).toBe(
+			2,
+		);
+	});
+
+	it("does not count a subagent session that ran no hooks", () => {
+		// Everything after 2026-09-03 is `subagent` alone.
+		expect(opportunitiesSince(events, hooks, "2026-09-03T12:00:00.000Z")).toBe(
+			0,
+		);
+	});
+
+	it("counts nothing when no session ran a hook", () => {
+		expect(
+			opportunitiesSince(
+				events,
+				{ sessionsWithRecords: [] },
+				"2026-01-01T00:00:00.000Z",
+			),
+		).toBe(0);
+	});
+
+	// The write window's narrower denominator. `b` and `c` are the sessions
+	// the entry's own trigger fired in; `a` ran hooks, but none of this
+	// entry's, so it was never a chance for this entry to write.
+	it("counts only sessions in the restricting set when one is given", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", ["b", "c"]),
+		).toBe(2);
+	});
+
+	// The restriction narrows the denominator, it does not replace it: a
+	// session that ran no hook at all is not an opportunity however it was
+	// named.
+	it("still requires a hook record from a session in the restricting set", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", [
+				"subagent",
+			]),
+		).toBe(0);
+	});
+
+	// An entry whose trigger fired nowhere had no chance to write anywhere,
+	// which is the whole point: the count is 0 and no threshold can be reached
+	// through it. Distinct from omitting the argument, which is what the
+	// liveness window does and must keep doing.
+	it("counts nothing for an empty restricting set, and everything for none", () => {
+		expect(
+			opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z", []),
+		).toBe(0);
+		expect(opportunitiesSince(events, hooks, "2026-01-01T00:00:00.000Z")).toBe(
+			3,
+		);
+	});
+
+	// The precision trap: hook-health writes second precision, the event log
+	// writes milliseconds, and `'Z'` (0x5A) sorts above `'.'` (0x2E) - so a
+	// lexical compare reads this cutoff as LATER than the session start and
+	// returns 0. It is earlier by 500ms and the session counts.
+	it("compares instants, not strings, across the two logs' formats", () => {
+		expect(
+			opportunitiesSince(
+				{ sessionStarts: { a: "2026-09-01T00:00:00.500Z" } },
+				{ sessionsWithRecords: ["a"] },
+				"2026-09-01T00:00:00Z",
 			),
 		).toBe(1);
 	});

@@ -227,6 +227,43 @@ describe("scanEvents", () => {
 		expect(scan.lastByPrefix.lineage).toBe("2026-08-01T00:00:01Z");
 	});
 
+	it("records the newest timestamp per full event type, not only per prefix", async () => {
+		const root = "/repo/onlooker";
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T00:00:00.000Z",
+				session_id: "s",
+				payload: { working_directory: root },
+			},
+			{
+				event_type: "lineage.change.recorded",
+				timestamp: "2026-09-01T01:00:00.000Z",
+				session_id: "s",
+				payload: {},
+			},
+			{
+				event_type: "lineage.scan.skipped",
+				timestamp: "2026-09-01T02:00:00.000Z",
+				session_id: "s",
+				payload: {},
+			},
+		]);
+
+		const scan = await scanEvents({ root, env });
+
+		// The prefix keeps taking the newest across the whole family...
+		expect(scan.lastByPrefix.lineage).toBe("2026-09-01T02:00:00.000Z");
+		// ...while each type keeps its own, which is what a write signal needs:
+		// `lineage.change.recorded` implies a write, `lineage.scan.skipped` does not.
+		expect(scan.lastByType["lineage.change.recorded"]).toBe(
+			"2026-09-01T01:00:00.000Z",
+		);
+		expect(scan.lastByType["lineage.scan.skipped"]).toBe(
+			"2026-09-01T02:00:00.000Z",
+		);
+	});
+
 	// `root === null` means the caller never asked for scoping at all (most
 	// of this file's own tests use it that way) - `lastByPrefix` stays
 	// machine-wide in that case, exactly as before this fix.
@@ -270,6 +307,37 @@ describe("scanEvents", () => {
 		]);
 		const scan = await scanEvents({ root, env });
 		expect(scan.sessionIds).toEqual(["mine"]);
+	});
+
+	it("records when each of this repo's own sessions started, and no one else's", async () => {
+		const root = "/repo/onlooker";
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T00:00:00.000Z",
+				session_id: "ours",
+				payload: { working_directory: root },
+			},
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-02T00:00:00.000Z",
+				session_id: "theirs",
+				payload: { working_directory: "/somewhere/else" },
+			},
+			// A resumed session logs a second start; the opportunity is the
+			// session, not each record of it, so the earliest wins.
+			{
+				event_type: "session.start",
+				timestamp: "2026-09-01T06:00:00.000Z",
+				session_id: "ours",
+				payload: { working_directory: root },
+			},
+		]);
+
+		const scan = await scanEvents({ root, env });
+
+		expect(scan.sessionStarts).toEqual({ ours: "2026-09-01T00:00:00.000Z" });
+		expect(scan.sessionIds).toEqual(["ours"]);
 	});
 
 	// `project_key` comes from `payload`, written by any of sixteen
@@ -579,6 +647,95 @@ describe("scanHooks", () => {
 		expect(scan.hooks["bursar-session-end"].firedSince).toBe(2);
 	});
 
+	// The opportunity denominator: a session only counts as one if it
+	// demonstrably ran hooks, scoped the same way firings themselves are. An
+	// unattributable firing (no session_id) proves a hook ran but not where,
+	// so it cannot make anyone an opportunity.
+	it("records which sessions ran hooks at all, scoped the same way firings are", async () => {
+		const env = withHooks([
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T00:00:00Z",
+				"success",
+				"ours",
+			),
+			firing("bursar-session-end", "2026-09-01T01:00:00Z", "success", "ours"),
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T02:00:00Z",
+				"success",
+				"theirs",
+			),
+			firing("lineage-post-tool-use", "2026-09-01T03:00:00Z"),
+		]);
+
+		const scoped = await scanHooks({ since: {}, sessionIds: ["ours"], env });
+		expect(scoped.sessionsWithRecords).toEqual(["ours"]);
+
+		// Unscoped keeps its machine-wide contract, minus the unattributable one.
+		const all = await scanHooks({ since: {}, env });
+		expect(all.sessionsWithRecords).toEqual(["ours", "theirs"]);
+	});
+
+	// The union answers "was this session a chance for ANY plugin to act,"
+	// which is the wrong question for the write axis: a session in which
+	// lineage's own hook never fired was never a chance for lineage's ledger
+	// to move, and charging it for one is the false positive that put a
+	// healthy lineage at `STOPPED` on the real machine. Both sessions below ran
+	// the hook machinery; only one of them was lineage's.
+	it("records which sessions each hook fired in, not only which ran hooks at all", async () => {
+		const env = withHooks([
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-01T00:00:00Z",
+				"success",
+				"edited",
+			),
+			firing(
+				"bursar-session-end",
+				"2026-09-02T00:00:00Z",
+				"success",
+				"read-only",
+			),
+			// Scoped out, like every other count here: another repo's session
+			// firing this hook says nothing about ours.
+			firing(
+				"lineage-post-tool-use",
+				"2026-09-03T00:00:00Z",
+				"success",
+				"theirs",
+			),
+			// Unattributable, so it cannot make any session anything.
+			firing("lineage-post-tool-use", "2026-09-04T00:00:00Z"),
+		]);
+		const scan = await scanHooks({
+			since: {},
+			sessionIds: ["edited", "read-only"],
+			env,
+		});
+		expect(scan.sessionsWithRecords).toEqual(["edited", "read-only"]);
+		expect(scan.sessionsByHook["lineage-post-tool-use"]).toEqual(["edited"]);
+		expect(scan.sessionsByHook["bursar-session-end"]).toEqual(["read-only"]);
+	});
+
+	// Attribution is recorded before the `since` filter, and has to be: a
+	// firing that predates the output's own mtime is still a firing, and
+	// `sessionsByHook` means "the sessions this hook fired in" with no
+	// threshold folded into it. The caller measures its own window from its
+	// own cutoff (see `opportunitiesSince`); a set already narrowed by a
+	// different one would silently intersect two windows.
+	it("attributes a session even when the firing predates the hook's threshold", async () => {
+		const env = withHooks([
+			firing("assayer-stop", "2026-08-01T00:00:00Z", "success", "early"),
+		]);
+		const scan = await scanHooks({
+			since: { "assayer-stop": "2026-08-07T00:00:00Z" },
+			env,
+		});
+		expect(scan.hooks["assayer-stop"].firedSince).toBe(0);
+		expect(scan.sessionsByHook["assayer-stop"]).toEqual(["early"]);
+	});
+
 	// `since[hook]` carries millisecond precision (`mtimeToIso`, always via
 	// `Date#toISOString()`); hook-health.jsonl writes second precision.
 	// Lexically "...:45Z" sorts ABOVE "...:45.123Z" ('Z' is 0x5A, '.' is
@@ -666,6 +823,11 @@ describe("scanHooks", () => {
 		});
 		expect(scan.missing).toBe(true);
 		expect(scan.hooks).toEqual({});
+		// Both session sets are assigned only after the read loop finishes, so
+		// a truncated pass yields empty rather than a partial attribution a
+		// caller would read as a complete one.
+		expect(scan.sessionsByHook).toEqual({});
+		expect(scan.sessionsWithRecords).toEqual([]);
 	});
 
 	it("counts a line that will not parse instead of throwing", async () => {
