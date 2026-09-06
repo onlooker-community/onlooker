@@ -38,10 +38,12 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "lesson_feed_lesson_id_idx",
 				unique: false,
+				columns: ["lesson_id"],
 			},
 			{
 				name: "lesson_feed_user_seq_idx",
 				unique: true,
+				columns: ["user_id", "seq"],
 			},
 		],
 	},
@@ -106,10 +108,12 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "lessons_user_id_idx",
 				unique: false,
+				columns: ["user_id"],
 			},
 			{
 				name: "lessons_user_promoted_at_idx",
 				unique: false,
+				columns: ["user_id", "promoted_at", "id"],
 			},
 		],
 	},
@@ -162,10 +166,12 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "machine_tokens_token_hash_idx",
 				unique: true,
+				columns: ["token_hash"],
 			},
 			{
 				name: "machine_tokens_user_id_idx",
 				unique: false,
+				columns: ["user_id"],
 			},
 		],
 	},
@@ -206,14 +212,17 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "sessions_expires_at_idx",
 				unique: false,
+				columns: ["expires_at"],
 			},
 			{
 				name: "sessions_token_hash_idx",
 				unique: true,
+				columns: ["token_hash"],
 			},
 			{
 				name: "sessions_user_id_idx",
 				unique: false,
+				columns: ["user_id"],
 			},
 		],
 	},
@@ -266,10 +275,12 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "users_created_at_idx",
 				unique: false,
+				columns: ["created_at"],
 			},
 			{
 				name: "users_email_idx",
 				unique: true,
+				columns: ["email"],
 			},
 		],
 	},
@@ -316,18 +327,22 @@ export const EXPECTED_SCHEMA = {
 			{
 				name: "verification_tokens_expires_at_idx",
 				unique: false,
+				columns: ["expires_at"],
 			},
 			{
 				name: "verification_tokens_token_idx",
 				unique: true,
+				columns: ["token_hash"],
 			},
 			{
 				name: "verification_tokens_type_idx",
 				unique: false,
+				columns: ["type"],
 			},
 			{
 				name: "verification_tokens_user_id_idx",
 				unique: false,
+				columns: ["user_id"],
 			},
 		],
 	},

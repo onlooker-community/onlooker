@@ -25,8 +25,23 @@ export function describe(table) {
 			notnull: c.notNull ? 1 : 0,
 			pk: c.primary ? 1 : 0,
 		})),
+		// Columns as well as name and uniqueness. Recording only the name left
+		// this snapshot byte-identical after an index-COLUMN change, so the
+		// staleness test could never fail on one and `verify-schema` had
+		// nothing to compare - a blind spot for exactly the drift that keeps
+		// its name. The dangerous half was always caught: a DROP that commits
+		// with a failed CREATE loses the index by name. The gap was
+		// wrong-columns-same-name.
+		//
+		// NOT sorted, unlike the index list itself: a composite index over
+		// (a, b) serves queries that one over (b, a) does not, so the order
+		// declared is part of what is being pinned.
 		indexes: config.indexes
-			.map((i) => ({ name: i.config.name, unique: i.config.unique }))
+			.map((i) => ({
+				name: i.config.name,
+				unique: i.config.unique,
+				columns: i.config.columns.map((c) => c.name),
+			}))
 			.sort((a, b) => a.name.localeCompare(b.name)),
 	};
 }
