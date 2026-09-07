@@ -93,3 +93,41 @@ export const ICON_NAMES = [
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
+
+/**
+ * Every icon the app renders directly rather than through a `Plate`.
+ *
+ * A plate's fill is one of two constant colors that do not shift with the
+ * theme, so an icon on one sits on an identical ground at noon and midnight.
+ * Everything here lands on `--panel` or `--ground`, both of which move, and has
+ * to stay legible on all four combinations - which `assets.test.ts` asserts.
+ *
+ * THIS LIST IS THE ENFORCEMENT SURFACE. Nothing derives it from the app, so an
+ * icon rendered unplated and not added here simply goes unchecked. The rule
+ * cannot just apply to all 80: 19 of them cannot meet the floor, and
+ * MusicNotes, ShoppingCart, Sleep and SpeakerOn measure 0% against the night
+ * panel. Sleep is the instructive one - it really is rendered, by
+ * `machineIcon`, and it is fine, because MachinesPage renders it in a `Plate`.
+ */
+export const UNPLATED_ICONS = [
+	// AppShell's nav and wordmark. Basket rather than ChestTreasure since
+	// onlooker-1kr: ChestTreasure still renders on the empty-pool state, but
+	// on a teal Plate, so it is exempt by construction.
+	"Basket",
+	"Key",
+	"Book",
+	"Gear",
+	"CatHead",
+	"Eye",
+	// Panel titles, through `Panel`'s own h2.
+	"Letter",
+	"Locked",
+	"Pencil",
+	"Trashbin",
+	"Trophy",
+	"MagnifyingGlass",
+	// LessonDetail's status header, which renders STATUS_ICONS unplated.
+	"Lightbulb",
+	"Skull",
+	"Restart",
+] as const satisfies readonly IconName[];

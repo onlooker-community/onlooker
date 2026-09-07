@@ -22,11 +22,21 @@ const URLS = import.meta.glob<string>(
 	{ eager: true, query: "?url", import: "default" },
 );
 
+// Built once at import rather than per call. `Object.entries` allocated an
+// 80-pair array every time, and urlFor runs once per rendered icon - a 50-row
+// pool with a leading plate per row did that fifty times per render pass.
+const BY_NAME = new Map<string, string>(
+	Object.entries(URLS).map(([path, url]) => [
+		path.slice(path.lastIndexOf("/") + 1, -".png".length),
+		url,
+	]),
+);
+
 function urlFor(name: IconName): string {
-	const match = Object.entries(URLS).find(([path]) =>
-		path.endsWith(`/${name}.png`),
-	);
-	return match ? match[1] : "";
+	// Empty string rather than a throw, kept from the original: an unknown name
+	// renders a broken image, which is visible, instead of blanking the page
+	// around it. icon.test.tsx pins that a known name is non-empty.
+	return BY_NAME.get(name) ?? "";
 }
 
 export function Icon({
