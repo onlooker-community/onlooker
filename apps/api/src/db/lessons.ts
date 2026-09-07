@@ -339,9 +339,13 @@ export async function readLessonDelta(
 }> {
 	const rows = await db
 		.prepare(
+			// Same join, same implicit invariant, same predicate stating it -
+			// see `listActivityPage` for the reasoning. Hardened together
+			// because leaving one of two identical joins implicit is how the
+			// next reader concludes the explicit one was the special case.
 			`SELECT f.seq AS seq, l.body AS body
 			 FROM lesson_feed f
-			 JOIN lessons l ON l.id = f.lesson_id
+			 JOIN lessons l ON l.id = f.lesson_id AND l.user_id = f.user_id
 			 WHERE f.user_id = ? AND f.seq > ?
 			 ORDER BY f.seq ASC
 			 LIMIT ?`,
@@ -465,9 +469,23 @@ export async function listActivityPage(
 
 	const { results } = await db
 		.prepare(
+			// `AND l.user_id = f.user_id` states the invariant the join rests
+			// on rather than trusting it. `lessons.id` is a global primary
+			// key, so joining on it alone is safe only because both writers
+			// keep a feed row's lesson owned by the same user:
+			// `createLessonsWithFeed` drops a colliding id from pending and
+			// writes no feed row for it, and `transitionLesson` returns null
+			// before writing when the owner differs.
+			//
+			// No path reaches another account's events today - the feed side
+			// is filtered on `f.user_id`, and a forged cursor is a bare seq
+			// applied as `f.seq < ?` alongside that predicate, so it cannot
+			// escape. This is hardening, not a fix: it costs nothing, and it
+			// means a future writer that loses the invariant produces no rows
+			// instead of another account's claims.
 			`SELECT f.seq, f.kind, f.at, f.lesson_id, l.body, l.status
 			 FROM lesson_feed f
-			 JOIN lessons l ON l.id = f.lesson_id
+			 JOIN lessons l ON l.id = f.lesson_id AND l.user_id = f.user_id
 			 WHERE ${where}
 			 ORDER BY f.seq DESC
 			 LIMIT ?`,

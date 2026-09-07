@@ -96,6 +96,33 @@ describe("listActivityPage", () => {
 		expect(page.events[0].claim).toBe("mine");
 	});
 
+	// The test above covers the boundary as both writers actually maintain it.
+	// This one breaks the invariant the join rests on, which no writer does
+	// today: `createLessonsWithFeed` drops a colliding id from pending and
+	// writes no feed row for it, and `transitionLesson` returns null before
+	// writing when the owner differs. So the broken state is seeded directly
+	// rather than through them.
+	//
+	// Without a predicate tying the lesson's owner to the feed row's, `lessons`
+	// is joined on a global primary key alone, and one account's feed row
+	// pointing at another account's lesson hands over that lesson's claim. The
+	// failure mode a future writer should get is no rows, not someone else's.
+	it("returns nothing when a feed row points at another user's lesson", async () => {
+		const mine = await userIdFor("u1");
+		await seed("u2", "l-theirs", 1, "create", "2026-08-31T10:00:00Z", "theirs");
+		await db()
+			.prepare(
+				`INSERT INTO lesson_feed (seq, user_id, lesson_id, kind, at)
+				 VALUES (?, ?, ?, ?, ?)`,
+			)
+			.bind(2, mine, "l-theirs", "create", "2026-08-31T10:00:00Z")
+			.run();
+
+		const page = await listActivityPage(db(), mine, { limit: 50 });
+
+		expect(page.events).toEqual([]);
+	});
+
 	it("pages through with a cursor without dropping or repeating a row", async () => {
 		for (let i = 1; i <= 5; i++) {
 			await seed("u1", `l${i}`, i, "create", "2026-08-31T10:00:00Z", `c${i}`);
