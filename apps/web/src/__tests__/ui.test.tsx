@@ -66,6 +66,51 @@ describe("Button", () => {
 			screen.getByRole("button", { name: "Revoke" }).style.background,
 		).toBe(PALETTE.plateRed);
 	});
+
+	// The treatment SettingsPage hand-rolled twice before the system owned it:
+	// the border and the ink carry the meaning, and nothing is filled. A ghost
+	// that quietly kept the plate would look right in isolation and wrong
+	// beside the filled button it is meant to read as lesser than.
+	it("carries a ghost with a border and no fill", () => {
+		render(
+			<Button onClick={() => {}} variant="ghost">
+				Resend
+			</Button>,
+		);
+		const button = screen.getByRole("button", { name: "Resend" });
+		expect(button.style.background).toBe("transparent");
+		expect(button.style.color).toBe("var(--ink)");
+		expect(button.style.border).toBe("2px solid var(--ink-dim)");
+		// The plate's dropped shadow is what reads as "filled and raised".
+		expect(button.style.boxShadow).toBe("none");
+	});
+
+	// --red on the page ground, matching the section heading. This is the
+	// delete *trigger*, which must not outrank the confirm it opens.
+	it("carries a destructive ghost in red, still unfilled", () => {
+		render(
+			<Button onClick={() => {}} variant="ghost-danger">
+				Delete my account
+			</Button>,
+		);
+		const button = screen.getByRole("button", { name: "Delete my account" });
+		expect(button.style.background).toBe("transparent");
+		expect(button.style.color).toBe("var(--red)");
+		expect(button.style.border).toBe("2px solid var(--red)");
+	});
+
+	// A ghost must not become a filled button when it goes inert - that would
+	// make a disabled control the loudest thing on the panel.
+	it("stays unfilled while inert", () => {
+		render(
+			<Button onClick={() => {}} variant="ghost" disabled>
+				Resend
+			</Button>,
+		);
+		const button = screen.getByRole("button", { name: "Resend" });
+		expect(button.style.background).toBe("transparent");
+		expect(button.style.color).toBe("var(--ink-dim)");
+	});
 });
 
 describe("StatusBadge", () => {
