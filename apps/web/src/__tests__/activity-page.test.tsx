@@ -11,7 +11,7 @@
 // formatted date, so there's no established pattern to match here.
 process.env.TZ = "UTC";
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -79,6 +79,45 @@ const POPULATED = {
 
 const EMPTY = { events: [], cursor: null, has_more: false };
 
+// Page one ends mid-day on purpose. Its oldest event (seq 2) is 2026-08-31,
+// and page two's newest (seq 1) is the SAME day - so a correct implementation
+// merges them under one heading and a per-page implementation renders two.
+// A fixture whose page boundary fell on a day boundary would pass either way.
+const PAGE_ONE = {
+	events: [
+		{
+			seq: 3,
+			kind: "create",
+			at: "2026-08-31T18:00:00Z",
+			lesson_id: "l3",
+			claim: "Cache node_modules between CI runs",
+		},
+		{
+			seq: 2,
+			kind: "create",
+			at: "2026-08-31T14:00:00Z",
+			lesson_id: "l2",
+			claim: "Pin vitest and vite together",
+		},
+	],
+	cursor: "Mg==",
+	has_more: true,
+};
+
+const PAGE_TWO = {
+	events: [
+		{
+			seq: 1,
+			kind: "create",
+			at: "2026-08-31T09:00:00Z",
+			lesson_id: "l1",
+			claim: "Prefer explicit imports",
+		},
+	],
+	cursor: null,
+	has_more: false,
+};
+
 const mocks = vi.hoisted(() => ({ listActivity: vi.fn() }));
 
 // importOriginal rather than a bare factory: App's route table pulls in
@@ -143,5 +182,57 @@ describe("/activity when the feed is empty", () => {
 		mocks.listActivity.mockResolvedValue(EMPTY);
 		renderAppAt("/activity");
 		expect(await screen.findByText(/nothing has happened yet/i)).toBeDefined();
+	});
+});
+
+describe("/activity pagination", () => {
+	it("has no Load more button when the first page is the whole feed", async () => {
+		mocks.listActivity.mockResolvedValue(PAGE_TWO);
+		renderAppAt("/activity");
+		await screen.findByText(/prefer explicit imports/i);
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+	});
+
+	it("appends the next page and retires the button when the feed ends", async () => {
+		mocks.listActivity
+			.mockResolvedValueOnce(PAGE_ONE)
+			.mockResolvedValueOnce(PAGE_TWO);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+
+		expect(await screen.findByText(/prefer explicit imports/i)).toBeDefined();
+		expect(screen.getByText(/cache node_modules/i)).toBeDefined();
+		expect(mocks.listActivity).toHaveBeenLastCalledWith({ cursor: "Mg==" });
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+	});
+
+	// The assertion this whole change can most plausibly get wrong. Page one
+	// ends and page two begins on the SAME day, so grouping that runs per page
+	// yields two headings where grouping over the accumulated list yields one.
+	it("merges a day that spans the page boundary into one heading", async () => {
+		mocks.listActivity
+			.mockResolvedValueOnce(PAGE_ONE)
+			.mockResolvedValueOnce(PAGE_TWO);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+		await screen.findByText(/prefer explicit imports/i);
+
+		expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+	});
+
+	// A missing tail is not a reason to blank a feed the reader can still use.
+	it("keeps the loaded events when an append fails", async () => {
+		mocks.listActivity
+			.mockResolvedValueOnce(PAGE_ONE)
+			.mockRejectedValueOnce(new Error("Network unreachable"));
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+
+		expect(await screen.findByRole("alert")).toBeDefined();
+		expect(screen.getByText(/network unreachable/i)).toBeDefined();
+		expect(screen.getByText(/cache node_modules/i)).toBeDefined();
 	});
 });

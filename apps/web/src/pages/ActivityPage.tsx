@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { type ActivityEvent, listActivity } from "../api/lessonsApi";
-import { EmptyState, Panel } from "../components/ui";
+import { PALETTE } from "../components/palette";
+import { Button, EmptyState, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 
 /** The day an event belongs to, in the reader's own timezone. */
@@ -38,6 +39,9 @@ function describeKind(kind: string): string {
 export default function ActivityPage() {
 	const [events, setEvents] = useState<ActivityEvent[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
+	const [cursor, setCursor] = useState<string | null>(null);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const [moreError, setMoreError] = useState<string | null>(null);
 
 	useEffect(() => {
 		// An `active` flag, not a request sequence number. LessonsPage carries a
@@ -51,6 +55,12 @@ export default function ActivityPage() {
 			.then((page) => {
 				if (!active) return;
 				setEvents(page.events);
+				// `has_more` and not `cursor !== null`. They agree today, because
+				// listActivityPage derives hasMore as `rows.length > limit` and so
+				// always has a last row to mint a cursor from - but they are two
+				// facts and only one of them is the question being asked. See the
+				// same reasoning at LessonsPage's load().
+				setCursor(page.has_more ? page.cursor : null);
 			})
 			.catch((error: unknown) => {
 				if (!active) return;
@@ -60,6 +70,25 @@ export default function ActivityPage() {
 			active = false;
 		};
 	}, []);
+
+	const loadMore = async () => {
+		// The whole of the concurrency control this screen needs: no filter means
+		// no query to supersede, so the only race is a second click while the
+		// first append is still out.
+		if (!cursor || loadingMore) return;
+		setLoadingMore(true);
+		setMoreError(null);
+		try {
+			const page = await listActivity({ cursor });
+			setEvents((current) => [...(current ?? []), ...page.events]);
+			setCursor(page.has_more ? page.cursor : null);
+		} catch (error) {
+			// The pages already loaded stay. A failed append is a missing tail.
+			setMoreError(describeError(error, "Could not load more activity."));
+		} finally {
+			setLoadingMore(false);
+		}
+	};
 
 	if (loadError) {
 		return (
@@ -128,6 +157,22 @@ export default function ActivityPage() {
 					))}
 				</Panel>
 			))}
+
+			{cursor ? (
+				<Button
+					loading={loadingMore}
+					loadingLabel="Loading…"
+					onClick={() => void loadMore()}
+				>
+					Load more
+				</Button>
+			) : null}
+
+			{moreError ? (
+				<p role="alert" style={{ color: PALETTE.danger }}>
+					{moreError}
+				</p>
+			) : null}
 		</div>
 	);
 }
