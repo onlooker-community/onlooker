@@ -532,7 +532,11 @@ it("counts a librarian scan that reached classification, not one that skipped", 
 	const survey = await surveyStreams({ cwd, home, configDir, env, now: NOW });
 	const librarian = survey.verdicts.find((v) => v.plugin === "librarian");
 
-	expect(librarian?.verdict.kind).not.toBe("stopped");
+	// Asserted positively. `not.toBe("stopped")` would also pass on
+	// `unknown`, which is the exact way this fixture fails when it has not
+	// cleared the never-written-output branch - a test that passes for the
+	// reason it was meant to detect.
+	expect(librarian?.verdict.kind).toBe("recording");
 });
 ```
 
@@ -555,11 +559,13 @@ moved.
 
 Run: `pnpm --filter @onlooker/cli test src/__tests__/streams.test.ts`
 
-Expected: FAIL — the verdict is `stopped`, because all six opportunities are
-counted from hook firings and none of them is excluded by the skip.
+Expected: FAIL with `stopped`, because all six opportunities are counted from
+hook firings and none is excluded by the skip.
 
-If it fails instead with `unknown`, the fixture has not cleared the
-never-written-output branch; fix the fixture, not the assertion.
+If it fails with `unknown` instead, the fixture has not cleared the
+never-written-output branch. Fix the fixture, not the assertion — a fixture
+stuck on `unknown` never reaches the code this task changes, so the test would
+go green after the implementation for a reason unrelated to it.
 
 - [ ] **Step 3: Add the table field**
 
