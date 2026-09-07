@@ -20,8 +20,11 @@ import SessionExpiryBanner from "./SessionExpiryBanner";
 // hand-written copy of it: a route added here is covered without anyone
 // remembering to extend the test.
 export const SECTIONS = [
-	// ChestTreasure: the approved pool, in the brand doc's own mapping.
-	{ to: "/lessons", label: "Lessons", icon: "ChestTreasure" },
+	// Basket, not ChestTreasure: the brand doc's mapping named ChestTreasure
+	// for the approved pool, but it measures 9% legible against the night
+	// panel this renders on. See onlooker-1kr, and the amendment on the
+	// 2026-08-11 brand spec.
+	{ to: "/lessons", label: "Lessons", icon: "Basket" },
 	{ to: "/machines", label: "Machines", icon: "Key" },
 	// Book: the log-shaped icon in the brand set, and the one not already
 	// spoken for by lessons, machines, settings or profile.

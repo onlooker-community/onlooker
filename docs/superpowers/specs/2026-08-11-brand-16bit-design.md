@@ -370,3 +370,34 @@ persisted preference before it could ship.
 **Recoloring the icons.** CC BY 4.0 permits adaptation with changes indicated,
 so retinting the set to a different palette is legally available. Not needed —
 the palette was derived from the icons instead, which is the cheaper direction.
+
+---
+
+## Amendment, 2026-09-07 — a mapping needs a ground, not just a meaning
+
+The Mapping section above says "ChestTreasure is the approved pool". The nav no
+longer uses it; `Basket` does.
+
+ChestTreasure is not wrong as a metaphor. It is wrong on the surface it had to
+render on. Measured on 2026-09-07 by decoding the PNGs: 9% of its opaque pixels
+clear 3:1 against `--panel` at night and 13% against `--ground`, where every
+other unplated icon in use lands between 38% and 62%. The bright body that
+carries its shape sits close in luminance to the night panel, so the icon goes
+soft exactly when the theme is darkest. `Basket` measures 42% and 58% on those
+same grounds.
+
+**The principle this document was missing.** It governs icon SIZE and says
+nothing about the surface an icon sits on. A mapping should not name an icon
+that cannot be seen on the ground it renders on — "which icon means what" is not
+separable from "where does it render". `packages/brand`'s `UNPLATED_ICONS` and
+the coverage rule in `assets.test.ts` now enforce the half of that a document
+cannot.
+
+**ChestTreasure still renders**, on the empty-pool state at
+`LessonsPage.tsx:362`, where it sits on a teal `Plate`. Plate fills are constant
+across themes, so an icon on one is exempt by construction — which is the other
+way to satisfy the rule, and why the 48px empty-pool case was already fixed by
+plating it during `onlooker-ss1`.
+
+Full reasoning, including why the coverage metric replaced the dominant-color
+one `onlooker-1kr` asked for: `2026-09-07-icon-contrast-and-payload-design.md`.
