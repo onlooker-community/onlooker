@@ -145,16 +145,41 @@ the title empty would have been a quiet visual regression.
 
 ---
 
-## Section 4 — `LessonDetail` shifts down one level *(approved)*
+## Section 4 — `LessonDetail`'s claim becomes an `h2` *(approved, corrected)*
 
-Claim `h1` → `h2`, panel `h2` → `h3`, field `h3` → `h4`. The outline on
-`/lessons/:id` becomes `h1` Lessons → `h2` The pool → `h2` claim → `h3` panel →
-`h4` field. Skip-free, and one `h1`.
+**Only the claim moves.** `h1` → `h2`. `Field` stays `h3` and `Panel` stays
+`h2`.
 
-`LessonDetail.tsx:36-48` documents the old outline explicitly, so that comment is
-rewritten rather than left to contradict the code it sits above. The reasoning it
-carries — that the nesting is correct document order rather than a skip — stays
-true at the new levels and is worth keeping.
+**Corrected during planning.** This section as first approved said the whole
+chain shifted — claim to `h2`, panel to `h3`, field to `h4`. The middle step is
+impossible as scoped: `Panel` renders a literal `<h2>` in `ui.tsx:154`, shared by
+every page. Moving it would shift headings on `/machines`, `/settings`,
+`/profile` and `/activity` as well, where `Panel`'s `h2` sitting under the
+shell's `h1` is already correct. Giving `Panel` a configurable level is a
+different change than this one, and not needed here.
+
+So the claim and the panels below it become siblings at `h2` rather than parent
+and child. The outline on `/lessons/:id`:
+
+```
+h1  Lessons          (AppShell)
+h2  The pool         (Panel, the list)
+h2  <the claim>      (LessonDetail)
+h2  Applies to       (Panel, in the detail)
+h3    Versions       (Field)
+```
+
+Skip-free, and one `h1`. The claim leading its panels rather than containing
+them is a real loss of nesting, accepted because the alternative is a shared
+component change with a blast radius across five routes for a P4 heading bead.
+
+`LessonDetail.tsx:34-41` documents the old chain in a comment that begins "h3,
+not h2". Only its top link changes — `Field` under `Panel` is untouched — so the
+comment is edited rather than rewritten.
+
+**Why the claim is not simply left at `h1`.** That is the one option that needs
+no change at all here, and it is what Section 1 rules out: `/lessons/:id` would
+carry two `h1`s, the shell's and the claim's.
 
 **Why the claim is not the page `h1`.** `/lessons/:id` is a layout route:
 `LessonsPage` renders the list and an `Outlet` for the detail, two panes of one
