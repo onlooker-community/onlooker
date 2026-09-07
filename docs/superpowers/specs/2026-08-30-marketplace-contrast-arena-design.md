@@ -436,10 +436,51 @@ latency attributable.
 > `readEnablement`.
 >
 > So the pool was not empty because lessons are rare. It was empty because the
-> filter could never say yes. Expect lessons on the fixed version, and treat a
-> pool that stays empty for long as a signal to re-open `onlooker-01x` rather
-> than as the system working as intended. Stated as strong inference, not
-> proof: the empty array cannot be observed retroactively.
+> filter could never say yes. Stated as strong inference, not proof: the empty
+> array cannot be observed retroactively.
+>
+> **Corrected again 2026-09-07.** The paragraph above used to close by telling
+> the next reader to expect lessons on the fixed version, and to treat a pool
+> that stayed empty for long as grounds to re-open `onlooker-01x`. Following that
+> instruction today re-opens the bead for the wrong cause. The allowlist account
+> stands as an explanation of the June–August window; as a prognosis it was one
+> layer too shallow.
+>
+> Two things happened in between. `onlooker-ujtf` — librarian's event emitter
+> resolving a doubled path — meant the plugin emitted nothing at all for 34 days,
+> so the "re-count the drop reasons next session" check this correction asked for
+> could not be run against anything. That is fixed; emission resumed
+> 2026-09-06T21:55:57Z and `scan.started`/`scan.complete` pairs have flowed since.
+>
+> With the instrument working again, the answer is visible, and it is not the
+> filter. Every `scan.complete` on 2026-09-07 reads `outcome: "skipped"`,
+> `skip_reason: "no_new_artifacts"`, `artifact_count_in_window: 0`, in 140–170 ms.
+> That is `librarian-session-end.sh:145`, the empty-window bail, which returns
+> before the durability filter at `:240` is reached. No `candidate.dropped` event
+> has been emitted since 2026-08-03T16:28Z. The allowlist can be neither
+> convicted nor exonerated from this, because nothing arrives at it.
+>
+> **The window is empty because artifacts are only produced by compaction.**
+> archivist's sole artifact-producing hook is `archivist-extract`, and
+> `hooks.json` binds it to `PreCompact` alone, on the `manual` and `auto`
+> matchers — verified in 0.5.0, the newest cached version. Its only sibling,
+> `archivist-inject`, runs on `SessionStart` and writes no artifacts. The newest
+> artifact under this repo's project key is dated 2026-08-07T10:36 — a month old,
+> and predating the #115 enablement this amendment documents. No session has
+> compacted since.
+>
+> The real shape is therefore narrower than either earlier version. A short
+> session, however lesson-rich, contributes nothing; only sessions long enough to
+> compact do. Whether that coupling is the intended design of the pipeline or an
+> accident of where the hook was bound is an open question, and it deserves an
+> answer before an empty pool is read as a plugin fault.
+>
+> **What to check, replacing the instruction that was cut.** An empty pool is
+> currently uninformative — it is the expected reading for a healthy librarian
+> and a broken one alike. The signal worth waiting for is the first
+> `scan.complete` carrying `artifact_count_in_window` greater than zero; the drop
+> reasons on *that* scan are the test the allowlist thesis has been waiting for.
+> `onlooker doctor` exiting 1 on librarian stays correct until then.
 >
 > The rest of the cohort stays deferred, and historian is still the one to
 > revisit first for the reason given above.
