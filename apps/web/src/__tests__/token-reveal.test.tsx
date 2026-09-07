@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TokenReveal from "../components/TokenReveal";
 
@@ -23,6 +24,34 @@ beforeEach(() => {
 		configurable: true,
 	});
 });
+
+/**
+ * A trigger that opens the dialog, so mount and unmount happen the way they
+ * do in the app rather than as a bare `render`.
+ *
+ * `hideTriggerWhileOpen` models the case where whatever opened the dialog is
+ * gone by the time it closes - a failed refetch swapping the mint form for an
+ * error state, for instance.
+ */
+function Opener({
+	hideTriggerWhileOpen = false,
+}: {
+	hideTriggerWhileOpen?: boolean;
+}) {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			{open && hideTriggerWhileOpen ? null : (
+				<button type="button" onClick={() => setOpen(true)}>
+					Mint token
+				</button>
+			)}
+			{open ? (
+				<TokenReveal machine={MACHINE} onDismiss={() => setOpen(false)} />
+			) : null}
+		</>
+	);
+}
 
 function renderReveal(onDismiss = vi.fn()) {
 	const result = render(
@@ -66,6 +95,39 @@ describe("TokenReveal", () => {
 		// Otherwise Tab begins at the top of the document and walks the nav
 		// behind the modal before it ever reaches the copy button.
 		expect(document.activeElement).toBe(screen.getByRole("dialog"));
+	});
+
+	// Taking focus on mount is only half of it. The acknowledgement button
+	// unmounts the dialog while still holding focus, so focus falls to <body>
+	// and the next Tab restarts at the top of the document - the same defect
+	// already fixed for revoke, where focus moved to the row before the confirm
+	// button unmounted.
+	//
+	// A real trigger and a real unmount, because a `vi.fn()` onDismiss leaves
+	// the dialog mounted and the bug unreachable.
+	it("returns focus to whatever opened it", () => {
+		render(<Opener />);
+		const trigger = screen.getByRole("button", { name: /mint token/i });
+		trigger.focus();
+		fireEvent.click(trigger);
+
+		fireEvent.click(screen.getByRole("button", { name: /saved it/i }));
+
+		expect(document.activeElement).toBe(trigger);
+	});
+
+	// The opener is not guaranteed to survive - a failed refetch can swap the
+	// form for an error state while the dialog is up. Nothing to return to is
+	// not a reason to throw on the way out.
+	it("does not throw when the opener is gone by the time it closes", () => {
+		render(<Opener hideTriggerWhileOpen />);
+		const trigger = screen.getByRole("button", { name: /mint token/i });
+		trigger.focus();
+		fireEvent.click(trigger);
+
+		expect(() =>
+			fireEvent.click(screen.getByRole("button", { name: /saved it/i })),
+		).not.toThrow();
 	});
 
 	// Mount focuses the container, not the first button, so the very first
