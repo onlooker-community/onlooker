@@ -109,7 +109,15 @@ export function setLessonStatus(
 	);
 }
 
-/** One event in the reader's own feed. Field names are the API's, not camelCased. */
+/**
+ * One event in the reader's own feed. Field names are the API's, not camelCased.
+ *
+ * The wire also carries `applies_to` and `status`. Both are omitted on purpose.
+ * A status row must name no state — see the approved limitation in
+ * 2026-08-31-lesson-activity-screen-design.md — and leaving `status` off this
+ * type makes rendering it a compile error rather than a review catch. `applies_to`
+ * has no consumer. Add either the moment one does.
+ */
 export interface ActivityEvent {
 	seq: number;
 	kind: string;
