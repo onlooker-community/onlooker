@@ -1837,6 +1837,42 @@ describe("surveyStreams", () => {
 		expect(survey.verdicts.map((v) => v.plugin)).not.toContain("archivist");
 	});
 
+	// The footer exists so someone poking around $ONLOOKER_DIR is not surprised
+	// by a directory doctor never mentioned - so dropping a directory it cannot
+	// measure is the one outcome it must not produce. `anyDataFreshness`
+	// returns `{ mtime: null, unreadable: true }` for a root that exists but
+	// cannot be dated (a permissions problem, or a directory symlink), and the
+	// footer's `mtime === null` skip swallowed it: doctor implicitly claimed a
+	// directory was absent that the user can plainly see is there. Every other
+	// unmeasurable path in this file becomes a reported state instead.
+	//
+	// A plain file where scribe's directory belongs is the cheapest real
+	// version of that: `classifyRoot` folds a file-where-a-directory-belongs
+	// into "unreadable" exactly as it does a directory symlink.
+	it("keeps an unreadable stream directory in the footer instead of dropping it", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			files: [["scribe", "2026-08-07T00:00:00Z"]],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		const scribe = survey.footer.find((f) => f.plugin === "scribe");
+		expect(scribe).toBeDefined();
+		expect(scribe?.detail).toMatch(/could not be read/i);
+	});
+
+	// Reported, not faulted. The footer describes streams this project does
+	// NOT enable, so doctor makes no health claim about them - failing the
+	// exit code over an unenabled plugin's unreadable directory would be the
+	// crying wolf the footer exists to avoid. Saying so is the whole fix.
+	it("does not fault over an unreadable stream directory it does not enable", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			files: [["scribe", "2026-08-07T00:00:00Z"]],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(survey.faults).toEqual([]);
+	});
+
 	// Real output on disk is not, by itself, a sign the stream is running -
 	// the file is there, and nothing has emitted or fired in six chances.
 	//
