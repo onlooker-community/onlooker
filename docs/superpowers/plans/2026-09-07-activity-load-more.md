@@ -89,7 +89,7 @@ describe("listActivity", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-pnpm --filter @onlooker/web test -- lessonsApi
+pnpm --filter @onlooker/web exec vitest run src/api/lessonsApi.test.ts
 ```
 
 Expected: FAIL. `listActivity is not a function` (the import destructure yields `undefined`).
@@ -165,7 +165,7 @@ export function listActivity(
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-pnpm --filter @onlooker/web test -- lessonsApi
+pnpm --filter @onlooker/web exec vitest run src/api/lessonsApi.test.ts
 pnpm --filter @onlooker/web typecheck
 pnpm --filter @onlooker/web lint
 ```
@@ -259,7 +259,7 @@ And in the empty-feed describe:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-pnpm --filter @onlooker/web test -- activity-page
+pnpm --filter @onlooker/web exec vitest run src/__tests__/activity-page.test.tsx
 ```
 
 Expected: FAIL. `ActivityPage` still calls `useAuthenticatedFetch`, which is no longer mocked, so it issues a real request through `apiClient` and renders the loading or error branch instead of the fixture.
@@ -338,7 +338,7 @@ The rest of the component — the `groups` Map, `days`, and the returned JSX —
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-pnpm --filter @onlooker/web test -- activity-page
+pnpm --filter @onlooker/web exec vitest run src/__tests__/activity-page.test.tsx
 pnpm --filter @onlooker/web typecheck
 pnpm --filter @onlooker/web lint
 ```
@@ -347,7 +347,19 @@ Expected: all 5 PASS.
 
 Leave `useAuthenticatedFetch` in place: `ProfilePage.tsx` still uses it, as do its own tests.
 
-**The blast radius of this rewire was checked and is one file.** Two other test files mock `useAuthenticatedFetch` — `shell-headings.test.tsx:27` and `account-routes-in-shell.test.tsx:26` — but neither renders `/activity` (zero case-insensitive references to it in either), and `app-shell.test.tsx` mentions `/activity` only to assert a nav `href`, rendering `<AppShell>` with its own children rather than the real route. So no test outside `activity-page.test.tsx` needs touching. Re-run the full suite in Task 3 Step 6 to confirm rather than trusting this.
+**Correction, made during execution.** This section originally claimed the blast radius was one file, on the strength of a case-insensitive grep for the literal string `/activity` across `shell-headings.test.tsx` and `account-routes-in-shell.test.tsx`. That grep is exactly why the claim was wrong: `shell-headings.test.tsx` reaches `/activity` through data, not text. Its `it.each` at :81 maps over `AppShell`'s `SECTIONS` and renders every section's route, `/activity` included, without the string `/activity` ever appearing in the file. A grep built to find a literal route string cannot see a route that arrives through a list like that, no matter how the search is shaped.
+
+The real blast radius is three files:
+
+| File | Why it's in scope |
+|---|---|
+| `apps/web/src/pages/ActivityPage.tsx` | drops `useAuthenticatedFetch` for `listActivity` |
+| `apps/web/src/__tests__/activity-page.test.tsx` | mock moves from the hook to the api module |
+| `apps/web/src/__tests__/shell-headings.test.tsx` | its `../api/lessonsApi` mock factory had no `listActivity` stub, so once `ActivityPage` called it directly, the `/activity` case in the `it.each` threw on mount and the route's error boundary rendered instead of its heading |
+
+`account-routes-in-shell.test.tsx` was correctly excluded, but not because of the grep: it renders only `/profile` and `/settings` and never mocks `../api/lessonsApi` at all, so this rewire has no seam there to break. `app-shell.test.tsx` was also correctly excluded, for the reason already given — it renders `<AppShell>` directly with its own children, not the real `/activity` route.
+
+The fix landed in commit `b75e71f`, staging `shell-headings.test.tsx` alongside the other two files above.
 
 - [ ] **Step 5: Commit**
 
@@ -486,7 +498,7 @@ describe("/activity pagination", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-pnpm --filter @onlooker/web test -- activity-page
+pnpm --filter @onlooker/web exec vitest run src/__tests__/activity-page.test.tsx
 ```
 
 Expected: the four new cases FAIL — no `Load more` button exists, so `findByRole` times out. The five from Task 2 still PASS.
@@ -571,7 +583,7 @@ It sits below the panels rather than inside the last one: the control belongs to
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-pnpm --filter @onlooker/web test -- activity-page
+pnpm --filter @onlooker/web exec vitest run src/__tests__/activity-page.test.tsx
 pnpm --filter @onlooker/web typecheck
 pnpm --filter @onlooker/web lint
 ```

@@ -118,6 +118,25 @@ const PAGE_TWO = {
 	has_more: false,
 };
 
+// A genuine middle page: fetched with page one's cursor, and its own cursor
+// feeds a SECOND Load more click. Its seq (10) only has to stay clear of
+// PAGE_ONE's (3, 2) and PAGE_TWO's (1) once all three accumulate in the same
+// render - a collision there would draw duplicate React keys, not fail an
+// assertion, but there is no reason to leave that noise in the suite.
+const PAGE_MIDDLE = {
+	events: [
+		{
+			seq: 10,
+			kind: "create",
+			at: "2026-08-30T12:00:00Z",
+			lesson_id: "l10",
+			claim: "Group activity events by local day",
+		},
+	],
+	cursor: "MQ==",
+	has_more: true,
+};
+
 // `has_more: false` with a `cursor` still attached - the two disagree here on
 // purpose. ActivityPage keys the button off `has_more`, not off whether
 // `cursor` is non-null, and every other fixture in this file has them agree,
@@ -240,6 +259,26 @@ describe("/activity pagination", () => {
 		await screen.findByText(/prefer explicit imports/i);
 
 		expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+	});
+
+	// Nothing before this exercised a SECOND loadMore call, so a loadMore that
+	// captured a cursor once and never advanced it - resending "Mg==" forever
+	// and re-appending the same page on every click - would still pass every
+	// other test in this file. This is the check that would have caught it.
+	it("advances the cursor on a second Load more click rather than repeating it", async () => {
+		mocks.listActivity
+			.mockResolvedValueOnce(PAGE_ONE)
+			.mockResolvedValueOnce(PAGE_MIDDLE)
+			.mockResolvedValueOnce(PAGE_TWO);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+		expect(await screen.findByText(/group activity events/i)).toBeDefined();
+		expect(mocks.listActivity).toHaveBeenNthCalledWith(2, { cursor: "Mg==" });
+
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		expect(await screen.findByText(/prefer explicit imports/i)).toBeDefined();
+		expect(mocks.listActivity).toHaveBeenNthCalledWith(3, { cursor: "MQ==" });
 	});
 
 	// A missing tail is not a reason to blank a feed the reader can still use.
