@@ -79,25 +79,20 @@ const POPULATED = {
 
 const EMPTY = { events: [], cursor: null, has_more: false };
 
-// Mutable because the mock closes over it, so it MUST be reset per test.
-// Reassigning at the end of the one test that changes it is not enough: a test
-// added after that one would inherit whatever the last one left behind, and an
-// empty feed renders an empty state that looks like a legitimate pass.
-const fetchState = {
-	data: POPULATED as unknown,
-	loading: false,
-	error: null as string | null,
-};
+const mocks = vi.hoisted(() => ({ listActivity: vi.fn() }));
+
+// importOriginal rather than a bare factory: App's route table pulls in
+// LessonsPage, which imports listLessons from this same module. A factory that
+// returned only listActivity would leave that binding undefined at module
+// evaluation, breaking a route this file never renders.
+vi.mock("../api/lessonsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/lessonsApi")>()),
+	listActivity: mocks.listActivity,
+}));
 
 beforeEach(() => {
-	fetchState.data = POPULATED;
-	fetchState.loading = false;
-	fetchState.error = null;
+	mocks.listActivity.mockReset().mockResolvedValue(POPULATED);
 });
-
-vi.mock("../hooks/useAuthenticatedFetch", () => ({
-	useAuthenticatedFetch: () => ({ ...fetchState, refetch: vi.fn() }),
-}));
 
 const { default: App } = await import("../App");
 
@@ -117,27 +112,26 @@ describe("/activity", () => {
 		).toBe("/lessons");
 	});
 
-	it("shows each event's claim", () => {
+	it("shows each event's claim", async () => {
 		renderAppAt("/activity");
-		expect(screen.getByText(/pin vitest and vite/i)).toBeDefined();
+		expect(await screen.findByText(/pin vitest and vite/i)).toBeDefined();
 		expect(screen.getByText(/prefer explicit imports/i)).toBeDefined();
 	});
 
 	// Three events, two of them (seq 3 and seq 2) on the same day: if grouping
-	// actually merges same-day events, this yields 2 headings, not 3. A
-	// heading count alone can't distinguish real merging from no merging at
-	// all unless at least two fixture events share a day - which is why this
-	// isn't "one event per day".
-	it("groups events under a heading per day", () => {
+	// actually merges same-day events, this yields 2 headings, not 3.
+	it("groups events under a heading per day", async () => {
 		renderAppAt("/activity");
-		expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+		expect(await screen.findAllByRole("heading", { level: 2 })).toHaveLength(2);
 	});
 
-	// A status row names no state on purpose: lesson_feed records THAT a status
-	// changed, not to what, so labeling an old event with the lesson's current
-	// status would be wrong for anything that changed twice.
-	it("does not label a status event with the lesson's current status", () => {
+	// A status row names no state on purpose. The await is load-bearing: a
+	// queryByText against a page that has not rendered yet returns null and
+	// passes vacuously, so this must wait for real content before asserting an
+	// absence.
+	it("does not label a status event with the lesson's current status", async () => {
 		renderAppAt("/activity");
+		await screen.findByText(/pin vitest and vite/i);
 		expect(screen.queryByText(/retracted/i)).toBeNull();
 	});
 });
@@ -145,9 +139,9 @@ describe("/activity", () => {
 describe("/activity when the feed is empty", () => {
 	// The common case for a new account, so it needs written copy rather than
 	// a blank panel. beforeEach puts the populated fixture back afterward.
-	it("explains the empty state instead of rendering nothing", () => {
-		fetchState.data = EMPTY;
+	it("explains the empty state instead of rendering nothing", async () => {
+		mocks.listActivity.mockResolvedValue(EMPTY);
 		renderAppAt("/activity");
-		expect(screen.getByText(/nothing has happened yet/i)).toBeDefined();
+		expect(await screen.findByText(/nothing has happened yet/i)).toBeDefined();
 	});
 });
