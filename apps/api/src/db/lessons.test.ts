@@ -6,6 +6,7 @@ import {
 	getLessonById,
 	getLessonsByIds,
 	isUniqueViolationOn,
+	readLessonDelta,
 } from "./lessons.js";
 import { createUser } from "./queries.js";
 
@@ -194,6 +195,36 @@ describe("createLessonsWithFeed", () => {
 			.prepare("SELECT COUNT(*) AS n FROM lesson_feed")
 			.first<{ n: number }>();
 		expect(feed?.n).toBe(0);
+	});
+});
+
+describe("readLessonDelta", () => {
+	// The same implicit invariant `listActivityPage` rests on, in the other
+	// query that joins the feed to `lessons`. `lessons.id` is a global primary
+	// key, so joining on it alone hands over whatever lesson a feed row names,
+	// whoever owns it.
+	//
+	// Broken directly here, because no writer breaks it: this batch drops a
+	// colliding id from pending and writes no feed row for it, and
+	// `transitionLesson` returns null before writing when the owner differs.
+	// The failure mode a future writer should get is no rows, not another
+	// account's lesson body.
+	it("returns nothing when a feed row points at another user's lesson", async () => {
+		const other = await createUser(db(), "other@example.com", "hash", "Bo");
+		const theirs = lesson();
+		await createLessonsWithFeed(db(), other.id, [theirs]);
+
+		await db()
+			.prepare(
+				`INSERT INTO lesson_feed (seq, user_id, lesson_id, kind, at)
+				 VALUES (?, ?, ?, 'create', ?)`,
+			)
+			.bind(1, userId, theirs.id, "2026-08-22T00:00:00.000Z")
+			.run();
+
+		const { entries } = await readLessonDelta(db(), userId, 0, 50);
+
+		expect(entries).toEqual([]);
 	});
 });
 
