@@ -41,7 +41,14 @@ export default function ProfilePage() {
 			)}
 
 			{data && !loading && (
-				<Panel title="Profile" icon="CatHead">
+				/*
+				  Not "Profile": the shell renders that as the page h1 directly
+				  above, and the panel would repeat it. "Account details" is
+				  what this holds. Not untitled either - Panel renders its icon
+				  inside the h2, so an untitled panel would silently drop
+				  CatHead.
+				*/
+				<Panel title="Account details" icon="CatHead">
 					<dl style={{ margin: 0 }}>
 						<Row label="Name" value={data.name} />
 						<Row label="Email" value={data.email} />

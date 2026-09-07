@@ -1039,16 +1039,22 @@ describe("the visual language", () => {
 		).toBeDefined();
 	});
 
-	// h1 -> h2 -> h3, not h1 -> h2 -> h2: without this, everything a panel is
-	// grouping - Stack, Scope, Consensus, Provenance - reads as a SIBLING of
-	// the panel titling it rather than something inside it, reproducing the
-	// flatness this restructure exists to fix, one level down.
+	// h2 -> h3, not h2 -> h2: without this, everything a panel is grouping -
+	// Stack, Scope, Consensus, Provenance - reads as a SIBLING of the panel
+	// titling it rather than something inside it, reproducing the flatness this
+	// restructure exists to fix, one level down. That is what the last two
+	// assertions hold, and it is unchanged.
+	//
+	// The claim was an h1 until onlooker-eqb gave AppShell the page heading.
+	// It is an h2 now, beside the panels rather than above them - the trade
+	// that bead's design records, taken because Panel renders a literal h2
+	// shared by five routes and moving it reaches far past this pane.
 	it("nests the detail pane's headings without a skip", async () => {
 		withPool([VITE]);
 		await at(`/lessons/${VITE.id}`);
 		expect(
 			(await screen.findByRole("heading", { name: VITE.claim })).tagName,
-		).toBe("H1");
+		).toBe("H2");
 		expect(screen.getByRole("heading", { name: /applies to/i }).tagName).toBe(
 			"H2",
 		);

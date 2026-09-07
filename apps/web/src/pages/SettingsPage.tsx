@@ -52,8 +52,6 @@ export default function SettingsPage() {
 
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
-			<h1>Account settings</h1>
-
 			{display && display.emailVerified === false && (
 				<EmailVerificationNotice />
 			)}

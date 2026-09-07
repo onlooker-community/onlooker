@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
 import { useReveal } from "../reveal";
 import { Icon } from "./Icon";
@@ -16,7 +16,10 @@ import SessionExpiryBanner from "./SessionExpiryBanner";
 // through LessonsPage's own Outlet, and /machines, /settings and /profile
 // as direct wrappers.
 
-const SECTIONS = [
+// Exported so the heading test can be driven off this list rather than a
+// hand-written copy of it: a route added here is covered without anyone
+// remembering to extend the test.
+export const SECTIONS = [
 	// ChestTreasure: the approved pool, in the brand doc's own mapping.
 	{ to: "/lessons", label: "Lessons", icon: "ChestTreasure" },
 	{ to: "/machines", label: "Machines", icon: "Key" },
@@ -33,7 +36,30 @@ const SECTIONS = [
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const { dismiss } = useReveal();
+
+	// The page heading comes from SECTIONS rather than from the page, which is
+	// the whole of the fix for onlooker-eqb. Two of the five shell routes named
+	// themselves nowhere in the heading outline - /activity's first heading was
+	// a date - and /settings disagreed with its own nav label, announcing
+	// "Settings, current page" above a heading reading "Account settings".
+	// Rendering the label from the one place it is defined means the pages
+	// cannot drift, and a sixth route gets a heading by existing rather than by
+	// someone remembering.
+	//
+	// Exact match or a `to`-plus-slash prefix, so /lessons/:id resolves to
+	// Lessons. Prefix alone would be wrong in principle - /lessons would also
+	// match a future /lessons-archive - and the slash costs nothing.
+	//
+	// A shell route with no SECTIONS entry renders no h1. Every shell route
+	// today is a nav destination; one deliberately absent from the nav would be
+	// a larger question than this. See the design's Section 2.
+	const section = SECTIONS.find(
+		(candidate) =>
+			location.pathname === candidate.to ||
+			location.pathname.startsWith(`${candidate.to}/`),
+	);
 
 	const handleLogout = async () => {
 		// Explicitly, and before the logout lands. The provider deliberately
@@ -168,6 +194,27 @@ export default function AppShell({ children }: { children: ReactNode }) {
 				  about any one page.
 				*/}
 				<SessionExpiryBanner />
+				{/*
+				  After the banner deliberately. The banner warns that a silent
+				  token refresh did not work, which is session chrome rather
+				  than page content - someone who needs it should not have to
+				  pass the page title to reach it.
+				*/}
+				{section ? (
+					<h1
+						style={{
+							margin: "0 0 var(--space-3)",
+							// The readable face, not the pixel one, matching the
+							// page heading LessonDetail already established: a
+							// heading here leads by size and weight rather than
+							// by face.
+							fontFamily: "var(--font-body)",
+							fontSize: "var(--text-body-lg)",
+						}}
+					>
+						{section.label}
+					</h1>
+				) : null}
 				{children}
 			</main>
 			{/*
