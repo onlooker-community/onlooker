@@ -60,9 +60,33 @@ export default function TokenReveal({
 	}, []);
 
 	useEffect(() => {
+		// Where focus was before the dialog took it. Captured before the
+		// focus() below, which would otherwise record the dialog itself.
+		const opener = document.activeElement;
+
 		// So a screen reader announces the dialog, and so Tab starts inside it
 		// rather than at the top of the document.
 		dialogRef.current?.focus();
+
+		return () => {
+			// Taking focus on mount is only half of it. The acknowledgement
+			// button unmounts this dialog while still holding focus, so without
+			// this focus falls to <body> and the next Tab restarts at the top of
+			// the document - the same defect already fixed for revoke, where
+			// focus moves to the row before the confirm button unmounts.
+			//
+			// Back to the opener rather than to a nominated element: whatever
+			// invoked the dialog is where the person was standing, and it keeps
+			// this component from needing to know anything about its callers.
+			//
+			// `isConnected` because the opener is not guaranteed to survive - a
+			// failed refetch can swap the mint form for an error state while the
+			// dialog is up. focus() on a detached node silently does nothing, so
+			// the guard buys clarity rather than safety.
+			if (opener instanceof HTMLElement && opener.isConnected) {
+				opener.focus();
+			}
+		};
 	}, []);
 
 	const keepFocusInside = (event: KeyboardEvent<HTMLDivElement>) => {
