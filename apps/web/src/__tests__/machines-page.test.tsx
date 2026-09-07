@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -26,6 +27,11 @@ vi.mock("../api/machinesApi", () => ({
 
 const { default: MachinesPage } = await import("../pages/MachinesPage");
 
+const MINTED = {
+	id: "m9",
+	name: "second laptop",
+	token: `onlk_${"b".repeat(64)}`,
+};
 const USED = {
 	id: "m1",
 	name: "work laptop",
@@ -443,5 +449,71 @@ describe("MachinesPage", () => {
 		expect(
 			icons.some((i) => (i.getAttribute("src") ?? "").includes("Key")),
 		).toBe(true);
+	});
+});
+
+describe("MachinesPage when a revoke lands under an open reveal", () => {
+	// onlooker-5o4. The status region lives inside the subtree that goes inert
+	// while a reveal is open, so a write here is dropped from the accessibility
+	// tree with no sign. jsdom does not implement `inert` and so cannot see
+	// that half at all - what this pins is the half it can see, that we do not
+	// write while the dialog is up and do write once it closes.
+	it("holds the announcement until the reveal is dismissed", async () => {
+		withMachines(USED);
+		let settleRevoke: (value: unknown) => void = () => {};
+		mocks.revokeMachine.mockReturnValue(
+			new Promise((resolve) => {
+				settleRevoke = resolve;
+			}),
+		);
+		mocks.createMachine.mockResolvedValue(MINTED);
+
+		await renderPage();
+
+		// Revoke, and leave it in flight.
+		fireEvent.click(await screen.findByRole("button", { name: /^revoke$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, revoke/i }));
+		await waitFor(() => expect(mocks.revokeMachine).toHaveBeenCalled());
+
+		// Mint on top of it. The guard in MachinesPage's `mint` does not prevent
+		// this ordering - the revoke was already in flight when it ran.
+		fireEvent.change(screen.getByLabelText(/machine name/i), {
+			target: { value: "second laptop" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mint token/i }));
+		await screen.findByRole("dialog");
+
+		// Let the revoke land underneath the open dialog.
+		withMachines({ ...USED, revoked_at: "2026-09-07T00:00:00.000Z" });
+		await act(async () => {
+			settleRevoke({ success: true });
+		});
+
+		const status = document.querySelector('[role="status"]') as HTMLElement;
+		expect(status.textContent).toBe("");
+
+		fireEvent.click(screen.getByRole("button", { name: /saved it/i }));
+
+		await waitFor(() =>
+			expect(status.textContent).toBe("Revoked work laptop."),
+		);
+	});
+
+	// The ordinary path has to keep working: with no dialog up there is nothing
+	// to wait for, and deferring here would delay every announcement forever.
+	it("announces immediately when no reveal is open", async () => {
+		withMachines(USED);
+		mocks.revokeMachine.mockResolvedValue({ success: true });
+
+		await renderPage();
+
+		fireEvent.click(await screen.findByRole("button", { name: /^revoke$/i }));
+		withMachines({ ...USED, revoked_at: "2026-09-07T00:00:00.000Z" });
+		fireEvent.click(screen.getByRole("button", { name: /yes, revoke/i }));
+
+		const status = document.querySelector('[role="status"]') as HTMLElement;
+		await waitFor(() =>
+			expect(status.textContent).toBe("Revoked work laptop."),
+		);
 	});
 });

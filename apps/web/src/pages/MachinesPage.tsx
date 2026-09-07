@@ -54,6 +54,12 @@ export default function MachinesPage() {
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
 	const [revokedName, setRevokedName] = useState("");
+	// Parked here rather than written straight to state when a reveal is open.
+	// See the revoke handler and the flush effect below for why (onlooker-5o4).
+	const pendingRevokedName = useRef<string | null>(null);
+	// The current `revealed`, readable from inside an async handler that
+	// captured a stale one. Maintained by the effect below.
+	const revealedRef = useRef(revealed);
 	const rowRefs = useRef(new Map<string, HTMLLIElement>());
 	const statusRef = useRef<HTMLParagraphElement>(null);
 
@@ -71,6 +77,35 @@ export default function MachinesPage() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	// Two jobs, one dependency.
+	//
+	// The mirror first. `revoke` captures `revealed` at the render that created
+	// it, and the whole shape of onlooker-5o4 is a reveal that opens *during*
+	// the await - so the captured value is stale precisely when it matters, and
+	// reading it directly announces into an inert region every time. An effect
+	// is also the correct boundary rather than merely the tidy one: if this has
+	// not run, the dialog has not committed, nothing is inert yet, and an
+	// immediate write is the right answer.
+	//
+	// Then the flush. It has to be a mutation performed while the region is
+	// live. Parking the text into state early and letting the subtree merely
+	// stop being inert would announce nothing: a node re-entering the
+	// accessibility tree carrying content it already had is not a change, and
+	// screen readers announce changes.
+	//
+	// Deliberately not carried across an unmount. If the person navigates away
+	// while the reveal is up this page goes with it, and announcing "Revoked
+	// work laptop." to someone now standing on /settings describes a screen
+	// they have left.
+	useEffect(() => {
+		revealedRef.current = revealed;
+		if (revealed) return;
+		const pending = pendingRevokedName.current;
+		if (pending === null) return;
+		pendingRevokedName.current = null;
+		setRevokedName(pending);
+	}, [revealed]);
 
 	const mint = async (event: FormEvent) => {
 		event.preventDefault();
@@ -109,7 +144,22 @@ export default function MachinesPage() {
 		try {
 			await revokeMachine(machine.id);
 			await load();
-			setRevokedName(machine.name);
+			// While a reveal is open this whole subtree is inert, and an inert
+			// subtree is out of the accessibility tree - so this write would be
+			// dropped with no sign at all. Park it for the effect above.
+			//
+			// role="status" is the politeness level that promises not to
+			// interrupt, and the reveal is a credential shown exactly once and
+			// unrecoverable if missed. Announcing over it would honor the letter
+			// of the live region and violate its purpose, so this waits.
+			//
+			// The ref, not `revealed` - this closure was created before the
+			// reveal opened and its captured copy is still null.
+			if (revealedRef.current) {
+				pendingRevokedName.current = machine.name;
+			} else {
+				setRevokedName(machine.name);
+			}
 			// The row element survives the refetch - revoked machines keep their
 			// row - so this ref is still the same node the person was standing
 			// on when the confirm button under their focus unmounted.
