@@ -110,9 +110,19 @@ beforeEach(() => {
 function Elsewhere() {
 	const navigate = useNavigate();
 	return (
-		<button type="button" onClick={() => navigate("/settings")}>
-			back to settings
-		</button>
+		<>
+			<button type="button" onClick={() => navigate("/settings")}>
+				back to settings
+			</button>
+			{/*
+			  A route that does not render AppShell, which is where `inert` used
+			  to live. HomePage is public, so RequireAuth does not redirect and
+			  the reveal is judged on this route rather than on /login's.
+			*/}
+			<button type="button" onClick={() => navigate("/")}>
+				out to the home page
+			</button>
+		</>
 	);
 }
 
@@ -207,5 +217,33 @@ describe("a revealed token across the app", () => {
 
 		await waitFor(() => expect(mocks.deleteAccount).toHaveBeenCalled());
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+	});
+
+	// onlooker-zq1. The reveal survives a route change by design, so it can
+	// follow a person onto a route that renders no AppShell - and `inert` used
+	// to live on AppShell, so those routes had nothing behind the dialog but
+	// `aria-modal`, which is advisory. This fails against the old placement.
+	it("keeps the page inert after following the reveal off the shell", async () => {
+		const { container } = await renderApp("/machines");
+		await mintFromMachinesPage();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /out to the home page/i }),
+		);
+
+		// Really on HomePage: AppShell is gone, so its nav and its copy of the
+		// user's name are gone with it.
+		expect(
+			await screen.findByRole("heading", { name: /onlooker/i }),
+		).toBeTruthy();
+		expect(screen.queryByLabelText(/machine name/i)).toBeNull();
+		// The reveal came along, which is the precondition that makes the rest
+		// of this test meaningful rather than vacuous.
+		expect(screen.getByRole("dialog")).toBeTruthy();
+
+		// The wrapper is App's first rendered element - ErrorBoundary and
+		// RevealProvider emit no DOM of their own.
+		const wrapper = container.firstElementChild as HTMLElement;
+		expect(wrapper.hasAttribute("inert")).toBe(true);
 	});
 });

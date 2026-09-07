@@ -136,3 +136,47 @@ export function RevealHost() {
 		document.body,
 	);
 }
+
+declare module "react" {
+	interface HTMLAttributes<T> {
+		// React 18 has no typing for `inert`; React 19 adds it. Declared here
+		// rather than cast at the use site so there is one place to delete when
+		// this workspace moves to 19.
+		inert?: "";
+	}
+}
+
+/**
+ * Marks everything behind an open reveal unreachable, on every route.
+ *
+ * This wraps `<Routes>` rather than living on `AppShell`, which is where it
+ * started. `AppShell` covers only the authenticated routes, so the six that do
+ * not render it - `/`, `/login`, `/signup`, `/forgot-password`,
+ * `/reset-password/:token`, `/verify-email/:token` - and the 404 had nothing
+ * behind the dialog but `aria-modal`. That is advisory: a screen reader's
+ * virtual cursor browses straight through it into the page underneath. The
+ * reveal deliberately survives route changes, so it can reach every one of
+ * those routes. That was `onlooker-zq1`.
+ *
+ * Safe only because `RevealHost` portals into `document.body`, which puts the
+ * dialog outside `<Routes>` entirely - marking this subtree inert cannot
+ * disable the dialog it exists to protect. Moving that portal back into the
+ * tree breaks this silently; `reveal.test.tsx` pins it.
+ *
+ * `inert` rather than `aria-hidden`, because `inert` removes focusability too
+ * and the two would otherwise need to be kept in step by hand.
+ */
+export function InertWhileRevealed({ children }: { children: ReactNode }) {
+	const { revealed } = useReveal();
+	return (
+		<div
+			// Written as a string, not a boolean. React 18.3.1 renders `inert=""`
+			// and silently drops `inert={true}` - so `inert={Boolean(revealed)}`
+			// would leave this looking correct and doing nothing. Measured, not
+			// assumed.
+			inert={revealed ? "" : undefined}
+		>
+			{children}
+		</div>
+	);
+}
