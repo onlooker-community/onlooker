@@ -125,9 +125,16 @@ jobs:
       # Kept, and deliberately ahead of the push below rather than after it.
       # This used to be the only way the formula left the job; now it is the
       # fallback for when the push fails, and a fallback that only uploads on
-      # the happy path is not one. Ordering it here also takes onlooker-d8z
-      # (upload-artifact on the deprecated Node 20) off the critical path.
-      - uses: actions/upload-artifact@v4
+      # the happy path is not one.
+      #
+      # v7, from v4: v4 targeted Node 20 and every release run logged that
+      # GitHub was forcing it onto 24 anyway. v5 added Node 24 support, v6 made
+      # it the default, v7 moved the package to ESM and added an `archive`
+      # option that is off by default. Nothing here passes anything v7 reads
+      # differently. v6's minimum-runner requirement applies to self-hosted
+      # runners and this job is ubuntu-latest, and there is no
+      # download-artifact anywhere in this repo to keep on a matching major.
+      - uses: actions/upload-artifact@v7
         with:
           name: formula
           path: onlooker.rb
