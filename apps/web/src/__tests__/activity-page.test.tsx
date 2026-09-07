@@ -118,6 +118,17 @@ const PAGE_TWO = {
 	has_more: false,
 };
 
+// `has_more: false` with a `cursor` still attached - the two disagree here on
+// purpose. ActivityPage keys the button off `has_more`, not off whether
+// `cursor` is non-null, and every other fixture in this file has them agree,
+// so a regression to reading `page.cursor` directly would pass every other
+// test and only get caught here.
+const PAGE_EXHAUSTED_WITH_CURSOR = {
+	events: PAGE_ONE.events,
+	cursor: "Mg==",
+	has_more: false,
+};
+
 const mocks = vi.hoisted(() => ({ listActivity: vi.fn() }));
 
 // importOriginal rather than a bare factory: App's route table pulls in
@@ -190,6 +201,15 @@ describe("/activity pagination", () => {
 		mocks.listActivity.mockResolvedValue(PAGE_TWO);
 		renderAppAt("/activity");
 		await screen.findByText(/prefer explicit imports/i);
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+	});
+
+	// The await is load-bearing, same as the status-label test above: asserting
+	// an absence against a page that has not rendered yet passes vacuously.
+	it("trusts has_more over a cursor the server still sent", async () => {
+		mocks.listActivity.mockResolvedValue(PAGE_EXHAUSTED_WITH_CURSOR);
+		renderAppAt("/activity");
+		await screen.findByText(/cache node_modules/i);
 		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
 	});
 
