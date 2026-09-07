@@ -5,6 +5,15 @@ Bead: `onlooker-kqc4`. Spans three repositories: `onlooker-community/schema`,
 `2026-09-05-stream-verdict-conditionality-design.md`, whose `triggeredIn`
 narrowing this document extends rather than replaces.
 
+> **STATUS 2026-09-06: Decision 3 is WITHDRAWN. Its premise is false.**
+>
+> Decisions 1 and 2 — the emitter change — stand and are still worth doing.
+> Decision 3, the onlooker half, was implemented, reviewed, and reverted the
+> same day. Read "Why Decision 3 was withdrawn" at the end of this document
+> before acting on anything here. The short version: `librarian.scan.complete`
+> does not report on writes to `lessons/`, so no filter over its outcomes can
+> be the denominator for whether `lessons/` should have moved.
+
 ## Reading this document
 
 Sections marked *(approved)* were settled in conversation on 2026-09-06 and are
@@ -144,7 +153,7 @@ gate working rather than an obstacle. No code anywhere in the ecosystem tree
 reads the `outcome` value to make a decision, so the only consumer of the new
 distinction is the one being built in decision 3.
 
-### 3. Onlooker: the denominator counts scans, not firings *(approved)*
+### 3. Onlooker: the denominator counts scans, not firings *(WITHDRAWN — see below)*
 
 For an entry that declares it, the write denominator counts matching events
 rather than hook firings. For librarian, a chance to write is a
@@ -197,6 +206,86 @@ be a change made only to be undone.
   after the two pre-scan bails and would be a better denominator than the hook,
   but a worse one than `scan.complete`, which additionally excludes the
   budget-exceeded path.
+
+## Why Decision 3 was withdrawn *(measured 2026-09-06)*
+
+Decision 3 was implemented and reverted the same day. Two independent defects
+killed it, and the second is fatal to the approach rather than to the code.
+
+### It has no denominator to narrow
+
+Narrowing a denominator presupposes one exists. Librarian has none, on purpose.
+
+`computeVerdict`'s write axis opens only for an entry with `writeHooks` or
+`writeEvents` (`streams.ts:2241`). Librarian declares neither, so `lastWrite`
+stays `undefined` and the function returns at `streams.ts:2426` before reaching
+the narrowing at all. The change Decision 3 describes is unreachable dead code
+for the one entry it exists for.
+
+The implementation's remedy was to widen that gate so `writeChances` also opens
+it, guarded on the output having been written at least once. That does not
+narrow a denominator — it **creates a write axis, and with it a `stopped`
+verdict librarian is deliberately not allowed to reach**. Librarian's own entry
+says so, pre-existing and untouched (`streams.ts:1204`–`:1212`):
+
+> a session firing with `lessons/` never created reads `unknown` …, never a
+> confident `stopped`. … A real, accepted trade, not a silent regression, and
+> the fix is upstream: a lesson-write event would settle it in one line.
+
+Reproduced: a librarian that ran six times, reached classification every time,
+and legitimately proposed nothing read `recording` at baseline and `STOPPED`
+with the change. That is the ordinary steady state for a repo where archivist
+keeps producing artifacts but nothing clears the durability filter, the
+classifier, the tombstone check, or the lesson transform's pregate — each
+documented at `streams.ts:1183`–`:1188` as able to decline without writing. Five
+ordinary declines became `STOPPED`. It is the exact false positive this module
+exists to eliminate.
+
+### The events do not report on the thing being judged
+
+This is the deeper error, and it is in this document rather than in the code.
+
+The write axis for librarian asks whether `lessons/` should have moved.
+`librarian.scan.complete` does not answer that question in any of its outcomes:
+
+- `empty` is defined here as "classification ran and proposed nothing" — a scan
+  that by its own definition **had nothing to write**. Counting it as a chance to
+  write and then charging librarian for not writing is circular.
+- `ok` means candidates were proposed **to the proposal store**. A proposal is
+  not a lesson. `lessons/` is written later, by the lesson transform and the
+  promotion step, each with its own pregate and its own reasons to decline.
+
+So no filter over `scan.complete` outcomes — including the `{ok, empty}` set
+this document approved — is a denominator for `lessons/`. The vocabulary fix in
+Decisions 1 and 2 is still correct and still worth shipping; it just does not
+lead where Decision 3 claimed.
+
+### What should happen instead
+
+Librarian's own comment names the fix: **a lesson-write event**, emitted where
+`lessons/` is actually written. That gives the table a real `writeEvents` entry,
+which opens the write axis the ordinary way, with no gate widening and no
+narrowing special case. `onlooker-kqc4` should be re-planned against that event
+once it exists, not against `scan.complete`.
+
+### What was built and reverted
+
+Two tasks were implemented, reviewed, and reverted rather than merged:
+
+- `EventScan.sessionsByWriteChance` plus a `writeChances` option on
+  `scanEvents` — sound work, clean review, reverted anyway. Its shape
+  (`{ type, outcomeIn }`) is built around outcome filtering, which is an
+  artifact of the false premise; a lesson-write event needs no outcome filter.
+  Rebuild it against the real event rather than reusing this shape.
+- The `StreamEntry.writeChances` field, librarian's declaration, and the gate
+  widening.
+
+One process note worth keeping: the task's test **passed against unmodified
+baseline code**, verified by copying the test file onto a baseline worktree. The
+whole change could be reverted with the test staying green. The red step in its
+report was real but staged against a synthetic intermediate state that never
+existed in the repository. A red observed against a state you constructed is not
+a red against the baseline.
 
 ## Verification
 

@@ -1,5 +1,15 @@
 # Librarian Write Denominator Implementation Plan
 
+> **STATUS 2026-09-06: Tasks 3 and 4 are WITHDRAWN. Do not implement them.**
+>
+> They were implemented, reviewed, and reverted the same day. Their premise is
+> false: `librarian.scan.complete` does not report on writes to `lessons/`, and
+> librarian has no write axis to narrow — Task 4's change is unreachable without
+> widening a gate that librarian's own table entry forbids. See "Why Decision 3
+> was withdrawn" in the spec.
+>
+> Tasks 1 and 2, the schema and ecosystem vocabulary fix, still stand.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `onlooker doctor`'s write denominator for librarian count scans that
