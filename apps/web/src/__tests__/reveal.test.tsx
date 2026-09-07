@@ -1,7 +1,12 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { apiConfig } from "../api/config";
-import { RevealHost, RevealProvider, useReveal } from "../reveal";
+import {
+	InertWhileRevealed,
+	RevealHost,
+	RevealProvider,
+	useReveal,
+} from "../reveal";
 
 const MACHINE = {
 	id: "m1",
@@ -98,9 +103,9 @@ describe("reveal provider", () => {
 		});
 		const dialog = screen.getByRole("dialog");
 		expect(dialog).not.toBeNull();
-		// The portal is what lets AppShell take `inert` without inerting the
-		// dialog too. If this ever renders inside the tree, Task 3 breaks
-		// silently - the shell would inert its own dialog.
+		// The portal is what lets the page take `inert` without inerting the
+		// dialog too. If this ever renders inside the tree, InertWhileRevealed
+		// breaks silently - the wrapper would inert its own dialog.
 		expect(container.contains(dialog)).toBe(false);
 	});
 
@@ -110,6 +115,50 @@ describe("reveal provider", () => {
 	// deliberate-logout call sites dismiss it themselves, and
 	// reveal-across-the-app.test.tsx is where both halves are held, against the
 	// real App tree rather than here.
+});
+
+describe("the inert wrapper", () => {
+	// aria-modal is advisory: a screen reader's virtual cursor can still browse
+	// into the page the focus trap exists to protect. `inert` is what actually
+	// removes it, from the accessibility tree and from focus together.
+	//
+	// Moved here from app-shell.test.tsx when `inert` was hoisted off AppShell
+	// so it would cover the routes AppShell does not render (onlooker-zq1).
+	it("is inert while the reveal is open and not before", () => {
+		const { container } = render(
+			<RevealProvider>
+				<InertWhileRevealed>
+					<Driver />
+				</InertWhileRevealed>
+				<RevealHost />
+			</RevealProvider>,
+		);
+		const wrapper = container.firstElementChild as HTMLElement;
+		expect(wrapper.hasAttribute("inert")).toBe(false);
+		act(() => {
+			screen.getAllByText("mint")[0].click();
+		});
+		expect(wrapper.hasAttribute("inert")).toBe(true);
+	});
+
+	it("stops being inert once the reveal is dismissed", () => {
+		const { container } = render(
+			<RevealProvider>
+				<InertWhileRevealed>
+					<Driver />
+				</InertWhileRevealed>
+				<RevealHost />
+			</RevealProvider>,
+		);
+		const wrapper = container.firstElementChild as HTMLElement;
+		act(() => {
+			screen.getAllByText("mint")[0].click();
+		});
+		act(() => {
+			screen.getByRole("button", { name: /saved it/i }).click();
+		});
+		expect(wrapper.hasAttribute("inert")).toBe(false);
+	});
 });
 
 // The third logout, and the one neither of those call sites can see. A

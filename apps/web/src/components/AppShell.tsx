@@ -6,15 +6,6 @@ import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
 
-declare module "react" {
-	interface HTMLAttributes<T> {
-		// React 18 has no typing for `inert`; React 19 adds it. Declared here
-		// rather than cast at the use site so there is one place to delete when
-		// this workspace moves to 19.
-		inert?: "";
-	}
-}
-
 // The chrome around every authenticated route. Before this, the only
 // navigation in the app was an ad-hoc <nav> inside DashboardPage, which
 // existed on exactly one page and disappeared with it in onlooker-yfw.
@@ -42,31 +33,25 @@ const SECTIONS = [
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
 	const navigate = useNavigate();
-	const { revealed, dismiss } = useReveal();
+	const { dismiss } = useReveal();
 
 	const handleLogout = async () => {
 		// Explicitly, and before the logout lands. The provider deliberately
 		// watches no auth state - it cannot tell a sign-out from a session
 		// expiry, and only this one may take a live credential off the screen.
 		//
-		// `inert` below puts this button out of reach while a reveal is open,
-		// so on a browser that implements inert this is defense in depth. On
-		// one that does not - it ignores the attribute rather than failing -
-		// the button is live and this is the only thing that clears the token.
+		// `InertWhileRevealed`, which wraps every route in App.tsx, puts this
+		// button out of reach while a reveal is open - so on a browser that
+		// implements inert this is defense in depth. On one that does not - it
+		// ignores the attribute rather than failing - the button is live and
+		// this is the only thing that clears the token.
 		dismiss();
 		await logout();
 		navigate("/");
 	};
 
 	return (
-		<div
-			// Written as a string, not a boolean. React 18.3.1 renders `inert=""`
-			// and silently drops `inert={true}` - so `inert={Boolean(revealed)}`
-			// would leave this looking correct and doing nothing. Measured, not
-			// assumed.
-			inert={revealed ? "" : undefined}
-			style={{ minHeight: "100vh", fontFamily: "var(--font-body)" }}
-		>
+		<div style={{ minHeight: "100vh", fontFamily: "var(--font-body)" }}>
 			<header
 				style={{
 					display: "flex",

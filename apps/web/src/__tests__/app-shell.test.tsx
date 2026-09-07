@@ -1,13 +1,7 @@
-import {
-	act,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RevealHost, RevealProvider, useReveal } from "../reveal";
+import { RevealProvider } from "../reveal";
 
 // auth is the seam, as in login-page.test.tsx: stubbing useAuth lets the nav,
 // the router and the logout path stay real without standing up an API client.
@@ -163,62 +157,7 @@ describe("AppShell", () => {
 	});
 });
 
-const MACHINE = {
-	id: "m1",
-	name: "work laptop",
-	token: `onlk_${"a".repeat(64)}`,
-};
-
-function Minter() {
-	const { reveal } = useReveal();
-	return (
-		<button type="button" onClick={() => reveal(MACHINE)}>
-			mint
-		</button>
-	);
-}
-
-describe("AppShell while a token is revealed", () => {
-	// aria-modal is advisory: a screen reader's virtual cursor can still browse
-	// into the nav the focus trap exists to protect. `inert` is what actually
-	// removes it, from the accessibility tree and from focus together.
-	it("is inert while the reveal is open and not before", () => {
-		const { container } = render(
-			<MemoryRouter>
-				<RevealProvider>
-					<AppShell>
-						<Minter />
-					</AppShell>
-					<RevealHost />
-				</RevealProvider>
-			</MemoryRouter>,
-		);
-		const shell = container.firstElementChild as HTMLElement;
-		expect(shell.hasAttribute("inert")).toBe(false);
-		act(() => {
-			screen.getByText("mint").click();
-		});
-		expect(shell.hasAttribute("inert")).toBe(true);
-	});
-
-	it("stops being inert once the reveal is dismissed", () => {
-		const { container } = render(
-			<MemoryRouter>
-				<RevealProvider>
-					<AppShell>
-						<Minter />
-					</AppShell>
-					<RevealHost />
-				</RevealProvider>
-			</MemoryRouter>,
-		);
-		const shell = container.firstElementChild as HTMLElement;
-		act(() => {
-			screen.getByText("mint").click();
-		});
-		act(() => {
-			screen.getByRole("button", { name: /saved it/i }).click();
-		});
-		expect(shell.hasAttribute("inert")).toBe(false);
-	});
-});
+// The two `inert` tests that lived here moved to reveal.test.tsx when `inert`
+// was hoisted off AppShell onto InertWhileRevealed, so it would also cover the
+// routes AppShell does not render (onlooker-zq1). The behavior did not go
+// away, only its owner.

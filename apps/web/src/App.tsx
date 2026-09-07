@@ -15,7 +15,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SettingsPage from "./pages/SettingsPage";
 import SignupPage from "./pages/SignupPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
-import { RevealHost, RevealProvider } from "./reveal";
+import { InertWhileRevealed, RevealHost, RevealProvider } from "./reveal";
 
 export default function App() {
 	const location = useLocation();
@@ -54,77 +54,84 @@ export default function App() {
 			  reveal.tsx for the full story.
 			*/}
 			<RevealProvider>
-				<Routes>
-					<Route path="/" element={<HomePage />} />
-					<Route path="/login" element={<LoginPage />} />
-					<Route path="/signup" element={<SignupPage />} />
-					<Route path="/forgot-password" element={<ForgotPasswordPage />} />
-					<Route
-						path="/reset-password/:token"
-						element={<ResetPasswordPage />}
-					/>
-					<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
-					<Route
-						path="/settings"
-						element={
-							<auth.RequireAuth>
-								<AppShell>
-									<SettingsPage />
-								</AppShell>
-							</auth.RequireAuth>
-						}
-					/>
-					<Route
-						path="/profile"
-						element={
-							<auth.RequireAuth>
-								<AppShell>
-									<ProfilePage />
-								</AppShell>
-							</auth.RequireAuth>
-						}
-					/>
-					{/*
-					  A layout route. LessonsPage fetches one page and renders the
-					  list; the :id child renders its detail out of that same
-					  in-memory list through the Outlet context, so clicking a row
-					  issues no request. Deep links fall back to GET
-					  /api/lessons/:id, which is the one case memory cannot answer.
-					*/}
-					<Route
-						path="/lessons"
-						element={
-							<auth.RequireAuth>
-								<AppShell>
-									<LessonsPage />
-								</AppShell>
-							</auth.RequireAuth>
-						}
-					>
-						<Route path=":id" element={<LessonDetail />} />
-					</Route>
-					<Route
-						path="/machines"
-						element={
-							<auth.RequireAuth>
-								<AppShell>
-									<MachinesPage />
-								</AppShell>
-							</auth.RequireAuth>
-						}
-					/>
-					<Route
-						path="/activity"
-						element={
-							<auth.RequireAuth>
-								<AppShell>
-									<ActivityPage />
-								</AppShell>
-							</auth.RequireAuth>
-						}
-					/>
-					<Route path="*" element={<div>404 Not Found</div>} />
-				</Routes>
+				<InertWhileRevealed>
+					<Routes>
+						<Route path="/" element={<HomePage />} />
+						<Route path="/login" element={<LoginPage />} />
+						<Route path="/signup" element={<SignupPage />} />
+						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
+						<Route
+							path="/reset-password/:token"
+							element={<ResetPasswordPage />}
+						/>
+						<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+						<Route
+							path="/settings"
+							element={
+								<auth.RequireAuth>
+									<AppShell>
+										<SettingsPage />
+									</AppShell>
+								</auth.RequireAuth>
+							}
+						/>
+						<Route
+							path="/profile"
+							element={
+								<auth.RequireAuth>
+									<AppShell>
+										<ProfilePage />
+									</AppShell>
+								</auth.RequireAuth>
+							}
+						/>
+						{/*
+						  A layout route. LessonsPage fetches one page and renders the
+						  list; the :id child renders its detail out of that same
+						  in-memory list through the Outlet context, so clicking a row
+						  issues no request. Deep links fall back to GET
+						  /api/lessons/:id, which is the one case memory cannot answer.
+						*/}
+						<Route
+							path="/lessons"
+							element={
+								<auth.RequireAuth>
+									<AppShell>
+										<LessonsPage />
+									</AppShell>
+								</auth.RequireAuth>
+							}
+						>
+							<Route path=":id" element={<LessonDetail />} />
+						</Route>
+						<Route
+							path="/machines"
+							element={
+								<auth.RequireAuth>
+									<AppShell>
+										<MachinesPage />
+									</AppShell>
+								</auth.RequireAuth>
+							}
+						/>
+						<Route
+							path="/activity"
+							element={
+								<auth.RequireAuth>
+									<AppShell>
+										<ActivityPage />
+									</AppShell>
+								</auth.RequireAuth>
+							}
+						/>
+						<Route path="*" element={<div>404 Not Found</div>} />
+					</Routes>
+				</InertWhileRevealed>
+				{/*
+				  Outside the wrapper above, and portaled to document.body
+				  besides. Both are required: a dialog inside the inert subtree
+				  would be disabled by the very attribute meant to protect it.
+				*/}
 				<RevealHost />
 			</RevealProvider>
 		</ErrorBoundary>

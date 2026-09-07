@@ -254,3 +254,43 @@ polyfill in older browsers, and React's support for it as a prop varies by
 version. If the installed React does not pass `inert` through, set it with a ref
 rather than reaching for a polyfill — the attribute has been supported in every
 current browser since 2023, and the app's floor is set elsewhere.
+
+---
+
+## Amendment, 2026-09-07 — Sections 3 and 4 were not independent
+
+This document's implementation order calls Section 4 "Independent of 1–3."
+That was wrong, and `onlooker-5o4` is the consequence.
+
+Section 3 puts `inert` on `AppShell`. Section 4 puts a `role="status"` region
+inside `AppShell`. An inert subtree is removed from the accessibility tree, so a
+revoke that settled while a reveal was open wrote its announcement into a region
+no screen reader could observe, and the announcement was dropped with no sign.
+
+Section 3's placement was also narrower than it read. `AppShell` wraps only the
+authenticated routes, and the reveal deliberately survives route changes, so six
+routes had nothing behind the dialog but advisory `aria-modal`. That was
+`onlooker-zq1`.
+
+Both are corrected in
+`2026-09-07-inert-coverage-and-deferred-announcement-design.md`. `inert` now
+lives on a wrapper around every route, and the announcement waits for dismissal
+rather than being written into an inert region.
+
+**Verified in Chrome on 2026-09-07**, because jsdom implements none of this and
+a test asserting the old behavior would pass while reporting the browser's
+opposite. With a reveal open: a click on a button inside the inert subtree did
+not run its handler, that button refused focus, the dialog's own button took
+focus normally, and the `role="status"` region resolved `closest("[inert]")` to
+a node. After a route change to `/`, where no `AppShell` renders, the wrapper
+still carried `inert` and HomePage's only control refused focus — the case that
+had no protection at all before. The full `onlooker-5o4` ordering was then
+reproduced rather than inferred: a revoke confirmed and a mint submitted in one
+synchronous block, the revoke landing under the open dialog. The list showed
+"Revoked", the live region stayed empty, and dismissing it produced "Revoked
+verification laptop." — the text arriving as a mutation after the subtree went
+live, which is the entire mechanism.
+
+The "Independent of 1–3" claim is left in place above rather than edited. It was
+the reasoning at the time, and a spec that quietly rewrites its own history
+teaches the next reader nothing.
