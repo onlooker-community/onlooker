@@ -2014,7 +2014,31 @@ export async function surveyStreams(opts: {
 		for (const entry of STREAMS) {
 			if (enabled.includes(entry.plugin)) continue;
 			const fresh = anyDataFreshness(entry, env);
-			if (fresh.mtime === null) continue;
+			// A root that exists but cannot be measured - a permissions
+			// problem, or a directory symlink per `classifyPath` - comes back
+			// with a null mtime and `unreadable` set. Skipping on the null
+			// alone dropped it from a list whose entire purpose is to stop
+			// someone being surprised by a directory this command never
+			// mentioned, so doctor implicitly claimed a directory was absent
+			// that the user can plainly see is there. This was the one place
+			// in the file that swallowed an unmeasurable path; everywhere else
+			// - `classifyPath`, `outputFreshness`, `judge`, both log scans -
+			// it becomes a reported state instead.
+			//
+			// Reported here rather than pushed as a fault: the footer
+			// describes streams this project does NOT enable, so no health
+			// claim is being made about them, and failing the exit code over
+			// an unenabled plugin's unreadable directory is the crying wolf
+			// the footer exists to avoid. Naming it is the whole fix.
+			if (fresh.mtime === null) {
+				if (fresh.unreadable) {
+					footer.push({
+						plugin: entry.plugin,
+						detail: "could not be read",
+					});
+				}
+				continue;
+			}
 			footer.push({
 				plugin: entry.plugin,
 				detail: `last wrote ${fresh.mtime.slice(0, 10)}`,
