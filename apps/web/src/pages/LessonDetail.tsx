@@ -35,7 +35,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 			  h3, not h2: `Field` only ever renders inside a titled `Panel`
 			  (Applies to / Why it was trusted), and that title is itself the
 			  h2. Nesting this under it as an h3 is correct document order -
-			  h1 (the claim) -> h2 (the panel) -> h3 (the field) - not a skip.
+			  h1 (the section, from AppShell) -> h2 (the claim, and the panels
+			  beside it) -> h3 (the field) - not a skip.
 			  The font size is an explicit inline style below, so this is a
 			  semantic-only change - nothing here should look different.
 			*/}
@@ -319,7 +320,7 @@ export default function LessonDetail() {
 			  and pixel type is measurably harder to read at length: it leads
 			  by size and weight here, not by face.
 			*/}
-			<h1
+			<h2
 				style={{
 					margin: "0 0 var(--space-3)",
 					fontFamily: "var(--font-body)",
@@ -327,7 +328,7 @@ export default function LessonDetail() {
 				}}
 			>
 				{lesson.claim}
-			</h1>
+			</h2>
 
 			<p style={{ margin: "0 0 var(--space-4)" }}>{lesson.rationale}</p>
 

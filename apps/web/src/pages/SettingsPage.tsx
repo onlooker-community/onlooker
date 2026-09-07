@@ -15,7 +15,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
-import { Panel } from "../components/ui";
+import { Button, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import {
 	scorePassword,
@@ -52,8 +52,6 @@ export default function SettingsPage() {
 
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
-			<h1>Account settings</h1>
-
 			{display && display.emailVerified === false && (
 				<EmailVerificationNotice />
 			)}
@@ -111,17 +109,14 @@ function EmailVerificationNotice() {
 					Verification email sent. Check your inbox.
 				</FormMessage>
 			) : (
-				<button
-					type="button"
+				<Button
 					onClick={resend}
-					disabled={state === "sending"}
-					style={{
-						padding: "0.5rem 1rem",
-						cursor: state === "sending" ? "not-allowed" : "pointer",
-					}}
+					variant="ghost"
+					loading={state === "sending"}
+					loadingLabel="Sending..."
 				>
-					{state === "sending" ? "Sending..." : "Resend verification email"}
-				</button>
+					Resend verification email
+				</Button>
 			)}
 			{state === "error" && (
 				<div style={{ color: "var(--red)", marginTop: "0.5rem" }}>
@@ -353,29 +348,9 @@ function DeleteAccountSection({
 				undone.
 			</p>
 			{!confirming ? (
-				<button
-					type="button"
-					onClick={() => setConfirming(true)}
-					style={{
-						padding: "0.5rem 1rem",
-						// Ghost, not a plate: this only opens the confirmation, and a
-						// filled danger button here would outrank the actual confirm
-						// below it. --red sits on the page ground at 7.94/6.48 as
-						// text and clears 3:1 as a border, and it matches the section
-						// heading, which the white fill had split away from.
-						color: "var(--red)",
-						border: "2px solid var(--red)",
-						borderRadius: 0,
-						background: "transparent",
-						cursor: "pointer",
-						fontFamily: "var(--font-data)",
-						fontSize: "var(--text-data-md)",
-						letterSpacing: "1px",
-						textTransform: "uppercase",
-					}}
-				>
+				<Button onClick={() => setConfirming(true)} variant="ghost-danger">
 					Delete my account
-				</button>
+				</Button>
 			) : (
 				<form onSubmit={handleDelete} noValidate>
 					{error && <FormMessage kind="error">{error}</FormMessage>}
@@ -395,33 +370,25 @@ function DeleteAccountSection({
 						>
 							Permanently delete
 						</SubmitButton>
-						<button
-							type="button"
+						{/*
+						  Ghost, so it reads as the lesser of the two actions beside
+						  the filled SubmitButton it sits next to. Button's padding
+						  is shorter than the 0.75rem 1.5rem this carried inline,
+						  but the row is a flex container at its default
+						  align-items: stretch, so both still resolve to the same
+						  height.
+						*/}
+						<Button
 							onClick={() => {
 								setConfirming(false);
 								setConfirmText("");
 								setError(null);
 							}}
+							variant="ghost"
 							disabled={loading}
-							style={{
-								padding: "0.75rem 1.5rem",
-								// Ghost neutral, so it reads as the lesser of the two
-								// actions beside the filled SubmitButton it sits next
-								// to. --ink is 11.27/10.28 on the page ground and
-								// --ink-dim clears 3:1 as its border at 8.06/6.56.
-								color: "var(--ink)",
-								border: "2px solid var(--ink-dim)",
-								borderRadius: 0,
-								background: "transparent",
-								cursor: "pointer",
-								fontFamily: "var(--font-data)",
-								fontSize: "var(--text-data-md)",
-								letterSpacing: "1px",
-								textTransform: "uppercase",
-							}}
 						>
 							Cancel
-						</button>
+						</Button>
 					</div>
 				</form>
 			)}

@@ -200,8 +200,12 @@ describe("a revealed token across the app", () => {
 		await mintFromMachinesPage();
 
 		fireEvent.click(screen.getByRole("button", { name: /back to settings/i }));
+		// Anchored, because the shell's page heading now reads exactly the nav
+		// label - "Settings", not "Account settings" (onlooker-eqb). A loose
+		// /settings/i would also match this route's "Verify your email" panel
+		// siblings if any ever gained the word.
 		expect(
-			await screen.findByRole("heading", { name: /account settings/i }),
+			await screen.findByRole("heading", { name: /^settings$/i }),
 		).toBeTruthy();
 		// It followed the person off /machines - the reveal is above the routes,
 		// so a route change does not take the token with it.

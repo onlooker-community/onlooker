@@ -298,7 +298,16 @@ export function Button({
 }: {
 	children: ReactNode;
 	onClick: () => void;
-	variant?: "primary" | "danger";
+	/**
+	 * `ghost` and `ghost-danger` are unfilled: border and ink carry the
+	 * meaning. For the two places a plate is wrong - a control that only opens
+	 * a confirmation, and a secondary action beside a filled one.
+	 *
+	 * Flat strings rather than a separate `tone` prop, because `tone` already
+	 * means something else in this file: which of two constant plate FILLS
+	 * backs an icon. See `Panel`'s `variant` comment.
+	 */
+	variant?: "primary" | "danger" | "ghost" | "ghost-danger";
 	loading?: boolean;
 	loadingLabel?: string;
 	disabled?: boolean;
@@ -316,6 +325,36 @@ export function Button({
 	// lesson already moving. Only the mechanism changed.
 	const inert = loading || disabled;
 	const plate = variant === "danger" ? PALETTE.plateRed : PALETTE.plateTeal;
+	const isGhost = variant === "ghost" || variant === "ghost-danger";
+
+	// Both colors were measured on the page ground before this variant existed,
+	// in the two inline copies inside SettingsPage that it replaces: --red is
+	// 7.94/6.48 as text and clears 3:1 as a border, and it matches the section
+	// heading a white fill had split away from. --ink is 11.27/10.28, and
+	// --ink-dim clears 3:1 as its border at 8.06/6.56.
+	const ghostInk = variant === "ghost-danger" ? "var(--red)" : "var(--ink)";
+	const ghostEdge =
+		variant === "ghost-danger" ? "var(--red)" : "var(--ink-dim)";
+
+	// Split out rather than four nested ternaries inline: a ghost differs from
+	// a plate on every one of these, and inert differs again within each.
+	const surface = isGhost
+		? {
+				background: "transparent",
+				color: inert ? "var(--ink-dim)" : ghostInk,
+				border: `2px solid ${inert ? "var(--ink-dim)" : ghostEdge}`,
+				// Never raised. The dropped shadow is what reads as filled, so a
+				// ghost carrying one would be a plate with the fill missing.
+				boxShadow: "none",
+			}
+		: {
+				background: inert ? "var(--panel)" : plate,
+				color: inert ? "var(--ink)" : PALETTE.plateInk,
+				border: inert
+					? "2px solid var(--ink-dim)"
+					: `2px solid ${PALETTE.plateInk}`,
+				boxShadow: inert ? "none" : "4px 4px 0 var(--shadow)",
+			};
 	return (
 		<button
 			type="button"
@@ -328,12 +367,7 @@ export function Button({
 			}}
 			style={{
 				padding: "0.5rem 1rem",
-				background: inert ? "var(--panel)" : plate,
-				color: inert ? "var(--ink)" : PALETTE.plateInk,
-				border: inert
-					? "2px solid var(--ink-dim)"
-					: `2px solid ${PALETTE.plateInk}`,
-				boxShadow: inert ? "none" : "4px 4px 0 var(--shadow)",
+				...surface,
 				borderRadius: 0,
 				cursor: inert ? "not-allowed" : "pointer",
 				fontFamily: "var(--font-data)",
