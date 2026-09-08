@@ -130,6 +130,13 @@ One `Panel` per day, titled with the date, events inside. `EmptyState` when the
 feed is empty — the common case for a new account, and it deserves written copy
 rather than a blank panel.
 
+**Amended 2026-09-07.** This section described a screen with no pagination
+control while the API beneath it was cursor-paginated, which left the
+Pagination section above with no consumer. A `Load more` control was added in
+`2026-09-07-activity-load-more-design.md`; the day grouping described here is
+unchanged, because it already merges same-day events regardless of their
+position in the array.
+
 ## Contract *(approved, corrected 2026-08-31)*
 
 `packages/api-contract` gains cases for the endpoint: the unauthenticated `401`

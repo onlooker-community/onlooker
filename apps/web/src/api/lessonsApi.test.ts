@@ -9,7 +9,7 @@ vi.mock("./client", () => ({
 	apiClient: { get: mocks.get, patch: mocks.patch },
 }));
 
-const { getLesson, listLessons, setLessonStatus } = await import(
+const { getLesson, listActivity, listLessons, setLessonStatus } = await import(
 	"./lessonsApi"
 );
 
@@ -79,5 +79,34 @@ describe("setLessonStatus", () => {
 			"/api/lessons/01KZ45MKAM734ZS7JK24D2DK0R/status",
 			{ status: "retracted" },
 		);
+	});
+});
+
+describe("listActivity", () => {
+	const EMPTY_FEED = { events: [], cursor: null, has_more: false };
+
+	it("asks for the bare path when it has no cursor", async () => {
+		mocks.get.mockResolvedValue(EMPTY_FEED);
+		await listActivity();
+		expect(mocks.get).toHaveBeenCalledWith("/api/activity");
+	});
+
+	// The activity cursor is base64 of a bare integer - encodeSeqCursor in
+	// apps/api/src/db/lessons.ts - so it can carry "=" padding, which changes
+	// meaning in a query string unless it is encoded. String concatenation
+	// would send a cursor the server minted and then rejects.
+	it("encodes a cursor that carries base64 padding", async () => {
+		mocks.get.mockResolvedValue(EMPTY_FEED);
+		await listActivity({ cursor: "MTIz=" });
+		expect(mocks.get).toHaveBeenCalledWith("/api/activity?cursor=MTIz%3D");
+	});
+
+	// apps/api guards with `if (cursor)`, treating "" as absent, and mockApi
+	// matches that. Sending `?cursor=` would be a request neither side needs
+	// to answer.
+	it("omits an empty cursor rather than sending a bare one", async () => {
+		mocks.get.mockResolvedValue(EMPTY_FEED);
+		await listActivity({ cursor: "" });
+		expect(mocks.get).toHaveBeenCalledWith("/api/activity");
 	});
 });

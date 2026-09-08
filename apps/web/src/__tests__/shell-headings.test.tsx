@@ -45,11 +45,17 @@ vi.mock("../api/machinesApi", () => ({
 	createMachine: vi.fn(),
 	revokeMachine: vi.fn(),
 }));
+// listActivity is stubbed here even though no test in this file names
+// "/activity": the it.each below renders every route in SECTIONS, so any api
+// function a shell page imports needs a stub in this factory whether or not
+// its route is spelled out anywhere in this file.
 vi.mock("../api/lessonsApi", () => ({
 	listLessons: () =>
 		Promise.resolve({ lessons: [], cursor: null, has_more: false }),
 	getLesson: vi.fn(),
 	updateLessonStatus: vi.fn(),
+	listActivity: () =>
+		Promise.resolve({ events: [], cursor: null, has_more: false }),
 }));
 
 const { default: App } = await import("../App");

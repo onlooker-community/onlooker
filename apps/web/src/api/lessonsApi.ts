@@ -13,6 +13,7 @@ import { apiClient } from "./client";
 
 export const LESSON_ENDPOINTS = {
 	lessons: "/api/lessons",
+	activity: "/api/activity",
 } as const;
 
 /**
@@ -105,5 +106,66 @@ export function setLessonStatus(
 	return apiClient.patch<{ id: string; seq: number }>(
 		`${LESSON_ENDPOINTS.lessons}/${encodeURIComponent(id)}/status`,
 		{ status },
+	);
+}
+
+/**
+ * One event in the reader's own feed. Field names are the API's, not camelCased.
+ *
+ * The wire also carries `applies_to` and `status`. Both are omitted on purpose.
+ * A status row must name no state — see the approved limitation in
+ * 2026-08-31-lesson-activity-screen-design.md — and leaving `status` off this
+ * type makes rendering it a compile error rather than a review catch. `applies_to`
+ * has no consumer. Add either the moment one does.
+ */
+export interface ActivityEvent {
+	seq: number;
+	kind: string;
+	at: string;
+	lesson_id: string;
+	claim: string;
+}
+
+/**
+ * One page of the activity feed.
+ *
+ * Named `ActivityFeedPage` and not `ActivityPage`, which is what the server
+ * type in apps/api/src/db/lessons.ts is called: the browser already has a
+ * component by that name, and both are imported into ActivityPage.tsx. The
+ * server has no such collision, which is why the names diverge here rather
+ * than there.
+ */
+export interface ActivityFeedPage {
+	events: ActivityEvent[];
+	cursor: string | null;
+	has_more: boolean;
+}
+
+export interface ListActivityOptions {
+	cursor?: string | null;
+}
+
+/**
+ * The reader's own feed, newest first.
+ *
+ * Lives beside listLessons rather than in an activityApi.ts because the server
+ * made the same choice for the same reason: listActivityPage sits with
+ * listLessonsPage in apps/api/src/db/lessons.ts, since this is the second read
+ * over the same feed the browse routes already page through.
+ */
+export function listActivity(
+	options: ListActivityOptions = {},
+): Promise<ActivityFeedPage> {
+	const query = new URLSearchParams();
+
+	// `if (cursor)` and not `!= null`, matching listLessons above and apps/api:
+	// both treat "" as absent.
+	if (options.cursor) query.set("cursor", options.cursor);
+
+	const search = query.toString();
+	return apiClient.get<ActivityFeedPage>(
+		search
+			? `${LESSON_ENDPOINTS.activity}?${search}`
+			: LESSON_ENDPOINTS.activity,
 	);
 }

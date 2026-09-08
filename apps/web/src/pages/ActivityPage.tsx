@@ -1,20 +1,9 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { EmptyState, Panel } from "../components/ui";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
-
-interface ActivityEvent {
-	seq: number;
-	kind: string;
-	at: string;
-	lesson_id: string;
-	claim: string;
-}
-
-interface ActivityResponse {
-	events: ActivityEvent[];
-	cursor: string | null;
-	has_more: boolean;
-}
+import { type ActivityEvent, listActivity } from "../api/lessonsApi";
+import { PALETTE } from "../components/palette";
+import { Button, EmptyState, Panel } from "../components/ui";
+import { describeError } from "../lib/apiErrors";
 
 /** The day an event belongs to, in the reader's own timezone. */
 function dayKey(iso: string): string {
@@ -48,20 +37,70 @@ function describeKind(kind: string): string {
 }
 
 export default function ActivityPage() {
-	const { data, loading, error } =
-		useAuthenticatedFetch<ActivityResponse>("/api/activity");
+	const [events, setEvents] = useState<ActivityEvent[] | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	const [cursor, setCursor] = useState<string | null>(null);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const [moreError, setMoreError] = useState<string | null>(null);
 
-	if (loading) return <p>Loading your activity…</p>;
+	useEffect(() => {
+		// An `active` flag, not a request sequence number. LessonsPage carries a
+		// requestSeq (LessonsPage.tsx:119) because a filter change mints a second
+		// query, and without one whichever request SETTLES last would win rather
+		// than whichever was ASKED last. This screen has no filter, so there is no
+		// second query and nothing to order. What does still apply is an unmount
+		// mid-flight, which is all this guards.
+		let active = true;
+		listActivity()
+			.then((page) => {
+				if (!active) return;
+				setEvents(page.events);
+				// `has_more` and not `cursor !== null`. They agree today, because
+				// listActivityPage derives hasMore as `rows.length > limit` and so
+				// always has a last row to mint a cursor from - but they are two
+				// facts and only one of them is the question being asked. See the
+				// same reasoning at LessonsPage's load().
+				setCursor(page.has_more ? page.cursor : null);
+			})
+			.catch((error: unknown) => {
+				if (!active) return;
+				setLoadError(describeError(error, "Could not load your activity."));
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
-	if (error) {
+	const loadMore = async () => {
+		// The whole of the concurrency control this screen needs: no filter means
+		// no query to supersede, so the only race is a second click while the
+		// first append is still out.
+		if (!cursor || loadingMore) return;
+		setLoadingMore(true);
+		setMoreError(null);
+		try {
+			const page = await listActivity({ cursor });
+			setEvents((current) => [...(current ?? []), ...page.events]);
+			setCursor(page.has_more ? page.cursor : null);
+		} catch (error) {
+			// The pages already loaded stay. A failed append is a missing tail.
+			setMoreError(describeError(error, "Could not load more activity."));
+		} finally {
+			setLoadingMore(false);
+		}
+	};
+
+	if (loadError) {
 		return (
 			<div style={{ maxWidth: "640px" }}>
-				<EmptyState title="Could not load your activity">{error}</EmptyState>
+				<EmptyState title="Could not load your activity">
+					{loadError}
+				</EmptyState>
 			</div>
 		);
 	}
 
-	const events = data?.events ?? [];
+	if (events === null) return <p>Loading your activity…</p>;
 
 	if (events.length === 0) {
 		return (
@@ -118,6 +157,22 @@ export default function ActivityPage() {
 					))}
 				</Panel>
 			))}
+
+			{cursor ? (
+				<Button
+					loading={loadingMore}
+					loadingLabel="Loading…"
+					onClick={() => void loadMore()}
+				>
+					Load more
+				</Button>
+			) : null}
+
+			{moreError ? (
+				<p role="alert" style={{ color: PALETTE.danger }}>
+					{moreError}
+				</p>
+			) : null}
 		</div>
 	);
 }
