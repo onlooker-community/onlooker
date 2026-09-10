@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
 import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
 import { Icon } from "../components/Icon";
+import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
 import {
-	Button,
 	Chip,
 	EmptyState,
 	Panel,
@@ -110,6 +110,7 @@ export default function LessonsPage() {
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
+	const [ended, setEnded] = useState(false);
 
 	// Which request is newest. Two filter changes inside one round-trip issue
 	// two requests, and without this whichever SETTLES last would win rather
@@ -143,6 +144,12 @@ export default function LessonsPage() {
 		// request finally settles, which client.ts's retries can stretch to
 		// ~45s. The matching guard lives in loadMore's `finally`, below.
 		setLoadingMore(false);
+		// And `ended` with them, for the third time in the same breath: a new
+		// query has not reached its own end, whatever the last one found. This
+		// is the reset that makes an `ended` flag safe here at all - it is why
+		// the end-of-pool message cannot be derived from `cursor === null`,
+		// which this line also produces on every filter change.
+		setEnded(false);
 		try {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			if (seq !== requestSeq.current) return;
@@ -210,6 +217,10 @@ export default function LessonsPage() {
 			if (seq !== requestSeq.current) return;
 			setLessons((current) => [...(current ?? []), ...page.lessons]);
 			setCursor(page.has_more ? page.cursor : null);
+			// Behind the same seq guard as the append itself: a page that lands
+			// after the filter has moved on must not report ITS end as the end
+			// of the query now on screen.
+			setEnded(!page.has_more);
 		} catch (error) {
 			if (seq !== requestSeq.current) return;
 			// The pages already loaded stay. A failed append is a missing tail,
@@ -433,23 +444,15 @@ export default function LessonsPage() {
 							))}
 						</nav>
 
-						{cursor ? (
-							<div style={{ marginTop: "1rem" }}>
-								<Button
-									loading={loadingMore}
-									loadingLabel="Loading..."
-									onClick={() => void loadMore()}
-								>
-									Load more
-								</Button>
-							</div>
-						) : null}
-
-						{moreError ? (
-							<p role="alert" style={{ color: PALETTE.danger }}>
-								{moreError}
-							</p>
-						) : null}
+						<LoadMore
+							cursor={cursor}
+							loading={loadingMore}
+							ended={ended}
+							endLabel="That's the whole pool."
+							error={moreError}
+							onLoadMore={() => void loadMore()}
+							style={{ marginTop: "1rem" }}
+						/>
 					</Panel>
 				)}
 			</div>

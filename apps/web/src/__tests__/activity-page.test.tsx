@@ -11,7 +11,7 @@
 // formatted date, so there's no established pattern to match here.
 process.env.TZ = "UTC";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -293,5 +293,86 @@ describe("/activity pagination", () => {
 		expect(await screen.findByRole("alert")).toBeDefined();
 		expect(screen.getByText(/network unreachable/i)).toBeDefined();
 		expect(screen.getByText(/cache node_modules/i)).toBeDefined();
+	});
+});
+
+// Retiring the button is correct - there is nothing left to ask for - but it
+// unmounts the element the person is standing on, and a keyboard user is left
+// on <body> with nothing said.
+describe("/activity when the last page retires the button", () => {
+	it("moves focus to a message saying so, rather than dropping it to the body", async () => {
+		mocks.listActivity
+			.mockResolvedValueOnce(PAGE_ONE)
+			.mockResolvedValueOnce(PAGE_TWO);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+		await screen.findByText(/prefer explicit imports/i);
+
+		expect(document.activeElement?.textContent).toBe("That's the whole feed.");
+	});
+
+	// The end of the feed is not news to someone who never asked for more: the
+	// button was never there to retire, and a page that greets a new reader by
+	// announcing an ending is answering a question nobody put. This is also
+	// what stops the message appearing mid-flight on the pool, where `load()`
+	// clears the cursor synchronously on every filter change.
+	it("says nothing when the first page was already the whole feed", async () => {
+		mocks.listActivity.mockResolvedValue(PAGE_TWO);
+		renderAppAt("/activity");
+		await screen.findByText(/prefer explicit imports/i);
+
+		expect(screen.queryByText(/whole feed/i)).toBeNull();
+	});
+
+	// Focus is only lost if the unmounting button was holding it. Someone who
+	// clicked Load more and then moved on - into the day's rows, or a link -
+	// is standing somewhere deliberately, and pulling them back to a message
+	// about the tail would be a second defect wearing the first one's clothes.
+	it("leaves focus alone when it is somewhere other than the body", async () => {
+		let landPageTwo: (page: unknown) => void = () => {};
+		mocks.listActivity.mockResolvedValueOnce(PAGE_ONE).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					landPageTwo = resolve;
+				}),
+		);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+		const elsewhere = screen.getByRole("link", { name: /cache node_modules/i });
+		elsewhere.focus();
+
+		await act(async () => {
+			landPageTwo(PAGE_TWO);
+		});
+
+		expect(document.activeElement).toBe(elsewhere);
+	});
+
+	// The label a person reads while an append is out. Every pending control in
+	// this app spells it with three ASCII dots - `Button` and `SubmitButton`
+	// both default to "Working..." and all twelve call sites agree - while
+	// U+2026 is reserved for prose paragraphs like "Loading your activity…"
+	// above. This control is chrome, not prose, so it belongs to the first
+	// convention. Pinned because the feed's Load more and the pool's disagreed
+	// on exactly this character, and nothing but a test stops that recurring.
+	it("spells its pending label the way every other pending control does", async () => {
+		let landPageTwo: (page: unknown) => void = () => {};
+		mocks.listActivity.mockResolvedValueOnce(PAGE_ONE).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					landPageTwo = resolve;
+				}),
+		);
+		renderAppAt("/activity");
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+
+		expect(screen.getByRole("button", { name: "Loading..." })).toBeDefined();
+
+		await act(async () => {
+			landPageTwo(PAGE_TWO);
+		});
 	});
 });
