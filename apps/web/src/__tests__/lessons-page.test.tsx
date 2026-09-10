@@ -753,6 +753,64 @@ describe("paging past the first page", () => {
 		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
 	});
 
+	// Retiring the button unmounts the element the person just pressed, and a
+	// keyboard user is left on <body> with nothing said. The pool shares this
+	// control with the activity feed, so it shares the answer: a message where
+	// the button was, and focus moved onto it.
+	//
+	// The message is NOT a second live region, unlike the summary above it.
+	// That region already announces the new count when this page appends, and
+	// a `role="status"` here would make one press speak three times - the
+	// count, the region's own arrival, and the focus move. Focus carries the
+	// announcement on its own.
+	it("moves focus to a message saying so when the last page retires the button", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockResolvedValue({
+			lessons: [D1],
+			cursor: null,
+			has_more: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await screen.findByText(D1.claim);
+
+		expect(document.activeElement?.textContent).toBe("That's the whole pool.");
+	});
+
+	// The pool's own hazard, and the reason the message cannot key on the
+	// cursor alone. `load()` clears the cursor SYNCHRONOUSLY when the filter
+	// changes, so "no cursor" arrives here for a reason that has nothing to do
+	// with reaching the end - and the reader, mid-refetch, would be told the
+	// pool was exhausted and have their focus taken to hear it.
+	it("does not call the pool exhausted when a filter change clears the cursor", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(screen.getByRole("button", { name: /load more/i })).toBeDefined();
+
+		let resolveRefetch: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveRefetch = resolve;
+				}),
+		);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		await waitFor(() =>
+			expect(screen.queryByRole("button", { name: /load more/i })).toBeNull(),
+		);
+		expect(screen.queryByText(/whole pool/i)).toBeNull();
+
+		await act(async () => {
+			resolveRefetch({ lessons: [], cursor: null, has_more: false });
+		});
+	});
+
 	// Changing the filter is a different query, so its first page must start
 	// from no cursor. Carrying the old one over would page through a boundary
 	// the new filter never established.

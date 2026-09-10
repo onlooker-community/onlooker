@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { type ActivityEvent, listActivity } from "../api/lessonsApi";
-import { PALETTE } from "../components/palette";
-import { Button, EmptyState, Panel } from "../components/ui";
+import { LoadMore } from "../components/LoadMore";
+import { EmptyState, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 
 /** The day an event belongs to, in the reader's own timezone. */
@@ -42,6 +42,7 @@ export default function ActivityPage() {
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
+	const [ended, setEnded] = useState(false);
 
 	useEffect(() => {
 		// An `active` flag, not a request sequence number. LessonsPage carries a
@@ -82,6 +83,11 @@ export default function ActivityPage() {
 			const page = await listActivity({ cursor });
 			setEvents((current) => [...(current ?? []), ...page.events]);
 			setCursor(page.has_more ? page.cursor : null);
+			// Set here rather than read off `cursor` downstream, because "the
+			// feed ended" and "there is no cursor" are the same only on this
+			// screen. The feed has no filter to restart it, so nothing clears
+			// this again - reaching the end is final.
+			setEnded(!page.has_more);
 		} catch (error) {
 			// The pages already loaded stay. A failed append is a missing tail.
 			setMoreError(describeError(error, "Could not load more activity."));
@@ -158,21 +164,14 @@ export default function ActivityPage() {
 				</Panel>
 			))}
 
-			{cursor ? (
-				<Button
-					loading={loadingMore}
-					loadingLabel="Loading…"
-					onClick={() => void loadMore()}
-				>
-					Load more
-				</Button>
-			) : null}
-
-			{moreError ? (
-				<p role="alert" style={{ color: PALETTE.danger }}>
-					{moreError}
-				</p>
-			) : null}
+			<LoadMore
+				cursor={cursor}
+				loading={loadingMore}
+				ended={ended}
+				endLabel="That's the whole feed."
+				error={moreError}
+				onLoadMore={() => void loadMore()}
+			/>
 		</div>
 	);
 }
