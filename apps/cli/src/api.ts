@@ -94,6 +94,13 @@ export interface ApiClient {
 	/** Cheapest call a machine token can make, and it has no side effects. */
 	verify(): Promise<void>;
 	push(lessons: unknown[]): Promise<PushResponse>;
+	/**
+	 * Replace this machine's reported inventory.
+	 *
+	 * `unknown` rather than the collector's `Inventory`, matching `push`: this
+	 * module is transport and has no opinion about the document's shape.
+	 */
+	reportInventory(inventory: unknown): Promise<void>;
 }
 
 export function createClient(
@@ -140,5 +147,13 @@ export function createClient(
 				method: "POST",
 				body: JSON.stringify({ lessons }),
 			}),
+		reportInventory: async (inventory) => {
+			// PUT, not POST: this replaces one row's document rather than
+			// adding to a collection, so running sync twice must be free.
+			await call("/machine/inventory", {
+				method: "PUT",
+				body: JSON.stringify(inventory),
+			});
+		},
 	};
 }

@@ -583,6 +583,16 @@ interface MockMachine {
 	created_at: string;
 	last_used_at: string | null;
 	revoked_at: string | null;
+	/**
+	 * The reported inventory document, held whole so the detail route can
+	 * serve it. The list route sends a count derived from it and never the
+	 * document itself, matching the split the real API makes.
+	 *
+	 * Undefined means this machine has never reported, which the page renders
+	 * differently from an inventory naming no plugins.
+	 */
+	inventory?: unknown;
+	inventory_at?: string | null;
 }
 
 /**
@@ -602,6 +612,16 @@ function machinesOf(email: string): MockMachine[] {
 	const fresh: MockMachine[] = [];
 	MACHINES.set(email, fresh);
 	return fresh;
+}
+
+/**
+ * Plugins named by a reported document, or null when there is nothing to
+ * count. Mirrors `pluginCount` in apps/api: null for unreported and for
+ * unreadable alike, because zero would be a claim about the machine.
+ */
+function mockPluginCount(inventory: unknown): number | null {
+	const plugins = (inventory as { plugins?: unknown } | undefined)?.plugins;
+	return Array.isArray(plugins) ? plugins.length : null;
 }
 
 let mockMachineCounter = 0;
@@ -773,7 +793,16 @@ export async function mockDataApi(
 
 	if (poolPath === "/api/machines" && (options.method ?? "GET") === "GET") {
 		const { email } = requireAuth(options);
-		return json({ machines: machinesOf(email) });
+		// The count, never the document - the same split handleListMachines
+		// makes. Destructuring `inventory` out is what keeps it from riding
+		// along, and MACHINE_LIFECYCLE.inventoryDocumentKey fails if it does.
+		return json({
+			machines: machinesOf(email).map(({ inventory, ...machine }) => ({
+				...machine,
+				inventory_at: machine.inventory_at ?? null,
+				plugin_count: mockPluginCount(inventory),
+			})),
+		});
 	}
 
 	if (poolPath === "/api/machines" && options.method === "POST") {
@@ -800,6 +829,32 @@ export async function mockDataApi(
 		// The raw token appears here and nowhere else, ever - the same promise
 		// handleCreateMachine makes. Nothing above stored it.
 		return json({ id, name, token: mintMockMachineToken() }, 201);
+	}
+
+	// Before the DELETE branch below, which matches on the same prefix. A
+	// detail path reaching that branch first would route a read into machine
+	// revocation.
+	if (
+		poolPath.startsWith("/api/machines/") &&
+		poolPath.endsWith("/inventory") &&
+		(options.method ?? "GET") === "GET"
+	) {
+		const { email } = requireAuth(options);
+		const id = poolPath.slice("/api/machines/".length, -"/inventory".length);
+		const machine = machinesOf(email).find((m) => m.id === id);
+		// 404 for never-reported and not-yours alike, matching
+		// handleGetInventory. Telling them apart confirms which ids exist.
+		if (!machine?.inventory || !machine.inventory_at) {
+			throw new AuthApiError(
+				404,
+				"not_found",
+				"This machine has not reported an inventory",
+			);
+		}
+		return json({
+			inventory: machine.inventory,
+			inventory_at: machine.inventory_at,
+		});
 	}
 
 	if (poolPath.startsWith("/api/machines/") && options.method === "DELETE") {

@@ -267,8 +267,29 @@ export const MACHINE_LIFECYCLE = {
 	 * `tsc` green - while the page silently rendered "Never used" for every
 	 * machine and "Invalid Date" under Created. This is the one place that
 	 * rename fails.
+	 *
+	 * `inventory_at` and `plugin_count` joined them when machines began
+	 * reporting what they run. The count and never the document: a list
+	 * carrying every machine's full inventory is what the browse-then-detail
+	 * split exists to prevent, and `inventoryInList` below fails if one leaks.
 	 */
-	listFields: ["id", "name", "created_at", "last_used_at", "revoked_at"],
+	listFields: [
+		"id",
+		"name",
+		"created_at",
+		"last_used_at",
+		"revoked_at",
+		"inventory_at",
+		"plugin_count",
+	],
+	/**
+	 * A listed machine never carries its inventory document. `scopes` is the
+	 * tripwire because it appears only inside one - `plugins` alone would also
+	 * match a summary field someone adds later, and `inventory` is a prefix of
+	 * `inventory_at`, which is supposed to be there.
+	 */
+	inventoryInList: false,
+	inventoryDocumentKey: "scopes",
 	/**
 	 * The exact fields the create response carries. `name` is rendered by
 	 * `TokenReveal` ("the token for <name>") and was asserted nowhere before

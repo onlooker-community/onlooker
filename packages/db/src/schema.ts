@@ -128,6 +128,23 @@ export const machine_tokens = sqliteTable(
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		last_used_at: text("last_used_at"),
 		revoked_at: text("revoked_at"),
+		/**
+		 * The machine's reported plugin inventory, as the CLI's own JSON.
+		 *
+		 * A document rather than a `machine_plugins` table, for the reason the
+		 * `lessons` table gives below: only fields the server filters or orders
+		 * on earn a column. The server never reads inside this one - it stores
+		 * what the machine sent and hands it back, so a later schema_version
+		 * needs no migration here.
+		 *
+		 * What would justify normalizing is querying across machines - "which
+		 * machines still run librarian 0.6.1" - which is drift detection, and
+		 * deliberately out of scope. A column does not block that later.
+		 */
+		inventory: text("inventory"),
+		/** When `inventory` was last replaced. Null means never reported, which
+		 * is a different claim from an empty inventory and renders differently. */
+		inventory_at: text("inventory_at"),
 	},
 	(table) => ({
 		tokenHashIdx: uniqueIndex("machine_tokens_token_hash_idx").on(
