@@ -840,10 +840,7 @@ export async function mockDataApi(
 		(options.method ?? "GET") === "GET"
 	) {
 		const { email } = requireAuth(options);
-		const id = poolPath.slice(
-			"/api/machines/".length,
-			-"/inventory".length,
-		);
+		const id = poolPath.slice("/api/machines/".length, -"/inventory".length);
 		const machine = machinesOf(email).find((m) => m.id === id);
 		// 404 for never-reported and not-yours alike, matching
 		// handleGetInventory. Telling them apart confirms which ids exist.

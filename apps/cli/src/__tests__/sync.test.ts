@@ -62,8 +62,14 @@ const accepts = () => pushes();
  * once to push lessons - so "was fetch called" no longer answers "were any
  * lessons sent". These tests mean the second question.
  */
-const lessonPushes = (fetchImpl: { mock: { calls: unknown[][] } }) =>
-	fetchImpl.mock.calls.filter(([url]) => String(url).endsWith("/lessons"));
+type FetchCall = [url: unknown, init: { body: string; method?: string }];
+
+const lessonPushes = (fetchImpl: {
+	mock: { calls: unknown[][] };
+}): FetchCall[] =>
+	fetchImpl.mock.calls.filter(([url]) =>
+		String(url).endsWith("/lessons"),
+	) as FetchCall[];
 
 /** A config dir whose installed_plugins.json names `ids`. */
 function withPlugins(env: NodeJS.ProcessEnv, ids: string[]): NodeJS.ProcessEnv {
@@ -86,12 +92,16 @@ function withPlugins(env: NodeJS.ProcessEnv, ids: string[]): NodeJS.ProcessEnv {
 }
 
 /** Answers 200 to the inventory report and defers lessons to `onLessons`. */
-const reportsAnd = (onLessons: ReturnType<typeof vi.fn>) =>
-	vi.fn().mockImplementation(async (url: unknown, init: unknown) =>
-		String(url).endsWith("/machine/inventory")
-			? { ok: true, status: 200, json: async () => ({ ok: true }) }
-			: onLessons(url, init),
-	);
+const reportsAnd = (
+	onLessons: (url: unknown, init: unknown) => Promise<unknown>,
+) =>
+	vi
+		.fn()
+		.mockImplementation(async (url: unknown, init: unknown) =>
+			String(url).endsWith("/machine/inventory")
+				? { ok: true, status: 200, json: async () => ({ ok: true }) }
+				: onLessons(url, init),
+		);
 
 /** A 200 whose body is `{ results: [...] }` verbatim, whatever was sent. */
 const answers = (results: unknown) =>
@@ -320,7 +330,9 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
 			failure: { kind: "rejected" },
 		});
-		expect(JSON.parse(lessonPushes(fetchImpl)[0][1].body).lessons).toHaveLength(1);
+		expect(JSON.parse(lessonPushes(fetchImpl)[0][1].body).lessons).toHaveLength(
+			1,
+		);
 	});
 
 	// The report has to survive the throw. Someone told only that a file was
@@ -508,11 +520,13 @@ describe("sync inventory reporting", () => {
 		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
 		withLessons(env, 1);
 		const push = accepts();
-		const fetchImpl = vi.fn().mockImplementation(async (url, init) =>
-			String(url).endsWith("/machine/inventory")
-				? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
-				: push(url, init),
-		);
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (url, init) =>
+				String(url).endsWith("/machine/inventory")
+					? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
+					: push(url, init),
+			);
 
 		const message = await sync({ env, fetchImpl });
 
@@ -526,11 +540,13 @@ describe("sync inventory reporting", () => {
 		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
 		withLessons(env, 1);
 		const push = accepts();
-		const fetchImpl = vi.fn().mockImplementation(async (url, init) =>
-			String(url).endsWith("/machine/inventory")
-				? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
-				: push(url, init),
-		);
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (url, init) =>
+				String(url).endsWith("/machine/inventory")
+					? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
+					: push(url, init),
+			);
 
 		const message = await sync({ env, fetchImpl });
 

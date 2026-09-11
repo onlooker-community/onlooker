@@ -65,7 +65,12 @@ describe("collectInventory", () => {
 		const h = home();
 		const dir = configDir(twoScopes(join(h, "src", "ecosystem")));
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		expect(result.kind).toBe("collected");
 		if (result.kind !== "collected") return;
@@ -83,7 +88,12 @@ describe("collectInventory", () => {
 		const h = home();
 		const dir = configDir(twoScopes(join(h, "src", "ecosystem")));
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		const serialized = JSON.stringify(result.inventory);
@@ -103,7 +113,12 @@ describe("collectInventory", () => {
 			},
 		});
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		expect(result.inventory.plugins.map((p) => p.id)).toEqual([
@@ -117,7 +132,12 @@ describe("collectInventory", () => {
 			enabledPlugins: { "librarian@onlooker-community": true },
 		});
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		const scopes = result.inventory.plugins[0].scopes;
@@ -132,7 +152,12 @@ describe("collectInventory", () => {
 			enabledPlugins: { "librarian@onlooker-community": true },
 		});
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		const scopes = result.inventory.plugins[0].scopes;
@@ -155,7 +180,9 @@ describe("collectInventory", () => {
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		const scopes = result.inventory.plugins[0].scopes;
-		expect(scopes.find((s) => s.scope === "~/src/onlooker")?.enabled).toBe(true);
+		expect(scopes.find((s) => s.scope === "~/src/onlooker")?.enabled).toBe(
+			true,
+		);
 		expect(result.inventory.project).toBe("~/src/onlooker");
 	});
 
@@ -173,7 +200,12 @@ describe("collectInventory", () => {
 			{ enabledPlugins: { "archivist@onlooker-community": false } },
 		);
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		expect(result.inventory.plugins[0].scopes[0].enabled).toBe(false);
@@ -185,7 +217,12 @@ describe("collectInventory", () => {
 		const h = home();
 		const dir = mkdtempSync(join(tmpdir(), "onlooker-inv-cfg-"));
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		expect(result.kind).toBe("unavailable");
 	});
@@ -203,7 +240,12 @@ describe("collectInventory", () => {
 		const h = home();
 		const dir = mkdtempSync(join(tmpdir(), "onlooker-inv-cfg-"));
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "unavailable") throw new Error("expected unavailable");
 		expect(result.reason).not.toContain(h);
@@ -237,7 +279,12 @@ describe("collectInventory", () => {
 			},
 		});
 
-		const result = collectInventory({ cwd: h, home: h, configDir: dir, env: {} });
+		const result = collectInventory({
+			cwd: h,
+			home: h,
+			configDir: dir,
+			env: {},
+		});
 
 		if (result.kind !== "collected") throw new Error("expected collected");
 		expect(result.inventory.plugins.map((p) => p.id)).toEqual([

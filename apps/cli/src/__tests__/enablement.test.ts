@@ -410,8 +410,8 @@ describe("userConfigDir", () => {
 	});
 
 	it("lets an explicit override win over both variables", () => {
-		expect(
-			userConfigDir({ CLAUDE_HOME: "/a" }, "/h", "/explicit"),
-		).toBe("/explicit");
+		expect(userConfigDir({ CLAUDE_HOME: "/a" }, "/h", "/explicit")).toBe(
+			"/explicit",
+		);
 	});
 });

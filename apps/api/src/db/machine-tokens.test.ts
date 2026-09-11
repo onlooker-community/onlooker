@@ -98,7 +98,9 @@ describe("verifyMachineToken", () => {
 
 		await revokeMachineToken(db(), userId, lost.id);
 
-		expect(await verifyMachineToken(db(), kept.token)).toMatchObject({ userId });
+		expect(await verifyMachineToken(db(), kept.token)).toMatchObject({
+			userId,
+		});
 	});
 
 	it("records when the token was last used", async () => {

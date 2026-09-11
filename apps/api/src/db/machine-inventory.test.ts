@@ -57,7 +57,9 @@ describe("putMachineInventory", () => {
 
 		await putMachineInventory(db(), m.id, sent, "2026-09-11T00:00:00.000Z");
 
-		expect((await getMachineInventory(db(), userId, m.id))?.inventory).toBe(sent);
+		expect((await getMachineInventory(db(), userId, m.id))?.inventory).toBe(
+			sent,
+		);
 	});
 
 	// A token that could write another machine's row would make the page
@@ -81,7 +83,12 @@ describe("getMachineInventory", () => {
 	it("will not hand a machine's inventory to another account", async () => {
 		const other = await createUser(db(), "b@example.com", "hash", "Bob");
 		const m = await createMachineToken(db(), userId, "laptop");
-		await putMachineInventory(db(), m.id, doc(["a"]), "2026-09-11T00:00:00.000Z");
+		await putMachineInventory(
+			db(),
+			m.id,
+			doc(["a"]),
+			"2026-09-11T00:00:00.000Z",
+		);
 
 		expect(await getMachineInventory(db(), other.id, m.id)).toBeNull();
 	});
@@ -94,7 +101,12 @@ describe("getMachineInventory", () => {
 
 	it("stops answering for a revoked machine", async () => {
 		const m = await createMachineToken(db(), userId, "lost laptop");
-		await putMachineInventory(db(), m.id, doc(["a"]), "2026-09-11T00:00:00.000Z");
+		await putMachineInventory(
+			db(),
+			m.id,
+			doc(["a"]),
+			"2026-09-11T00:00:00.000Z",
+		);
 
 		await revokeMachineToken(db(), userId, m.id);
 
@@ -126,7 +138,12 @@ describe("listMachineTokens inventory summary", () => {
 	it("distinguishes never reported from an empty inventory", async () => {
 		const never = await createMachineToken(db(), userId, "never");
 		const empty = await createMachineToken(db(), userId, "empty");
-		await putMachineInventory(db(), empty.id, doc([]), "2026-09-11T00:00:00.000Z");
+		await putMachineInventory(
+			db(),
+			empty.id,
+			doc([]),
+			"2026-09-11T00:00:00.000Z",
+		);
 
 		const rows = await listMachineTokens(db(), userId);
 		const neverRow = rows.find((r) => r.id === never.id);

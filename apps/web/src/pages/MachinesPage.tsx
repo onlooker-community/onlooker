@@ -15,6 +15,7 @@ import {
 } from "../api/machinesApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
+import { MachineInventory } from "../components/MachineInventory";
 import { PALETTE } from "../components/palette";
 import { Chip, EmptyState, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
@@ -53,6 +54,10 @@ export default function MachinesPage() {
 	const { revealed, reveal } = useReveal();
 	const [revoking, setRevoking] = useState<string | null>(null);
 	const [revokeError, setRevokeError] = useState<string | null>(null);
+	// One machine open at a time. Enough for the page, and it keeps the
+	// document fetch scoped to a component that unmounts when it closes -
+	// see onlooker-bcn on not adding a fourth copy of a query lifecycle here.
+	const [openInventory, setOpenInventory] = useState<string | null>(null);
 	const [revokedName, setRevokedName] = useState("");
 	// Parked here rather than written straight to state when a reveal is open.
 	// See the revoke handler and the flush effect below for why (onlooker-5o4).
@@ -354,7 +359,41 @@ export default function MachinesPage() {
 												// not say that - it reads as missing data.
 												<Chip>Never used</Chip>
 											)}
+											{/*
+											  Never reported is not zero plugins. One is a claim
+											  about the machine, the other about what we know -
+											  so the machine that has not told us gets a chip
+											  rather than a count, and no control to expand.
+											*/}
+											{machine.inventory_at === null ? (
+												<Chip>Never reported</Chip>
+											) : (
+												<button
+													type="button"
+													aria-expanded={openInventory === machine.id}
+													onClick={() =>
+														setOpenInventory(
+															openInventory === machine.id ? null : machine.id,
+														)
+													}
+													style={{
+														background: "none",
+														border: "none",
+														padding: 0,
+														font: "inherit",
+														color: "inherit",
+														textDecoration: "underline",
+														cursor: "pointer",
+													}}
+												>
+													{machine.plugin_count}{" "}
+													{machine.plugin_count === 1 ? "plugin" : "plugins"}
+												</button>
+											)}
 										</span>
+										{openInventory === machine.id ? (
+											<MachineInventory machineId={machine.id} />
+										) : null}
 									</span>
 									<span style={{ flex: "none" }}>{action(machine)}</span>
 								</li>

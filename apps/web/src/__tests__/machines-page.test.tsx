@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	listMachines: vi.fn(),
 	createMachine: vi.fn(),
 	revokeMachine: vi.fn(),
+	getMachineInventory: vi.fn(),
 }));
 
 vi.mock("../api/machinesApi", () => ({
@@ -23,6 +24,7 @@ vi.mock("../api/machinesApi", () => ({
 	listMachines: mocks.listMachines,
 	createMachine: mocks.createMachine,
 	revokeMachine: mocks.revokeMachine,
+	getMachineInventory: mocks.getMachineInventory,
 }));
 
 const { default: MachinesPage } = await import("../pages/MachinesPage");
@@ -38,6 +40,8 @@ const USED = {
 	created_at: "2026-08-01T10:00:00.000Z",
 	last_used_at: "2026-08-20T09:30:00.000Z",
 	revoked_at: null,
+	inventory_at: null,
+	plugin_count: null,
 };
 const NEVER_USED = {
 	id: "m2",
@@ -45,6 +49,8 @@ const NEVER_USED = {
 	created_at: "2026-08-02T10:00:00.000Z",
 	last_used_at: null,
 	revoked_at: null,
+	inventory_at: null,
+	plugin_count: null,
 };
 const REVOKED = {
 	id: "m3",
@@ -52,6 +58,8 @@ const REVOKED = {
 	created_at: "2026-08-03T10:00:00.000Z",
 	last_used_at: "2026-08-04T10:00:00.000Z",
 	revoked_at: "2026-08-05T10:00:00.000Z",
+	inventory_at: null,
+	plugin_count: null,
 };
 // revoked_at and last_used_at are independently nullable columns - a machine
 // minted and revoked before a plugin ever used it is a real state, not a
@@ -62,6 +70,8 @@ const REVOKED_NEVER_USED = {
 	created_at: "2026-08-06T10:00:00.000Z",
 	last_used_at: null,
 	revoked_at: "2026-08-07T10:00:00.000Z",
+	inventory_at: null,
+	plugin_count: null,
 };
 
 function withMachines(...machines: unknown[]) {
@@ -72,6 +82,7 @@ beforeEach(() => {
 	mocks.listMachines.mockReset();
 	mocks.createMachine.mockReset();
 	mocks.revokeMachine.mockReset();
+	mocks.getMachineInventory.mockReset();
 	Object.defineProperty(navigator, "clipboard", {
 		value: { writeText: vi.fn().mockResolvedValue(undefined) },
 		configurable: true,
@@ -515,5 +526,164 @@ describe("MachinesPage when a revoke lands under an open reveal", () => {
 		await waitFor(() =>
 			expect(status.textContent).toBe("Revoked work laptop."),
 		);
+	});
+});
+
+/**
+ * The inventory a machine reports, and the three states it can be in.
+ *
+ * Never reported is not zero plugins, and an install nothing enables is not the
+ * same as one whose enablement could not be determined. The page has to keep
+ * all three apart, because the underlying data does.
+ */
+describe("MachinesPage inventory", () => {
+	const REPORTED = {
+		id: "m5",
+		name: "reporting laptop",
+		created_at: "2026-09-01T10:00:00.000Z",
+		last_used_at: "2026-09-10T10:00:00.000Z",
+		revoked_at: null,
+		inventory_at: "2026-09-11T02:00:00.000Z",
+		plugin_count: 2,
+	};
+
+	const DOCUMENT = {
+		inventory: {
+			schema_version: 1,
+			collected_at: "2026-09-11T02:00:00.000Z",
+			project: "~/src/onlooker",
+			plugins: [
+				{
+					id: "librarian@onlooker-community",
+					scopes: [
+						{
+							scope: "user",
+							version: "0.18.1",
+							git_commit_sha: "56057f9c8f39d191711e2c57d11dfa9b105b26bd",
+							installed_at: null,
+							last_updated: null,
+							enabled: true,
+						},
+						{
+							scope: "~/src/ecosystem",
+							version: "0.18.0",
+							git_commit_sha: "94366e4169d8b4fa84b30ed204bdf6bbfdd5b0c1",
+							installed_at: null,
+							last_updated: null,
+							enabled: null,
+						},
+					],
+				},
+				{
+					id: "archivist@onlooker-community",
+					scopes: [
+						{
+							scope: "user",
+							version: "0.5.0",
+							git_commit_sha: null,
+							installed_at: null,
+							last_updated: null,
+							enabled: false,
+						},
+					],
+				},
+			],
+		},
+		inventory_at: "2026-09-11T02:00:00.000Z",
+	};
+
+	// Zero plugins is a claim about the machine. Never reported is a claim
+	// about what we know, which is nothing.
+	it("shows a machine that has never reported as never reported", async () => {
+		withMachines(USED);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		expect(await screen.findByText(/never reported/i)).toBeTruthy();
+		expect(screen.queryByText(/0 plugins/i)).toBeNull();
+	});
+
+	it("shows the plugin count for a machine that has reported", async () => {
+		withMachines(REPORTED);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		expect(await screen.findByText(/2 plugins/i)).toBeTruthy();
+	});
+
+	it("does not fetch the document until asked", async () => {
+		withMachines(REPORTED);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		await screen.findByText(/2 plugins/i);
+		// The whole point of the browse-then-detail split: rendering the list
+		// must not pull every machine's inventory.
+		expect(mocks.getMachineInventory).not.toHaveBeenCalled();
+	});
+
+	it("lists every scope a plugin is installed at, with its own version", async () => {
+		withMachines(REPORTED);
+		mocks.getMachineInventory.mockResolvedValue(DOCUMENT);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /2 plugins/i }));
+
+		expect(await screen.findByText("0.18.1")).toBeTruthy();
+		expect(screen.getByText("0.18.0")).toBeTruthy();
+		expect(screen.getByText("~/src/ecosystem")).toBeTruthy();
+	});
+
+	it("keeps enabled, inert and unknown apart", async () => {
+		withMachines(REPORTED);
+		mocks.getMachineInventory.mockResolvedValue(DOCUMENT);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /2 plugins/i }));
+
+		await screen.findByText("0.18.1");
+		expect(screen.getByText(/^enabled$/i)).toBeTruthy();
+		// An install nothing switches on does nothing, and saying so is the
+		// distinction #97 was filed over.
+		expect(screen.getByText(/^inert$/i)).toBeTruthy();
+		// Not "disabled" - a project the reporting machine never opened.
+		expect(screen.getByText(/^unknown$/i)).toBeTruthy();
+	});
+
+	it("reports a failure to load the document rather than showing nothing", async () => {
+		withMachines(REPORTED);
+		mocks.getMachineInventory.mockRejectedValue(new Error("network down"));
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /2 plugins/i }));
+
+		expect(await screen.findByRole("alert")).toBeTruthy();
 	});
 });
