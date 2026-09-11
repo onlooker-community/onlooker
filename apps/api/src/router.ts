@@ -13,6 +13,7 @@ import {
 	handleCreateMachine,
 	handleDeleteAccount,
 	handleForgotPassword,
+	handleGetInventory,
 	handleGetLesson,
 	handleGetProfile,
 	handleGetUserProfile,
@@ -21,6 +22,7 @@ import {
 	handleLogout,
 	handleMe,
 	handlePushLessons,
+	handlePutInventory,
 	handleReadLessons,
 	handleRefresh,
 	handleResendVerification,
@@ -170,6 +172,24 @@ const ROUTES: Route[] = [
 		method: "DELETE",
 		path: "/api/machines/:id",
 		handler: handleRevokeMachine,
+	},
+	{
+		method: "GET",
+		path: "/api/machines/:id/inventory",
+		handler: handleGetInventory,
+	},
+
+	// =========================================================================
+	// Machine self-report
+	//
+	// Machine-authenticated, so it lives outside /api/ beside /lessons rather
+	// than with the browser-authenticated machine routes above. A machine may
+	// describe itself; it still may not name, mint, or revoke any other.
+	// =========================================================================
+	{
+		method: "PUT",
+		path: "/machine/inventory",
+		handler: handlePutInventory,
 	},
 
 	// =========================================================================

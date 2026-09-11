@@ -35,6 +35,10 @@ export {
 	handleGetLesson,
 } from "./lessons-browser";
 export {
+	handleGetInventory,
+	handlePutInventory,
+} from "./machine-inventory";
+export {
 	handleCreateMachine,
 	handleListMachines,
 	handleRevokeMachine,
