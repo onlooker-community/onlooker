@@ -143,7 +143,7 @@ function readSettings(path: string): SettingsRead {
  * making `globalPath` the relative `settings.json` and the user layer silently
  * unreachable. That is the same shape as #237 itself.
  */
-function userConfigDir(
+export function userConfigDir(
 	env: NodeJS.ProcessEnv,
 	home: string,
 	override?: string,
@@ -156,13 +156,33 @@ function userConfigDir(
 	);
 }
 
-export function readEnablement(opts: {
+/**
+ * The merged `enabledPlugins` map, before any marketplace filter.
+ *
+ * `unknown` carries the same meaning it does in `Enablement`: a layer was
+ * found and could not be read, so no claim about the full set is supportable.
+ *
+ * Split out of `readEnablement` because the two callers want different
+ * subsets and the identical layering. `doctor` judges only the plugins it
+ * ships expectations for, so it filters to one marketplace; the machine
+ * inventory reports every plugin installed, so it must not. Keeping the merge
+ * in one place is what stops the global/project/`settings.local.json`
+ * precedence from being reimplemented slightly differently for each.
+ *
+ * Values are preserved as written rather than reduced to the enabled set:
+ * `false` is a decision someone made and reads differently from absence.
+ */
+export type EnabledMap =
+	| { kind: "unknown"; reason: string }
+	| { kind: "found"; enabled: Record<string, boolean>; source: string };
+
+export function readEnabledMap(opts: {
 	cwd: string;
 	home?: string;
 	/** Overrides the resolved config dir. Tests use it; callers should not. */
 	configDir?: string;
 	env?: NodeJS.ProcessEnv;
-}): Enablement {
+}): EnabledMap {
 	const home = opts.home ?? homedir();
 	const project = projectDir(opts.cwd);
 	const globalPath = join(
@@ -218,15 +238,31 @@ export function readEnablement(opts: {
 		};
 	}
 
-	const plugins = Object.entries(merged)
-		// `on` is whatever JSON held, not necessarily a boolean - coerce
-		// with `=== true` rather than truthiness so a stray string like
-		// "false" cannot read as enabled.
-		.filter(([name, on]) => on === true && name.endsWith(MARKETPLACE))
+	// `on` is whatever JSON held, not necessarily a boolean - coerce with
+	// `=== true` rather than truthiness so a stray string like "false" cannot
+	// read as enabled. Done here so both callers inherit it.
+	const enabled: Record<string, boolean> = {};
+	for (const [name, on] of Object.entries(merged)) enabled[name] = on === true;
+
+	return { kind: "found", enabled, source: sources.join(", ") };
+}
+
+export function readEnablement(opts: {
+	cwd: string;
+	home?: string;
+	/** Overrides the resolved config dir. Tests use it; callers should not. */
+	configDir?: string;
+	env?: NodeJS.ProcessEnv;
+}): Enablement {
+	const map = readEnabledMap(opts);
+	if (map.kind === "unknown") return map;
+
+	const plugins = Object.entries(map.enabled)
+		.filter(([name, on]) => on && name.endsWith(MARKETPLACE))
 		.map(([name]) => name.slice(0, -MARKETPLACE.length))
 		// Sorted here rather than at render time, so every consumer of this
 		// list gets the same order and no renderer has to remember to sort.
 		.sort((a, b) => a.localeCompare(b));
 
-	return { kind: "found", plugins, source: sources.join(", ") };
+	return { kind: "found", plugins, source: map.source };
 }

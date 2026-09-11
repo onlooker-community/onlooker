@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findUp, readEnablement } from "../enablement";
+import {
+	findUp,
+	readEnabledMap,
+	readEnablement,
+	userConfigDir,
+} from "../enablement";
 
 /** A temp directory tree with a `.claude/settings.json` at its root. */
 function project(
@@ -308,5 +313,105 @@ describe("readEnablement", () => {
 		expect(found.kind).toBe("found");
 		if (found.kind !== "found") return;
 		expect(found.plugins).toEqual(["bursar"]);
+	});
+});
+
+describe("readEnabledMap", () => {
+	// The whole reason this is split out of `readEnablement`: the inventory
+	// reports every marketplace, and `readEnablement` can only ever answer for
+	// one of them.
+	it("keeps plugins from marketplaces readEnablement filters away", () => {
+		const dir = configDir({
+			enabledPlugins: {
+				"librarian@onlooker-community": true,
+				"superpowers@superpowers-dev": true,
+				"archivist@onlooker-community": false,
+			},
+		});
+
+		const map = readEnabledMap({
+			cwd: bareHome(),
+			home: bareHome(),
+			configDir: dir,
+			env: {},
+		});
+
+		expect(map.kind).toBe("found");
+		if (map.kind !== "found") return;
+		expect(map.enabled).toEqual({
+			"librarian@onlooker-community": true,
+			"superpowers@superpowers-dev": true,
+			"archivist@onlooker-community": false,
+		});
+	});
+
+	// `false` survives the merge rather than being dropped, because a plugin
+	// switched off is a different claim from one never mentioned, and the
+	// inventory renders the two differently.
+	it("keeps a disabled entry rather than omitting it", () => {
+		const dir = configDir({
+			enabledPlugins: { "bursar@onlooker-community": false },
+		});
+
+		const map = readEnabledMap({
+			cwd: bareHome(),
+			home: bareHome(),
+			configDir: dir,
+			env: {},
+		});
+
+		if (map.kind !== "found") throw new Error("expected found");
+		expect(map.enabled).toEqual({ "bursar@onlooker-community": false });
+	});
+
+	it("layers project settings over the user's, like readEnablement", () => {
+		const dir = configDir({
+			enabledPlugins: { "bursar@onlooker-community": true },
+		});
+		const repo = markRepo(mkdtempSync(join(tmpdir(), "onlooker-repo-")));
+		writeSettings(repo, "settings.json", {
+			enabledPlugins: { "bursar@onlooker-community": false },
+		});
+
+		const map = readEnabledMap({
+			cwd: repo,
+			home: bareHome(),
+			configDir: dir,
+			env: {},
+		});
+
+		if (map.kind !== "found") throw new Error("expected found");
+		expect(map.enabled["bursar@onlooker-community"]).toBe(false);
+	});
+
+	it("reports unknown when a layer cannot be parsed", () => {
+		const dir = configDir("{ not json");
+
+		expect(
+			readEnabledMap({
+				cwd: bareHome(),
+				home: bareHome(),
+				configDir: dir,
+				env: {},
+			}).kind,
+		).toBe("unknown");
+	});
+});
+
+describe("userConfigDir", () => {
+	// The defect this codebase has shipped twice. Pinned here so a third
+	// version cannot pass its own tests.
+	it("prefers CLAUDE_HOME, then CLAUDE_CONFIG_DIR, then the default", () => {
+		expect(
+			userConfigDir({ CLAUDE_HOME: "/a", CLAUDE_CONFIG_DIR: "/b" }, "/h"),
+		).toBe("/a");
+		expect(userConfigDir({ CLAUDE_CONFIG_DIR: "/b" }, "/h")).toBe("/b");
+		expect(userConfigDir({}, "/h")).toBe(join("/h", ".claude"));
+	});
+
+	it("lets an explicit override win over both variables", () => {
+		expect(
+			userConfigDir({ CLAUDE_HOME: "/a" }, "/h", "/explicit"),
+		).toBe("/explicit");
 	});
 });
