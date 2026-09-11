@@ -482,6 +482,69 @@ latency attributable.
 > reasons on *that* scan are the test the allowlist thesis has been waiting for.
 > `onlooker doctor` exiting 1 on librarian stays correct until then.
 >
+> **Settled 2026-09-10, and not by waiting.** The check above routes the next
+> reader to the drop reasons on the first non-empty scan. That test was never
+> needed. The thesis is decidable by running the shipped functions directly,
+> which is available at any hour and does not depend on a compaction ever
+> happening — so this correction closes the question rather than deferring it
+> again.
+>
+> **The cause named on 2026-09-05 is refuted.** `marker_phrases` are never read
+> from settings. They ship as layer 1 — the plugin's own `config.json`, resolved
+> from the plugin root (`config-loader.sh:77`, `default_file`) — and the
+> `CLAUDE_CONFIG_DIR` chain that `057a40d` fixed governs layers 2 and 3 only.
+> Neither `~/.claude-personal/settings.json` nor this repo's
+> `.claude/settings.json` defines `.librarian.durability_filter`, so the thirteen
+> shipped defaults were the only marker source this machine ever had. Measured
+> against the installed plugin, one probe, three arms: as installed, 13 markers;
+> `CLAUDE_HOME=/nonexistent`, 13 markers; that plus no repo root, 13 markers.
+> Layer 1 survives every settings layer being unreachable, so the cause this
+> spec named leaves the allowlist full and cannot be the cause.
+>
+> **The mechanism was right, and it is one line of bash.** The call site reads
+> `MARKERS_JSON=$(librarian_config_get …)`, and `librarian_durability_filter`
+> takes it as `markers_json="${2:-[]}"`. Bash's `:-` substitutes on *empty*, not
+> merely on unset, so any failure to produce markers becomes `[]` rather than an
+> error — and `matches_any([])` is `any` over an empty array, which is false for
+> every artifact. An empty allowlist does not relax the filter; it inverts it
+> into deny-everything. That is the observed signature exactly: 3,837 of 3,837
+> `filter_marker_missing`, zero `detail_too_short`, zero `filter_drop_pattern`.
+> Reproduced with one variable — same function, same artifact, detail containing
+> the shipped marker `"because"` — `CLAUDE_PLUGIN_ROOT` set keeps it,
+> `CLAUDE_PLUGIN_ROOT` unset drops it `filter_marker_missing`.
+>
+> **What produced the June–August drops.** librarian 0.6.1, the only cached
+> version predating September, does not vendor the loader:
+> `librarian-config.sh:20` sources
+> `${PLUGIN_ROOT}/../../scripts/lib/config-loader.sh`, a monorepo-relative path
+> that for an *installed* plugin resolves under `plugins/cache/` and does not
+> exist — verified absent in that version's tree. The source fails,
+> `librarian_config_load` is never defined, `MARKERS_JSON` is empty, and the
+> inversion follows. Same class as the `librarian-emit` dirname defect in
+> `onlooker-ujtf`: a path that assumes the wrong tree shape. Dating is
+> circumstantial, since the drops span 2026-08-01 to 2026-08-03 and the cache may
+> have been pruned since; the refutation above does not rest on it.
+>
+> **Both halves are fixed, and this arena runs the fixed build.** 0.18.0 vendors
+> the loader as a sibling and resolves it from `BASH_SOURCE`, so layer 1 loads.
+> The inversion itself is now separated upstream — `filter_markers_unavailable`
+> is its own reason (ecosystem #313, schema #60, both merged 2026-09-11,
+> `ecosystem-449.48`) — because `filter_marker_missing` could not distinguish
+> *this artifact carried no marker* from *there were no markers to carry*, and
+> that conflation is what let a total outage read as ordinary thin content for
+> two months. This repo resolves librarian 0.18.1 at both user and project scope;
+> its `librarian-durability.sh` carries the new reason, and its session-end hook
+> now normalizes an empty read to `[]` deliberately rather than by accident, so a
+> future config failure here announces itself instead of posing as a verdict.
+>
+> **What to check, replacing the instruction above.** Nothing about the
+> allowlist — that thesis is closed. A `scan.complete` carrying
+> `artifact_count_in_window` greater than zero is still the signal worth waiting
+> for, but as the test of the compaction coupling (`ecosystem-449.49`), not of
+> the filter. `onlooker doctor` exiting 1 on librarian remains correct until a
+> lesson lands, and the 3,837 drops themselves are unrecoverable: the watermark
+> advanced through the outage (`ecosystem-449.55`).
+>
 > The rest of the cohort stays deferred, and historian is still the one to
 > revisit first for the reason given above.
 
