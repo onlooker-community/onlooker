@@ -786,6 +786,12 @@ describe("apps/api machine credentials", () => {
 		expect(Object.keys(minted).sort()).toEqual(
 			[...MACHINE_LIFECYCLE.listFields].sort(),
 		);
+		// A listed machine carries an inventory summary and never the document
+		// itself. Folding the document in would send every machine's whole
+		// inventory to render a page that shows a count.
+		expect(serialized.includes(MACHINE_LIFECYCLE.inventoryDocumentKey)).toBe(
+			MACHINE_LIFECYCLE.inventoryInList,
+		);
 	});
 
 	it("rejects a name that is only whitespace", async () => {

@@ -831,6 +831,35 @@ export async function mockDataApi(
 		return json({ id, name, token: mintMockMachineToken() }, 201);
 	}
 
+	// Before the DELETE branch below, which matches on the same prefix. A
+	// detail path reaching that branch first would route a read into machine
+	// revocation.
+	if (
+		poolPath.startsWith("/api/machines/") &&
+		poolPath.endsWith("/inventory") &&
+		(options.method ?? "GET") === "GET"
+	) {
+		const { email } = requireAuth(options);
+		const id = poolPath.slice(
+			"/api/machines/".length,
+			-"/inventory".length,
+		);
+		const machine = machinesOf(email).find((m) => m.id === id);
+		// 404 for never-reported and not-yours alike, matching
+		// handleGetInventory. Telling them apart confirms which ids exist.
+		if (!machine?.inventory || !machine.inventory_at) {
+			throw new AuthApiError(
+				404,
+				"not_found",
+				"This machine has not reported an inventory",
+			);
+		}
+		return json({
+			inventory: machine.inventory,
+			inventory_at: machine.inventory_at,
+		});
+	}
+
 	if (poolPath.startsWith("/api/machines/") && options.method === "DELETE") {
 		const { email } = requireAuth(options);
 		const id = poolPath.slice("/api/machines/".length);
