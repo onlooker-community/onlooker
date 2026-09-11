@@ -161,6 +161,18 @@ export const EXPECTED_SCHEMA = {
 				notnull: 0,
 				pk: 0,
 			},
+			{
+				name: "inventory",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
+				name: "inventory_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
 		],
 		indexes: [
 			{

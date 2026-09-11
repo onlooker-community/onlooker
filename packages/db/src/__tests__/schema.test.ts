@@ -111,6 +111,10 @@ describe("machine_tokens", () => {
 		expect(columnNames(machine_tokens)).toEqual([
 			"created_at",
 			"id",
+			// The reported inventory and when it landed. A document rather
+			// than a machine_plugins table: the server never reads inside it.
+			"inventory",
+			"inventory_at",
 			"last_used_at",
 			"name",
 			"revoked_at",
