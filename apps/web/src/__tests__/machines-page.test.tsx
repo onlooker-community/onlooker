@@ -651,7 +651,7 @@ describe("MachinesPage inventory", () => {
 		expect(screen.getByText("~/src/ecosystem")).toBeTruthy();
 	});
 
-	it("keeps enabled, inert and unknown apart", async () => {
+	it("labels enablement only where it is known", async () => {
 		withMachines(REPORTED);
 		mocks.getMachineInventory.mockResolvedValue(DOCUMENT);
 		render(
@@ -668,8 +668,31 @@ describe("MachinesPage inventory", () => {
 		// An install nothing switches on does nothing, and saying so is the
 		// distinction #97 was filed over.
 		expect(screen.getByText(/^inert$/i)).toBeTruthy();
-		// Not "disabled" - a project the reporting machine never opened.
-		expect(screen.getByText(/^unknown$/i)).toBeTruthy();
+		// A scope whose enablement could not be determined says nothing at all.
+		// At 28 plugins every project scope but the one that synced is
+		// unknowable, so a chip per unknown was most of the page saying it had
+		// no information. Absence carries that better than a word does.
+		expect(screen.queryByText(/^unknown$/i)).toBeNull();
+	});
+
+	// The row itself still has to be there. Dropping the label must not drop
+	// the install - an unknowable enablement is still a real thing installed
+	// at a real version, and it is the only evidence that scope exists.
+	it("still lists a scope whose enablement is unknown", async () => {
+		withMachines(REPORTED);
+		mocks.getMachineInventory.mockResolvedValue(DOCUMENT);
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /2 plugins/i }));
+
+		// The 0.18.0 scope in DOCUMENT is the one carrying enabled: null.
+		expect(await screen.findByText("0.18.0")).toBeTruthy();
+		expect(screen.getByText("~/src/ecosystem")).toBeTruthy();
 	});
 
 	it("reports a failure to load the document rather than showing nothing", async () => {
