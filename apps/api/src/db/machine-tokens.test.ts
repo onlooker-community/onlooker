@@ -52,7 +52,31 @@ describe("verifyMachineToken", () => {
 	it("resolves a live token to its user", async () => {
 		const { token } = await createMachineToken(db(), userId, "work laptop");
 
-		expect(await verifyMachineToken(db(), token)).toBe(userId);
+		expect(await verifyMachineToken(db(), token)).toMatchObject({ userId });
+	});
+
+	// The owner is not enough to know which machine is speaking, and a machine
+	// reporting its own inventory has to land on its own row. The id is
+	// already selected by the lookup, so carrying it costs no extra query.
+	it("says which machine the token belongs to, not only who owns it", async () => {
+		const { id, token } = await createMachineToken(db(), userId, "work laptop");
+
+		expect(await verifyMachineToken(db(), token)).toEqual({
+			userId,
+			machineId: id,
+		});
+	});
+
+	it("distinguishes two machines owned by the same person", async () => {
+		const laptop = await createMachineToken(db(), userId, "laptop");
+		const desktop = await createMachineToken(db(), userId, "desktop");
+
+		const a = await verifyMachineToken(db(), laptop.token);
+		const b = await verifyMachineToken(db(), desktop.token);
+
+		expect(a?.machineId).toBe(laptop.id);
+		expect(b?.machineId).toBe(desktop.id);
+		expect(a?.machineId).not.toBe(b?.machineId);
 	});
 
 	it("rejects a token that was never issued", async () => {
@@ -74,7 +98,7 @@ describe("verifyMachineToken", () => {
 
 		await revokeMachineToken(db(), userId, lost.id);
 
-		expect(await verifyMachineToken(db(), kept.token)).toBe(userId);
+		expect(await verifyMachineToken(db(), kept.token)).toMatchObject({ userId });
 	});
 
 	it("records when the token was last used", async () => {
@@ -97,7 +121,9 @@ describe("revokeMachineToken", () => {
 		const { id, token } = await createMachineToken(db(), userId, "mine");
 
 		expect(await revokeMachineToken(db(), other.id, id)).toBe(false);
-		expect(await verifyMachineToken(db(), token)).toBe(userId);
+		// Still live, and still this user's - a failed revoke must leave the
+		// token working rather than merely returning false.
+		expect(await verifyMachineToken(db(), token)).toMatchObject({ userId });
 	});
 });
 

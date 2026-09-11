@@ -15,14 +15,14 @@ import { extractToken } from "./auth.js";
 export async function requireMachineToken(
 	request: Request,
 	env: WorkerEnv,
-): Promise<{ userId: string }> {
+): Promise<{ userId: string; machineId: string }> {
 	const token = extractToken(request);
 	if (!token) {
 		throw new ApiError(401, "unauthorized", "Missing machine token");
 	}
 
-	const userId = await verifyMachineToken(env.DB, token);
-	if (!userId) {
+	const verified = await verifyMachineToken(env.DB, token);
+	if (!verified) {
 		throw new ApiError(
 			401,
 			"invalid_token",
@@ -30,5 +30,5 @@ export async function requireMachineToken(
 		);
 	}
 
-	return { userId };
+	return verified;
 }

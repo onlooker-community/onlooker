@@ -63,7 +63,7 @@ export async function createMachineToken(
 export async function verifyMachineToken(
 	db: D1Database,
 	token: string,
-): Promise<string | null> {
+): Promise<{ userId: string; machineId: string } | null> {
 	if (!token.startsWith(TOKEN_PREFIX)) return null;
 
 	const rows = await client(db)
@@ -85,7 +85,10 @@ export async function verifyMachineToken(
 		.set({ last_used_at: new Date().toISOString() })
 		.where(eq(machine_tokens.id, row.id));
 
-	return row.user_id;
+	// The machine id travels with the owner because the lookup already has it.
+	// Without it a caller knows whose token this is but not which machine is
+	// speaking, and a machine describing itself has to land on its own row.
+	return { userId: row.user_id, machineId: row.id };
 }
 
 /**
