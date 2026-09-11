@@ -90,7 +90,7 @@ export function MachineInventory({ machineId }: { machineId: string }) {
 												{scope.git_commit_sha.slice(0, 7)}
 											</code>
 										) : null}
-										<Chip>{enablementLabel(scope.enabled)}</Chip>
+										<EnablementChip enabled={scope.enabled} />
 									</li>
 								))}
 							</ul>
@@ -103,16 +103,23 @@ export function MachineInventory({ machineId }: { machineId: string }) {
 }
 
 /**
- * Three states, not two.
+ * Says something only when there is something to say.
  *
  * `false` means settings were read and this plugin is switched off - installed
- * but inert, which is the distinction #97 was filed over. `null` means the
- * reporting machine could not know: a project's enabled set lives in that
- * project's own `.claude`, and sync opens exactly one of them. Rendering that
- * as "disabled" would invent a fact the machine never claimed.
+ * but inert, which is the distinction #97 was filed over, and worth a word.
+ *
+ * `null` gets no chip at all. The reporting machine could not know: a project's
+ * enabled set lives in that project's own `.claude`, and sync opens exactly one
+ * of them - so on a machine with 28 plugins, every project scope but the one
+ * that synced is unknowable by construction. Labelling each of those "unknown"
+ * made most of the page a repeated announcement that it had no information.
+ * The row still carries the version, the scope and the sha; only the claim is
+ * withheld, which is what absence already means.
+ *
+ * The distinction stays in the data either way. `enabled: null` is still
+ * reported, stored and served - this decides only what the page asserts.
  */
-function enablementLabel(enabled: InventoryScope["enabled"]): string {
-	if (enabled === true) return "enabled";
-	if (enabled === false) return "inert";
-	return "unknown";
+function EnablementChip({ enabled }: { enabled: InventoryScope["enabled"] }) {
+	if (enabled === null) return null;
+	return <Chip>{enabled ? "enabled" : "inert"}</Chip>;
 }
