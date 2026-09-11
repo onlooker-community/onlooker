@@ -3,6 +3,7 @@ import { machine_tokens } from "@onlooker/db";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
+import { pluginCount } from "./machine-inventory.js";
 
 /**
  * A machine token as the web app is allowed to see it: everything except
@@ -14,6 +15,16 @@ export interface MachineTokenSummary {
 	created_at: string;
 	last_used_at: string | null;
 	revoked_at: string | null;
+	/** When this machine last reported an inventory. Null means never. */
+	inventory_at: string | null;
+	/**
+	 * How many plugins the reported inventory names, never the inventory
+	 * itself - a list of machines must not carry every machine's document.
+	 *
+	 * Null rather than zero when nothing was reported: zero is a claim about
+	 * the machine, null is a claim about what we know.
+	 */
+	plugin_count: number | null;
 }
 
 /**
@@ -128,15 +139,26 @@ export async function listMachineTokens(
 	db: D1Database,
 	userId: string,
 ): Promise<MachineTokenSummary[]> {
-	return client(db)
+	const rows = await client(db)
 		.select({
 			id: machine_tokens.id,
 			name: machine_tokens.name,
 			created_at: machine_tokens.created_at,
 			last_used_at: machine_tokens.last_used_at,
 			revoked_at: machine_tokens.revoked_at,
+			inventory: machine_tokens.inventory,
+			inventory_at: machine_tokens.inventory_at,
 		})
 		.from(machine_tokens)
 		.where(eq(machine_tokens.user_id, userId))
 		.orderBy(asc(machine_tokens.created_at));
+
+	// The document is read here and deliberately not returned. Selecting it
+	// only to count it keeps the response small while letting the summary be
+	// derived rather than stored - a stored count could disagree with the
+	// document it describes.
+	return rows.map(({ inventory, ...row }) => ({
+		...row,
+		plugin_count: pluginCount(inventory),
+	}));
 }
