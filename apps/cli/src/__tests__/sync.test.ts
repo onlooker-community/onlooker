@@ -55,6 +55,44 @@ const pushes = (outcomes: Array<{ outcome: string; error?: string }> = []) =>
 
 const accepts = () => pushes();
 
+/**
+ * Every lesson push a stub received, ignoring the inventory report.
+ *
+ * `sync` contacts the API twice now - once to report what this machine runs,
+ * once to push lessons - so "was fetch called" no longer answers "were any
+ * lessons sent". These tests mean the second question.
+ */
+const lessonPushes = (fetchImpl: { mock: { calls: unknown[][] } }) =>
+	fetchImpl.mock.calls.filter(([url]) => String(url).endsWith("/lessons"));
+
+/** A config dir whose installed_plugins.json names `ids`. */
+function withPlugins(env: NodeJS.ProcessEnv, ids: string[]): NodeJS.ProcessEnv {
+	const dir = mkdtempSync(join(tmpdir(), "onlooker-sync-cfg-"));
+	mkdirSync(join(dir, "plugins"), { recursive: true });
+	writeFileSync(
+		join(dir, "plugins", "installed_plugins.json"),
+		JSON.stringify({
+			version: 1,
+			plugins: Object.fromEntries(
+				ids.map((id) => [
+					id,
+					[{ scope: "user", projectPath: null, version: "1.0.0" }],
+				]),
+			),
+		}),
+	);
+	env.CLAUDE_CONFIG_DIR = dir;
+	return env;
+}
+
+/** Answers 200 to the inventory report and defers lessons to `onLessons`. */
+const reportsAnd = (onLessons: ReturnType<typeof vi.fn>) =>
+	vi.fn().mockImplementation(async (url: unknown, init: unknown) =>
+		String(url).endsWith("/machine/inventory")
+			? { ok: true, status: 200, json: async () => ({ ok: true }) }
+			: onLessons(url, init),
+	);
+
 /** A 200 whose body is `{ results: [...] }` verbatim, whatever was sent. */
 const answers = (results: unknown) =>
 	vi.fn().mockResolvedValue({
@@ -84,7 +122,7 @@ describe("sync", () => {
 		const fetchImpl = accepts();
 		const message = await sync({ env, fetchImpl });
 		expect(message).toMatch(/nothing to sync/i);
-		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
 	});
 
 	it("says the lesson pipeline has never run when no key has a lessons dir", async () => {
@@ -143,7 +181,7 @@ describe("sync", () => {
 		expect(message).toMatch(/2 confirmed and awaiting a jury/);
 		expect(message).toMatch(/0 pending review/);
 		// Still the success path: nothing to send is not a failure.
-		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
 	});
 
 	it("says where it looked when the ecosystem has never run here", async () => {
@@ -160,7 +198,7 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(
 			/could not be listed/i,
 		);
-		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
 	});
 
 	// A partial listing failure must not read as a complete run: the summary
@@ -187,8 +225,9 @@ describe("sync", () => {
 		withLessons(env, 2);
 		const fetchImpl = accepts();
 		await sync({ env, fetchImpl });
-		expect(fetchImpl).toHaveBeenCalledTimes(1);
-		expect(JSON.parse(fetchImpl.mock.calls[0][1].body).lessons).toHaveLength(2);
+		const sent = lessonPushes(fetchImpl);
+		expect(sent).toHaveLength(1);
+		expect(JSON.parse(sent[0][1].body).lessons).toHaveLength(2);
 	});
 
 	it("never exceeds the server's batch ceiling", async () => {
@@ -281,7 +320,7 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
 			failure: { kind: "rejected" },
 		});
-		expect(JSON.parse(fetchImpl.mock.calls[0][1].body).lessons).toHaveLength(1);
+		expect(JSON.parse(lessonPushes(fetchImpl)[0][1].body).lessons).toHaveLength(1);
 	});
 
 	// The report has to survive the throw. Someone told only that a file was
@@ -307,7 +346,7 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toMatchObject({
 			failure: { kind: "rejected" },
 		});
-		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
 	});
 
 	// The moved-endpoint class of event, one level down from a 404: a 200 whose
@@ -387,5 +426,160 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(
 			/storage was busy[\s\S]*id must be a ULID/,
 		);
+	});
+});
+
+/**
+ * The inventory report, and specifically its ordering.
+ *
+ * This is the behavior the whole design rests on, and its failure is silent:
+ * every no-lessons path in `sync` returns before the network, so an
+ * implementation that attaches the report to the push looks correct and never
+ * fires on the machines whose Machines page is emptiest.
+ */
+describe("sync inventory reporting", () => {
+	it("reports even when there are no lessons to send", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		mkdirSync(join(env.ONLOOKER_DIR as string, "librarian"), {
+			recursive: true,
+		});
+		const fetchImpl = reportsAnd(accepts());
+
+		const message = await sync({ env, fetchImpl });
+
+		const reports = fetchImpl.mock.calls.filter(([url]) =>
+			String(url).endsWith("/machine/inventory"),
+		);
+		expect(reports).toHaveLength(1);
+		// And it still says what it would have said about lessons.
+		expect(message).toMatch(/nothing to sync/i);
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
+	});
+
+	it("reports before pushing, not after", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		withLessons(env, 1);
+		const fetchImpl = reportsAnd(accepts());
+
+		await sync({ env, fetchImpl });
+
+		const order = fetchImpl.mock.calls.map(([url]) =>
+			String(url).endsWith("/machine/inventory") ? "inventory" : "lessons",
+		);
+		expect(order).toEqual(["inventory", "lessons"]);
+	});
+
+	it("sends a schema_version 1 document naming what is installed", async () => {
+		const env = withPlugins(linked(), [
+			"librarian@onlooker-community",
+			"superpowers@superpowers-dev",
+		]);
+		const fetchImpl = reportsAnd(accepts());
+
+		await sync({ env, fetchImpl });
+
+		const report = fetchImpl.mock.calls.find(([url]) =>
+			String(url).endsWith("/machine/inventory"),
+		);
+		const sent = JSON.parse(String((report?.[1] as { body: string }).body));
+		expect(sent.schema_version).toBe(1);
+		// Every marketplace, not only this one's.
+		expect(sent.plugins.map((p: { id: string }) => p.id)).toEqual([
+			"librarian@onlooker-community",
+			"superpowers@superpowers-dev",
+		]);
+	});
+
+	it("uses PUT, so reporting twice leaves one document", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		const fetchImpl = reportsAnd(accepts());
+
+		await sync({ env, fetchImpl });
+
+		const report = fetchImpl.mock.calls.find(([url]) =>
+			String(url).endsWith("/machine/inventory"),
+		);
+		expect((report?.[1] as { method: string }).method).toBe("PUT");
+	});
+
+	// Non-fatal: a reporting failure must not cost a lesson push, which is the
+	// more important of the two operations.
+	it("still pushes lessons when the report is refused", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		withLessons(env, 1);
+		const push = accepts();
+		const fetchImpl = vi.fn().mockImplementation(async (url, init) =>
+			String(url).endsWith("/machine/inventory")
+				? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
+				: push(url, init),
+		);
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(lessonPushes(fetchImpl)).toHaveLength(1);
+		expect(message).toMatch(/1 lesson/);
+	});
+
+	// Never silent: exiting 0 with the page quietly stale is the
+	// successful-looking silence this codebase keeps rediscovering.
+	it("says so when the report is refused", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		withLessons(env, 1);
+		const push = accepts();
+		const fetchImpl = vi.fn().mockImplementation(async (url, init) =>
+			String(url).endsWith("/machine/inventory")
+				? { ok: false, status: 500, json: async () => ({ error: "boom" }) }
+				: push(url, init),
+		);
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/inventory/i);
+	});
+
+	it("says so when the inventory could not be collected at all", async () => {
+		const env = linked();
+		// A config dir with no installed_plugins.json: collection fails
+		// locally, before any request, and reads differently from a refusal.
+		env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "onlooker-empty-cfg-"));
+		withLessons(env, 1);
+		const fetchImpl = reportsAnd(accepts());
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/inventory/i);
+		// Nothing was sent, because there was nothing to send.
+		expect(
+			fetchImpl.mock.calls.filter(([url]) =>
+				String(url).endsWith("/machine/inventory"),
+			),
+		).toHaveLength(0);
+	});
+
+	// The note rides along with a failure too. A run that throws still has a
+	// Machines page behind it that may or may not have been updated.
+	it("carries the note even when the lesson push fails", async () => {
+		const env = linked();
+		env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "onlooker-empty-cfg-"));
+		withLessons(env, 1);
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({ results: [{ id: "nope", outcome: "created" }] }),
+		});
+
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(/inventory/i);
+	});
+
+	it("does not report when the machine is not linked", async () => {
+		const env = withPlugins(
+			{ ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-unlinked-")) },
+			["librarian@onlooker-community"],
+		);
+		const fetchImpl = reportsAnd(accepts());
+
+		await expect(sync({ env, fetchImpl })).rejects.toThrow(/onlooker link/);
+
+		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 });

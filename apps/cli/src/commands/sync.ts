@@ -1,12 +1,45 @@
 import type { TLesson } from "@onlooker-community/lesson-contract";
-import { ApiError, createClient } from "../api";
+import { type ApiClient, ApiError, createClient } from "../api";
 import { readConfig } from "../config";
+import { collectInventory } from "../inventory";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 
 export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
 	fetchImpl?: typeof fetch;
+}
+
+/**
+ * Report this machine's inventory, describing the outcome rather than throwing.
+ *
+ * Non-fatal, because a reporting failure must not cost a lesson push - that is
+ * the more important of the two operations and the one someone ran this for.
+ *
+ * Never silent, because exiting 0 while the Machines page quietly stops
+ * updating is the successful-looking silence this codebase keeps rediscovering.
+ * Returning a note rather than logging it keeps `sync` a function that answers
+ * in a string, which is what its tests and its caller both rely on.
+ *
+ * Collection failures and transport failures are worded differently on purpose:
+ * an unreadable installed_plugins.json is a local problem someone can go fix,
+ * and a refused request is not.
+ */
+async function reportInventory(
+	client: ApiClient,
+	env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+	const collected = collectInventory({ cwd: process.cwd(), env });
+	if (collected.kind === "unavailable") {
+		return `Inventory not reported: ${collected.reason}`;
+	}
+
+	try {
+		await client.reportInventory(collected.inventory);
+		return null;
+	} catch (error) {
+		return `Inventory not reported: ${(error as Error).message}`;
+	}
 }
 
 /**
@@ -30,12 +63,32 @@ export async function sync({
 		);
 	}
 
+	const client = createClient(
+		config.apiBaseUrl,
+		config.machineToken,
+		fetchImpl,
+	);
+
+	// Before the lesson paths, not after.
+	//
+	// Every no-lessons path below returns without touching the network, and
+	// while the pool is empty that is every machine - so a report attached to
+	// the push would never fire for the machines whose page is emptiest. The
+	// note it returns rides along with whatever this command was going to say.
+	const inventoryNote = await reportInventory(client, env);
+	const withNote = (message: string) =>
+		inventoryNote === null ? message : `${message}\n${inventoryNote}`;
+
 	const found = discoverApproved(env);
 	if (found.kind === "no-onlooker-dir") {
-		return `Nothing to sync: ${found.path} does not exist, so no plugin has run here yet.`;
+		return withNote(
+			`Nothing to sync: ${found.path} does not exist, so no plugin has run here yet.`,
+		);
 	}
 	if (found.kind === "no-librarian-dir") {
-		return `Nothing to sync: ${found.path} does not exist, so librarian has not run here yet.`;
+		return withNote(
+			`Nothing to sync: ${found.path} does not exist, so librarian has not run here yet.`,
+		);
 	}
 	if (found.kind === "unreadable") {
 		// Not "nothing to sync" - we do not know that. Thrown rather than
@@ -45,7 +98,9 @@ export async function sync({
 		// waiting does not fix a permission or a file where a directory belongs.
 		throw new ApiError({
 			kind: "rejected",
-			message: `Could not read ${found.path}. It exists but could not be listed, so how many lessons are waiting is unknown.`,
+			message: withNote(
+				`Could not read ${found.path}. It exists but could not be listed, so how many lessons are waiting is unknown.`,
+			),
 		});
 	}
 	if (found.files.length === 0) {
@@ -53,7 +108,7 @@ export async function sync({
 		// this sentence used to be the same for all of them. The survey is a
 		// read of files already on disk - no network call, and it only runs on
 		// the path where there is nothing to send anyway.
-		return `Nothing to sync: ${pipelineClause(surveyPipeline(env))}`;
+		return withNote(`Nothing to sync: ${pipelineClause(surveyPipeline(env))}`);
 	}
 
 	const lessons: TLesson[] = [];
@@ -68,11 +123,6 @@ export async function sync({
 		else skipped.push(`${parsed.file}: ${parsed.error}`);
 	}
 
-	const client = createClient(
-		config.apiBaseUrl,
-		config.machineToken,
-		fetchImpl,
-	);
 	let created = 0;
 	let unchanged = 0;
 	// Split rather than lumped, because the API distinguishes "never send this
@@ -207,9 +257,9 @@ export async function sync({
 			// lesson the pool refuses are both unchanged by waiting, and telling
 			// someone to retry costs them the time it takes to find that out.
 			kind: retryable.length > 0 ? "transient" : "rejected",
-			message: [summary, ...problems].join("\n"),
+			message: withNote([summary, ...problems].join("\n")),
 		});
 	}
 
-	return summary;
+	return withNote(summary);
 }
