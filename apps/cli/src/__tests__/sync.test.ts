@@ -1,11 +1,17 @@
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+	cpSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { sync } from "../commands/sync";
 import { writeConfig } from "../config";
 
-const FIXTURE = join(__dirname, "fixtures", "lesson.json");
+const FIXTURE_PATH = join(__dirname, "fixtures", "lesson.json");
 
 function linked(): NodeJS.ProcessEnv {
 	const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-sync-")) };
@@ -26,7 +32,7 @@ function withLessons(env: NodeJS.ProcessEnv, count: number): void {
 	);
 	mkdirSync(dir, { recursive: true });
 	for (let i = 0; i < count; i++)
-		cpSync(FIXTURE, join(dir, `lesson-${i}.json`));
+		cpSync(FIXTURE_PATH, join(dir, `lesson-${i}.json`));
 }
 
 /**
@@ -53,7 +59,57 @@ const pushes = (outcomes: Array<{ outcome: string; error?: string }> = []) =>
 		}),
 	}));
 
-const accepts = () => pushes();
+/**
+ * A fetch stub that routes by path: inventory, the delta read, and the push.
+ *
+ * sync now makes three different kinds of request, so a stub that answers
+ * every URL with a push-shaped body feeds the delta reader a response it
+ * cannot use. Defaults answer success with nothing waiting, and a test
+ * overrides only the leg it is about.
+ */
+const routed = (
+	over: { inventory?: unknown; pull?: unknown; push?: unknown } = {},
+) =>
+	vi.fn().mockImplementation(async (url: unknown, init: { body: string }) => {
+		const path = String(url);
+		if (path.endsWith("/machine/inventory")) {
+			return (
+				over.inventory ?? {
+					ok: true,
+					status: 200,
+					json: async () => ({ ok: true }),
+				}
+			);
+		}
+		if (path.includes("since=")) {
+			return (
+				over.pull ?? {
+					ok: true,
+					status: 200,
+					json: async () => ({ lessons: [], cursor: 0, has_more: false }),
+				}
+			);
+		}
+		return (
+			over.push ?? {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					results: (JSON.parse(init.body).lessons as Array<{ id: string }>).map(
+						(l) => ({ id: l.id, outcome: "created" }),
+					),
+				}),
+			}
+		);
+	});
+
+const accepts = () => routed();
+
+/** Which of sync's three requests a URL is. */
+const leg = (url: string): "inventory" | "pull" | "push" => {
+	if (url.endsWith("/machine/inventory")) return "inventory";
+	return url.includes("since=") ? "pull" : "push";
+};
 
 /**
  * Every lesson push a stub received, ignoring the inventory report.
@@ -245,8 +301,11 @@ describe("sync", () => {
 		withLessons(env, 150);
 		const fetchImpl = accepts();
 		await sync({ env, fetchImpl });
-		expect(fetchImpl).toHaveBeenCalledTimes(2);
-		for (const [, init] of fetchImpl.mock.calls) {
+		// Push calls specifically. sync also reports an inventory and reads the
+		// delta, and neither of those is a batch.
+		const sent = lessonPushes(fetchImpl);
+		expect(sent).toHaveLength(2);
+		for (const [, init] of sent) {
 			expect(JSON.parse(init.body).lessons.length).toBeLessThanOrEqual(100);
 		}
 	});
@@ -475,10 +534,10 @@ describe("sync inventory reporting", () => {
 
 		await sync({ env, fetchImpl });
 
-		const order = fetchImpl.mock.calls.map(([url]) =>
-			String(url).endsWith("/machine/inventory") ? "inventory" : "lessons",
-		);
-		expect(order).toEqual(["inventory", "lessons"]);
+		const order = fetchImpl.mock.calls.map(([url]) => leg(String(url)));
+		// Three legs now, and the order is the design: describe this machine,
+		// send what it has, then receive what it does not.
+		expect(order).toEqual(["inventory", "push", "pull"]);
 	});
 
 	it("sends a schema_version 1 document naming what is installed", async () => {
@@ -597,5 +656,113 @@ describe("sync inventory reporting", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(/onlooker link/);
 
 		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * The second half of the round trip.
+ *
+ * Receiving runs on every exit, including the ones that found nothing to push:
+ * while the pool is empty that is every machine, and a machine with nothing to
+ * send is exactly the one that most needs to receive.
+ */
+describe("sync receives as well as pushes", () => {
+	const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+
+	const arriving = (seq: number, id: string) => ({
+		ok: true,
+		status: 200,
+		json: async () => ({
+			lessons: [{ seq, lesson: { ...FIXTURE, id } }],
+			cursor: seq,
+			has_more: false,
+		}),
+	});
+
+	it("pulls after pushing", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		withLessons(env, 1);
+		const fetchImpl = routed();
+
+		await sync({ env, fetchImpl });
+
+		expect(fetchImpl.mock.calls.map(([url]) => leg(String(url)))).toEqual([
+			"inventory",
+			"push",
+			"pull",
+		]);
+	});
+
+	it("says how many lessons arrived", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		const fetchImpl = routed({
+			pull: arriving(1, "01KZ45MKAM734ZS7JK24D2DK0S"),
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/received 1 lesson/i);
+		expect(message).toMatch(/1 new/i);
+	});
+
+	// A healthy idle machine and a broken one must not read alike.
+	it("distinguishes an empty pool from a failure", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+
+		const quiet = await sync({ env, fetchImpl: routed() });
+		expect(quiet).toMatch(/received nothing: the pool holds nothing/i);
+
+		const broken = await sync({
+			env,
+			fetchImpl: routed({
+				pull: { ok: false, status: 500, json: async () => ({ error: "boom" }) },
+			}),
+		});
+		expect(broken).toMatch(/received nothing:/i);
+		expect(broken).not.toMatch(/holds nothing/i);
+	});
+
+	// The push is what someone ran the command for; a later step must not
+	// erase its result.
+	it("still reports a successful push when the pull fails", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		withLessons(env, 1);
+		const fetchImpl = routed({
+			pull: { ok: false, status: 500, json: async () => ({ error: "boom" }) },
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/synced 1 lesson/i);
+		expect(message).toMatch(/received nothing/i);
+	});
+
+	it("names both sequences when the pool skips one", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		const fetchImpl = routed({
+			// Against a fresh cursor of 0, a window starting at 2 means 1 is gone.
+			pull: arriving(2, "01KZ45MKAM734ZS7JK24D2DK0S"),
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/skipped 1/i);
+		expect(message).toMatch(/answered with 2/i);
+	});
+
+	it("receives even when there was nothing to push", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		mkdirSync(join(env.ONLOOKER_DIR as string, "librarian"), {
+			recursive: true,
+		});
+		const fetchImpl = routed({
+			pull: arriving(1, "01KZ45MKAM734ZS7JK24D2DK0S"),
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/nothing to sync/i);
+		expect(message).toMatch(/received 1 lesson/i);
+		expect(lessonPushes(fetchImpl)).toHaveLength(0);
 	});
 });

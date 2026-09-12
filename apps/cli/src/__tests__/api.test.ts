@@ -113,3 +113,57 @@ describe("createClient", () => {
 		expect(JSON.parse(init.body)).toEqual({ lessons: [{ id: "x" }] });
 	});
 });
+
+describe("readDelta", () => {
+	it("asks the machine-side route with the cursor and limit", async () => {
+		let seen = "";
+		const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+			seen = url;
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({ lessons: [], cursor: 7, has_more: false }),
+			};
+		});
+
+		await createClient("https://api.test", "tok", fetchImpl).readDelta(7, 50);
+
+		// GET /lessons, not /api/lessons. A machine token authenticates the
+		// machine-side delta read; the browser route would reject it - the same
+		// distinction `verify` documents.
+		expect(seen).toBe("https://api.test/lessons?since=7&limit=50");
+	});
+
+	it("returns the window verbatim", async () => {
+		const body = {
+			lessons: [{ seq: 8, lesson: { id: "01KZ45MKAM734ZS7JK24D2DK0R" } }],
+			cursor: 8,
+			has_more: true,
+		};
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue({ ok: true, status: 200, json: async () => body });
+
+		const got = await createClient(
+			"https://api.test",
+			"tok",
+			fetchImpl,
+		).readDelta(7, 50);
+
+		expect(got).toEqual(body);
+	});
+
+	// Failures go through the same classifier as every other call, so a dead
+	// endpoint or a revoked token reads the same here as it does on push.
+	it("classifies a failure like every other call", async () => {
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: false,
+			status: 401,
+			json: async () => ({ error: "invalid_token" }),
+		});
+
+		await expect(
+			createClient("https://api.test", "tok", fetchImpl).readDelta(0, 50),
+		).rejects.toMatchObject({ failure: { kind: "unauthorized" } });
+	});
+});
