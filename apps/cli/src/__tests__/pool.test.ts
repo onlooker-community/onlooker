@@ -1,5 +1,6 @@
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -10,7 +11,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	cursorPath,
-	poolDir,
+	migrateLegacyPool,
+	mirrorDir,
 	readCursor,
 	writeCursor,
 	writeLesson,
@@ -74,7 +76,7 @@ describe("writeLesson", () => {
 		const e = env();
 		writeLesson(lesson(ID), e);
 		const written = JSON.parse(
-			readFileSync(join(poolDir(e), `${ID}.json`), "utf8"),
+			readFileSync(join(mirrorDir(e), `${ID}.json`), "utf8"),
 		);
 		expect(written.id).toBe(ID);
 	});
@@ -95,10 +97,10 @@ describe("writeLesson", () => {
 		writeLesson(lesson(ID, "because it changed"), e);
 
 		const written = JSON.parse(
-			readFileSync(join(poolDir(e), `${ID}.json`), "utf8"),
+			readFileSync(join(mirrorDir(e), `${ID}.json`), "utf8"),
 		);
 		expect(written.claim).toBe("because it changed");
-		expect(readdirSync(poolDir(e))).toEqual([`${ID}.json`]);
+		expect(readdirSync(mirrorDir(e))).toEqual([`${ID}.json`]);
 	});
 
 	it("keeps separate ids separate", () => {
@@ -106,7 +108,7 @@ describe("writeLesson", () => {
 		writeLesson(lesson(ID), e);
 		writeLesson(lesson(OTHER), e);
 
-		expect(readdirSync(poolDir(e)).sort()).toEqual([
+		expect(readdirSync(mirrorDir(e)).sort()).toEqual([
 			`${ID}.json`,
 			`${OTHER}.json`,
 		]);
@@ -134,7 +136,7 @@ describe("writeLesson", () => {
 		} catch {
 			// expected
 		}
-		expect(existsSync(poolDir(e))).toBe(false);
+		expect(existsSync(mirrorDir(e))).toBe(false);
 	});
 
 	it("creates the pool directory if it does not exist", () => {
@@ -147,8 +149,53 @@ describe("writeLesson", () => {
 	it("leaves no temp file behind", () => {
 		const e = env();
 		writeLesson(lesson(ID), e);
-		expect(readdirSync(poolDir(e)).filter((f) => f.endsWith(".tmp"))).toEqual(
+		expect(readdirSync(mirrorDir(e)).filter((f) => f.endsWith(".tmp"))).toEqual(
 			[],
 		);
+	});
+});
+
+describe("mirrorDir", () => {
+	// "pool" means the hosted set in every user-facing string this CLI
+	// prints, so the local copy sharing that name collided with its own
+	// output. schema.ts already calls this thing the mirror.
+	it("is ~/.onlooker/mirror, not pool", () => {
+		const e = env();
+		expect(mirrorDir(e)).toBe(join(e.ONLOOKER_DIR as string, "mirror"));
+	});
+});
+
+describe("migrateLegacyPool", () => {
+	// pool/ shipped in 2.4.0. A machine that pulled before the rename has one,
+	// and leaving it beside mirror/ is the confusion the rename exists to end.
+	it("moves an existing pool directory and says so", () => {
+		const e = env();
+		const legacy = join(e.ONLOOKER_DIR as string, "pool");
+		mkdirSync(legacy, { recursive: true });
+		writeFileSync(join(legacy, "cursor.json"), JSON.stringify({ seq: 9 }));
+
+		const note = migrateLegacyPool(e);
+
+		expect(note).toMatch(/pool/);
+		expect(note).toMatch(/mirror/);
+		expect(readCursor(e)).toBe(9);
+		expect(existsSync(legacy)).toBe(false);
+	});
+
+	it("says nothing when there is nothing to move", () => {
+		expect(migrateLegacyPool(env())).toBeNull();
+	});
+
+	// Never clobber. If both exist, the new one is authoritative and the old
+	// one is left for a person to look at rather than silently merged -
+	// merging two cursors would be a guess about which is further along.
+	it("leaves both alone when mirror already exists", () => {
+		const e = env();
+		mkdirSync(join(e.ONLOOKER_DIR as string, "pool"), { recursive: true });
+		writeCursor(3, e);
+
+		expect(migrateLegacyPool(e)).toMatch(/both/i);
+		expect(existsSync(join(e.ONLOOKER_DIR as string, "pool"))).toBe(true);
+		expect(readCursor(e)).toBe(3);
 	});
 });
