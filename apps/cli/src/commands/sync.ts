@@ -4,6 +4,7 @@ import { readConfig } from "../config";
 import { collectInventory } from "../inventory";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
+import { type PullOutcome, pull } from "../pull";
 
 export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
@@ -43,6 +44,38 @@ async function reportInventory(
 }
 
 /**
+ * One line about what arrived, or about why nothing did.
+ *
+ * Never silent, for the same reason the inventory note is never silent: a
+ * mirror that quietly stops updating while the command exits 0 is the
+ * successful-looking silence this codebase keeps rediscovering.
+ *
+ * A gap and a failure both name what happened rather than reporting zero
+ * received. "Nothing arrived" is what a healthy idle machine says too, and the
+ * three must not read alike.
+ */
+function describePull(outcome: PullOutcome): string {
+	switch (outcome.kind) {
+		case "received": {
+			const total = outcome.created + outcome.updated + outcome.unchanged;
+			const line =
+				total === 0
+					? "Received nothing: the pool holds nothing this machine does not."
+					: `Received ${total} lesson${total === 1 ? "" : "s"}: ${outcome.created} new, ${outcome.updated} updated, ${outcome.unchanged} unchanged.`;
+			return outcome.invalid.length === 0
+				? line
+				: `${line} ${outcome.invalid.length} refused by the contract and skipped: ${outcome.invalid.join("; ")}`;
+		}
+		case "gap":
+			// Both sequences named, because the number that is missing is the
+			// only actionable thing about this.
+			return `Received nothing: the pool skipped ${outcome.expected} and answered with ${outcome.got}. Nothing was written, and the cursor stayed at ${outcome.cursor}.`;
+		default:
+			return `Received nothing: ${outcome.reason}`;
+	}
+}
+
+/**
  * Push every approved lesson to the pool.
  *
  * Stateless on purpose. `POST /lessons` answers `created`, `noop`, `conflict`,
@@ -76,17 +109,30 @@ export async function sync({
 	// the push would never fire for the machines whose page is emptiest. The
 	// note it returns rides along with whatever this command was going to say.
 	const inventoryNote = await reportInventory(client, env);
-	const withNote = (message: string) =>
-		inventoryNote === null ? message : `${message}\n${inventoryNote}`;
+
+	/**
+	 * Every exit runs through here, and receiving happens on the way out.
+	 *
+	 * After the push rather than before, because pushing is what someone ran
+	 * this command for. On every path, including the ones that found nothing
+	 * to push: while the pool is empty that is every machine, and a machine
+	 * with nothing to send is exactly the one that most needs to receive.
+	 */
+	const withNote = async (message: string): Promise<string> => {
+		const received = describePull(await pull({ client, env }));
+		return [message, received, inventoryNote]
+			.filter((line): line is string => line !== null)
+			.join("\n");
+	};
 
 	const found = discoverApproved(env);
 	if (found.kind === "no-onlooker-dir") {
-		return withNote(
+		return await withNote(
 			`Nothing to sync: ${found.path} does not exist, so no plugin has run here yet.`,
 		);
 	}
 	if (found.kind === "no-librarian-dir") {
-		return withNote(
+		return await withNote(
 			`Nothing to sync: ${found.path} does not exist, so librarian has not run here yet.`,
 		);
 	}
@@ -98,7 +144,7 @@ export async function sync({
 		// waiting does not fix a permission or a file where a directory belongs.
 		throw new ApiError({
 			kind: "rejected",
-			message: withNote(
+			message: await withNote(
 				`Could not read ${found.path}. It exists but could not be listed, so how many lessons are waiting is unknown.`,
 			),
 		});
@@ -108,7 +154,9 @@ export async function sync({
 		// this sentence used to be the same for all of them. The survey is a
 		// read of files already on disk - no network call, and it only runs on
 		// the path where there is nothing to send anyway.
-		return withNote(`Nothing to sync: ${pipelineClause(surveyPipeline(env))}`);
+		return await withNote(
+			`Nothing to sync: ${pipelineClause(surveyPipeline(env))}`,
+		);
 	}
 
 	const lessons: TLesson[] = [];
@@ -257,9 +305,9 @@ export async function sync({
 			// lesson the pool refuses are both unchanged by waiting, and telling
 			// someone to retry costs them the time it takes to find that out.
 			kind: retryable.length > 0 ? "transient" : "rejected",
-			message: withNote([summary, ...problems].join("\n")),
+			message: await withNote([summary, ...problems].join("\n")),
 		});
 	}
 
-	return withNote(summary);
+	return await withNote(summary);
 }

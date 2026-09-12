@@ -69,6 +69,20 @@ export async function pull(opts: {
 			return { kind: "failed", reason: (error as Error).message, cursor };
 		}
 
+		// `api.ts` casts the body rather than validating it, so this is the
+		// first place a response that is not the promised shape can be
+		// noticed. Treated as a failure rather than as an empty window: a
+		// moved or reshaped endpoint would otherwise read as "nothing is
+		// waiting" forever, which is the exact failure the push path's own
+		// count reconciliation exists to prevent.
+		if (!Array.isArray(window.lessons)) {
+			return {
+				kind: "failed",
+				reason: "the API answered the delta read without a lessons array",
+				cursor,
+			};
+		}
+
 		if (window.lessons.length === 0) break;
 
 		// Contiguity first, before anything is written, so a window is
