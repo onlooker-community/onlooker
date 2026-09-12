@@ -1,0 +1,27 @@
+{
+	"name": "@onlooker/monitoring",
+	"private": true,
+	"description": "What every app reports about itself - errors, counts, spans - named for the job, not for whoever receives it",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./testing": "./src/testing.ts"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"lint": "biome check src",
+		"lint:fix": "biome check --write src",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"clean": "rimraf node_modules .turbo"
+	},
+	"dependencies": {
+		"@onlooker/api-contract": "workspace:*"
+	},
+	"devDependencies": {
+		"@onlooker/config-biome": "workspace:*",
+		"@onlooker/config-typescript": "workspace:*",
+		"typescript": "^5.6.3",
+		"vitest": "^4.1.9"
+	}
+}
