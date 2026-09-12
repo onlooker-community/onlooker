@@ -69,7 +69,7 @@ A commit fills nearly all of it without inference:
 | `files` | the diff's changed paths |
 | `session_id` | the `Claude-Session:` trailer this repo already appends |
 | `created_at` | the commit date |
-| `id` | a fresh ULID |
+| `id` | a ULID derived from the message text — see below |
 | `trigger` | `"commit"` |
 
 By contrast the same fields from a transcript are all inferred, and `files`
@@ -95,11 +95,33 @@ nested `claude -p` does not compact. Binding a **model-calling** extractor to
 `SessionEnd` would make that guard load-bearing, since a nested session does
 end. A mechanical miner sidesteps the question entirely.
 
-## One artifact per commit *(approved)*
+## The unit is an authored message, not a commit *(approved)*
 
-Nothing pre-splits a multi-claim body. The classifier and the lesson transform
-already exist to distill, and if they handle a several-claim artifact badly
-that is a finding about them rather than a guess made here.
+### What squash merging does to this *(measured)*
+
+This repository merges by squash, exclusively: all of the last twenty commits
+on `main` end in `(#N)` *(measured 2026-09-12)*. So `main` holds one commit per
+pull request, and the individual commits that were written never appear in it.
+
+Squashing is **lossless but lumpy**. GitHub concatenates every commit message
+into the squashed body, each prefixed with `* `, and PR #141 arrives on `main`
+as one commit whose body carries eleven of them. A single-commit PR gets its
+body verbatim with no bullet at all *(measured — `4e198fa`, `17ae546`)*.
+
+### So the miner splits them back *(approved)*
+
+One artifact per **authored message**: split a squashed body on `^\* `, or take
+a bulletless body whole.
+
+This is not a retreat from letting the pipeline distil. That answer was right
+for the input we believed we had — one commit, one author, three or four
+related claims. A squashed pull request is not that. It is eight separately
+authored units mechanically stapled together, and splitting them is undoing a
+packaging step rather than second-guessing content.
+
+Nothing pre-splits *within* an authored message. A body that makes four claims
+still arrives as one artifact, and if the classifier handles that badly it
+remains a finding about the classifier.
 
 ## The project key comes from the substrate *(approved)*
 
@@ -168,51 +190,62 @@ artifacts, the watermark, and the project-key import.
 
 One hook binding and one script. Removing the binding stops mining; artifacts
 already written are ordinary artifacts and remain valid. The watermark is the
-only new state, and losing it re-mines, which is idempotent by ULID only if the
-miner keys artifacts deterministically — see the open question.
+only new state, and losing it re-mines — which is free, because content-
+addressed ids make a re-mine overwrite rather than accumulate.
 
-## The id is a deterministic ULID *(approved)*
+## The id is content-addressed *(approved)*
 
-An artifact's id is derived from the commit, not minted fresh.
+An artifact's id is derived from the message that was written, not from the
+commit that happens to carry it.
 
 **Why it has to be deterministic.** `evidence.artifact_ids` is
 `z.array(ZUlid).min(1)` *(measured — `lesson-contract/src/evidence.ts:10`)*:
 lessons cite artifact ids as their evidence. A re-mine that minted new ids
-would leave every lesson already derived from a commit pointing at an artifact
+would leave every lesson already derived from a message pointing at an artifact
 that no longer exists on disk — the evidence chain broken, silently, with
 nothing failing. Avoiding duplicate files is the lesser benefit; keeping
 citations valid is the reason.
 
-**Why it can still be a ULID.** A ULID is a 48-bit millisecond timestamp
-encoded as ten Crockford characters, followed by eighty bits of randomness as
-sixteen more *(measured — `archivist-ulid.sh:5`)*. Only the second half has to
-be random, and nothing requires it to come from a random source. So:
+**Why it cannot be the commit SHA.** The SHA is precisely what this workflow
+destroys. A squash merge replaces every commit on a branch with one new commit,
+and a rebase or a cherry-pick rewrites them too. Keying an artifact to a SHA
+means keying it to the least durable thing in reach — the same class of mistake
+as keying a lesson to a version that has already moved on.
 
-- **timestamp half** ← the commit's committer date, in milliseconds.
-- **randomness half** ← the first eighty bits of `SHA256(<commit sha>)`, split
-  into two forty-bit halves and passed through the existing
+**So the id derives from the message text.** A ULID is a 48-bit millisecond
+timestamp encoded as ten Crockford characters, followed by eighty bits of
+randomness as sixteen more *(measured — `archivist-ulid.sh:5`)*. Only the
+second half has to be random, and nothing requires it to come from a random
+source:
+
+- **randomness half** ← the first eighty bits of `SHA256(<normalized message>)`,
+  split into two forty-bit halves through the existing
   `_archivist_ulid_encode`, which already takes an integer and a length.
+- **timestamp half** ← the carrying commit's date, in milliseconds.
+
+Normalizing means the subject and body with the `* ` bullet prefix stripped and
+trailing whitespace trimmed, so a message hashes identically whether it is read
+from the branch commit that authored it or from the squashed body that later
+carried it.
 
 The result is a well-formed ULID that satisfies `ZUlid`, so nothing downstream
-learns that these ids were derived rather than generated. Checked rather than
-assumed: run against this repository's `HEAD` at `273bad3`, the construction
-yields `01M2B8E6Y0SJPD71T40Q2XKKMB`, which matches `ZUlid`'s
-`[0-9A-HJKMNP-TV-Z]{26}` exactly *(measured 2026-09-12)*.
+learns these ids were derived rather than generated. Checked rather than
+assumed: the construction run against a real commit yields
+`01M2B8E6Y0SJPD71T40Q2XKKMB`, matching `ZUlid`'s `[0-9A-HJKMNP-TV-Z]{26}`
+exactly *(measured 2026-09-12)*.
 
-**Two properties fall out.** Re-mining is idempotent: the same commit produces
-the same id, so it overwrites its own artifact rather than adding a second —
-the same upsert-by-id the mirror already relies on. And because ULIDs sort
-lexicographically by their timestamp prefix, mined artifacts sort in **commit
-order** rather than in the order the miner happened to visit them, which makes
-an otherwise arbitrary ordering mean something.
+**Two properties fall out.** Re-mining is idempotent — the same message
+produces the same id and overwrites its own artifact rather than adding a
+second, the same upsert-by-id the mirror already relies on. And because ULIDs
+sort lexicographically by their timestamp prefix, a pull request's artifacts
+sort together, at the moment it landed.
 
-**A rewritten commit is a different commit.** An amend or a rebase produces a
-new SHA and therefore a new artifact, and the old one remains with its old id.
-That is correct — the citations that referenced it still resolve — but it does
-mean a heavily rebased branch can leave artifacts for commits that no longer
-exist in any history. Left alone deliberately: they are true records of
-something that was written, and reaping them would mean deciding what a
-commit's disappearance implies about a lesson derived from it.
+**The timestamp half is the one part squashing still moves.** Mine a message
+from its branch commit and again from the squash that carried it, and the
+randomness halves agree while the timestamps differ. That is why the miner
+reads only the default branch: one source, one carrying commit, one id. It is a
+constraint rather than a property, and it is the reason mining is not offered
+on a feature branch.
 
 ## Open questions
 
