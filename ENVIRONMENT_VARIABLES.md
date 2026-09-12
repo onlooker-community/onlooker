@@ -159,6 +159,7 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 
 #### Production
@@ -173,6 +174,7 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 
 ### Secrets (Must not be committed)
