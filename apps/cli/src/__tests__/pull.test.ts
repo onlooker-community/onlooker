@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { poolDir, readCursor, writeCursor } from "../pool";
+import { mirrorDir, readCursor, writeCursor } from "../pool";
 import { pull } from "../pull";
 
 const ids = [
@@ -64,8 +64,8 @@ const windows = (...pages: Page[]) => {
  * its window never creates one, and that is the state these tests assert.
  */
 const stored = (e: NodeJS.ProcessEnv) =>
-	existsSync(poolDir(e))
-		? readdirSync(poolDir(e)).filter((f) => f !== "cursor.json")
+	existsSync(mirrorDir(e))
+		? readdirSync(mirrorDir(e)).filter((f) => f !== "cursor.json")
 		: [];
 
 describe("pull", () => {
@@ -121,14 +121,14 @@ describe("pull", () => {
 		// The cursor stays readable and every new write fails: the directory
 		// is made read-only, so reading cursor.json still works while creating
 		// a lesson file does not.
-		chmodSync(poolDir(e), 0o555);
+		chmodSync(mirrorDir(e), 0o555);
 		const client = windows({
 			lessons: [{ seq: 4, lesson: lesson(ids[0]) }],
 			has_more: false,
 		});
 
 		const outcome = await pull({ client, env: e });
-		chmodSync(poolDir(e), 0o755);
+		chmodSync(mirrorDir(e), 0o755);
 
 		expect(outcome.kind).toBe("failed");
 		expect(outcome.cursor).toBe(3);
@@ -314,7 +314,7 @@ describe("pull", () => {
 	it("fails rather than restarting when the cursor cannot be read", async () => {
 		const e = env();
 		writeCursor(5, e);
-		writeFileSync(join(poolDir(e), "cursor.json"), "{ not json");
+		writeFileSync(join(mirrorDir(e), "cursor.json"), "{ not json");
 		const client = windows({ lessons: [], has_more: false });
 
 		const outcome = await pull({ client, env: e });
