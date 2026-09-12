@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readEnabledMap, repoRoot, userConfigDir } from "./enablement";
+import {
+	configDirCandidates,
+	readEnabledMap,
+	repoRoot,
+	resolveConfigDir,
+} from "./enablement";
 
 /**
  * One place a plugin is installed, and what is installed there.
@@ -105,13 +110,28 @@ export function collectInventory(opts: {
 }): Collected {
 	const home = opts.home ?? homedir();
 	const env = opts.env ?? process.env;
-	const file = join(
-		userConfigDir(env, home, opts.configDir),
-		"plugins",
-		"installed_plugins.json",
-	);
+	const resolved = resolveConfigDir(env, home, opts.configDir);
+	const file = join(resolved.path, "plugins", "installed_plugins.json");
 
 	if (!existsSync(file)) {
+		// Which of the two failures this is matters, and the old message could
+		// not tell them apart. A directory we were told to use and found empty
+		// is a real answer. A directory we guessed at is not an answer at all -
+		// Claude Code exports CLAUDE_CONFIG_DIR to its children, so an agent
+		// resolves correctly while the person running the same command from
+		// their own shell silently gets $HOME/.claude.
+		if (resolved.source === "default") {
+			const candidates = configDirCandidates(home);
+			const seen =
+				candidates.length === 0
+					? "No directory under your home looks like one."
+					: `These look like config directories: ${candidates.join(", ")}.`;
+			return {
+				kind: "unavailable",
+				reason: `CLAUDE_CONFIG_DIR is not set, so this looked in ${homeRelative(file, home)} and found nothing. ${seen} Set CLAUDE_CONFIG_DIR to the one this machine uses.`,
+			};
+		}
+
 		return {
 			kind: "unavailable",
 			reason: `${homeRelative(file, home)} does not exist, so nothing is installed for this config directory.`,
