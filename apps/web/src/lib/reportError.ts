@@ -8,10 +8,12 @@
  * page for every logged-in user while every dashboard stayed green.
  *
  * Deliberately a seam rather than a vendor. Reports go to apps/api, which logs
- * them, so they land in Workers Logs alongside everything else and the
- * destination stays one function. If a real error service is adopted later
- * (Sentry has a Workers OTLP integration, so it could cover this and Worker
- * tracing together), this is the file that changes.
+ * them, so they land in Workers Logs alongside everything else, where
+ * client-error-monitor.yml alerts on them.
+ *
+ * Nothing calls this directly any more. The app reports through `monitor` in
+ * ../monitoring, which fans out to the provider and to this - kept so the
+ * hourly workflow stays fed until it is retired on purpose.
  */
 
 import { redactSecrets } from "@onlooker/api-contract";
@@ -89,38 +91,4 @@ export function reportClientError(input: ClientErrorInput): void {
 		// Same reasoning, for anything synchronous above - a missing navigator, a
 		// config that will not resolve.
 	}
-}
-
-/**
- * Catch the failures no React boundary can see.
- *
- * A boundary only sees throws during render. It never sees a rejected promise
- * with no handler, an error thrown from an event listener, or a dynamic import
- * that 404s - which is the exact shape a stale tab hits after a deploy, and one
- * of the few ways a user experiences a bad release without any request of ours
- * failing.
- */
-export function installGlobalErrorReporting(target: Window = window): void {
-	target.addEventListener("unhandledrejection", (event) => {
-		const reason = (event as PromiseRejectionEvent).reason;
-		reportClientError({
-			kind: "unhandled-rejection",
-			message: reason instanceof Error ? reason.message : String(reason),
-			stack: reason instanceof Error ? reason.stack : undefined,
-			url: target.location?.href ?? "",
-		});
-	});
-
-	target.addEventListener("error", (event) => {
-		const error = (event as ErrorEvent).error;
-		reportClientError({
-			kind: "uncaught",
-			message:
-				error instanceof Error
-					? error.message
-					: ((event as ErrorEvent).message ?? "unknown error"),
-			stack: error instanceof Error ? error.stack : undefined,
-			url: target.location?.href ?? "",
-		});
-	});
 }
