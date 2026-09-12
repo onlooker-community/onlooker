@@ -1,29 +1,25 @@
 /**
  * The one door between apps/web and a monitoring provider.
  *
- * This is the only file here that imports @sentry/* or
- * @onlooker/monitoring-sentry (scripts/source-guards.test.sh fails otherwise).
- * Everything else reports through `monitor`, a provider-neutral `Monitor`, so
- * changing provider is a change to this file and nothing else in the app.
+ * Everything else in the app reports through `monitor`, a provider-neutral
+ * `Monitor`, so changing provider is a change to this file and
+ * ./monitoring.provider.ts and nothing else (scripts/source-guards.test.sh
+ * fails otherwise).
+ *
+ * The door is split in two for weight, not for tidiness. The provider's SDK is
+ * ~38.5 kB gzipped - measured at +35% on the main bundle when it was imported
+ * here - and every visitor would download it before the app could render. So
+ * this file imports nothing from the provider, and ./monitoring.provider.ts
+ * is loaded as its own chunk once the app is running.
  */
 
 import {
 	fanout,
 	type Monitor,
+	type MonitorUser,
 	noopMonitor,
 	resolveEnvironment,
 } from "@onlooker/monitoring";
-import { createSentryMonitor } from "@onlooker/monitoring-sentry";
-import { browserOptions } from "@onlooker/monitoring-sentry/browser";
-import * as Sentry from "@sentry/react";
-import { useEffect } from "react";
-import {
-	createRoutesFromChildren,
-	matchRoutes,
-	Routes,
-	useLocation,
-	useNavigationType,
-} from "react-router-dom";
 import { resolveApiConfig } from "./api/config";
 import { type ClientErrorKind, reportClientError } from "./lib/reportError";
 
@@ -45,6 +41,9 @@ function kindOf(tag: string | undefined): ClientErrorKind {
  * this would leave that workflow green and blind, so both are fed until it is
  * retired on purpose (revisit 2026-10-01, onlooker-k34). Only exceptions
  * travel this way; counts, logs and spans are the provider's alone.
+ *
+ * It is also what catches everything in the moment before the provider's
+ * chunk arrives, and everything when that chunk fails to load at all.
  */
 export const clientErrorMonitor: Monitor = {
 	...noopMonitor,
@@ -61,56 +60,80 @@ export const clientErrorMonitor: Monitor = {
 	},
 };
 
-export const monitor: Monitor = fanout(
-	createSentryMonitor(),
-	clientErrorMonitor,
-);
-
 /**
- * `<Routes>`, instrumented so a trace is named for the route pattern
- * (`/lessons/:id`) rather than the URL. A raw URL would make every lesson its
- * own transaction, and put reset tokens in the name for scrubbing to catch.
- */
-export const MonitoredRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
-
-/**
- * Start the provider. Unset VITE_MONITORING_DSN means off: nothing starts, and
- * errors still reach /api/client-errors through `clientErrorMonitor`.
+ * A monitor that stands in until the real one arrives.
  *
- * Kept apart from `monitor` so importing it - which every test rendering App
- * does - starts nothing.
+ * Calls made before `attach` are dropped rather than queued - the vendor-less
+ * path beside it in the fanout already has every exception from that window,
+ * and a queue is a second place for a report to be lost. The one exception is
+ * the user: a restored session sets it on first render, well before the
+ * provider loads, and it would otherwise never be set at all.
+ */
+export function createDeferredMonitor() {
+	let target: Monitor | null = null;
+	let user: MonitorUser | null = null;
+
+	const monitor: Monitor = {
+		captureException(error, context) {
+			target?.captureException(error, context);
+		},
+		captureMessage(message, level, context) {
+			target?.captureMessage(message, level, context);
+		},
+		setUser(next) {
+			user = next;
+			target?.setUser(next);
+		},
+		count(name, value, attributes) {
+			target?.count(name, value, attributes);
+		},
+		log(level, message, attributes) {
+			target?.log(level, message, attributes);
+		},
+		startSpan(options, fn) {
+			return target ? target.startSpan(options, fn) : fn();
+		},
+		flush(timeoutMs) {
+			return target ? target.flush(timeoutMs) : Promise.resolve(true);
+		},
+	};
+
+	return {
+		monitor,
+		attach(next: Monitor) {
+			target = next;
+			if (user) next.setUser(user);
+		},
+	};
+}
+
+const provider = createDeferredMonitor();
+
+export const monitor: Monitor = fanout(provider.monitor, clientErrorMonitor);
+
+/**
+ * Load and start the provider. Unset VITE_MONITORING_DSN means off: nothing is
+ * fetched, and errors still reach /api/client-errors through
+ * `clientErrorMonitor`.
+ *
+ * Returns immediately. The import runs alongside the first render rather than
+ * ahead of it, and a failure to load - offline, or a stale tab whose chunk a
+ * deploy has replaced - leaves the vendor-less path doing the reporting.
  */
 export function initMonitoring(): void {
 	const dsn = import.meta.env.VITE_MONITORING_DSN;
 	if (!dsn) return;
 
+	const environment = resolveEnvironment(import.meta.env.MODE, "development");
 	const { baseUrl } = resolveApiConfig();
 
-	Sentry.init({
-		...browserOptions(
-			{
-				dsn,
-				environment: resolveEnvironment(import.meta.env.MODE, "development"),
-			},
-			{
-				// installGlobalErrorCapture below feeds both destinations. Sentry's
-				// own listeners on top would report every uncaught error twice.
-				captureGlobalErrors: false,
-				integrations: [
-					Sentry.reactRouterV6BrowserTracingIntegration({
-						useEffect,
-						useLocation,
-						useNavigationType,
-						createRoutesFromChildren,
-						matchRoutes,
-					}),
-				],
-			},
-		),
-		// Continue traces into our own API and nowhere else. apps/api allows the
-		// trace headers in CORS; a third-party origin would reject the preflight.
-		tracePropagationTargets: baseUrl ? [baseUrl] : [],
-	});
+	import("./monitoring.provider")
+		.then(({ startProvider }) => {
+			provider.attach(startProvider({ dsn, environment, apiBaseUrl: baseUrl }));
+		})
+		.catch(() => {
+			// Nothing to report it to but the path that is already working.
+		});
 }
 
 /**

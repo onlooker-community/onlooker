@@ -8,7 +8,12 @@ vi.mock("../lib/reportError", () => ({
 	reportClientError: (...args: unknown[]) => reportClientError(...args),
 }));
 
-import { clientErrorMonitor, installGlobalErrorCapture } from "../monitoring";
+import { createRecordingMonitor } from "@onlooker/monitoring/testing";
+import {
+	clientErrorMonitor,
+	createDeferredMonitor,
+	installGlobalErrorCapture,
+} from "../monitoring";
 
 function lastReport() {
 	const { calls } = reportClientError.mock;
@@ -53,6 +58,51 @@ describe("clientErrorMonitor", () => {
 		});
 
 		expect(lastReport()?.kind).toBe("uncaught");
+	});
+});
+
+// The provider arrives in its own chunk after the app is running, so the
+// monitor App holds from the first render is a stand-in until then.
+describe("createDeferredMonitor", () => {
+	it("drops what is said before the provider arrives", () => {
+		const deferred = createDeferredMonitor();
+		const provider = createRecordingMonitor();
+
+		deferred.monitor.captureException(new Error("too early"));
+		deferred.attach(provider.monitor);
+
+		expect(provider.exceptions).toEqual([]);
+	});
+
+	it("forwards everything once the provider arrives", () => {
+		const deferred = createDeferredMonitor();
+		const provider = createRecordingMonitor();
+		const error = new Error("after load");
+
+		deferred.attach(provider.monitor);
+		deferred.monitor.captureException(error);
+		deferred.monitor.count("lessons.viewed");
+
+		expect(provider.exceptions.map((e) => e.error)).toEqual([error]);
+		expect(provider.counts.map((c) => c.name)).toEqual(["lessons.viewed"]);
+	});
+
+	// A restored session sets the user on first render, long before the chunk
+	// loads. Dropping that one would leave every later event anonymous.
+	it("hands the provider the user who signed in before it arrived", () => {
+		const deferred = createDeferredMonitor();
+		const provider = createRecordingMonitor();
+
+		deferred.monitor.setUser({ id: "u1" });
+		deferred.attach(provider.monitor);
+
+		expect(provider.users).toEqual([{ id: "u1" }]);
+	});
+
+	it("still runs span work before the provider arrives", () => {
+		const deferred = createDeferredMonitor();
+
+		expect(deferred.monitor.startSpan({ name: "s", op: "o" }, () => 7)).toBe(7);
 	});
 });
 

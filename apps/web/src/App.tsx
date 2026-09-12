@@ -1,8 +1,8 @@
-import { Route, useLocation } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { MonitoredRoutes, monitor } from "./monitoring";
+import { monitor } from "./monitoring";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
@@ -52,7 +52,7 @@ export default function App() {
 			*/}
 			<RevealProvider>
 				<InertWhileRevealed>
-					<MonitoredRoutes>
+					<Routes>
 						<Route path="/" element={<HomePage />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
@@ -122,7 +122,7 @@ export default function App() {
 							}
 						/>
 						<Route path="*" element={<div>404 Not Found</div>} />
-					</MonitoredRoutes>
+					</Routes>
 				</InertWhileRevealed>
 				{/*
 				  Outside the wrapper above, and portaled to document.body
