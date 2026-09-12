@@ -22,14 +22,16 @@ export function changedFiles(cwd: string): string[] | null {
 			["status", "--porcelain=v1", "--untracked-files=all"],
 			{ cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
 		);
-		return out
-			.split("\n")
-			.filter(Boolean)
-			// "XY path", and "XY old -> new" for a rename. The new name is the
-			// one that exists to be matched against a pattern.
-			.map((line) => line.slice(3).split(" -> ").pop() ?? "")
-			.map((path) => path.replace(/^"|"$/g, ""))
-			.filter(Boolean);
+		return (
+			out
+				.split("\n")
+				.filter(Boolean)
+				// "XY path", and "XY old -> new" for a rename. The new name is the
+				// one that exists to be matched against a pattern.
+				.map((line) => line.slice(3).split(" -> ").pop() ?? "")
+				.map((path) => path.replace(/^"|"$/g, ""))
+				.filter(Boolean)
+		);
 	} catch {
 		return null;
 	}
