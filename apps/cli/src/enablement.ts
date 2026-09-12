@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -148,12 +148,68 @@ export function userConfigDir(
 	home: string,
 	override?: string,
 ): string {
-	return (
-		override ||
-		env.CLAUDE_HOME ||
-		env.CLAUDE_CONFIG_DIR ||
-		join(home, ".claude")
-	);
+	return resolveConfigDir(env, home, override).path;
+}
+
+/**
+ * Where the user config directory came from, not only what it is.
+ *
+ * The last element of the chain is an assertion nothing establishes: that a
+ * config directory exists at `$HOME/.claude`. Claude Code exports
+ * `CLAUDE_CONFIG_DIR` to its children, so a hook or an agent inherits it and
+ * resolves correctly - while a person running the same command from their own
+ * shell does not, and silently gets the default. On a multi-account machine
+ * there is deliberately no `$HOME/.claude` at all.
+ *
+ * A caller that receives only a path cannot tell a resolved directory from a
+ * guess, which is how a wrong answer gets reported with total confidence.
+ * `source` is what lets a caller refuse to claim.
+ */
+export type ConfigDirSource =
+	| "override"
+	| "CLAUDE_HOME"
+	| "CLAUDE_CONFIG_DIR"
+	| "default";
+
+export function resolveConfigDir(
+	env: NodeJS.ProcessEnv,
+	home: string,
+	override?: string,
+): { path: string; source: ConfigDirSource } {
+	if (override) return { path: override, source: "override" };
+	if (env.CLAUDE_HOME) return { path: env.CLAUDE_HOME, source: "CLAUDE_HOME" };
+	if (env.CLAUDE_CONFIG_DIR) {
+		return { path: env.CLAUDE_CONFIG_DIR, source: "CLAUDE_CONFIG_DIR" };
+	}
+	return { path: join(home, ".claude"), source: "default" };
+}
+
+/**
+ * Directories under `home` that hold evidence of being a config directory.
+ *
+ * Evidence rather than a blind glob: a directory merely named `.claude-notes`
+ * proves nothing, and listing it would send someone to the wrong place. A
+ * `settings.json` or a `plugins/` is what makes one worth naming.
+ *
+ * Home-relative on the way out, because these appear in messages.
+ */
+export function configDirCandidates(home: string): string[] {
+	let entries: string[];
+	try {
+		entries = readdirSync(home);
+	} catch {
+		return [];
+	}
+
+	return entries
+		.filter((name) => name.startsWith(".claude"))
+		.filter((name) =>
+			["settings.json", "plugins"].some((marker) =>
+				existsSync(join(home, name, marker)),
+			),
+		)
+		.map((name) => `~/${name}`)
+		.sort();
 }
 
 /**
@@ -185,10 +241,12 @@ export function readEnabledMap(opts: {
 }): EnabledMap {
 	const home = opts.home ?? homedir();
 	const project = projectDir(opts.cwd);
-	const globalPath = join(
-		userConfigDir(opts.env ?? process.env, home, opts.configDir),
-		"settings.json",
+	const resolved = resolveConfigDir(
+		opts.env ?? process.env,
+		home,
+		opts.configDir,
 	);
+	const globalPath = join(resolved.path, "settings.json");
 
 	const sources: string[] = [];
 	const merged: Record<string, unknown> = {};
@@ -232,6 +290,24 @@ export function readEnabledMap(opts: {
 	}
 
 	if (sources.length === 0) {
+		// Two different failures used to share this sentence. "No settings
+		// declare enabledPlugins" is true of a real config directory that is
+		// simply quiet; it is a misattribution when the user layer was never
+		// reachable, because CLAUDE_CONFIG_DIR is unset and $HOME/.claude is
+		// not this machine's config directory. The verdict is `unknown` either
+		// way - only a reader trying to fix it can tell them apart.
+		if (resolved.source === "default" && !existsSync(resolved.path)) {
+			const candidates = configDirCandidates(home);
+			const seen =
+				candidates.length === 0
+					? ""
+					: ` These look like config directories: ${candidates.join(", ")}.`;
+			return {
+				kind: "unknown",
+				reason: `CLAUDE_CONFIG_DIR is not set and ${join("~", ".claude")} does not exist, so no user settings could be read.${seen}`,
+			};
+		}
+
 		return {
 			kind: "unknown",
 			reason: "no .claude/settings.json declares enabledPlugins",

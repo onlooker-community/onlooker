@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	configDirCandidates,
 	findUp,
 	readEnabledMap,
 	readEnablement,
+	resolveConfigDir,
 	userConfigDir,
 } from "../enablement";
 
@@ -413,5 +415,111 @@ describe("userConfigDir", () => {
 		expect(userConfigDir({ CLAUDE_HOME: "/a" }, "/h", "/explicit")).toBe(
 			"/explicit",
 		);
+	});
+});
+
+/**
+ * Where the config directory came from, not just what it is.
+ *
+ * The last element of the chain is an assertion nothing establishes: that a
+ * config directory exists at $HOME/.claude. On a multi-account machine there
+ * deliberately is none, so a caller that cannot tell a resolved path from a
+ * guess reports a wrong answer with total confidence.
+ */
+describe("resolveConfigDir", () => {
+	it("names the variable it resolved from", () => {
+		expect(resolveConfigDir({ CLAUDE_HOME: "/a" }, "/h")).toEqual({
+			path: "/a",
+			source: "CLAUDE_HOME",
+		});
+		expect(resolveConfigDir({ CLAUDE_CONFIG_DIR: "/b" }, "/h")).toEqual({
+			path: "/b",
+			source: "CLAUDE_CONFIG_DIR",
+		});
+	});
+
+	it("marks the bare default as a guess", () => {
+		expect(resolveConfigDir({}, "/h")).toEqual({
+			path: join("/h", ".claude"),
+			source: "default",
+		});
+	});
+
+	it("treats an explicit override as resolved", () => {
+		expect(resolveConfigDir({}, "/h", "/explicit")).toEqual({
+			path: "/explicit",
+			source: "override",
+		});
+	});
+
+	// The empty-string case config-loader.sh was corrected for: a wrapper
+	// exporting an unset variable exports "", and `||` must fall through it.
+	it("falls through an empty variable to the next source", () => {
+		expect(
+			resolveConfigDir({ CLAUDE_HOME: "", CLAUDE_CONFIG_DIR: "/b" }, "/h"),
+		).toEqual({ path: "/b", source: "CLAUDE_CONFIG_DIR" });
+	});
+});
+
+describe("configDirCandidates", () => {
+	it("finds directories that actually look like config directories", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-cands-"));
+		mkdirSync(join(home, ".claude-personal", "plugins"), { recursive: true });
+		mkdirSync(join(home, ".claude-work"), { recursive: true });
+		writeFileSync(join(home, ".claude-work", "settings.json"), "{}");
+
+		expect(configDirCandidates(home).sort()).toEqual([
+			"~/.claude-personal",
+			"~/.claude-work",
+		]);
+	});
+
+	// Evidence, not a blind glob. A directory merely named .claude-something
+	// proves nothing, and listing it would send someone to the wrong place.
+	it("ignores a .claude-ish directory with no config in it", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-cands-"));
+		mkdirSync(join(home, ".claude-notes"), { recursive: true });
+
+		expect(configDirCandidates(home)).toEqual([]);
+	});
+
+	it("returns none when home cannot be read", () => {
+		expect(
+			configDirCandidates(join(tmpdir(), "does-not-exist-at-all")),
+		).toEqual([]);
+	});
+});
+
+describe("readEnabledMap without CLAUDE_CONFIG_DIR", () => {
+	// doctor previously reported "no .claude/settings.json declares
+	// enabledPlugins", which is true of $HOME/.claude and blames config
+	// content for what is really a resolution failure. The verdict is the
+	// same - unknown - but the reason has to point at the right thing.
+	it("blames the unset variable, not the settings file", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-noenv-"));
+		mkdirSync(join(home, ".claude-personal"), { recursive: true });
+		writeFileSync(join(home, ".claude-personal", "settings.json"), "{}");
+
+		const map = readEnabledMap({ cwd: home, home, env: {} });
+
+		expect(map.kind).toBe("unknown");
+		if (map.kind !== "unknown") return;
+		expect(map.reason).toMatch(/CLAUDE_CONFIG_DIR/);
+		expect(map.reason).toContain("~/.claude-personal");
+	});
+
+	// A single-account machine with a real $HOME/.claude keeps working with
+	// nothing set, so this must not become a requirement to configure.
+	it("still reads $HOME/.claude when it genuinely holds settings", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-single-"));
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			JSON.stringify({ enabledPlugins: { "bursar@onlooker-community": true } }),
+		);
+
+		const map = readEnabledMap({ cwd: home, home, env: {} });
+
+		expect(map.kind).toBe("found");
 	});
 });

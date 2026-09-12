@@ -306,3 +306,70 @@ describe("collectInventory", () => {
 		expect(result.kind).toBe("collected");
 	});
 });
+
+/**
+ * Refusing to guess.
+ *
+ * CLAUDE_CONFIG_DIR is exported by Claude Code to its children, so a hook or an
+ * agent resolves correctly while a person running the same command from their
+ * own shell does not. Falling back to $HOME/.claude reported a confident wrong
+ * answer; on a multi-account machine that directory is not a config directory
+ * at all.
+ */
+describe("collectInventory without CLAUDE_CONFIG_DIR", () => {
+	it("says the variable is unset rather than blaming the directory", () => {
+		const h = home();
+
+		const result = collectInventory({ cwd: h, home: h, env: {} });
+
+		expect(result.kind).toBe("unavailable");
+		if (result.kind !== "unavailable") return;
+		expect(result.reason).toMatch(/CLAUDE_CONFIG_DIR/);
+	});
+
+	it("names the config directories it can actually see", () => {
+		const h = home();
+		mkdirSync(join(h, ".claude-personal", "plugins"), { recursive: true });
+		mkdirSync(join(h, ".claude-work"), { recursive: true });
+		writeFileSync(join(h, ".claude-work", "settings.json"), "{}");
+
+		const result = collectInventory({ cwd: h, home: h, env: {} });
+
+		if (result.kind !== "unavailable") throw new Error("expected unavailable");
+		expect(result.reason).toContain("~/.claude-personal");
+		expect(result.reason).toContain("~/.claude-work");
+	});
+
+	// The guess is refused even when $HOME/.claude happens to exist, because
+	// existing is not evidence it is the config directory this person uses.
+	it("refuses the default even when $HOME/.claude exists but holds no plugins", () => {
+		const h = home();
+		mkdirSync(join(h, ".claude"), { recursive: true });
+
+		const result = collectInventory({ cwd: h, home: h, env: {} });
+
+		expect(result.kind).toBe("unavailable");
+	});
+
+	// Still reads it when it is genuinely the config directory, so a
+	// single-account machine keeps working with nothing set.
+	it("uses $HOME/.claude when it really does hold plugins", () => {
+		const h = home();
+		mkdirSync(join(h, ".claude", "plugins"), { recursive: true });
+		writeFileSync(
+			join(h, ".claude", "plugins", "installed_plugins.json"),
+			JSON.stringify({
+				version: 1,
+				plugins: {
+					"librarian@onlooker-community": [
+						{ scope: "user", projectPath: null, version: "1.0.0" },
+					],
+				},
+			}),
+		);
+
+		const result = collectInventory({ cwd: h, home: h, env: {} });
+
+		expect(result.kind).toBe("collected");
+	});
+});
