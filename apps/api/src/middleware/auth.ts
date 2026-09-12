@@ -1,3 +1,4 @@
+import { monitor } from "../monitoring";
 import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { verifyJwt } from "../utils/crypto";
@@ -31,6 +32,10 @@ export async function requireAuth(
 		throw new ApiError(401, "invalid_token", "Invalid or expired token");
 	}
 
+	// The id and never the email the token also carries. Scoped to this
+	// request: the worker wrapper gives each request its own scope.
+	monitor.setUser({ id: payload.sub });
+
 	return {
 		userId: payload.sub,
 		email: payload.email,
@@ -49,6 +54,8 @@ export async function optionalAuth(
 
 	const payload = await verifyJwt(token, env.JWT_SECRET);
 	if (!payload || payload.type !== "access") return null;
+
+	monitor.setUser({ id: payload.sub });
 
 	return {
 		userId: payload.sub,

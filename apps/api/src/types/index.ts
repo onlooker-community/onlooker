@@ -63,6 +63,12 @@ export interface WorkerEnv {
 	// hostnames, so this cannot be derived from the request.
 	APP_BASE_URL: string;
 
+	// Where error reports and traces go. A var, not a secret: a DSN is an ingest
+	// address, and the browser bundle carries its own in plain sight. Optional
+	// because unset means monitoring is off, which is right for local
+	// development and the test pool. See src/monitoring.ts.
+	MONITORING_DSN?: string;
+
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
 }

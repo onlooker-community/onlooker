@@ -207,6 +207,19 @@ describe("preflightResponse", () => {
 		expect(res.headers.get("Access-Control-Max-Age")).toBe("86400");
 	});
 
+	// apps/web sends these on every traced call to the API. A preflight that does
+	// not allow them fails, and the browser drops the request outright.
+	it("lets a browser carry its trace into the API", () => {
+		const res = preflightResponse(
+			request(PRODUCTION, "OPTIONS"),
+			env(PRODUCTION),
+		);
+
+		const allowed = res.headers.get("Access-Control-Allow-Headers");
+		expect(allowed).toContain("sentry-trace");
+		expect(allowed).toContain("baggage");
+	});
+
 	// A refused preflight should not double as a description of the API. There is
 	// nothing secret in the method list, but advertising it to an origin being
 	// turned away is answering a question nobody is allowed to ask.

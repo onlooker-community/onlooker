@@ -30,6 +30,7 @@ they disagree with this file, they are right and this file is stale.
 | `APP_BASE_URL` | API | Vars | Origin that reset and verification links point at | `https://app.onlooker.dev` |
 | `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
+| `MONITORING_DSN` | API | Vars | Where error reports and traces go. Unset means monitoring is off | DSN of the API's Sentry project |
 
 ---
 
@@ -111,6 +112,7 @@ These are environment variables that can be checked into version control.
 | `APP_BASE_URL` | Origin that password-reset and verification links point at. Wrong value means the mail sends and the link lands nowhere useful | Origin of the web app |
 | `TOKEN_EXPIRY_MINUTES` | Access token lifetime, and the window a logged-out token stays usable | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `30` (30 days) |
+| `MONITORING_DSN` | Where error reports and traces go, read by `src/monitoring.ts`. A var rather than a secret: a DSN is an ingest address, and the web bundle ships its own in plain sight. Unset means monitoring is off — the right answer for development and the test pool, and a silent gap in a deployed environment | DSN of the API's Sentry project |
 
 `DB_HOST` and `DB_NAME` were listed here and are gone: nothing reads either, and
 `DB_NAME` named three databases (`onlooker_dev`, `onlooker_staging`,

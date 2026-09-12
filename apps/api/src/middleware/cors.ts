@@ -15,10 +15,16 @@
  * which is what made credential stuffing from arbitrary origins cheap.
  */
 
+import { TRACE_HEADERS } from "../monitoring";
 import type { WorkerEnv } from "../types";
 
 const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
-const ALLOW_HEADERS = "Content-Type, Authorization";
+// The trace headers are what let a request traced in apps/web continue into
+// this worker as one trace. Left off this list, the browser's preflight fails
+// and the call is dropped - tracing would break the request it was observing.
+const ALLOW_HEADERS = ["Content-Type", "Authorization", ...TRACE_HEADERS].join(
+	", ",
+);
 const MAX_AGE = "86400";
 
 /**

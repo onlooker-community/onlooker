@@ -56,6 +56,15 @@ importers:
       '@onlooker/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@onlooker/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
+      '@onlooker/monitoring-sentry':
+        specifier: workspace:*
+        version: link:../../packages/monitoring-sentry
+      '@sentry/cloudflare':
+        specifier: 10.74.0
+        version: 10.74.0(@cloudflare/workers-types@4.20260702.1)(wrangler@4.102.0(@cloudflare/workers-types@4.20260702.1))
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
