@@ -1,4 +1,5 @@
 import { verifyMachineToken } from "../db/machine-tokens.js";
+import { monitor } from "../monitoring";
 import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { extractToken } from "./auth.js";
@@ -29,6 +30,10 @@ export async function requireMachineToken(
 			"Invalid or revoked machine token",
 		);
 	}
+
+	// The account the machine belongs to, so a fault during `onlooker sync`
+	// is findable from the same user as one in the browser.
+	monitor.setUser({ id: verified.userId });
 
 	return verified;
 }

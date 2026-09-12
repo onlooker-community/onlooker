@@ -22,6 +22,7 @@ they disagree with this file, they are right and this file is stale.
 | Variable | Service | Type | Purpose | Example |
 |----------|---------|------|---------|---------|
 | `VITE_API_BASE_URL` | Web | Build | API the bundle calls | `https://api.onlooker.dev` |
+| `VITE_MONITORING_DSN` | Web | Build | Where error reports and traces go. Unset means the provider is off; `/api/client-errors` still gets every error | DSN of the web app's Sentry project |
 | `JWT_SECRET` | API | Secret (var in dev) | JWT signing key | `openssl rand -hex 32` |
 | `RESEND_API_KEY` | API | Secret | Sends mail via Resend. Unset means mail is logged, not sent | From the Resend dashboard |
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
@@ -30,6 +31,7 @@ they disagree with this file, they are right and this file is stale.
 | `APP_BASE_URL` | API | Vars | Origin that reset and verification links point at | `https://app.onlooker.dev` |
 | `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
+| `MONITORING_DSN` | API | Vars | Where error reports and traces go. Unset means monitoring is off | DSN of the API's Sentry project |
 
 ---
 
@@ -111,6 +113,7 @@ These are environment variables that can be checked into version control.
 | `APP_BASE_URL` | Origin that password-reset and verification links point at. Wrong value means the mail sends and the link lands nowhere useful | Origin of the web app |
 | `TOKEN_EXPIRY_MINUTES` | Access token lifetime, and the window a logged-out token stays usable | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `30` (30 days) |
+| `MONITORING_DSN` | Where error reports and traces go, read by `src/monitoring.ts`. A var rather than a secret: a DSN is an ingest address, and the web bundle ships its own in plain sight. Unset means monitoring is off — the right answer for development and the test pool, and a silent gap in a deployed environment | DSN of the API's Sentry project |
 
 `DB_HOST` and `DB_NAME` were listed here and are gone: nothing reads either, and
 `DB_NAME` named three databases (`onlooker_dev`, `onlooker_staging`,
@@ -157,6 +160,7 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 
 #### Production
@@ -171,6 +175,7 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 
 ### Secrets (Must not be committed)

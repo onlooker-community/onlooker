@@ -83,6 +83,10 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+# Same project as production; events are told apart by ENVIRONMENT above. A
+# var, not a secret - a DSN is an ingest address. Absent from development on
+# purpose, so local work does not report. See src/monitoring.ts.
+MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 
 # Staging: Use staging D1 database
 # Smart Placement, declared here for parity with production rather than because
@@ -115,6 +119,7 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 
 # Move the worker toward the database instead of running it wherever the request
 # lands. onlooker-ujy measured why: at p50 the worker waits 43 ms per D1 query

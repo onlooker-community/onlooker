@@ -1,3 +1,5 @@
+import type { Monitor } from "@onlooker/monitoring";
+import { monitor as apiMonitor } from "../monitoring";
 import { ApiError } from "../types";
 
 /**
@@ -33,7 +35,25 @@ export function jsonResponse<T>(data: T, status: number = 200): Response {
 	});
 }
 
-export function errorHandler(error: unknown): Response {
+/**
+ * Whether a failure is worth a human's attention.
+ *
+ * A 4xx ApiError is the API answering correctly - a wrong password, a taken
+ * address, a route that does not exist - and reporting those would bury the
+ * real faults under traffic. Anything else, or an ApiError this code chose to
+ * answer with a 5xx, is a fault. Before this, unexpected errors were not logged
+ * at all; the 500 reached the client and nowhere else.
+ */
+function isFault(error: unknown): boolean {
+	return !(error instanceof ApiError) || error.status >= 500;
+}
+
+export function errorHandler(
+	error: unknown,
+	monitor: Monitor = apiMonitor,
+): Response {
+	if (isFault(error)) monitor.captureException(error);
+
 	if (error instanceof ApiError) {
 		return new Response(
 			JSON.stringify({

@@ -19,7 +19,10 @@
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.31.2",
     "jose": "^5.4.0",
-    "@onlooker/api-contract": "workspace:*"
+    "@onlooker/api-contract": "workspace:*",
+    "@onlooker/monitoring": "workspace:*",
+    "@onlooker/monitoring-sentry": "workspace:*",
+    "@sentry/cloudflare": "10.74.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.3",

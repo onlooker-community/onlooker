@@ -13,6 +13,7 @@
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { timedD1 } from "./db/timing.js";
 import { preflightResponse, withCors } from "./middleware";
+import { monitored } from "./monitoring";
 import { dispatch, listRoutes } from "./router";
 import type { WorkerEnv } from "./types";
 
@@ -66,8 +67,12 @@ function handleRoot(env: WorkerEnv): Response {
 /**
  * Cloudflare Workers export.
  * This is the entry point for all requests.
+ *
+ * Monitored at this level, above the router, so a throw that never reaches
+ * dispatch()'s catch - in withCors, or in the D1 timing wrapper - is still
+ * reported rather than lost to a bare runtime 500.
  */
-export default {
+export default monitored({
 	async fetch(
 		request: Request,
 		env: WorkerEnv,
@@ -85,4 +90,4 @@ export default {
 		// Route all other requests
 		return handleRequest(request, env, ctx);
 	},
-};
+});

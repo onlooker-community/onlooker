@@ -56,6 +56,15 @@ importers:
       '@onlooker/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@onlooker/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
+      '@onlooker/monitoring-sentry':
+        specifier: workspace:*
+        version: link:../../packages/monitoring-sentry
+      '@sentry/cloudflare':
+        specifier: 10.74.0
+        version: 10.74.0(@cloudflare/workers-types@4.20260702.1)(wrangler@4.102.0(@cloudflare/workers-types@4.20260702.1))
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -130,6 +139,15 @@ importers:
       '@onlooker/brand':
         specifier: workspace:*
         version: link:../../packages/brand
+      '@onlooker/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
+      '@onlooker/monitoring-sentry':
+        specifier: workspace:*
+        version: link:../../packages/monitoring-sentry
+      '@sentry/react':
+        specifier: 10.74.0
+        version: 10.74.0(react@18.3.1)
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -2213,6 +2231,12 @@ packages:
       '@opentelemetry/api': ^1.9.0
       '@opentelemetry/core': ^1.30.1 || ^2.1.0
       '@opentelemetry/sdk-trace-base': ^1.30.1 || ^2.1.0
+
+  '@sentry/react@10.74.0':
+    resolution: {integrity: sha512-eKSNCbLyvc/qk4rIrm1IQZnC1zYPMJBqOVTX4VQCbK+d6YnzLc8JuZsw3PaGeB2x1g3CGe4qtBd9HUvsvBD9aw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      react: ^16.14.0 || 17.x || 18.x || 19.x
 
   '@sentry/replay-canvas@10.74.0':
     resolution: {integrity: sha512-HAdu4ViRsuOD5ifphQR24HugL0geZXV8LnGQVkA8vlzZWiuYgGNqDRoUWI75IgVcCYLYSaVBoKN+jTimdzG/sQ==}
@@ -5710,6 +5734,13 @@ snapshots:
       '@opentelemetry/sdk-trace-base': 2.11.0(@opentelemetry/api@1.9.1)
       '@sentry/conventions': 0.16.0
       '@sentry/core': 10.74.0
+
+  '@sentry/react@10.74.0(react@18.3.1)':
+    dependencies:
+      '@sentry/browser': 10.74.0
+      '@sentry/conventions': 0.16.0
+      '@sentry/core': 10.74.0
+      react: 18.3.1
 
   '@sentry/replay-canvas@10.74.0':
     dependencies:

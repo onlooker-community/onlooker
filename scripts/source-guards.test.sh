@@ -250,6 +250,44 @@ else
 fi
 
 echo
+echo "source-guards: only an app's monitoring.ts reaches the monitoring provider"
+
+# @onlooker/monitoring exists so that changing provider is one adapter package
+# plus one file per app (onlooker-0tnr). That claim holds only while nothing
+# else in an app imports the provider: a single stray `import * as Sentry`
+# in a component makes the swap an edit everywhere again, and nothing would
+# say so. Checked here rather than in each app's vitest because apps/api's
+# tests run inside workerd, which has no filesystem to scan.
+#
+# monitoring.provider.ts is the same door, split off so a browser app can load
+# the provider's SDK as its own chunk instead of in the main bundle.
+readonly PROVIDER_IMPORT="from ['\"](@sentry/|@onlooker/monitoring-sentry)"
+
+for app in api web; do
+	app_src="${ROOT}/apps/${app}/src"
+	strays="$(grep -rlE "${PROVIDER_IMPORT}" "${app_src}" 2>/dev/null |
+		grep -vE "/src/monitoring(\.provider)?\.ts$" || true)"
+
+	if [[ -n "${strays}" ]]; then
+		fail "apps/${app} reaches the provider only through src/monitoring(.provider).ts" \
+			"also imported by: ${strays//${ROOT}\//}"
+	else
+		pass "apps/${app} reaches the provider only through src/monitoring(.provider).ts"
+	fi
+
+	# The pattern above finds nothing if it is wrong, which reads as a pass.
+	# Where the door exists, it must be what the pattern matches.
+	if [[ -f "${app_src}/monitoring.ts" ]]; then
+		if grep -qE "${PROVIDER_IMPORT}" "${app_src}"/monitoring*.ts; then
+			pass "apps/${app}'s monitoring door is what the provider pattern matches"
+		else
+			fail "apps/${app}'s monitoring door is what the provider pattern matches" \
+				"no provider import found there - the pattern is broken"
+		fi
+	fi
+done
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

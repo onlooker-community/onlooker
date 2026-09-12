@@ -1,3 +1,4 @@
+import { createRecordingMonitor } from "@onlooker/monitoring/testing";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../types";
 import { errorHandler, jsonResponse } from "./error";
@@ -46,5 +47,44 @@ describe("errorHandler", () => {
 			success: false,
 			error: { code: "email_taken", message: "Already used" },
 		});
+	});
+});
+
+// Unexpected errors used to reach the client as a 500 and go nowhere else - not
+// logged, not reported. Expected ones must stay quiet, or the reports that
+// matter drown under wrong passwords and missing routes.
+describe("errorHandler reporting", () => {
+	it("reports an unexpected error", () => {
+		const recorder = createRecordingMonitor();
+		const failure = new Error("D1_ERROR: no such table");
+
+		const res = errorHandler(failure, recorder.monitor);
+
+		expect(res.status).toBe(500);
+		expect(recorder.exceptions.map((e) => e.error)).toEqual([failure]);
+	});
+
+	it("does not report a client error the API answered on purpose", () => {
+		const recorder = createRecordingMonitor();
+
+		errorHandler(
+			new ApiError(404, "not_found", "Route not found"),
+			recorder.monitor,
+		);
+		errorHandler(
+			new ApiError(401, "invalid_token", "Expired"),
+			recorder.monitor,
+		);
+
+		expect(recorder.exceptions).toEqual([]);
+	});
+
+	it("reports an ApiError the code chose to answer with a 5xx", () => {
+		const recorder = createRecordingMonitor();
+		const failure = new ApiError(503, "unavailable", "Mail provider down");
+
+		errorHandler(failure, recorder.monitor);
+
+		expect(recorder.exceptions.map((e) => e.error)).toEqual([failure]);
 	});
 });
