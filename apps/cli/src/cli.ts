@@ -1,6 +1,7 @@
 import { ApiError } from "./api";
 import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
+import { playbook } from "./commands/playbook";
 import { status } from "./commands/status";
 import { sync } from "./commands/sync";
 import { promptForToken } from "./prompt";
@@ -11,6 +12,7 @@ export const USAGE = `onlooker - push approved lessons to app.onlooker.dev
 
   onlooker link     connect this machine with a token from the Machines page
   onlooker sync     push every approved lesson
+  onlooker playbook which mirrored lessons apply here
   onlooker status   what is linked, and what is waiting
   onlooker doctor   which plugin streams are still recording
 `;
@@ -33,6 +35,8 @@ export async function run(argv: string[]): Promise<number> {
 			console.log(await link({ prompt: promptForToken }));
 		} else if (command === "sync") {
 			console.log(await sync({}));
+		} else if (command === "playbook") {
+			console.log(await playbook({ json: argv.includes("--json") }));
 		} else if (command === "status") {
 			console.log(await status({}));
 		} else if (command === "doctor") {

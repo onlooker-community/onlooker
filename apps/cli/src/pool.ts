@@ -20,7 +20,7 @@ import { onlookerDir } from "./config";
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 /**
- * This machine's copy of the hosted pool.
+ * This machine's mirror of the hosted pool.
  *
  * CLI-owned, and deliberately not inside librarian's tree. A received lesson
  * has no project key, so it has no honest home under `librarian/<key>/`; and
@@ -31,13 +31,13 @@ const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  * layer that would consume it is not installed - and sync reports arrival
  * counts every run so an empty mirror reads as empty rather than as silence.
  */
-export function poolDir(env: NodeJS.ProcessEnv = process.env): string {
-	return join(onlookerDir(env), "pool");
+export function mirrorDir(env: NodeJS.ProcessEnv = process.env): string {
+	return join(onlookerDir(env), "mirror");
 }
 
 /** Beside the data it describes, not in `cli.json` - see `writeCursor`. */
 export function cursorPath(env: NodeJS.ProcessEnv = process.env): string {
-	return join(poolDir(env), "cursor.json");
+	return join(mirrorDir(env), "cursor.json");
 }
 
 /**
@@ -71,7 +71,7 @@ export function writeCursor(
 	seq: number,
 	env: NodeJS.ProcessEnv = process.env,
 ): void {
-	mkdirSync(poolDir(env), { recursive: true });
+	mkdirSync(mirrorDir(env), { recursive: true });
 	atomicWrite(cursorPath(env), `${JSON.stringify({ seq }, null, 2)}\n`);
 }
 
@@ -95,7 +95,7 @@ export function writeLesson(
 		);
 	}
 
-	const dir = poolDir(env);
+	const dir = mirrorDir(env);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `${lesson.id}.json`);
 	const next = `${JSON.stringify(lesson, null, 2)}\n`;
@@ -122,4 +122,34 @@ function atomicWrite(path: string, contents: string): void {
 	const tmp = `${path}.tmp`;
 	writeFileSync(tmp, contents);
 	renameSync(tmp, path);
+}
+
+/**
+ * Move a pre-2.4.1 `pool/` to `mirror/`.
+ *
+ * `pool/` shipped in 2.4.0. The rename is because every user-facing string in
+ * this CLI uses "pool" for the *hosted* set - "already in the pool", "the pool
+ * holds a different version" - so the local copy sharing that name collided
+ * with the tool's own output. `schema.ts` already calls this thing the mirror.
+ *
+ * Reported rather than silent: this codebase does not move a person's files
+ * without saying so. The stakes are low either way, since the cursor is the
+ * only state and re-mirroring from zero is free, so this exists to avoid
+ * leaving a confusing orphan rather than to protect data.
+ */
+export function migrateLegacyPool(
+	env: NodeJS.ProcessEnv = process.env,
+): string | null {
+	const legacy = join(onlookerDir(env), "pool");
+	if (!existsSync(legacy)) return null;
+
+	const target = mirrorDir(env);
+	if (existsSync(target)) {
+		// Merging would be a guess about which cursor is further along, and
+		// guessing that wrong silently skips lessons.
+		return `Both ${legacy} and ${target} exist. ${target} is the one in use; ${legacy} is left for you to remove.`;
+	}
+
+	renameSync(legacy, target);
+	return `Moved ${legacy} to ${target}: "pool" now means the hosted set only.`;
 }
