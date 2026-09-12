@@ -90,6 +90,25 @@ export interface PushResponse {
 	results: PushResult[];
 }
 
+/**
+ * One entry of the machine-side delta.
+ *
+ * `seq` travels beside the lesson rather than inside it so a client can assert
+ * the window is contiguous with what it already holds. A gap means a lesson
+ * was skipped, and the client must refuse to advance rather than read the
+ * absence as "nothing was promoted".
+ */
+export interface DeltaEntry {
+	seq: number;
+	lesson: unknown;
+}
+
+export interface DeltaResponse {
+	lessons: DeltaEntry[];
+	cursor: number;
+	has_more: boolean;
+}
+
 export interface ApiClient {
 	/** Cheapest call a machine token can make, and it has no side effects. */
 	verify(): Promise<void>;
@@ -101,6 +120,8 @@ export interface ApiClient {
 	 * module is transport and has no opinion about the document's shape.
 	 */
 	reportInventory(inventory: unknown): Promise<void>;
+	/** One window of the machine-side delta, oldest first. */
+	readDelta(since: number, limit: number): Promise<DeltaResponse>;
 }
 
 export function createClient(
@@ -147,6 +168,8 @@ export function createClient(
 				method: "POST",
 				body: JSON.stringify({ lessons }),
 			}),
+		readDelta: (since, limit) =>
+			call<DeltaResponse>(`/lessons?since=${since}&limit=${limit}`),
 		reportInventory: async (inventory) => {
 			// PUT, not POST: this replaces one row's document rather than
 			// adding to a collection, so running sync twice must be free.
