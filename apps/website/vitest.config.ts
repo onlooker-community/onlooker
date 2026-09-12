@@ -10,7 +10,16 @@ import { getViteConfig } from "astro/config";
 // refuses to run under vitest - it rejects the `resolve.external` that vitest's
 // ssr environment sets. Nothing rendered here needs the adapter or the env
 // schema; only middleware.ts reads astro:env, and no test imports it.
-export default getViteConfig(
-	{ test: { include: ["src/**/*.test.ts"] } },
-	{ configFile: false },
-);
+//
+// `test` is Vitest's, but getViteConfig is typed against a nested Vite 7
+// UserConfig (via @cloudflare/vite-plugin) that does not declare it. Naming
+// the object skips excess-property checking so the intersection is
+// assignable; a literal in the call site is not. vitest/config's
+// defineConfig cannot wrap this: it returns the workspace Vite 8
+// UserConfig, which is a different type from that nested copy.
+const vitestConfig: Parameters<typeof getViteConfig>[0] & {
+	test: { include: string[] };
+} = {
+	test: { include: ["src/**/*.test.ts"] },
+};
+export default getViteConfig(vitestConfig, { configFile: false });

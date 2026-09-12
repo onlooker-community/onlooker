@@ -74,38 +74,72 @@ export const prerender = true;
 </Layout>
 
 <script>
-  const form = document.getElementById('signup-form') as HTMLFormElement | null;
-  const btn = document.getElementById('submit-btn') as HTMLButtonElement | null;
-  const success = document.getElementById('success-msg');
-  const error = document.getElementById('error-msg');
-  const emailInput = document.getElementById('email-input') as HTMLInputElement | null;
+  import {
+    createSentryWaitlistSink,
+    createWaitlistTelemetry,
+  } from "../lib/waitlist-telemetry";
 
-  form?.addEventListener('submit', async (e) => {
+  const form = document.getElementById("signup-form") as HTMLFormElement | null;
+  const btn = document.getElementById("submit-btn") as HTMLButtonElement | null;
+  const success = document.getElementById("success-msg");
+  const error = document.getElementById("error-msg");
+  const emailInput = document.getElementById("email-input") as HTMLInputElement | null;
+
+  const telemetry = createWaitlistTelemetry(createSentryWaitlistSink());
+  telemetry.viewed();
+
+  emailInput?.addEventListener("input", () => {
+    telemetry.onEmailInput(
+      emailInput.value.trim() !== "",
+      emailInput.checkValidity(),
+    );
+  });
+
+  form?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!form || !btn || !success || !error || !emailInput) return;
 
-    error.classList.remove('visible');
-    btn.textContent = '...';
+    error.classList.remove("visible");
+    btn.textContent = "...";
     btn.disabled = true;
 
+    const looksValid = emailInput.checkValidity();
+    telemetry.onSubmit(looksValid);
+
     try {
-      const response = await fetch('https://formsubmit.co/ajax/early@onlooker.dev', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email: emailInput.value }),
-      });
+      const response = await telemetry.submitWithSpan(() =>
+        fetch("https://formsubmit.co/ajax/early@onlooker.dev", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ email: emailInput.value }),
+        }),
+      );
 
       if (response.ok) {
-        form.classList.add('hidden');
-        success.classList.add('visible');
+        telemetry.onSubmitSucceeded(looksValid);
+        form.classList.add("hidden");
+        success.classList.add("visible");
       } else {
-        throw new Error('non-ok response');
+        throw new Error("non-ok response");
       }
-    } catch {
-      error.classList.add('visible');
-      btn.textContent = 'Notify me';
+    } catch (err) {
+      telemetry.onSubmitFailed(err, looksValid);
+      error.classList.add("visible");
+      btn.textContent = "Notify me";
       btn.disabled = false;
     }
+  });
+
+  window.addEventListener("pagehide", (event) => {
+    if (!event.persisted) telemetry.maybeAbandon();
+    void telemetry.flush();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void telemetry.flush();
   });
 </script>
 

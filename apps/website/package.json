@@ -19,9 +19,11 @@
 	},
 	"dependencies": {
 		"@astrojs/cloudflare": "^13.5.2",
-		"astro": "^6.3.3",
 		"@onlooker/brand": "workspace:*",
 		"@onlooker/types": "workspace:*",
+		"@sentry/astro": "10.74.0",
+		"@sentry/cloudflare": "10.74.0",
+		"astro": "^6.3.3",
 		"wrangler": "^4.93.0"
 	},
 	"devDependencies": {

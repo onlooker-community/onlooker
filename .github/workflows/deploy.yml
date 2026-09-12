@@ -502,6 +502,10 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          # Website source maps upload during `astro build`, which is this
+          # step. `pnpm deploy:website` is wrangler-only and never sees it.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       - name: Apply D1 migrations to Production
         run: pnpm migrate:prod
