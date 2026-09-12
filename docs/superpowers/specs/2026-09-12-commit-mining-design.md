@@ -171,11 +171,49 @@ already written are ordinary artifacts and remain valid. The watermark is the
 only new state, and losing it re-mines, which is idempotent by ULID only if the
 miner keys artifacts deterministically — see the open question.
 
+## The id is a deterministic ULID *(approved)*
+
+An artifact's id is derived from the commit, not minted fresh.
+
+**Why it has to be deterministic.** `evidence.artifact_ids` is
+`z.array(ZUlid).min(1)` *(measured — `lesson-contract/src/evidence.ts:10`)*:
+lessons cite artifact ids as their evidence. A re-mine that minted new ids
+would leave every lesson already derived from a commit pointing at an artifact
+that no longer exists on disk — the evidence chain broken, silently, with
+nothing failing. Avoiding duplicate files is the lesser benefit; keeping
+citations valid is the reason.
+
+**Why it can still be a ULID.** A ULID is a 48-bit millisecond timestamp
+encoded as ten Crockford characters, followed by eighty bits of randomness as
+sixteen more *(measured — `archivist-ulid.sh:5`)*. Only the second half has to
+be random, and nothing requires it to come from a random source. So:
+
+- **timestamp half** ← the commit's committer date, in milliseconds.
+- **randomness half** ← the first eighty bits of `SHA256(<commit sha>)`, split
+  into two forty-bit halves and passed through the existing
+  `_archivist_ulid_encode`, which already takes an integer and a length.
+
+The result is a well-formed ULID that satisfies `ZUlid`, so nothing downstream
+learns that these ids were derived rather than generated. Checked rather than
+assumed: run against this repository's `HEAD` at `273bad3`, the construction
+yields `01M2B8E6Y0SJPD71T40Q2XKKMB`, which matches `ZUlid`'s
+`[0-9A-HJKMNP-TV-Z]{26}` exactly *(measured 2026-09-12)*.
+
+**Two properties fall out.** Re-mining is idempotent: the same commit produces
+the same id, so it overwrites its own artifact rather than adding a second —
+the same upsert-by-id the mirror already relies on. And because ULIDs sort
+lexicographically by their timestamp prefix, mined artifacts sort in **commit
+order** rather than in the order the miner happened to visit them, which makes
+an otherwise arbitrary ordering mean something.
+
+**A rewritten commit is a different commit.** An amend or a rebase produces a
+new SHA and therefore a new artifact, and the old one remains with its old id.
+That is correct — the citations that referenced it still resolve — but it does
+mean a heavily rebased branch can leave artifacts for commits that no longer
+exist in any history. Left alone deliberately: they are true records of
+something that was written, and reaping them would mean deciding what a
+commit's disappearance implies about a lesson derived from it.
+
 ## Open questions
 
-**Is an artifact keyed by commit SHA, or by a fresh ULID?** A fresh ULID makes
-re-mining produce duplicates; a deterministic id derived from the SHA makes
-re-mining idempotent, but the artifact `id` field is a ULID by contract and a
-SHA is not one. The watermark makes this mostly moot, and it stops being moot
-the moment anyone re-mines. Worth settling before implementation rather than
-discovering through duplicates.
+None blocking.
