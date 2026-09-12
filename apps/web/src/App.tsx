@@ -1,8 +1,8 @@
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Route, useLocation } from "react-router-dom";
 import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { reportClientError } from "./lib/reportError";
+import { MonitoredRoutes, monitor } from "./monitoring";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
@@ -35,12 +35,9 @@ export default function App() {
 			// production left a trace in exactly one place: the console of the
 			// person it broke for. That is where the blank dashboard went.
 			onError={(error, info) =>
-				reportClientError({
-					kind: "render",
-					message: error.message,
-					stack: error.stack,
-					componentStack: info.componentStack ?? undefined,
-					url: window.location.href,
+				monitor.captureException(error, {
+					tags: { kind: "render" },
+					extra: { componentStack: info.componentStack ?? undefined },
 				})
 			}
 		>
@@ -55,7 +52,7 @@ export default function App() {
 			*/}
 			<RevealProvider>
 				<InertWhileRevealed>
-					<Routes>
+					<MonitoredRoutes>
 						<Route path="/" element={<HomePage />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
@@ -125,7 +122,7 @@ export default function App() {
 							}
 						/>
 						<Route path="*" element={<div>404 Not Found</div>} />
-					</Routes>
+					</MonitoredRoutes>
 				</InertWhileRevealed>
 				{/*
 				  Outside the wrapper above, and portaled to document.body

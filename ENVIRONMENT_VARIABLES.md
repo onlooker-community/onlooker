@@ -22,6 +22,7 @@ they disagree with this file, they are right and this file is stale.
 | Variable | Service | Type | Purpose | Example |
 |----------|---------|------|---------|---------|
 | `VITE_API_BASE_URL` | Web | Build | API the bundle calls | `https://api.onlooker.dev` |
+| `VITE_MONITORING_DSN` | Web | Build | Where error reports and traces go. Unset means the provider is off; `/api/client-errors` still gets every error | DSN of the web app's Sentry project |
 | `JWT_SECRET` | API | Secret (var in dev) | JWT signing key | `openssl rand -hex 32` |
 | `RESEND_API_KEY` | API | Secret | Sends mail via Resend. Unset means mail is logged, not sent | From the Resend dashboard |
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
