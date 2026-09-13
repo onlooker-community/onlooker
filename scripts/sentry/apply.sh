@@ -72,16 +72,55 @@ if ((DRY_RUN == 0)) && [[ -z "${SENTRY_AUTH_TOKEN:-}" ]]; then
 	exit 2
 fi
 
+HEADERS="$(mktemp -t sentry-apply-headers-XXXXXX)"
+trap 'rm -f "${HEADERS}"' EXIT
+
 # curl, with the token supplied on stdin instead of the command line.
 api() {
 	local method="$1" path="$2" body="${3:-}"
 	local -a args=(--silent --show-error --config - --request "${method}"
 		--header "Content-Type: application/json"
+		--dump-header "${HEADERS}"
 		--write-out $'\n%{http_code}')
 	[[ -n "${body}" ]] && args+=(--data "${body}")
 
+	# `|| true` so an unreachable Sentry is reportable rather than fatal. Under
+	# `set -e` a failed curl inside `response="$(api ...)"` aborts the script,
+	# which in report_drift meant losing the failure summary for the rules that
+	# had already been attempted. Callers all branch on the status line, and a
+	# curl that never connected simply produces none.
 	printf 'header = "Authorization: Bearer %s"\nurl = "%s%s"\n' \
-		"${SENTRY_AUTH_TOKEN}" "${API}" "${path}" | curl "${args[@]}"
+		"${SENTRY_AUTH_TOKEN}" "${API}" "${path}" | curl "${args[@]}" || true
+}
+
+# Say so when Sentry answers 410 because an endpoint is deprecated.
+#
+# Worth the extra lines because of how this failure arrives. These endpoints
+# were deprecated on 2026-05-14 and Sentry brownouts them - periodic windows
+# where they answer 410 and otherwise work normally. So this script passes all
+# day, fails for an afternoon, and passes again, and a bare "HTTP 410" sends
+# you looking at your token. Sentry names the successor in a response header;
+# printing it turns the confusing failure into an instruction.
+# Said once per run: every call hits the same deprecated endpoints, so
+# repeating it per project buries the rule failures it is meant to explain.
+DEPRECATION_REPORTED=0
+
+deprecation_note() {
+	((DEPRECATION_REPORTED == 0)) || return 0
+
+	local replacement deprecated
+	replacement="$(grep -i '^x-sentry-replacement-endpoint:' "${HEADERS}" 2>/dev/null |
+		tr -d '\r' | cut -d' ' -f2- || true)"
+	deprecated="$(grep -i '^x-sentry-deprecation-date:' "${HEADERS}" 2>/dev/null |
+		tr -d '\r' | cut -d' ' -f2- || true)"
+
+	[[ -n "${replacement}" ]] || return 0
+	DEPRECATION_REPORTED=1
+	echo "           this endpoint was deprecated on ${deprecated:-an unstated date}" >&2
+	echo "           Sentry says to use: ${replacement}" >&2
+	echo "           A 410 here is a scheduled brownout, not a bad token. It will" >&2
+	echo "           pass again outside the window, which is why this must be" >&2
+	echo "           migrated rather than retried - see onlooker-txcu.8." >&2
 }
 
 # The environment filter is the whole safety story for this setup: staging and
@@ -110,6 +149,7 @@ validate_against_configuration() {
 
 	if [[ "${status}" != "200" ]]; then
 		echo "  ERROR    could not read rule configuration for project ${project} (HTTP ${status})" >&2
+		deprecation_note
 		return 1
 	fi
 
@@ -222,12 +262,24 @@ report_drift() {
 	local known
 	known="$(jq -r '.rule.name' "${RULE_FILES[@]}")"
 
-	local found=0
+	local found=0 unreadable=0
 	for project in "${projects[@]}"; do
 		local response status unknown
 		response="$(api GET "/projects/${ORG}/${project}/rules/")"
 		status="$(tail -n1 <<<"${response}")"
-		[[ "${status}" == "200" ]] || continue
+
+		# Counted, not skipped. This used to `continue` here and then report
+		# "no drift" from a loop that had read nothing at all - which is the
+		# failure this whole epic exists to remove, written into the tool
+		# meant to remove it. Observed for real on 2026-09-13: every read
+		# answered 410 during a brownout and the script still printed a clean
+		# bill of health.
+		if [[ "${status}" != "200" ]]; then
+			echo "  UNKNOWN  could not read project ${project}'s rules (HTTP ${status}) - drift not checked" >&2
+			deprecation_note
+			unreadable=$((unreadable + 1))
+			continue
+		fi
 
 		unknown="$(sed '$d' <<<"${response}" | jq -r '.[].name' |
 			grep -Fxv -f <(printf '%s\n' "${known}") || true)"
@@ -239,7 +291,11 @@ report_drift() {
 		done <<<"${unknown}"
 	done
 
-	((found == 0)) && echo "  no drift: every rule in these projects is defined here"
+	if ((unreadable > 0)); then
+		echo "  drift UNKNOWN for ${unreadable} of ${#projects[@]} project(s); nothing here claims otherwise" >&2
+	elif ((found == 0)); then
+		echo "  no drift: every rule in these projects is defined here"
+	fi
 	return 0
 }
 
