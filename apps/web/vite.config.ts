@@ -1,3 +1,4 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 // vitest/config, not vite: this config carries a `test` block, and only
 // vitest's defineConfig types it. Under vite's own the object fell to the last
@@ -5,8 +6,45 @@ import react from "@vitejs/plugin-react";
 // `pnpm typecheck`, which includes only src/, but an error in every editor.
 import { defineConfig } from "vitest/config";
 
+/**
+ * The commit the bundle is being built from, or undefined outside CI.
+ *
+ * This MUST be the same string src/monitoring.ts reads as
+ * VITE_MONITORING_RELEASE, because that is the release the running app stamps
+ * its events with. Upload the maps under any other name and Sentry looks for
+ * artifacts against a release that has none, which fails the way everything in
+ * this area fails: the stack renders, minified, with no error anywhere saying
+ * why. Same variable, read once, passed to both.
+ */
+const release = process.env.VITE_MONITORING_RELEASE;
+
 export default defineConfig({
-	plugins: [react()],
+	plugins: [
+		react(),
+		// Upload the maps so a production stack names a function and a line
+		// instead of index-<hash>.js at column 24518. apps/web is the app that
+		// needs this most: a render throw here blanked the dashboard for every
+		// logged-in user, the reporting built afterwards caught it, and could
+		// not say where it came from.
+		//
+		// Only the upload is conditional, never the emitting - see build.sourcemap
+		// below, which is deliberate and public.
+		sentryVitePlugin({
+			org: "onlooker-vw",
+			project: "onlooker-web",
+			// Absent on a local build and on PR builds, which is why this is
+			// `disable` rather than a required value: without it the plugin fails
+			// the build for want of a credential nobody should need to run
+			// `pnpm build`. deploy.yml passes the secret on the two web deploys.
+			authToken: process.env.SENTRY_AUTH_TOKEN,
+			disable: !process.env.SENTRY_AUTH_TOKEN,
+			release: { name: release },
+			// filesToDeleteAfterUpload is deliberately NOT set. The maps are
+			// emitted on purpose and served (see build.sourcemap), so that a
+			// stack is readable in devtools against production and not only
+			// inside Sentry. Setting it would quietly reverse that decision.
+		}),
+	],
 	build: {
 		// Without this, every client error reported to /api/client-errors
 		// arrives as a stack pointing into minified code - index-<hash>.js at
