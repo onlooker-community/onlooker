@@ -69,6 +69,15 @@ export interface WorkerEnv {
 	// development and the test pool. See src/monitoring.ts.
 	MONITORING_DSN?: string;
 
+	// The commit this worker was deployed from, so an event can name the code
+	// that produced it. Unlike every other var here it is NOT in wrangler.toml:
+	// the value differs per deploy, so the deploy passes it
+	// (`--var MONITORING_RELEASE:<sha>`) and wrangler merges it with the vars
+	// the file declares. Optional because a local `wrangler dev` has no commit
+	// to claim, and an invented one would create a Sentry release that no
+	// source map upload ever matches.
+	MONITORING_RELEASE?: string;
+
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
 }

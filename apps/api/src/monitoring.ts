@@ -8,7 +8,10 @@
 
 import type { ExportedHandler } from "@cloudflare/workers-types";
 import { resolveEnvironment } from "@onlooker/monitoring";
-import { createSentryMonitor } from "@onlooker/monitoring-sentry";
+import {
+	createSentryMonitor,
+	type MonitoringConfig,
+} from "@onlooker/monitoring-sentry";
 import {
 	PROPAGATION_HEADERS,
 	withMonitoring,
@@ -19,6 +22,23 @@ export const monitor = createSentryMonitor();
 
 /** Request headers CORS must allow so a browser's trace continues here. */
 export const TRACE_HEADERS: readonly string[] = PROPAGATION_HEADERS;
+
+/**
+ * What this worker tells the provider about itself.
+ *
+ * Separate from `monitored` and exported so it can be read back in a test. It
+ * is three field reads, and each one is the kind that fails silently: a
+ * mistyped var name is still a valid var, and monitoring that labels itself
+ * wrongly is worse than none, because the dashboard filtered on production
+ * looks calm.
+ */
+export function monitoringConfig(env: WorkerEnv): MonitoringConfig {
+	return {
+		dsn: env.MONITORING_DSN,
+		environment: resolveEnvironment(env.ENVIRONMENT, "development"),
+		release: env.MONITORING_RELEASE,
+	};
+}
 
 /**
  * Trace every request and report whatever escapes it.
@@ -33,10 +53,7 @@ export const TRACE_HEADERS: readonly string[] = PROPAGATION_HEADERS;
  */
 export function monitored<Handler>(handler: Handler): Handler {
 	return withMonitoring(
-		(env: WorkerEnv) => ({
-			dsn: env.MONITORING_DSN,
-			environment: resolveEnvironment(env.ENVIRONMENT, "development"),
-		}),
+		monitoringConfig,
 		handler as unknown as ExportedHandler<WorkerEnv>,
 	) as unknown as Handler;
 }

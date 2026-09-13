@@ -125,11 +125,17 @@ export function initMonitoring(): void {
 	if (!dsn) return;
 
 	const environment = resolveEnvironment(import.meta.env.MODE, "development");
+	// Empty and unset are the same answer here. An unset VITE_* is undefined,
+	// but one exported as "" by a deploy that could not work out the commit
+	// arrives as the empty string, and "" is a release name Sentry accepts.
+	const release = import.meta.env.VITE_MONITORING_RELEASE || undefined;
 	const { baseUrl } = resolveApiConfig();
 
 	import("./monitoring.provider")
 		.then(({ startProvider }) => {
-			provider.attach(startProvider({ dsn, environment, apiBaseUrl: baseUrl }));
+			provider.attach(
+				startProvider({ dsn, environment, release, apiBaseUrl: baseUrl }),
+			);
 		})
 		.catch(() => {
 			// Nothing to report it to but the path that is already working.

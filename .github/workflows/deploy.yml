@@ -414,8 +414,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # --var is appended to the script rather than written into wrangler.toml
+      # because the value differs per deploy and a config file cannot hold it.
+      # Wrangler MERGES this with the vars the file declares - verified against
+      # wrangler 4.102.0 with `deploy --dry-run`, which listed all seven
+      # staging vars plus this one. If that ever stops being true, the worker
+      # loses its DB binding and every authenticated route 500s, so re-check
+      # the dry run before changing this line.
       - name: Deploy API to Staging
-        run: pnpm deploy:api:staging
+        run: pnpm deploy:api:staging --var MONITORING_RELEASE:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -427,11 +434,17 @@ jobs:
       # the production database. VITE_* is inlined at build time, so a staging
       # bundle is the only way to aim staging anywhere else. The build fails if
       # what it produced does not call api-staging.onlooker.dev.
+      #
+      # That rebuild is also why the release belongs here and not on the
+      # "Build" step above: VITE_* is inlined by whichever `vite build` produced
+      # the bundle being shipped, and this is that build. Vite picks prefixed
+      # names up from the process environment, so this needs no .env entry.
       - name: Deploy Web to Staging
         run: pnpm deploy:web:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_MONITORING_RELEASE: ${{ github.sha }}
 
       # The same assertions the cron heartbeat makes, run against what was just
       # deployed. Nothing between "wrangler deploy succeeded" and "a human
@@ -519,8 +532,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # See the staging deploy for why --var is appended rather than declared.
       - name: Deploy API to Production
-        run: pnpm deploy:api:prod
+        run: pnpm deploy:api:prod --var MONITORING_RELEASE:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -534,6 +548,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The same commit the API deploy above was given. A trace that starts
+          # in the browser and ends in the worker carries one release or two
+          # depending on this line.
+          VITE_MONITORING_RELEASE: ${{ github.sha }}
 
       # The marketing site has no staging counterpart: apps/website declares no
       # environments, so there is one worker and one deploy. It sits in this job

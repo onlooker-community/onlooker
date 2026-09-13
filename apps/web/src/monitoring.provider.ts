@@ -39,6 +39,15 @@ export function routeName(pathname: string): string {
 export interface ProviderConfig {
 	dsn: string;
 	environment: MonitoringEnvironment;
+	/**
+	 * The commit this bundle was built from, or undefined for a build with no
+	 * commit to claim.
+	 *
+	 * A bundle outlives the deploy that produced it - browsers cache it, and a
+	 * tab can sit open across several releases - so "which code is this" cannot
+	 * be answered by what is currently deployed. Only the build knows.
+	 */
+	release?: string;
 	/** Traces continue into this origin and no other. */
 	apiBaseUrl: string;
 }
@@ -46,11 +55,12 @@ export interface ProviderConfig {
 export function startProvider({
 	dsn,
 	environment,
+	release,
 	apiBaseUrl,
 }: ProviderConfig): Monitor {
 	Sentry.init({
 		...browserOptions(
-			{ dsn, environment },
+			{ dsn, environment, release },
 			{
 				// ./monitoring.ts installs its own window listeners and feeds both
 				// destinations. Sentry's on top would report every uncaught error
