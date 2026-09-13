@@ -121,6 +121,96 @@ expect_exit 1 "refuses a rule with no project or name" \
 rm -f "${staging_rule}" "${unscoped_rule}" "${shapeless_rule}"
 
 echo
+echo "sentry/apply: what it says when it cannot see"
+
+# The property: a run that could not READ a project must never report that
+# project as clean. This was broken and shipped - report_drift skipped an
+# unreadable project and then printed "no drift" from a loop that had read
+# nothing, which happened for real on 2026-09-13 when every request answered
+# 410 during a deprecation brownout. A tool built to catch green-while-blind
+# was itself green while blind.
+#
+# 127.0.0.1:9 is the discard port: nothing listens, so curl fails to connect
+# without waiting on DNS or a timeout.
+blind_output="$(env SENTRY_AUTH_TOKEN=not-a-real-value \
+	SENTRY_API_BASE="http://127.0.0.1:9" "${APPLY}" 2>&1 || true)"
+
+if [[ "${blind_output}" != *"no drift"* ]]; then
+	pass "does not claim 'no drift' when it could not read a single project"
+else
+	fail "does not claim 'no drift' when it could not read a single project" \
+		"said 'no drift' while blind"
+fi
+
+if [[ "${blind_output}" == *"drift not checked"* ]]; then
+	pass "says drift was not checked, per project"
+else
+	fail "says drift was not checked, per project" "no per-project notice: ${blind_output}"
+fi
+
+if [[ "${blind_output}" == *"drift UNKNOWN"* ]]; then
+	pass "summarizes how many projects went unchecked"
+else
+	fail "summarizes how many projects went unchecked" "no summary line"
+fi
+
+# An unreachable Sentry must not abort the script before it reports. Under
+# `set -e` a failed curl inside a `$(...)` assignment used to kill the run.
+if [[ "${blind_output}" == *"did not apply"* ]]; then
+	pass "still reports which rules did not apply when Sentry is unreachable"
+else
+	fail "still reports which rules did not apply when Sentry is unreachable" \
+		"no failure summary: ${blind_output}"
+fi
+
+# The case that actually happened, which is NOT the same as unreachable:
+# Sentry answers, curl exits 0, and the status is 410. The old script crashed
+# on an unreachable host but printed a clean "no drift" against a reachable
+# one that refused every request - so a connection-failure test would have
+# missed the real bug entirely. This serves 410 with the same deprecation
+# headers Sentry sends.
+if command -v python3 >/dev/null 2>&1; then
+	gone_port=8793
+	python3 "${SCRIPT_DIR}/testdata/gone-server.py" "${gone_port}" >/dev/null 2>&1 &
+	gone_pid=$!
+	# Wait for the port rather than sleeping a guessed interval.
+	for _ in $(seq 1 50); do
+		curl -s -o /dev/null "http://127.0.0.1:${gone_port}/" && break
+		sleep 0.1
+	done
+
+	gone_output="$(env SENTRY_AUTH_TOKEN=not-a-real-value \
+		SENTRY_API_BASE="http://127.0.0.1:${gone_port}" "${APPLY}" 2>&1 || true)"
+	kill "${gone_pid}" 2>/dev/null || true
+	wait "${gone_pid}" 2>/dev/null || true
+
+	if [[ "${gone_output}" != *"no drift"* ]]; then
+		pass "does not claim 'no drift' when every request answers 410"
+	else
+		fail "does not claim 'no drift' when every request answers 410" \
+			"said 'no drift' while every read was refused"
+	fi
+
+	if [[ "${gone_output}" == *"Sentry says to use:"* ]]; then
+		pass "surfaces the replacement endpoint Sentry names in its headers"
+	else
+		fail "surfaces the replacement endpoint Sentry names in its headers" \
+			"no replacement hint: ${gone_output}"
+	fi
+
+	# Repeated per project it buries the rule failures it is meant to explain.
+	hint_count="$(grep -c "Sentry says to use:" <<<"${gone_output}" || true)"
+	if [[ "${hint_count}" == "1" ]]; then
+		pass "explains the deprecation once, not once per project"
+	else
+		fail "explains the deprecation once, not once per project" \
+			"printed it ${hint_count} times"
+	fi
+else
+	echo "  skip  410 brownout tests (python3 not available)"
+fi
+
+echo
 if ((failures > 0)); then
 	echo "apply.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
