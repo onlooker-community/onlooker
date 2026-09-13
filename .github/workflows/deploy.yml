@@ -13,6 +13,21 @@ on:
   pull_request:
     branches:
       - main
+  # Deploy what is on main right now, without waiting for a commit to push.
+  #
+  # This exists because a green run is not the same as a deploy, and on
+  # 2026-09-13 the difference stranded a change for hours. Two PRs merged a
+  # minute apart: concurrency.cancel-in-progress killed the first deploy mid
+  # flight, and the second run then computed `changes.deployable` as a diff
+  # from the commit the first merge had just created - which contained none of
+  # the first merge's files. Both runs went green, neither deployed, and the
+  # only recovery was for somebody to notice and re-run a cancelled job.
+  #
+  # The deploy jobs below still require `github.ref == 'refs/heads/main'`, so
+  # this cannot be used to ship a feature branch. It is deliberately
+  # input-less: it does what a push to main does. See onlooker-txcu.7 for the
+  # underlying filter bug, which this makes recoverable rather than fixes.
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -390,10 +405,17 @@ jobs:
     # `changes.deployable` keeps a CLI-only merge from redeploying the API, web
     # and website with identical code - which matters because
     # concurrency.cancel-in-progress can cancel a deploy already in flight.
+    #
+    # A manual run ignores `deployable` on purpose. The whole reason to reach
+    # for the button is that the filter answered "nothing to do" and was
+    # wrong - so honoring it here would make the recovery path skip for
+    # exactly the reason recovery was needed.
     if: >-
       github.ref == 'refs/heads/main'
-      && github.event_name == 'push'
-      && needs.changes.outputs.deployable == 'true'
+      && (
+        (github.event_name == 'push' && needs.changes.outputs.deployable == 'true')
+        || github.event_name == 'workflow_dispatch'
+      )
     environment:
       name: staging
       url: https://app-staging.onlooker.dev
@@ -512,7 +534,12 @@ jobs:
     # has not already migrated and deployed cleanly to staging. The approval
     # gate on the production environment still applies on top of this.
     needs: deploy-staging
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # A manual run reaches production the same way a push does: only after
+    # staging has migrated and deployed cleanly, and only through the approval
+    # gate below. The button skips the change filter, never the gate.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment:
       name: production
       url: https://app.onlooker.dev
