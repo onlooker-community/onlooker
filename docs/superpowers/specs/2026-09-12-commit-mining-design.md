@@ -145,6 +145,21 @@ stalls, is to read `project_key` out of the store's own `manifest.json`, which
 already records `repo_root` and `remote_url` against the key — a lookup rather
 than a second implementation.
 
+> **Corrected 2026-09-12: it was never blocked, and the miner imports nothing.**
+> archivist has shipped `archivist_project_key` all along, its two existing
+> hooks call it, and it returns a byte-identical key — both give
+> `ee2cfbe428c7` for the ecosystem repository *(measured)*. The miner lives
+> *inside* archivist and writes to archivist's own store, so the key it must
+> agree with is that store's, not the substrate's.
+>
+> Vendoring the substrate copy would additionally have meant adding it to
+> `ON_DEMAND_LIBS` and hand-copying it first, which `shared-lib-vendoring.bats`
+> polices. None of that was needed.
+>
+> The paragraph above is left standing rather than deleted, because the mistake
+> is the instructive part: the dependency was reasoned into existence from the
+> outside instead of read out of the plugin being edited.
+
 ## The watermark *(approved)*
 
 The last mined commit SHA per project, advancing **only after** its artifacts
@@ -246,6 +261,26 @@ randomness halves agree while the timestamps differ. That is why the miner
 reads only the default branch: one source, one carrying commit, one id. It is a
 constraint rather than a property, and it is the reason mining is not offered
 on a feature branch.
+
+## Status
+
+**Shipped 2026-09-12** as `ecosystem` PR #324, released in archivist 0.7.0.
+
+Measured on that repository's real history before the hook was bound: 365
+first-parent commits mine to 617 artifacts, of which 282 carry a marker phrase
+and survive librarian's durability filter, 6 are too short, and 329 are dropped
+as undurable — release bots and formatting commits. The premise that the
+existing gates can judge this input is therefore measured rather than assumed.
+That 282 is a one-time backlog; steady state is a handful per session.
+
+Two of ecosystem's own invariants caught defects in the first pass: a
+reentrancy guard copied without its `export`, and a substrate resolution that
+was never sourced. Both are fixed in their own commit there.
+
+**Known gap:** mining emits no events on the onlooker bus. `hook_health_register`
+keeps runs visible to hook-health and `doctor`, but nothing carries artifact
+counts. Adding one needs type registration in `@onlooker-community/schema`
+first, so it is a cross-repo follow-up rather than part of this.
 
 ## Open questions
 
