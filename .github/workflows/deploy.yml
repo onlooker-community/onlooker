@@ -71,6 +71,14 @@ jobs:
       - name: Sentry alert rule tests
         run: bash scripts/sentry/apply.test.sh
 
+      # The cron check-in script runs inside the two workflows that are this
+      # project's only alarms. If it could fail its caller, Sentry having a bad
+      # afternoon would look identical to production being down - and the
+      # obvious fix for that false alarm is to delete the monitoring. These
+      # tests keep every path in it exiting 0.
+      - name: Sentry cron check-in tests
+        run: bash scripts/sentry/checkin.test.sh
+
       # The visibility filter is the security boundary, and it is only in one
       # place while nothing else queries the tables. That is a property of which
       # files contain what, so it cannot be checked from inside the Workers test
