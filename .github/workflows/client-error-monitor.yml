@@ -34,6 +34,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The header above says the bug this workflow replaces is "a monitor that
+      # stays green while blind". A schedule that quietly stops firing is the
+      # same bug one level up: no run, no failure, no email, and an inbox that
+      # reads as a quiet week. Nothing in this repository would have noticed.
+      #
+      # The Sentry monitor expects one of these an hour and raises an issue
+      # when they stop arriving. Margin is 45 minutes because GitHub's cron is
+      # best-effort, and reporting lateness as absence is how this becomes the
+      # alert nobody reads.
+      - name: Tell Sentry this run started
+        run: scripts/sentry/checkin.sh client-error-monitor-workflow in_progress
+
       # Staging first and advisory, matching the heartbeat. A client error in
       # staging is usually someone's work in progress, and a monitor that fires
       # during normal development is one people mute - which would cost the
@@ -59,3 +71,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_OBSERVABILITY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: scripts/client-error-monitor.sh production
+
+      # always(), so a run that found client errors closes its check-in as an
+      # error instead of leaving the monitor to report it as a missed window.
+      # Same problem arriving twice under two names, otherwise.
+      - name: Tell Sentry how this run ended
+        if: always()
+        run: |
+          scripts/sentry/checkin.sh client-error-monitor-workflow \
+            "${{ job.status == 'success' && 'ok' || 'error' }}"

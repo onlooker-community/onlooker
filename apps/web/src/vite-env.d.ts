@@ -9,6 +9,7 @@ interface ImportMetaEnv {
 	readonly VITE_AUTH_REFRESH_KEY?: string;
 	readonly VITE_API_LOG_REQUESTS?: string;
 	readonly VITE_MONITORING_DSN?: string;
+	readonly VITE_MONITORING_RELEASE?: string;
 	readonly MODE?: string;
 	readonly DEV?: boolean;
 	readonly PROD?: boolean;

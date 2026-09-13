@@ -27,6 +27,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # This workflow can fail loudly, and it can also stop running entirely -
+      # and only the first of those tells anybody. GitHub disables schedules on
+      # inactive repositories without notice, and a schedule that never fires
+      # produces no run, no failure and no email, which is indistinguishable
+      # from a fortnight of healthy production.
+      #
+      # The Sentry monitor expects one of these every 5 minutes and raises an
+      # issue when they stop. Its margin is deliberately 30 minutes: GitHub's
+      # scheduled runs are best-effort and routinely late, so a tight margin
+      # would report lateness as absence and become the noisy alert nobody
+      # reads.
+      - name: Tell Sentry this run started
+        run: scripts/sentry/checkin.sh heartbeat-workflow in_progress
+
       # Staging runs first and never fails the job. It breaks by design during
       # deploys and migrations, and a monitor that fires during normal work is
       # one people mute. Its result still reaches you as an annotation, and the
@@ -53,3 +67,13 @@ jobs:
           HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_PRODUCTION }}
           HEARTBEAT_REQUIRE_AUTH: '1'
         run: scripts/heartbeat.sh production
+
+      # always(), so a failed production check still closes the check-in - as an
+      # error rather than as silence. Without this the run would fail, GitHub
+      # would email, and Sentry would separately report the monitor as missed:
+      # one problem arriving twice under two names.
+      - name: Tell Sentry how this run ended
+        if: always()
+        run: |
+          scripts/sentry/checkin.sh heartbeat-workflow \
+            "${{ job.status == 'success' && 'ok' || 'error' }}"

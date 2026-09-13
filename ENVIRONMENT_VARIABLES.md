@@ -23,6 +23,7 @@ they disagree with this file, they are right and this file is stale.
 |----------|---------|------|---------|---------|
 | `VITE_API_BASE_URL` | Web | Build | API the bundle calls | `https://api.onlooker.dev` |
 | `VITE_MONITORING_DSN` | Web | Build | Where error reports and traces go. Unset means the provider is off; `/api/client-errors` still gets every error | DSN of the web app's Sentry project |
+| `VITE_MONITORING_RELEASE` | Web | Build | The commit the bundle was built from, so an event can name its code. Set by the deploy, not by an `.env` file | `${{ github.sha }}` |
 | `JWT_SECRET` | API | Secret (var in dev) | JWT signing key | `openssl rand -hex 32` |
 | `RESEND_API_KEY` | API | Secret | Sends mail via Resend. Unset means mail is logged, not sent | From the Resend dashboard |
 | `ENVIRONMENT` | API | Vars | Deployment environment | `production` |
@@ -32,6 +33,7 @@ they disagree with this file, they are right and this file is stale.
 | `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
 | `MONITORING_DSN` | API | Vars | Where error reports and traces go. Unset means monitoring is off | DSN of the API's Sentry project |
+| `MONITORING_RELEASE` | API | Vars (per deploy) | The commit the worker was deployed from. The only var not in `wrangler.toml` — the deploy passes it with `--var` | `${{ github.sha }}` |
 
 ---
 
@@ -114,6 +116,23 @@ These are environment variables that can be checked into version control.
 | `TOKEN_EXPIRY_MINUTES` | Access token lifetime, and the window a logged-out token stays usable | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `30` (30 days) |
 | `MONITORING_DSN` | Where error reports and traces go, read by `src/monitoring.ts`. A var rather than a secret: a DSN is an ingest address, and the web bundle ships its own in plain sight. Unset means monitoring is off — the right answer for development and the test pool, and a silent gap in a deployed environment | DSN of the API's Sentry project |
+| `MONITORING_RELEASE` | The commit this worker was deployed from. Without it Sentry cannot mark a deploy, call an issue a regression, or name a suspect commit. Unset means events are filed under no release, which costs nothing at runtime and is therefore invisible — see below for why it is not in this file | Full git SHA |
+
+`MONITORING_RELEASE` is the one var above that **does not appear in
+`wrangler.toml`**, because its value is different on every deploy and a config
+file cannot hold that. `.github/workflows/deploy.yml` appends
+`--var MONITORING_RELEASE:${{ github.sha }}` to the deploy script instead, and
+wrangler merges it with the vars the file declares — confirmed against wrangler
+4.102.0 with `wrangler deploy --env staging --dry-run`, which listed all seven
+declared staging vars alongside it. That merge is load-bearing: were `--var` ever
+to *replace* the declared vars rather than merge with them, the deployed worker
+would lose its `DB` binding and every authenticated route would 500. Re-run the
+dry run before changing that line. `apps/api/src/monitoring.test.ts` asserts both
+deploy steps still pass it.
+
+The web bundle carries the same commit as `VITE_MONITORING_RELEASE`, set on the
+web deploy steps. It must be the *same* value: a trace that starts in the browser
+and finishes in the worker otherwise describes one deploy as two.
 
 `DB_HOST` and `DB_NAME` were listed here and are gone: nothing reads either, and
 `DB_NAME` named three databases (`onlooker_dev`, `onlooker_staging`,

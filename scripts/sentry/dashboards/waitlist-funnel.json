@@ -1,0 +1,101 @@
+{
+	"_comment": [
+		"The waitlist funnel - the only product-conversion signal this project has.",
+		"apps/website has emitted all six counters since PR #147 and nothing has",
+		"ever displayed them.",
+		"",
+		"Three things here were established against the live API on 2026-09-13,",
+		"because each of them fails by rendering an empty chart rather than by",
+		"erroring, and an empty funnel looks exactly like a funnel nobody entered:",
+		"",
+		"1. widget_type is 'tracemetrics'. The alert API and the events API use",
+		"   DIFFERENT dataset vocabularies for the same data - alerts want",
+		"   'events_analytics_platform', queries want 'tracemetrics'. Neither",
+		"   accepts the other's spelling.",
+		"2. The aggregate is count(value), not count(). A bare count() is rejected",
+		"   with 'Invalid number of arguments for count'.",
+		"3. looks_valid must be written 'tags[looks_valid,boolean]', WITH the type.",
+		"   Both 'looks_valid' and 'tags[looks_valid]' resolve to a string-typed",
+		"   attribute that does not exist and silently return null for every row -",
+		"   which reads as 'the attribute is not being sent' when it is.",
+		"",
+		"period is 30d to match trace metric retention. Measured the same day:",
+		"trace metrics go back ~30 days, logs ~90. Widen this and the funnel",
+		"truncates without saying so. The same funnel can be built on the 'logs'",
+		"widget_type for longer history - apps/website emits both for every step.",
+		"",
+		"'limit' is required on any widget whose query has columns (max 10)."
+	],
+	"title": "Waitlist funnel",
+	"projects": [4512074226401280],
+	"environment": ["production"],
+	"period": "30d",
+	"widgets": [
+		{
+			"title": "Funnel by step",
+			"display_type": "bar",
+			"widget_type": "tracemetrics",
+			"interval": "1d",
+			"limit": 10,
+			"queries": [
+				{
+					"name": "",
+					"fields": ["metric.name", "count(value)"],
+					"aggregates": ["count(value)"],
+					"columns": ["metric.name"],
+					"conditions": "metric.name:waitlist.*",
+					"orderby": "-count(value)"
+				}
+			]
+		},
+		{
+			"title": "Views over time",
+			"display_type": "line",
+			"widget_type": "tracemetrics",
+			"interval": "1d",
+			"queries": [
+				{
+					"name": "viewed",
+					"fields": ["count(value)"],
+					"aggregates": ["count(value)"],
+					"columns": [],
+					"conditions": "metric.name:waitlist.viewed",
+					"orderby": ""
+				}
+			]
+		},
+		{
+			"title": "Did the address look valid at submit?",
+			"display_type": "bar",
+			"widget_type": "tracemetrics",
+			"interval": "1d",
+			"limit": 10,
+			"queries": [
+				{
+					"name": "",
+					"fields": ["tags[looks_valid,boolean]", "count(value)"],
+					"aggregates": ["count(value)"],
+					"columns": ["tags[looks_valid,boolean]"],
+					"conditions": "metric.name:waitlist.submitted",
+					"orderby": "-count(value)"
+				}
+			]
+		},
+		{
+			"title": "Submit failures",
+			"display_type": "big_number",
+			"widget_type": "tracemetrics",
+			"interval": "1d",
+			"queries": [
+				{
+					"name": "",
+					"fields": ["count(value)"],
+					"aggregates": ["count(value)"],
+					"columns": [],
+					"conditions": "metric.name:waitlist.submit_failed",
+					"orderby": ""
+				}
+			]
+		}
+	]
+}

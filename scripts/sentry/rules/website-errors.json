@@ -1,0 +1,36 @@
+{
+	"project": "4512074226401280",
+	"_comment": [
+		"apps/website, the marketing site. Its Sentry project is javascript-astro.",
+		"",
+		"Scoped to production like the other two, and here that filter earns its",
+		"keep in a way worth stating: sentry.client.config.ts hard-codes the DSN,",
+		"so `pnpm dev` on somebody's laptop reports to this same project as",
+		"environment 'development'. An unscoped rule here does not merely risk",
+		"staging noise - it emails a human every time a developer makes a mistake",
+		"locally.",
+		"",
+		"This replaces the default rule Sentry created with the project, which was",
+		"active, unscoped, and firing on exactly that."
+	],
+	"rule": {
+		"name": "Website error (production)",
+		"environment": "production",
+		"actionMatch": "all",
+		"filterMatch": "all",
+		"frequency": 60,
+		"conditions": [
+			{
+				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
+			}
+		],
+		"filters": [],
+		"actions": [
+			{
+				"id": "sentry.mail.actions.NotifyEmailAction",
+				"targetType": "IssueOwners",
+				"fallthroughType": "AllMembers"
+			}
+		]
+	}
+}

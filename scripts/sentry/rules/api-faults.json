@@ -1,0 +1,33 @@
+{
+	"project": "4512075995283456",
+	"_comment": [
+		"apps/api. Every issue in this project is a genuine fault by construction:",
+		"middleware/error.ts reports only what isFault() accepts, which excludes",
+		"every 4xx ApiError - a wrong password, a taken address, a route that does",
+		"not exist. So this rule does not need filters to be quiet. It is quiet",
+		"because the thing feeding it already is.",
+		"",
+		"project is the numeric id from MONITORING_DSN's path, not a slug. Slugs",
+		"get renamed; the id in the DSN is the same id this endpoint takes."
+	],
+	"rule": {
+		"name": "API fault (production)",
+		"environment": "production",
+		"actionMatch": "all",
+		"filterMatch": "all",
+		"frequency": 60,
+		"conditions": [
+			{
+				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
+			}
+		],
+		"filters": [],
+		"actions": [
+			{
+				"id": "sentry.mail.actions.NotifyEmailAction",
+				"targetType": "IssueOwners",
+				"fallthroughType": "AllMembers"
+			}
+		]
+	}
+}
