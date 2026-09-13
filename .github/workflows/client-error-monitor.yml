@@ -39,10 +39,16 @@ jobs:
       # same bug one level up: no run, no failure, no email, and an inbox that
       # reads as a quiet week. Nothing in this repository would have noticed.
       #
-      # The Sentry monitor expects one of these an hour and raises an issue
-      # when they stop arriving. Margin is 45 minutes because GitHub's cron is
-      # best-effort, and reporting lateness as absence is how this becomes the
-      # alert nobody reads.
+      # The Sentry monitor expects one of these every 6 HOURS with a 2 hour
+      # margin, which is far looser than the hourly cron above and is set from
+      # measurement rather than from the schedule. Over the last 12 runs the
+      # real gaps were 104 to 295 minutes, median 134: GitHub throttles
+      # scheduled workflows silently, and this fires about every two hours at
+      # best.
+      #
+      # A monitor cannot be tighter than the thing it monitors actually runs.
+      # Setting it to the declared hour would mean a permanent missed-check-in
+      # alert, which is the alert people mute. See onlooker-txcu.5.
       - name: Tell Sentry this run started
         run: scripts/sentry/checkin.sh client-error-monitor-workflow in_progress
 

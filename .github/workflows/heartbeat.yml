@@ -33,11 +33,20 @@ jobs:
       # produces no run, no failure and no email, which is indistinguishable
       # from a fortnight of healthy production.
       #
-      # The Sentry monitor expects one of these every 5 minutes and raises an
-      # issue when they stop. Its margin is deliberately 30 minutes: GitHub's
-      # scheduled runs are best-effort and routinely late, so a tight margin
-      # would report lateness as absence and become the noisy alert nobody
-      # reads.
+      # The Sentry monitor expects one of these every 6 HOURS, with a 2 hour
+      # margin, and that is not a typo against the */5 schedule above. It is
+      # measured. Over the last 15 runs the real gaps were 102 to 280 minutes,
+      # median 186 - GitHub throttles scheduled workflows, silently, and this
+      # one fires roughly every three hours no matter what the cron says.
+      #
+      # The monitor is configured against what GitHub delivers rather than what
+      # the cron claims, because the alternative was tried: set to */5 with a
+      # 30 minute margin, it reported a missed check-in within the hour and
+      # would have kept doing so forever. That is the alert people mute.
+      #
+      # The cron line above is left as it is on purpose - lowering it would not
+      # make GitHub run this more often, and the gap between the two numbers is
+      # the bug, not the fix. See onlooker-txcu.5.
       - name: Tell Sentry this run started
         run: scripts/sentry/checkin.sh heartbeat-workflow in_progress
 
