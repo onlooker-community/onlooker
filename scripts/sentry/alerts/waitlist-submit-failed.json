@@ -1,0 +1,55 @@
+{
+	"_comment": [
+		"A metric alert, which is a different endpoint and a different payload",
+		"from the issue alert rules in ../rules/:",
+		"  POST /organizations/{org}/alert-rules/",
+		"",
+		"Why this alert exists: nothing else catches a broken waitlist. A submit",
+		"that fails is handled - onSubmitFailed counts it and reports the error -",
+		"so the form still renders, no page 500s, and the issue alerts stay quiet.",
+		"The only visible symptom is that signups stop, which nobody notices",
+		"because signups are rare enough that zero looks like a slow week.",
+		"",
+		"Established against the live API on 2026-09-13:",
+		"- dataset MUST be 'events_analytics_platform'. 'tracemetrics' is rejected",
+		"  here even though that is exactly what the events API calls this data.",
+		"  'generic_metrics' is rejected too, with a message saying transaction-",
+		"  based alerts are being migrated to the span dataset.",
+		"- every trigger must carry at least one action; Sentry refuses a trigger",
+		"  with an empty actions array ('Each trigger must have an associated",
+		"  action for this alert to fire').",
+		"- thresholdType 0 is 'above', so alertThreshold 0 means any failure at",
+		"  all inside the window.",
+		"",
+		"UNVERIFIED, AND THE REASON MATTERS. Sentry accepted this rule, but",
+		"accepting is not firing. A probe rule with the same dataset and query",
+		"shape, pointed at waitlist.viewed (12 events in the window) with a",
+		"threshold of > 0, had not fired 15 minutes later - and neither had a",
+		"logs-dataset twin. That is consistent with the query matching nothing,",
+		"and equally consistent with subscriptions simply not evaluating",
+		"historical data, so it proves neither. See onlooker-txcu.2. Do not treat",
+		"this alert as load-bearing until it has been seen to fire."
+	],
+	"name": "Waitlist submit failing (production)",
+	"aggregate": "count(value)",
+	"dataset": "events_analytics_platform",
+	"query": "metric.name:waitlist.submit_failed",
+	"timeWindow": 60,
+	"thresholdType": 0,
+	"environment": "production",
+	"projects": ["javascript-astro"],
+	"owner": "team:4512074220437504",
+	"triggers": [
+		{
+			"label": "critical",
+			"alertThreshold": 0,
+			"actions": [
+				{
+					"type": "email",
+					"targetType": "team",
+					"targetIdentifier": "4512074220437504"
+				}
+			]
+		}
+	]
+}

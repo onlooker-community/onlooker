@@ -202,6 +202,51 @@ for file in "${RULE_FILES[@]}"; do
 	apply_rule "${file}" || failures=$((failures + 1))
 done
 
+# Rules that exist in Sentry and in no file here.
+#
+# This script is additive: it creates and updates what the repo names, and
+# until this function existed it could not see anything else. That blindness
+# had a cost the first time it was run - each project carried a default rule
+# Sentry had created with it, active and UNSCOPED, quietly firing on staging
+# and (for the website, whose DSN is hard-coded) on local development too.
+# Nothing here would ever have mentioned them.
+#
+# Reported rather than deleted, and it does not fail the run. A rule added in
+# the UI during an incident is a legitimate thing to find; the problem was
+# never that one existed, only that nobody was told.
+report_drift() {
+	local -a projects=()
+	while IFS= read -r project; do projects+=("${project}"); done \
+		< <(jq -r '.project' "${RULE_FILES[@]}" | sort -u)
+
+	local known
+	known="$(jq -r '.rule.name' "${RULE_FILES[@]}")"
+
+	local found=0
+	for project in "${projects[@]}"; do
+		local response status unknown
+		response="$(api GET "/projects/${ORG}/${project}/rules/")"
+		status="$(tail -n1 <<<"${response}")"
+		[[ "${status}" == "200" ]] || continue
+
+		unknown="$(sed '$d' <<<"${response}" | jq -r '.[].name' |
+			grep -Fxv -f <(printf '%s\n' "${known}") || true)"
+
+		while IFS= read -r name; do
+			[[ -n "${name}" ]] || continue
+			found=1
+			echo "  drift    project ${project} has a rule this repo does not define: ${name}"
+		done <<<"${unknown}"
+	done
+
+	((found == 0)) && echo "  no drift: every rule in these projects is defined here"
+	return 0
+}
+
+if ((DRY_RUN == 0)); then
+	report_drift
+fi
+
 if ((failures > 0)); then
 	echo "sentry: ${failures} rule(s) did not apply" >&2
 	exit 1
