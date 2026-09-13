@@ -37,7 +37,27 @@ export default defineConfig({
 			// the build for want of a credential nobody should need to run
 			// `pnpm build`. deploy.yml passes the secret on the two web deploys.
 			authToken: process.env.SENTRY_AUTH_TOKEN,
-			disable: !process.env.SENTRY_AUTH_TOKEN,
+			// Both conditions, and the release is the one that matters.
+			//
+			// An upload with no release name files the maps under no release,
+			// where no event will ever look for them. So refusing is correct on
+			// its own terms - but it also happens to separate the only build
+			// whose output ships from the one that does not.
+			//
+			// apps/web is built twice per deploy job: once by the `Build` step
+			// (pnpm build, via turbo) and again by `Deploy Web to …`, which
+			// rebuilds because VITE_* is inlined and a staging bundle has to be
+			// aimed at the staging API. Only the second build is deployed.
+			// VITE_MONITORING_RELEASE is set only on those deploy steps, never on
+			// `Build`, so this gate tracks that distinction exactly.
+			//
+			// Without it, the production `Build` step uploaded too - it carries
+			// SENTRY_AUTH_TOKEN for the website's astro build in the same step -
+			// producing a second artifact bundle per deploy for a bundle that was
+			// thrown away. And the staging `Build`, which has no token, emitted
+			// four "No auth token provided" warnings that read exactly like the
+			// upload failing.
+			disable: !process.env.SENTRY_AUTH_TOKEN || !release,
 			release: { name: release },
 			// filesToDeleteAfterUpload is deliberately NOT set. The maps are
 			// emitted on purpose and served (see build.sourcemap), so that a
