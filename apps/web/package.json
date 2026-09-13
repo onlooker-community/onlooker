@@ -14,6 +14,8 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@onlooker-community/lesson-contract": "workspace:*",
+		"@onlooker/api-contract": "workspace:*",
 		"@onlooker/auth-react": "workspace:*",
 		"@onlooker/brand": "workspace:*",
 		"@onlooker/monitoring": "workspace:*",
@@ -21,13 +23,12 @@
 		"@sentry/react": "10.74.0",
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1",
-		"react-router-dom": "^6.28.0",
-		"@onlooker/api-contract": "workspace:*",
-		"@onlooker-community/lesson-contract": "workspace:*"
+		"react-router-dom": "^6.28.0"
 	},
 	"devDependencies": {
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
+		"@sentry/vite-plugin": "5.4.0",
 		"@testing-library/react": "^15.0.6",
 		"@types/react": "^18.3.1",
 		"@types/react-dom": "^18.3.1",

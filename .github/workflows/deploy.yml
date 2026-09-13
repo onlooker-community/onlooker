@@ -462,6 +462,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VITE_MONITORING_RELEASE: ${{ github.sha }}
+          # Uploads the source maps for this bundle, under the release above.
+          # vite.config.ts reads the same VITE_MONITORING_RELEASE, so the maps
+          # are filed under exactly the release the running app reports. Absent
+          # on PR builds, where the plugin disables itself rather than failing.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       # The same assertions the cron heartbeat makes, run against what was just
       # deployed. Nothing between "wrangler deploy succeeded" and "a human
@@ -569,6 +574,9 @@ jobs:
           # in the browser and ends in the worker carries one release or two
           # depending on this line.
           VITE_MONITORING_RELEASE: ${{ github.sha }}
+          # See the staging deploy: this is what makes a production stack name a
+          # function instead of a column number.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       # The marketing site has no staging counterpart: apps/website declares no
       # environments, so there is one worker and one deploy. It sits in this job
