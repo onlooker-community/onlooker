@@ -62,6 +62,15 @@ jobs:
       - name: D1 latency sampler script tests
         run: bash scripts/d1-latency-sample.test.sh
 
+      # An alert rule that loses its environment filter starts paging a human
+      # for staging work in progress - staging and production share one Sentry
+      # project per app and are told apart by that tag alone. Nothing about
+      # that failure looks like a failure; it looks like a noisy alert, which
+      # gets muted, which costs the production signal too. These tests run on
+      # every PR so a rule cannot lose it quietly.
+      - name: Sentry alert rule tests
+        run: bash scripts/sentry/apply.test.sh
+
       # The visibility filter is the security boundary, and it is only in one
       # place while nothing else queries the tables. That is a property of which
       # files contain what, so it cannot be checked from inside the Workers test

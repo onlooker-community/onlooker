@@ -1,0 +1,34 @@
+{
+	"project": "4512075991547904",
+	"_comment": [
+		"apps/web. This is the rule that makes client-error-monitor.yml retirable:",
+		"the same errors, grouped and symbolicated, minutes after they happen",
+		"rather than on an hourly cron that reads over a million log rows.",
+		"",
+		"Do not retire that workflow on the strength of this file existing. The",
+		"workflow is fed by a second, vendor-less path (apps/web's fanout to",
+		"/api/client-errors) that keeps working when the provider chunk fails to",
+		"load at all - which is exactly the stale-tab-after-deploy case. Retire it",
+		"once this rule has been seen to fire, on purpose, per onlooker-k34."
+	],
+	"rule": {
+		"name": "Web client error (production)",
+		"environment": "production",
+		"actionMatch": "all",
+		"filterMatch": "all",
+		"frequency": 60,
+		"conditions": [
+			{
+				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
+			}
+		],
+		"filters": [],
+		"actions": [
+			{
+				"id": "sentry.mail.actions.NotifyEmailAction",
+				"targetType": "IssueOwners",
+				"fallthroughType": "AllMembers"
+			}
+		]
+	}
+}
