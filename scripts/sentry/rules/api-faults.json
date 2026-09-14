@@ -1,5 +1,4 @@
 {
-	"project": "4512075995283456",
 	"_comment": [
 		"apps/api. Every issue in this project is a genuine fault by construction:",
 		"middleware/error.ts reports only what isFault() accepts, which excludes",
@@ -7,26 +6,47 @@
 		"not exist. So this rule does not need filters to be quiet. It is quiet",
 		"because the thing feeding it already is.",
 		"",
-		"project is the numeric id from MONITORING_DSN's path, not a slug. Slugs",
-		"get renamed; the id in the DSN is the same id this endpoint takes."
+		"project is the numeric id from MONITORING_DSN's path, and it is no longer",
+		"part of the URL. A workflow is org-scoped and binds to a project through",
+		"a DETECTOR, so apply.sh resolves this project's issue_stream detector at",
+		"apply time and fills in detectorIds. The detector id is deliberately not",
+		"written here: Sentry creates it per project, it means nothing to a",
+		"reviewer, and pinning it would break the day a project is recreated."
 	],
-	"rule": {
+	"project": "4512075995283456",
+	"detectorType": "issue_stream",
+	"workflow": {
 		"name": "API fault (production)",
 		"environment": "production",
-		"actionMatch": "all",
-		"filterMatch": "all",
-		"frequency": 60,
-		"conditions": [
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
 			{
-				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
-			}
-		],
-		"filters": [],
-		"actions": [
-			{
-				"id": "sentry.mail.actions.NotifyEmailAction",
-				"targetType": "IssueOwners",
-				"fallthroughType": "AllMembers"
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
 			}
 		]
 	}

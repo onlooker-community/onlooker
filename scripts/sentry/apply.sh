@@ -1,11 +1,28 @@
 #!/usr/bin/env bash
-# Applies the issue alert rules in scripts/sentry/rules/ to Sentry.
+# Applies the alert workflows in scripts/sentry/rules/ to Sentry.
 #
-# Why the rules live in files rather than in the Sentry UI: an alert rule is
-# the part of monitoring that decides whether a human ever hears about a
-# fault, and a hand-clicked one is invisible to review, undiffable, and gone
-# the moment somebody tidies it away. Here, changing who gets told is a pull
-# request.
+# Why these live in files rather than in the Sentry UI: an alert decides
+# whether a human ever hears about a fault, and a hand-clicked one is
+# undiffable, unreviewable, and gone the moment somebody tidies it away. Here,
+# changing who gets told is a pull request.
+#
+# THE MODEL, because it changed and the names are not obvious. Sentry retired
+# the per-project rules API (deprecated 2026-05-14, then brownouts answering
+# 410) in favour of two objects:
+#
+#   a DETECTOR is project-scoped and notices something - an issue appearing, a
+#   metric crossing a threshold, a cron check-in going missing. Sentry creates
+#   the standard ones with the project; `issue_stream` is the one that fires on
+#   new issues.
+#
+#   a WORKFLOW is org-scoped and reacts. It names the detectors it listens to
+#   in `detectorIds`, so that field is where a workflow's project binding now
+#   lives - not the URL.
+#
+# So the files here name a project and a detector TYPE, and this script
+# resolves the id. Pinning detector ids in the files would put a number that
+# means nothing to a reviewer in the diff, and break whenever a project is
+# recreated.
 #
 # Usage: scripts/sentry/apply.sh [--dry-run] [rule.json...]
 #   no file arguments means every rule in scripts/sentry/rules/
@@ -15,14 +32,14 @@
 #   SENTRY_ORG         defaults to onlooker-vw
 #
 # Exit codes, three-way for the reason client-error-monitor.sh gives:
-#   0 - every rule applied (or, under --dry-run, every rule is well formed)
-#   1 - Sentry rejected a rule, or a rule is malformed
+#   0 - every workflow applied (or, under --dry-run, every file is well formed)
+#   1 - Sentry rejected one, or a file is malformed
 #   2 - this script could not do its job at all
 #
 # THE TOKEN IS NEVER PRINTED and never passed as an argv element - it is read
 # from the environment into a curl config on stdin, so it stays out of `ps`,
-# out of the shell history, and out of any transcript of a run. Keep it that
-# way: a `set -x` added for debugging would undo all three at once.
+# out of shell history, and out of any transcript of a run. Keep it that way: a
+# `set -x` added for debugging would undo all three at once.
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,24 +102,15 @@ api() {
 	[[ -n "${body}" ]] && args+=(--data "${body}")
 
 	# `|| true` so an unreachable Sentry is reportable rather than fatal. Under
-	# `set -e` a failed curl inside `response="$(api ...)"` aborts the script,
-	# which in report_drift meant losing the failure summary for the rules that
-	# had already been attempted. Callers all branch on the status line, and a
-	# curl that never connected simply produces none.
+	# `set -e` a failed curl inside `response="$(api ...)"` aborts the script.
+	# Callers all branch on the status line, and a curl that never connected
+	# simply produces none.
 	printf 'header = "Authorization: Bearer %s"\nurl = "%s%s"\n' \
 		"${SENTRY_AUTH_TOKEN}" "${API}" "${path}" | curl "${args[@]}" || true
 }
 
-# Say so when Sentry answers 410 because an endpoint is deprecated.
-#
-# Worth the extra lines because of how this failure arrives. These endpoints
-# were deprecated on 2026-05-14 and Sentry brownouts them - periodic windows
-# where they answer 410 and otherwise work normally. So this script passes all
-# day, fails for an afternoon, and passes again, and a bare "HTTP 410" sends
-# you looking at your token. Sentry names the successor in a response header;
-# printing it turns the confusing failure into an instruction.
-# Said once per run: every call hits the same deprecated endpoints, so
-# repeating it per project buries the rule failures it is meant to explain.
+# Said once per run: every call hits the same endpoints, so repeating it per
+# file buries the failures it is meant to explain.
 DEPRECATION_REPORTED=0
 
 deprecation_note() {
@@ -118,19 +126,20 @@ deprecation_note() {
 	DEPRECATION_REPORTED=1
 	echo "           this endpoint was deprecated on ${deprecated:-an unstated date}" >&2
 	echo "           Sentry says to use: ${replacement}" >&2
-	echo "           A 410 here is a scheduled brownout, not a bad token. It will" >&2
-	echo "           pass again outside the window, which is why this must be" >&2
-	echo "           migrated rather than retried - see onlooker-txcu.8." >&2
+	echo "           A 410 here is a scheduled brownout, not a bad token." >&2
 }
 
+status_of() { tail -n1 <<<"$1"; }
+body_of() { sed '$d' <<<"$1"; }
+
 # The environment filter is the whole safety story for this setup: staging and
-# production share one project per app and are told apart by this tag alone.
-# A rule that loses it does not fail - it starts paging a human for somebody's
-# work in progress, which is how an alert channel gets muted, which costs the
-# production signal too.
+# production report into ONE project per app and are told apart by this tag
+# alone. A workflow that loses it does not fail - it starts paging a human for
+# somebody's work in progress, which is how an alert channel gets muted, which
+# costs the production signal too.
 assert_production_scoped() {
 	local file="$1" environment
-	environment="$(jq -r '.rule.environment // empty' "${file}")"
+	environment="$(jq -r '.workflow.environment // empty' "${file}")"
 
 	if [[ "${environment}" != "production" ]]; then
 		echo "  REFUSED  ${file##*/}: environment is '${environment:-unset}', expected 'production'" >&2
@@ -138,89 +147,166 @@ assert_production_scoped() {
 	fi
 }
 
-# Ask Sentry which condition and action ids it actually accepts, rather than
-# trusting the strings in the rule files. A wrong id is a 400 with a body that
-# does not name the offending entry; this turns that into a line that does.
-validate_against_configuration() {
-	local file="$1" project="$2" response body status
-	response="$(api GET "/projects/${ORG}/${project}/rules/configuration/")"
-	status="$(tail -n1 <<<"${response}")"
-	body="$(sed '$d' <<<"${response}")"
+DETECTORS=""
+
+# Fetch the org's detectors once, so each file can be bound by (project, type).
+load_detectors() {
+	local response status
+	response="$(api GET "/organizations/${ORG}/detectors/")"
+	status="$(status_of "${response}")"
 
 	if [[ "${status}" != "200" ]]; then
-		echo "  ERROR    could not read rule configuration for project ${project} (HTTP ${status})" >&2
+		echo "  ERROR    could not list detectors (HTTP ${status})" >&2
 		deprecation_note
 		return 1
 	fi
 
-	local known unknown
-	known="$(jq -r '[.conditions[].id, .filters[].id, .actions[].id] | unique | .[]' <<<"${body}")"
-	unknown="$(jq -r '[.rule.conditions[]?.id, .rule.filters[]?.id, .rule.actions[]?.id] | .[]' "${file}" |
-		grep -Fxv -f <(printf '%s\n' "${known}") || true)"
-
-	if [[ -n "${unknown}" ]]; then
-		echo "  ERROR    ${file##*/} names ids this org does not offer:" >&2
-		while IFS= read -r id; do echo "             ${id}" >&2; done <<<"${unknown}"
-		return 1
-	fi
+	DETECTORS="$(body_of "${response}")"
 }
 
-# Create, or update the rule that already carries this name. Matching on the
-# name is what keeps a re-run from stacking up duplicate rules, each firing
-# its own copy of the same email.
-apply_rule() {
+# The detector a file binds to, or empty if this project has none of that type.
+detector_for() {
+	local project="$1" type="$2"
+	jq -r --arg p "${project}" --arg t "${type}" \
+		'[.[] | select((.projectId|tostring) == $p and .type == $t) | .id] | first // empty' \
+		<<<"${DETECTORS}"
+}
+
+apply_workflow() {
 	local file="$1"
-	local project rule name
+	local project type name detector payload
+
 	project="$(jq -r '.project' "${file}")"
-	rule="$(jq -c '.rule' "${file}")"
-	name="$(jq -r '.rule.name' "${file}")"
+	type="$(jq -r '.detectorType' "${file}")"
+	name="$(jq -r '.workflow.name' "${file}")"
 
 	if ((DRY_RUN == 1)); then
-		echo "  would apply  ${name}  ->  project ${project}"
-		jq -c '.rule' "${file}" | sed 's/^/                 /'
+		echo "  would apply  ${name}  ->  project ${project}, detector type ${type}"
+		jq -c '.workflow' "${file}" | sed 's/^/                 /'
 		return 0
 	fi
 
-	validate_against_configuration "${file}" "${project}" || return 1
-
-	local existing response status
-	response="$(api GET "/projects/${ORG}/${project}/rules/")"
-	status="$(tail -n1 <<<"${response}")"
-	if [[ "${status}" != "200" ]]; then
-		echo "  ERROR    could not list rules for project ${project} (HTTP ${status})" >&2
+	detector="$(detector_for "${project}" "${type}")"
+	if [[ -z "${detector}" ]]; then
+		echo "  ERROR    ${name}: project ${project} has no '${type}' detector" >&2
+		echo "           Sentry creates the standard ones with a project, so this" >&2
+		echo "           usually means the project id is wrong rather than that a" >&2
+		echo "           detector is missing." >&2
 		return 1
 	fi
-	existing="$(sed '$d' <<<"${response}" |
-		jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' | head -n1)"
+
+	# detectorIds is injected rather than stored in the file - see the header.
+	payload="$(jq -c --arg d "${detector}" '.workflow + {detectorIds: [$d]}' "${file}")"
+
+	local response status existing
+	response="$(api GET "/organizations/${ORG}/workflows/")"
+	status="$(status_of "${response}")"
+	if [[ "${status}" != "200" ]]; then
+		echo "  ERROR    could not list workflows (HTTP ${status})" >&2
+		deprecation_note
+		return 1
+	fi
+	# Matching on the name is what keeps a re-run from stacking up duplicate
+	# workflows, each firing its own copy of the same email.
+	existing="$(body_of "${response}" |
+		jq -r --arg name "${name}" '[.[] | select(.name == $name) | .id] | first // empty')"
 
 	local method path verb
 	if [[ -n "${existing}" ]]; then
-		method=PUT path="/projects/${ORG}/${project}/rules/${existing}/" verb=updated
+		method=PUT path="/organizations/${ORG}/workflows/${existing}/" verb=updated
 	else
-		method=POST path="/projects/${ORG}/${project}/rules/" verb=created
+		method=POST path="/organizations/${ORG}/workflows/" verb=created
 	fi
 
-	response="$(api "${method}" "${path}" "${rule}")"
-	status="$(tail -n1 <<<"${response}")"
+	response="$(api "${method}" "${path}" "${payload}")"
+	status="$(status_of "${response}")"
 
 	if [[ "${status}" == "200" || "${status}" == "201" ]]; then
-		echo "  ok       ${verb}: ${name}"
+		echo "  ok       ${verb}: ${name}  (detector ${detector})"
 		return 0
 	fi
 
 	echo "  ERROR    ${name} rejected (HTTP ${status}):" >&2
-	sed '$d' <<<"${response}" | head -c 600 | sed 's/^/             /' >&2
+	body_of "${response}" | head -c 600 | sed 's/^/             /' >&2
 	echo >&2
+	deprecation_note
 	return 1
 }
 
+# Workflows that exist in Sentry, listen to one of our projects, and are in no
+# file here.
+#
+# This script is additive: it creates and updates what the repo names, and
+# without this it could not see anything else. That blindness had a cost the
+# first time it ran - each project carried a default rule Sentry created with
+# it, active and UNSCOPED, firing on staging and, for the website whose DSN is
+# hard-coded, on local development.
+#
+# Reported rather than deleted, and it does not fail the run. A workflow added
+# in the UI during an incident is a legitimate thing to find; the problem was
+# never that one existed, only that nobody was told.
+report_drift() {
+	local response status ours known
+	response="$(api GET "/organizations/${ORG}/workflows/")"
+	status="$(status_of "${response}")"
+
+	# Counted, not skipped. This used to `continue` past a failed read and then
+	# report "no drift" from a check that had read nothing - the failure this
+	# whole epic exists to remove, in the tool built to remove it. Observed for
+	# real on 2026-09-13 when every read answered 410 during a brownout.
+	if [[ "${status}" != "200" ]]; then
+		echo "  UNKNOWN  could not list workflows (HTTP ${status}) - drift not checked" >&2
+		deprecation_note
+		return 0
+	fi
+
+	# Only detectors belonging to projects this repo manages. A workflow bound
+	# to some other project is not this repo's business to report.
+	ours="$(jq -r '.project' "${RULE_FILES[@]}" | sort -u |
+		while IFS= read -r project; do
+			jq -r --arg p "${project}" '.[] | select((.projectId|tostring) == $p) | .id' <<<"${DETECTORS}"
+		done)"
+	known="$(jq -r '.workflow.name' "${RULE_FILES[@]}")"
+
+	# One line per workflow as `id<TAB>name<TAB>detectorId,...`, then the set
+	# membership is done in bash where it can be read.
+	local found=0 id name detectors
+	while IFS=$'\t' read -r id name detectors; do
+		[[ -n "${id}" ]] || continue
+
+		# Does it listen to any detector of ours?
+		local mine=0
+		for detector in ${detectors//,/ }; do
+			grep -Fxq "${detector}" <<<"${ours}" && mine=1 && break
+		done
+		((mine == 1)) || continue
+
+		grep -Fxq "${name}" <<<"${known}" && continue
+
+		found=1
+		echo "  drift    Sentry has a workflow this repo does not define: ${name} [id ${id}]"
+	done < <(body_of "${response}" |
+		jq -r '.[] | [.id, .name, ((.detectorIds // []) | join(","))] | @tsv')
+
+	((found == 0)) && echo "  no drift: every workflow on these projects is defined here"
+	return 0
+}
+
 if ((DRY_RUN == 1)); then
-	echo "sentry: ${#RULE_FILES[@]} rule(s) for ${ORG} (dry run, no requests made)"
+	echo "sentry: ${#RULE_FILES[@]} workflow(s) for ${ORG} (dry run, no requests made)"
 else
-	echo "sentry: applying ${#RULE_FILES[@]} rule(s) to ${ORG}"
+	echo "sentry: applying ${#RULE_FILES[@]} workflow(s) to ${ORG}"
 fi
 
 failures=0
+
+if ((DRY_RUN == 0)); then
+	load_detectors || {
+		echo "sentry: could not resolve detectors; nothing was applied" >&2
+		exit 1
+	}
+fi
+
 for file in "${RULE_FILES[@]}"; do
 	if [[ ! -r "${file}" ]]; then
 		echo "  ERROR    cannot read ${file}" >&2
@@ -228,8 +314,8 @@ for file in "${RULE_FILES[@]}"; do
 		continue
 	fi
 
-	if ! jq -e '.project and .rule.name' "${file}" >/dev/null 2>&1; then
-		echo "  ERROR    ${file##*/} needs a .project and a .rule.name" >&2
+	if ! jq -e '.project and .detectorType and .workflow.name' "${file}" >/dev/null 2>&1; then
+		echo "  ERROR    ${file##*/} needs a .project, a .detectorType and a .workflow.name" >&2
 		failures=$((failures + 1))
 		continue
 	fi
@@ -239,77 +325,20 @@ for file in "${RULE_FILES[@]}"; do
 		continue
 	}
 
-	apply_rule "${file}" || failures=$((failures + 1))
+	apply_workflow "${file}" || failures=$((failures + 1))
 done
-
-# Rules that exist in Sentry and in no file here.
-#
-# This script is additive: it creates and updates what the repo names, and
-# until this function existed it could not see anything else. That blindness
-# had a cost the first time it was run - each project carried a default rule
-# Sentry had created with it, active and UNSCOPED, quietly firing on staging
-# and (for the website, whose DSN is hard-coded) on local development too.
-# Nothing here would ever have mentioned them.
-#
-# Reported rather than deleted, and it does not fail the run. A rule added in
-# the UI during an incident is a legitimate thing to find; the problem was
-# never that one existed, only that nobody was told.
-report_drift() {
-	local -a projects=()
-	while IFS= read -r project; do projects+=("${project}"); done \
-		< <(jq -r '.project' "${RULE_FILES[@]}" | sort -u)
-
-	local known
-	known="$(jq -r '.rule.name' "${RULE_FILES[@]}")"
-
-	local found=0 unreadable=0
-	for project in "${projects[@]}"; do
-		local response status unknown
-		response="$(api GET "/projects/${ORG}/${project}/rules/")"
-		status="$(tail -n1 <<<"${response}")"
-
-		# Counted, not skipped. This used to `continue` here and then report
-		# "no drift" from a loop that had read nothing at all - which is the
-		# failure this whole epic exists to remove, written into the tool
-		# meant to remove it. Observed for real on 2026-09-13: every read
-		# answered 410 during a brownout and the script still printed a clean
-		# bill of health.
-		if [[ "${status}" != "200" ]]; then
-			echo "  UNKNOWN  could not read project ${project}'s rules (HTTP ${status}) - drift not checked" >&2
-			deprecation_note
-			unreadable=$((unreadable + 1))
-			continue
-		fi
-
-		unknown="$(sed '$d' <<<"${response}" | jq -r '.[].name' |
-			grep -Fxv -f <(printf '%s\n' "${known}") || true)"
-
-		while IFS= read -r name; do
-			[[ -n "${name}" ]] || continue
-			found=1
-			echo "  drift    project ${project} has a rule this repo does not define: ${name}"
-		done <<<"${unknown}"
-	done
-
-	if ((unreadable > 0)); then
-		echo "  drift UNKNOWN for ${unreadable} of ${#projects[@]} project(s); nothing here claims otherwise" >&2
-	elif ((found == 0)); then
-		echo "  no drift: every rule in these projects is defined here"
-	fi
-	return 0
-}
 
 if ((DRY_RUN == 0)); then
 	report_drift
 fi
 
 if ((failures > 0)); then
-	echo "sentry: ${failures} rule(s) did not apply" >&2
+	echo "sentry: ${failures} workflow(s) did not apply" >&2
 	exit 1
 fi
 
 if ((DRY_RUN == 1)); then
-	echo "sentry: all rules are well formed. Nothing was applied."
+	echo "sentry: all files are well formed. Nothing was applied."
 else
-	echo "sentry: all rules applied"
+	echo "sentry: all workflows applied"
 fi
