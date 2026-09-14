@@ -53,8 +53,27 @@ on:
 # hole, because `github.event.before` is still not "the commit we last
 # deployed". Fixing that properly means tracking the deployed SHA; see
 # onlooker-txcu.7. workflow_dispatch exists as the manual recovery either way.
+# Pull request runs share a group per branch and cancel each other. Pushes to
+# main get a group of their own, per commit, and so never wait for or cancel
+# another run at all.
+#
+# Both halves of that are corrections to this block. It read
+# `cancel-in-progress: true` for everything, which cancelled a main deploy the
+# moment a second PR merged and stranded #154 - the second run then computed
+# `changes.deployable` from the commit the first merge had just created and
+# found nothing to do. Changing it to cancel only pull requests fixed the
+# stranding and replaced it with something worse: the group was still shared
+# across every push to main, so a run parked at the production approval gate
+# HELD that group. On 2026-09-13 run 34800771982 sat unapproved for nineteen
+# hours with #160's deploy queued behind it, zero jobs started, nothing
+# alerting. The cron heartbeat it carried never reached production.
+#
+# Per-commit groups mean a push can neither be cancelled by a later one nor
+# blocked by an earlier one. Serializing the deploys themselves is a narrower
+# job, and it is done per job below, where it can be done without holding a
+# whole run hostage.
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -423,6 +442,17 @@ jobs:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: [test, changes]
+    # Two staging deploys must never run at once - they migrate the same D1
+    # database and deploy over the same workers - so they queue.
+    #
+    # cancel-in-progress is false and must stay false. A cancel here can land
+    # between `wrangler d1 migrations apply` and the deploy that expects the new
+    # schema, and GitHub cannot tell a job waiting for its turn from one halfway
+    # through a migration. A superseded staging deploy costs a few minutes; an
+    # interrupted migration costs a database.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
     # Staging tracks main. There is no long-lived staging branch to keep in sync,
     # and production below will not run unless this succeeds first.
     #
@@ -559,6 +589,26 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    # Production deploys queue, for the same migration reason as staging.
+    #
+    # THE KNOWN LIMIT, so nobody rediscovers it the way it was found: a run
+    # parked at the approval gate below still holds THIS group, so a later
+    # production deploy waits behind it until somebody approves or rejects. The
+    # difference from before is the blast radius. It used to hold the whole
+    # workflow group, so a later run could not even reach staging - nineteen
+    # hours of that on 2026-09-13, with zero jobs started and nothing alerting.
+    # Now staging keeps deploying, so main and the staging environment stay in
+    # step, and only the production step waits on the human it is supposed to
+    # wait on.
+    #
+    # cancel-in-progress stays false here too, and the temptation is real: true
+    # would auto-clear a forgotten approval, since a later commit on a linear
+    # main contains the earlier one. It would also be free to cancel a
+    # production deploy that is midway through applying a migration, because
+    # GitHub cannot distinguish the two states. Not worth it.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     # Depends on deploy-staging, not test: production never ships a build that
     # has not already migrated and deployed cleanly to staging. The approval
     # gate on the production environment still applies on top of this.
