@@ -10,10 +10,14 @@
  * - WS5: Rate limiting and security (not yet implemented)
  */
 
-import type { ExecutionContext } from "@cloudflare/workers-types";
+import type {
+	ExecutionContext,
+	ScheduledController,
+} from "@cloudflare/workers-types";
 import { timedD1 } from "./db/timing.js";
+import { runHeartbeat } from "./heartbeat";
 import { preflightResponse, withCors } from "./middleware";
-import { monitored } from "./monitoring";
+import { monitor, monitored } from "./monitoring";
 import { dispatch, listRoutes } from "./router";
 import type { WorkerEnv } from "./types";
 
@@ -89,5 +93,41 @@ export default monitored({
 
 		// Route all other requests
 		return handleRequest(request, env, ctx);
+	},
+
+	/**
+	 * The frequent shallow heartbeat, on a cron trigger.
+	 *
+	 * It lives here rather than in a worker of its own because this one
+	 * already holds everything it needs: the D1 binding it probes, and the
+	 * monitor that turns a failure into an issue the production alert rule is
+	 * already watching.
+	 *
+	 * Nothing awaits the result beyond logging it. A failed check reports
+	 * itself through the monitor; returning normally afterwards is correct,
+	 * because a cron invocation that throws is recorded as a failed
+	 * invocation and tells nobody.
+	 */
+	async scheduled(
+		_controller: ScheduledController,
+		env: WorkerEnv,
+		_ctx: ExecutionContext,
+	): Promise<void> {
+		const results = await runHeartbeat(env, {
+			fetch: (url) => fetch(String(url)),
+			monitor,
+		});
+
+		// One structured line, so the run is visible in Workers Logs even when
+		// every check passed - "it ran and found nothing wrong" and "it did not
+		// run" are different, and only this distinguishes them there.
+		console.log(
+			JSON.stringify({
+				event: "heartbeat",
+				environment: env.ENVIRONMENT ?? "unknown",
+				failed: results.filter((result) => !result.ok).length,
+				checks: results.map(({ label, ok }) => ({ label, ok })),
+			}),
+		);
 	},
 });

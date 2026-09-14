@@ -95,6 +95,21 @@ MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ing
 [env.staging.placement]
 mode = "smart"
 
+# The shallow heartbeat, every five minutes - and unlike the GitHub workflow
+# that declares the same interval, this one actually runs at it.
+#
+# heartbeat.yml says every five minutes and fires every 102 to 280 minutes,
+# median 186, measured over fifteen runs on 2026-09-13: GitHub throttles
+# scheduled workflows silently. The project believed it had a five-minute
+# production heartbeat and had a three-hour one. Cloudflare cron triggers keep
+# their schedule, so the frequent check moved here (src/heartbeat.ts) and the
+# deep authenticated one stays in the workflow, where lateness costs less.
+#
+# Declared per environment, like observability below and for the same reason:
+# there is no top-level block, so `wrangler dev` never schedules anything.
+[env.staging.triggers]
+crons = ["*/5 * * * *"]
+
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "onlooker-db-staging"
@@ -163,6 +178,11 @@ MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ing
 # cost, and the observability blocks below are repeated for the same reason.
 [env.production.placement]
 mode = "smart"
+
+# See the staging block for why the frequent heartbeat lives here rather than
+# in GitHub Actions.
+[env.production.triggers]
+crons = ["*/5 * * * *"]
 
 # Production: Use production D1 database
 [[env.production.d1_databases]]
