@@ -29,9 +29,33 @@ on:
   # underlying filter bug, which this makes recoverable rather than fixes.
   workflow_dispatch:
 
+# Cancel superseded pull request runs; never cancel a deploy of main.
+#
+# `true` for everything is what stranded #154 on 2026-09-13. Two PRs merged a
+# minute apart, the first deploy was cancelled mid flight, and the second run
+# then asked `changes` whether anything deployable had changed - computing that
+# diff from `github.event.before`, which was the commit the FIRST merge had
+# just created. The first merge's own files were not in that range, so the
+# answer was "no" and both deploy jobs skipped. Two green runs, nothing
+# deployed, and no failure anywhere to notice.
+#
+# Queuing instead of cancelling removes the cause rather than detecting it:
+# every push to main gets its own deploy, so every diff is taken from the
+# commit that actually deployed last. A burst of merges now takes longer
+# instead of losing one.
+#
+# Pull requests keep cancelling, which is where it pays - the group is per-ref,
+# so this only ever cancels an earlier run of the SAME pull request after a
+# force-push, and nothing about that run was going to deploy.
+#
+# This does not make the filter itself correct. A main run cancelled for any
+# other reason - somebody hitting the button, a runner dying - reopens the same
+# hole, because `github.event.before` is still not "the commit we last
+# deployed". Fixing that properly means tracking the deployed SHA; see
+# onlooker-txcu.7. workflow_dispatch exists as the manual recovery either way.
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: '24'
@@ -403,8 +427,13 @@ jobs:
     # and production below will not run unless this succeeds first.
     #
     # `changes.deployable` keeps a CLI-only merge from redeploying the API, web
-    # and website with identical code - which matters because
-    # concurrency.cancel-in-progress can cancel a deploy already in flight.
+    # and website with identical code.
+    #
+    # That used to be justified here by cancel-in-progress being able to cancel
+    # a deploy already in flight, which is no longer true of main - see the
+    # concurrency block. The filter now earns its keep only by not spending a
+    # deploy on a commit that changed nothing deployable, which is a smaller
+    # claim and the honest one.
     #
     # A manual run ignores `deployable` on purpose. The whole reason to reach
     # for the button is that the filter answered "nothing to do" and was
