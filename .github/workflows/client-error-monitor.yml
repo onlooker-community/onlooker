@@ -39,6 +39,18 @@ jobs:
       # same bug one level up: no run, no failure, no email, and an inbox that
       # reads as a quiet week. Nothing in this repository would have noticed.
       #
+      # THIS WORKFLOW HOLDS THE ORG'S ONLY SENTRY CRON SEAT. Crons bills per
+      # active monitor, and a second monitor is created DISABLED - where it
+      # accepts check-ins with 202 and stores none, printing "ok" the whole
+      # time. That is what happened here for days (onlooker-txcu.6). The seat
+      # was moved to this workflow on 2026-09-14 because heartbeat.yml's job is
+      # now mostly covered by the Cloudflare cron in apps/api, which reports
+      # through Sentry issues and needs no seat, while nothing else watches
+      # whether THIS runs at all.
+      #
+      # So do not add a check-in step to another workflow expecting it to work.
+      # It would report into a monitor Sentry disabled on creation and say "ok".
+      #
       # The Sentry monitor expects one of these every 6 HOURS with a 2 hour
       # margin, which is far looser than the hourly cron above and is set from
       # measurement rather than from the schedule. Over the last 12 runs the
