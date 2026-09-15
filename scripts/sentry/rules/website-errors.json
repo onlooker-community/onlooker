@@ -1,5 +1,4 @@
 {
-	"project": "4512074226401280",
 	"_comment": [
 		"apps/website, the marketing site. Its Sentry project is javascript-astro.",
 		"",
@@ -13,23 +12,40 @@
 		"This replaces the default rule Sentry created with the project, which was",
 		"active, unscoped, and firing on exactly that."
 	],
-	"rule": {
+	"project": "4512074226401280",
+	"detectorType": "issue_stream",
+	"workflow": {
 		"name": "Website error (production)",
 		"environment": "production",
-		"actionMatch": "all",
-		"filterMatch": "all",
-		"frequency": 60,
-		"conditions": [
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
 			{
-				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
-			}
-		],
-		"filters": [],
-		"actions": [
-			{
-				"id": "sentry.mail.actions.NotifyEmailAction",
-				"targetType": "IssueOwners",
-				"fallthroughType": "AllMembers"
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
 			}
 		]
 	}

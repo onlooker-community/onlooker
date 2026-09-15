@@ -61,7 +61,7 @@ for file in "${RULES_DIR}"/*.json; do
 	fi
 
 	# The invariant this whole file exists for.
-	environment="$(jq -r '.rule.environment // empty' "${file}")"
+	environment="$(jq -r '.workflow.environment // empty' "${file}")"
 	if [[ "${environment}" == "production" ]]; then
 		pass "${name} is scoped to production"
 	else
@@ -70,7 +70,7 @@ for file in "${RULES_DIR}"/*.json; do
 
 	# A rule with no action fires into nothing. Sentry accepts it; a human
 	# reading the rule list sees a rule that looks armed.
-	if [[ "$(jq -r '.rule.actions | length' "${file}")" -gt 0 ]]; then
+	if [[ "$(jq -r '.workflow.actionFilters[0].actions | length' "${file}")" -gt 0 ]]; then
 		pass "${name} tells somebody"
 	else
 		fail "${name} tells somebody" "actions is empty"
@@ -104,17 +104,17 @@ expect_exit 1 "refuses a rule file it cannot read" \
 	env -u SENTRY_AUTH_TOKEN "${APPLY}" --dry-run /nonexistent/rule.json
 
 staging_rule="$(mktemp -t sentry-rule-XXXXXX).json"
-jq '.rule.environment = "staging"' "${RULES_DIR}/api-faults.json" >"${staging_rule}"
+jq '.workflow.environment = "staging"' "${RULES_DIR}/api-faults.json" >"${staging_rule}"
 expect_exit 1 "refuses a rule that is not scoped to production" \
 	env -u SENTRY_AUTH_TOKEN "${APPLY}" --dry-run "${staging_rule}"
 
 unscoped_rule="$(mktemp -t sentry-rule-XXXXXX).json"
-jq 'del(.rule.environment)' "${RULES_DIR}/api-faults.json" >"${unscoped_rule}"
+jq 'del(.workflow.environment)' "${RULES_DIR}/api-faults.json" >"${unscoped_rule}"
 expect_exit 1 "refuses a rule with no environment at all" \
 	env -u SENTRY_AUTH_TOKEN "${APPLY}" --dry-run "${unscoped_rule}"
 
 shapeless_rule="$(mktemp -t sentry-rule-XXXXXX).json"
-echo '{"rule":{"environment":"production"}}' >"${shapeless_rule}"
+echo '{"workflow":{"environment":"production"}}' >"${shapeless_rule}"
 expect_exit 1 "refuses a rule with no project or name" \
 	env -u SENTRY_AUTH_TOKEN "${APPLY}" --dry-run "${shapeless_rule}"
 
@@ -142,25 +142,34 @@ else
 		"said 'no drift' while blind"
 fi
 
-if [[ "${blind_output}" == *"drift not checked"* ]]; then
-	pass "says drift was not checked, per project"
+# A workflow binds to a project only through a detector, so a run that cannot
+# list detectors cannot apply anything at all. It stops there rather than
+# attempting each file and printing the same error three times - but it must
+# say so, because "nothing was applied" and "everything was applied" are the
+# two outcomes a silent exit is ambiguous between.
+if [[ "${blind_output}" == *"nothing was applied"* ]]; then
+	pass "says plainly that nothing was applied when detectors cannot be listed"
 else
-	fail "says drift was not checked, per project" "no per-project notice: ${blind_output}"
+	fail "says plainly that nothing was applied when detectors cannot be listed" \
+		"no such statement: ${blind_output}"
 fi
 
-if [[ "${blind_output}" == *"drift UNKNOWN"* ]]; then
-	pass "summarizes how many projects went unchecked"
+if [[ "${blind_output}" == *"could not list detectors"* ]]; then
+	pass "names the call that failed rather than just failing"
 else
-	fail "summarizes how many projects went unchecked" "no summary line"
+	fail "names the call that failed rather than just failing" "${blind_output}"
 fi
 
 # An unreachable Sentry must not abort the script before it reports. Under
-# `set -e` a failed curl inside a `$(...)` assignment used to kill the run.
-if [[ "${blind_output}" == *"did not apply"* ]]; then
-	pass "still reports which rules did not apply when Sentry is unreachable"
+# `set -e` a failed curl inside a `$(...)` assignment used to kill the run
+# outright, with no output at all.
+blind_exit=0
+env SENTRY_AUTH_TOKEN=not-a-real-value SENTRY_API_BASE="http://127.0.0.1:9" \
+	"${APPLY}" >/dev/null 2>&1 || blind_exit=$?
+if [[ "${blind_exit}" == "1" ]]; then
+	pass "exits 1 when it could not apply anything"
 else
-	fail "still reports which rules did not apply when Sentry is unreachable" \
-		"no failure summary: ${blind_output}"
+	fail "exits 1 when it could not apply anything" "exit ${blind_exit}"
 fi
 
 # The case that actually happened, which is NOT the same as unreachable:

@@ -1,5 +1,4 @@
 {
-	"project": "4512075991547904",
 	"_comment": [
 		"apps/web. This is the rule that makes client-error-monitor.yml retirable:",
 		"the same errors, grouped and symbolicated, minutes after they happen",
@@ -11,23 +10,40 @@
 		"load at all - which is exactly the stale-tab-after-deploy case. Retire it",
 		"once this rule has been seen to fire, on purpose, per onlooker-k34."
 	],
-	"rule": {
+	"project": "4512075991547904",
+	"detectorType": "issue_stream",
+	"workflow": {
 		"name": "Web client error (production)",
 		"environment": "production",
-		"actionMatch": "all",
-		"filterMatch": "all",
-		"frequency": 60,
-		"conditions": [
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
 			{
-				"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
-			}
-		],
-		"filters": [],
-		"actions": [
-			{
-				"id": "sentry.mail.actions.NotifyEmailAction",
-				"targetType": "IssueOwners",
-				"fallthroughType": "AllMembers"
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
 			}
 		]
 	}
