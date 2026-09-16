@@ -25,8 +25,12 @@ on:
   #
   # The deploy jobs below still require `github.ref == 'refs/heads/main'`, so
   # this cannot be used to ship a feature branch. It is deliberately
-  # input-less: it does what a push to main does. See onlooker-txcu.7 for the
-  # underlying filter bug, which this makes recoverable rather than fixes.
+  # input-less: it does what a push to main does.
+  #
+  # The filter bug this was built to recover from is fixed - the change filter
+  # now measures from what was last deployed rather than from the previous
+  # commit (onlooker-txcu.7). This stays anyway. A manual deploy is worth having
+  # for the failures nobody has had yet, and it costs one trigger line.
   workflow_dispatch:
 
 # Cancel superseded pull request runs; never cancel a deploy of main.
@@ -48,11 +52,14 @@ on:
 # so this only ever cancels an earlier run of the SAME pull request after a
 # force-push, and nothing about that run was going to deploy.
 #
-# This does not make the filter itself correct. A main run cancelled for any
-# other reason - somebody hitting the button, a runner dying - reopens the same
-# hole, because `github.event.before` is still not "the commit we last
-# deployed". Fixing that properly means tracking the deployed SHA; see
-# onlooker-txcu.7. workflow_dispatch exists as the manual recovery either way.
+# This alone never made the filter correct, and it no longer has to. A main run
+# that ends before its deploy jobs - somebody hitting the button, a runner
+# dying, a test failing - used to reopen the same hole, because
+# `github.event.before` is not "the commit we last deployed". The filter now
+# asks GitHub what each environment actually deployed and measures from there,
+# so an interrupted run leaves its changes pending instead of losing them; see
+# the `changes` job and onlooker-txcu.7. workflow_dispatch remains as the
+# manual recovery either way.
 # Pull request runs share a group per branch and cancel each other. Pushes to
 # main get a group of their own, per commit, and so never wait for or cancel
 # another run at all.
@@ -136,6 +143,14 @@ jobs:
       # tests keep every path in it exiting 0.
       - name: Sentry cron check-in tests
         run: bash scripts/sentry/checkin.test.sh
+
+      # The change filter decides whether a merge reaches production at all,
+      # and it fails silently in the direction that matters: a wrong "nothing
+      # changed" is a green run that deployed nothing, which is what stranded a
+      # commit on main for hours on 2026-09-13. Nothing downstream notices, so
+      # these tests are the only thing that can.
+      - name: Deployable filter tests
+        run: bash scripts/deployable.test.sh
 
       # The visibility filter is the security boundary, and it is only in one
       # place while nothing else queries the tables. That is a property of which
@@ -394,42 +409,76 @@ jobs:
   changes:
     name: Which surfaces changed
     runs-on: ubuntu-latest
+    # Narrower than the workflow default, and only what the question needs:
+    # read the repository, read what has been deployed to it.
+    permissions:
+      contents: read
+      deployments: read
     outputs:
       deployable: ${{ steps.filter.outputs.deployable }}
     steps:
       - uses: actions/checkout@v5
         with:
-          # Needed to diff against the pre-push commit; the default shallow
-          # fetch does not have it.
+          # The base of the diff is now whatever commit last reached an
+          # environment, which can be many commits back. A shallow fetch does
+          # not have it.
           fetch-depth: 0
 
       - name: Decide whether anything deployable changed
         id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # A plain diff rather than a third-party paths-filter action: every
-          # other action in this workflow is an official actions/* one, and
-          # this is a dozen lines of shell.
-          BEFORE="${{ github.event.before }}"
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            # First push to the branch, or a force-push with no usable base.
-            # Deploy rather than guess: a redundant deploy is cheap, a skipped
-            # one ships nothing.
+          # The logic lives in scripts/deployable.sh so it can be tested
+          # offline - see scripts/deployable.test.sh, which the lint job runs.
+          # This filter decides whether a merge reaches production at all, and
+          # it used to be a dozen untested lines of shell embedded in YAML
+          # where the only way to exercise a change was to merge it.
+          #
+          # It answers per environment because production sits behind a
+          # required reviewer and can trail staging while an approval waits.
+          # The run deploys if EITHER environment is missing something.
+          #
+          # That OR is the fix for the case a single answer cannot express:
+          # staging deploying successfully while production fails. Anchored on
+          # staging alone the next push would see nothing new and skip, leaving
+          # a change that never reached production with two green runs behind
+          # it. Asking both means the work stays pending until it has actually
+          # shipped everywhere. See onlooker-txcu.7.
+          #
+          # Erring toward deploying is deliberate throughout: a redundant
+          # deploy costs a few minutes, a skipped one ships nothing and says it
+          # succeeded.
+          if [ "${{ github.event_name }}" != "push" ]; then
+            # Nothing below main deploys anyway - every deploy job is gated on
+            # the ref - so there is no diff worth computing here.
             echo "deployable=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # A force-push to main names a real-looking commit in
-          # `github.event.before` that no longer exists in this clone. `git
-          # diff` against a missing object is a hard error, and under `bash -e`
-          # that fails the step and blocks every deploy behind it - the one
-          # outcome this filter is supposed to prevent. An unreachable base gets
-          # the same answer as a missing one: deploy rather than guess.
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            echo "deployable=true" >> "$GITHUB_OUTPUT"
-            exit 0
+
+          # A failure here must not become a blocked deploy. The script answers
+          # `true` for every failure it anticipates - no deployments on record,
+          # an unreachable API, a base commit missing from the clone - but this
+          # step runs under `bash -e`, so anything it did NOT anticipate would
+          # fail the step and skip every deploy behind it. That is the exact
+          # outcome the filter exists to prevent, so the unanticipated case gets
+          # the same answer as the anticipated ones.
+          #
+          # `if ! VAR="$(...)"` rather than a `&&` chain: a failed test in a
+          # `&&` list is itself a failed command, so the tidier-looking version
+          # fails the step under `bash -e` on exactly the path it was written to
+          # rescue. Inside an `if` condition, a non-zero status is data.
+          if ! STAGING="$(./scripts/deployable.sh staging)"; then
+            echo "deployable: staging check failed; deploying rather than guessing"
+            STAGING=true
           fi
-          CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
-          echo "$CHANGED"
-          if echo "$CHANGED" | grep -qE '^(apps/(api|web|website)/|packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml)'; then
+          if ! PRODUCTION="$(./scripts/deployable.sh production)"; then
+            echo "deployable: production check failed; deploying rather than guessing"
+            PRODUCTION=true
+          fi
+          echo "staging=${STAGING} production=${PRODUCTION}"
+
+          if [ "$STAGING" = "true" ] || [ "$PRODUCTION" = "true" ]; then
             echo "deployable=true" >> "$GITHUB_OUTPUT"
           else
             echo "deployable=false" >> "$GITHUB_OUTPUT"
@@ -461,9 +510,14 @@ jobs:
     #
     # That used to be justified here by cancel-in-progress being able to cancel
     # a deploy already in flight, which is no longer true of main - see the
-    # concurrency block. The filter now earns its keep only by not spending a
-    # deploy on a commit that changed nothing deployable, which is a smaller
-    # claim and the honest one.
+    # concurrency block.
+    #
+    # What it earns now is narrower and safer than either. The filter measures
+    # from what each environment last deployed, not from the previous commit,
+    # so it skips only a commit whose deployable files are already live
+    # everywhere. A commit whose deploy never landed stays pending no matter how
+    # many pushes follow it - which is the opposite of the behavior this gate
+    # used to have, and the reason onlooker-txcu.7 could happen at all.
     #
     # A manual run ignores `deployable` on purpose. The whole reason to reach
     # for the button is that the filter answered "nothing to do" and was
