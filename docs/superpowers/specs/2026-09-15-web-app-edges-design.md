@@ -33,9 +33,10 @@ least visible in a screenshot, because it is a state you pass through.
 | `MachinesPage.tsx:271` | muted `<p>Loading machines...</p>` |
 | `LessonDetail.tsx:251` | inline `Loading that lesson...` |
 
-Three stylings and two ellipsis conventions, plus four more `loadingLabel`
-strings on buttons (`"Logging in..."`, `"Sending..."`, `"Minting..."`,
-`"Working..."`).
+Three stylings and two ellipsis conventions. The button labels share the
+inconsistency at a scale this section originally understated: 13 explicit
+`loadingLabel="…"` call sites across 8 files, plus 7 `"Working..."` defaults in
+`form.tsx` and `ui.tsx`, all using `...`.
 
 **Every page has the same title.** `apps/web/index.html:6` sets
 `<title>Onlooker</title>` and nothing ever changes it. No page calls
@@ -151,9 +152,14 @@ fallback by using the wrapper rather than by remembering a prop.
 ### 4. `<Loading>`
 
 A primitive in `ui.tsx`, taking a label, styled once with `PALETTE.muted`,
-settling on `…`. It replaces the four divergent call sites, and the four button
-`loadingLabel` strings get the same ellipsis in the same pass — same
-inconsistency, different surface.
+settling on `…`. It replaces the four divergent page-level call sites.
+
+The button labels are **separable**. Twenty touch points across eight files
+otherwise untouched by this work is real review burden and real conflict
+surface for a character nobody has complained about, and an ellipsis inside a
+button is far less visible than one on a page that is doing nothing else. It is
+the last task in the plan so it can be dropped without disturbing anything
+before it.
 
 ### 5. The 404
 
