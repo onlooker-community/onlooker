@@ -5,6 +5,12 @@ import { useReveal } from "../reveal";
 import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
+import { SECTIONS, sectionFor } from "./sections";
+
+// Re-exported because shell-headings.test.tsx drives its cases off
+// `SECTIONS` imported from here. The list itself lives in ./sections so the
+// path matcher beside it can be tested without mounting React.
+export { SECTIONS };
 
 // The chrome around every authenticated route. Before this, the only
 // navigation in the app was an ad-hoc <nav> inside DashboardPage, which
@@ -15,26 +21,6 @@ import SessionExpiryBanner from "./SessionExpiryBanner";
 // through it now: /lessons as the layout route, whose :id child renders
 // through LessonsPage's own Outlet, and /machines, /settings and /profile
 // as direct wrappers.
-
-// Exported so the heading test can be driven off this list rather than a
-// hand-written copy of it: a route added here is covered without anyone
-// remembering to extend the test.
-export const SECTIONS = [
-	// Basket, not ChestTreasure: the brand doc's mapping named ChestTreasure
-	// for the approved pool, but it measures 9% legible against the night
-	// panel this renders on. See onlooker-1kr, and the amendment on the
-	// 2026-08-11 brand spec.
-	{ to: "/lessons", label: "Lessons", icon: "Basket" },
-	{ to: "/machines", label: "Machines", icon: "Key" },
-	// Book: the log-shaped icon in the brand set, and the one not already
-	// spoken for by lessons, machines, settings or profile.
-	{ to: "/activity", label: "Activity", icon: "Book" },
-	{ to: "/settings", label: "Settings", icon: "Gear" },
-	// CatHead is an extension of the brand doc's mapping, not one of its
-	// entries - the set has no person icon, and it is the most person-like
-	// thing in it. See the doc's Icons section.
-	{ to: "/profile", label: "Profile", icon: "CatHead" },
-] as const;
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const { user, logout } = auth.useAuth();
@@ -58,11 +44,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	// A shell route with no SECTIONS entry renders no h1. Every shell route
 	// today is a nav destination; one deliberately absent from the nav would be
 	// a larger question than this. See the design's Section 2.
-	const section = SECTIONS.find(
-		(candidate) =>
-			location.pathname === candidate.to ||
-			location.pathname.startsWith(`${candidate.to}/`),
-	);
+	const section = sectionFor(location.pathname);
 
 	const handleLogout = async () => {
 		// Explicitly, and before the logout lands. The provider deliberately

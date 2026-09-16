@@ -1,5 +1,7 @@
 import type { IconName } from "@onlooker/brand";
 
+export type { IconName };
+
 /**
  * A brand icon, at one of the three sizes it is legal to render.
  *
