@@ -116,11 +116,14 @@ function Elsewhere() {
 			</button>
 			{/*
 			  A route that does not render AppShell, which is where `inert` used
-			  to live. HomePage is public, so RequireAuth does not redirect and
-			  the reveal is judged on this route rather than on /login's.
+			  to live. "/" is no longer that route - it is RootRedirect now, and
+			  for a signed-in visitor it goes straight on to /lessons, which
+			  does render AppShell. /login is public, renders no AppShell, and
+			  RequireAuth does not redirect away from it, so the reveal is
+			  judged on this route instead.
 			*/}
-			<button type="button" onClick={() => navigate("/")}>
-				out to the home page
+			<button type="button" onClick={() => navigate("/login")}>
+				out to the login page
 			</button>
 		</>
 	);
@@ -232,14 +235,12 @@ describe("a revealed token across the app", () => {
 		await mintFromMachinesPage();
 
 		fireEvent.click(
-			screen.getByRole("button", { name: /out to the home page/i }),
+			screen.getByRole("button", { name: /out to the login page/i }),
 		);
 
-		// Really on HomePage: AppShell is gone, so its nav and its copy of the
+		// Really on /login: AppShell is gone, so its nav and its copy of the
 		// user's name are gone with it.
-		expect(
-			await screen.findByRole("heading", { name: /onlooker/i }),
-		).toBeTruthy();
+		expect(await screen.findByRole("heading", { name: /login/i })).toBeTruthy();
 		expect(screen.queryByLabelText(/machine name/i)).toBeNull();
 		// The reveal came along, which is the precondition that makes the rest
 		// of this test meaningful rather than vacuous.

@@ -54,13 +54,17 @@ describe("App", () => {
 	// App passes resetKey={location.pathname}. Without that reset the boundary
 	// stays caught forever and every later route renders the fallback too, so
 	// this navigates for real rather than trusting the reset is wired up.
+	//
+	// "Go home" lands on "/", which RootRedirect sends straight on to /login
+	// for this signed-out mock - so the login heading is the evidence that
+	// real content, not the fallback, is what rendered.
 	it("recovers on navigation, rather than holding the fallback forever", () => {
 		renderAppAt("/profile");
 		expect(screen.getByRole("alert")).toBeDefined();
 
 		fireEvent.click(screen.getByRole("link", { name: /home/i }));
 
-		expect(screen.getByText("Onlooker")).toBeDefined();
+		expect(screen.getByRole("heading", { name: /login/i })).toBeDefined();
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
@@ -78,6 +82,8 @@ describe("App", () => {
 		renderAppAt("/profile");
 		expect(screen.getByRole("alert")).toBeDefined();
 
+		// "Go home" already lands on /login - RootRedirect sends a signed-out
+		// visitor there rather than showing "/" itself.
 		fireEvent.click(screen.getByRole("link", { name: /home/i }));
 		expect(screen.queryByRole("alert")).toBeNull();
 
@@ -85,8 +91,10 @@ describe("App", () => {
 		// genuinely live rather than merely blank, and exercises a second
 		// resetKey change while state.error is already null - the case the
 		// guard in componentDidUpdate has to no-op on.
-		fireEvent.click(screen.getByRole("link", { name: /log in/i }));
-		expect(screen.getByRole("heading", { name: /login/i })).toBeDefined();
+		fireEvent.click(screen.getByRole("link", { name: /sign up/i }));
+		expect(
+			screen.getByRole("heading", { name: /create your account/i }),
+		).toBeDefined();
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -7,7 +7,6 @@ import { Loading } from "./components/ui";
 import { monitor } from "./monitoring";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import HomePage from "./pages/HomePage";
 import LessonDetail from "./pages/LessonDetail";
 import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
@@ -54,6 +53,29 @@ function Protected({ children }: { children: ReactNode }) {
 	);
 }
 
+/**
+ * `/` is a decision, not a page.
+ *
+ * onlooker-yfw deleted the placeholder dashboard - handler, contract cases,
+ * mock branch and page - and landed RequireAuth on /lessons. The landing route
+ * moved then; HomePage stayed behind saying "Welcome to the Onlooker platform"
+ * over a link to the pool.
+ *
+ * It waits for the session rather than guessing. Redirecting on an unresolved
+ * one would send a signed-in person refreshing / to /login and then back,
+ * which reads as having been logged out.
+ *
+ * AppShell's Sign out navigates here, so signing out resolves through this one
+ * decision rather than through a second copy of it.
+ */
+function RootRedirect() {
+	const { user, loading } = auth.useAuth();
+
+	if (loading) return <Loading label="Loading your session…" />;
+
+	return <Navigate to={user ? "/lessons" : "/login"} replace />;
+}
+
 export default function App() {
 	const location = useLocation();
 
@@ -93,7 +115,7 @@ export default function App() {
 			<RevealProvider>
 				<InertWhileRevealed>
 					<Routes>
-						<Route path="/" element={<HomePage />} />
+						<Route path="/" element={<RootRedirect />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
