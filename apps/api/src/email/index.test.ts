@@ -61,16 +61,68 @@ describe("sendEmail", () => {
 
 	// Local development has no key and no reason to hand a real provider real
 	// addresses, so the message goes to the log and the flow stays walkable.
-	it("logs instead of sending when no key is configured", async () => {
+	it("logs the whole message in development when no key is configured", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch");
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-		const result = await sendEmail(env(), message);
+		const result = await sendEmail(
+			env({ ENVIRONMENT: "development" }),
+			message,
+		);
 
 		expect(result).toEqual({ sent: false, reason: "no_api_key" });
 		expect(fetchMock).not.toHaveBeenCalled();
 		// The link has to be in the log or the flow cannot be walked locally.
 		expect(warn.mock.calls[0][0]).toContain("reset-password/abc");
+	});
+
+	// A deployed worker with no key is a misconfiguration and the log line is
+	// how it gets found, so it stays. What cannot stay is what it used to carry:
+	// `message.text` is a live single-use reset link, and Workers Logs is not
+	// the inbox it was addressed to. Anyone who can read the logs could complete
+	// the reset.
+	it("never logs the message body outside development", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		const result = await sendEmail(env({ ENVIRONMENT: "production" }), message);
+
+		expect(result).toEqual({ sent: false, reason: "no_api_key" });
+		expect(warn.mock.calls[0][0]).not.toContain("reset-password/abc");
+		// Still says what is wrong. A redacted line nobody can act on is worse
+		// than no line at all.
+		expect(warn.mock.calls[0][0]).toContain("RESEND_API_KEY");
+	});
+
+	it("never logs the recipient's address outside development", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await sendEmail(env({ ENVIRONMENT: "production" }), message);
+
+		expect(warn.mock.calls[0][0]).not.toContain("someone@example.com");
+	});
+
+	// Unset is not development. ENVIRONMENT is optional on WorkerEnv and a
+	// binding that never got set must fail toward redaction, not away from it -
+	// the one environment that leaks is the one nobody configured.
+	it("redacts when the environment is not stated at all", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await sendEmail(env(), message);
+
+		expect(warn.mock.calls[0][0]).not.toContain("someone@example.com");
+		expect(warn.mock.calls[0][0]).not.toContain("reset-password/abc");
+	});
+
+	// The domain survives redaction because it is the diagnostic part. An
+	// unverified sending domain and a recipient domain bouncing everything are
+	// the two failures this log exists to tell apart, and neither is legible
+	// once the address is gone entirely.
+	it("keeps the recipient's domain when redacting the address", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await sendEmail(env({ ENVIRONMENT: "production" }), message);
+
+		expect(warn.mock.calls[0][0]).toContain("example.com");
 	});
 
 	it("reports a provider rejection without throwing", async () => {
@@ -95,6 +147,60 @@ describe("sendEmail", () => {
 		await sendEmail(env({ RESEND_API_KEY: "re_test" }), message);
 
 		expect(error.mock.calls[0][0]).toContain("not verified");
+	});
+
+	// The rejection path logs `to=` for the same reason the missing-key path
+	// does, and leaks for the same reason too. A failed send is exactly when a
+	// support conversation starts, so this line gets read by more people than
+	// any other in the file.
+	it("does not name the recipient when the provider rejects the message", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("domain not verified", { status: 403 }),
+		);
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await sendEmail(
+			env({ RESEND_API_KEY: "re_test", ENVIRONMENT: "production" }),
+			message,
+		);
+
+		expect(error.mock.calls[0][0]).not.toContain("someone@example.com");
+		expect(error.mock.calls[0][0]).toContain("example.com");
+	});
+
+	// The provider's body is echoed into the log deliberately, which means the
+	// provider chooses what this line says. A 422 that quotes the request back
+	// would put the link in the log through a door the code never opened.
+	it("redacts a provider response that quotes the message back", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				`invalid request: text=https://app.onlooker.dev/reset-password/${"a1b2c3d4".repeat(8)}`,
+				{ status: 422 },
+			),
+		);
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await sendEmail(
+			env({ RESEND_API_KEY: "re_test", ENVIRONMENT: "production" }),
+			message,
+		);
+
+		expect(error.mock.calls[0][0]).not.toContain("a1b2c3d4a1b2c3d4");
+		// The reason for the rejection still has to survive the scrubbing.
+		expect(error.mock.calls[0][0]).toContain("invalid request");
+	});
+
+	it("does not name the recipient when the provider is unreachable", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNRESET"));
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await sendEmail(
+			env({ RESEND_API_KEY: "re_test", ENVIRONMENT: "production" }),
+			message,
+		);
+
+		expect(error.mock.calls[0][0]).not.toContain("someone@example.com");
+		expect(error.mock.calls[0][0]).toContain("ECONNRESET");
 	});
 
 	// A provider outage must not take an auth request down with it.
