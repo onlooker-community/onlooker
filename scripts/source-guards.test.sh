@@ -288,6 +288,35 @@ for app in api web; do
 done
 
 echo
+echo "source-guards: one loading state, not four"
+
+# Matches a JSX text node beginning with "Loading" - either `<p>Loading …` on
+# one line, or a line whose first non-space token is `Loading <word>`, which is
+# the wrapped form LessonDetail used.
+#
+# Heuristic by construction: it cannot see a label built at runtime, and it is
+# not trying to. It catches the shape that actually recurred four times, so the
+# fifth page cannot quietly add a fifth spelling.
+offenders="$(grep -rnE '(>[[:space:]]*Loading|^[[:space:]]+Loading [a-z])' \
+	"${ROOT}/apps/web/src" --include='*.tsx' 2>/dev/null |
+	grep -v 'components/ui.tsx' || true)"
+
+if [[ -n "${offenders}" ]]; then
+	fail "no page renders its own loading paragraph" "found in:${offenders}"
+else
+	pass "no page renders its own loading paragraph"
+fi
+
+# The second check, following the pattern the lesson-query guard above
+# establishes: without it this passes trivially the day the primitive is
+# deleted and every call site with it.
+if grep -q 'export function Loading' "${ROOT}/apps/web/src/components/ui.tsx"; then
+	pass "ui.tsx is where the loading state lives"
+else
+	fail "ui.tsx is where the loading state lives" "no Loading export found there"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

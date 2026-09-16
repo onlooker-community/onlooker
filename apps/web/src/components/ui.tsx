@@ -219,6 +219,27 @@ export function Plate({
 }
 
 /**
+ * The page-level "still fetching" line.
+ *
+ * One component because there were four: a bare <p> on Activity and Profile, a
+ * muted one on Machines, an inline one on LessonDetail, and two spellings of
+ * the ellipsis between them. Three of the four were also silent - `role`
+ * defaults to nothing on a <p>, so a screen reader was told a loading page was
+ * an empty one.
+ *
+ * Distinct from EmptyState: empty is a finished answer, loading is not an
+ * answer yet, and giving them one component would make "no machines" and "not
+ * yet known" look alike.
+ */
+export function Loading({ label }: { label: string }) {
+	return (
+		<p role="status" style={{ color: PALETTE.muted }}>
+			{label}
+		</p>
+	);
+}
+
+/**
  * The state the pool is in at launch, and the one it returns to whenever a
  * fetch fails. Designed rather than defaulted: an empty filter result and an
  * empty pool say different things, so the caller supplies both the title and

@@ -1,4 +1,4 @@
-import { EmptyState, Panel } from "../components/ui";
+import { EmptyState, Loading, Panel } from "../components/ui";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
 import type { UserProfile } from "../types/api";
 
@@ -29,7 +29,7 @@ export default function ProfilePage() {
 
 	return (
 		<div style={{ maxWidth: "640px" }}>
-			{loading && <p>Loading your profile…</p>}
+			{loading && <Loading label="Loading your profile…" />}
 
 			{error && !loading && (
 				<EmptyState

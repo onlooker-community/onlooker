@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { type ActivityEvent, listActivity } from "../api/lessonsApi";
 import { LoadMore } from "../components/LoadMore";
-import { EmptyState, Panel } from "../components/ui";
+import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 
 /** The day an event belongs to, in the reader's own timezone. */
@@ -106,7 +106,7 @@ export default function ActivityPage() {
 		);
 	}
 
-	if (events === null) return <p>Loading your activity…</p>;
+	if (events === null) return <Loading label="Loading your activity…" />;
 
 	if (events.length === 0) {
 		return (

@@ -17,7 +17,7 @@ import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { MachineInventory } from "../components/MachineInventory";
 import { PALETTE } from "../components/palette";
-import { Chip, EmptyState, Panel, Plate } from "../components/ui";
+import { Chip, EmptyState, Loading, Panel, Plate } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
 import { useReveal } from "../reveal";
@@ -268,7 +268,7 @@ export default function MachinesPage() {
 						{loadError}
 					</EmptyState>
 				) : machines === null ? (
-					<p style={{ color: PALETTE.muted }}>Loading machines...</p>
+					<Loading label="Loading machines…" />
 				) : machines.length === 0 ? (
 					<EmptyState title="No machines yet">
 						Mint a token above, then paste it into a plugin&apos;s config to

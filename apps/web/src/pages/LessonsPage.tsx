@@ -7,6 +7,7 @@ import { PALETTE } from "../components/palette";
 import {
 	Chip,
 	EmptyState,
+	Loading,
 	Panel,
 	Plate,
 	STATUS_ICONS,
@@ -263,7 +264,7 @@ export default function LessonsPage() {
 	const resultSummary = loadError
 		? "Could not load the pool"
 		: lessons === null
-			? "Loading the pool..."
+			? "Loading the pool…"
 			: lessons.length === 0
 				? filter
 					? (FILTERS.find((option) => option.value === filter)?.empty ??
@@ -354,7 +355,7 @@ export default function LessonsPage() {
 						{loadError}
 					</EmptyState>
 				) : lessons === null ? (
-					<p style={{ color: PALETTE.muted }}>Loading the pool...</p>
+					<Loading label="Loading the pool…" />
 				) : lessons.length === 0 ? (
 					filter ? (
 						// An empty FILTER result and an empty POOL say different

@@ -6,7 +6,7 @@ import {
 } from "../api/machinesApi";
 import { describeError } from "../lib/apiErrors";
 import { PALETTE } from "./palette";
-import { Chip } from "./ui";
+import { Chip, Loading } from "./ui";
 import { When } from "./When";
 
 /**
@@ -53,7 +53,7 @@ export function MachineInventory({ machineId }: { machineId: string }) {
 		);
 	}
 
-	if (!inventory) return <p>Loading what this machine runs…</p>;
+	if (!inventory) return <Loading label="Loading what this machine runs…" />;
 
 	return (
 		<div style={{ display: "grid", gap: "var(--space-2)" }}>
