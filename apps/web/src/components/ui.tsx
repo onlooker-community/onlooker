@@ -251,6 +251,7 @@ export function EmptyState({
 	tone,
 	children,
 	action,
+	headingLevel = 2,
 }: {
 	title: string;
 	/** Decorative - the title right beside it already says what's empty. */
@@ -264,7 +265,17 @@ export function EmptyState({
 	tone?: "teal" | "red";
 	children?: ReactNode;
 	action?: { label: string; onClick: () => void };
+	/**
+	 * Render the title as an h1 instead of an h2.
+	 *
+	 * Defaults to 2 because an EmptyState normally sits inside a page whose h1
+	 * AppShell already rendered from SECTIONS. The 404 is the exception: it has
+	 * no SECTIONS entry, so AppShell renders no heading and this is the page's
+	 * only one.
+	 */
+	headingLevel?: 1 | 2;
 }) {
+	const Heading = headingLevel === 1 ? "h1" : "h2";
 	return (
 		<div
 			style={{
@@ -282,7 +293,7 @@ export function EmptyState({
 					)}
 				</div>
 			) : null}
-			<h2
+			<Heading
 				style={{
 					margin: "0 0 0.5rem",
 					fontFamily: "var(--font-display)",
@@ -291,7 +302,7 @@ export function EmptyState({
 				}}
 			>
 				{title}
-			</h2>
+			</Heading>
 			{children ? (
 				<p style={{ color: PALETTE.muted, margin: "0 0 1rem" }}>{children}</p>
 			) : null}

@@ -12,6 +12,7 @@ import LessonDetail from "./pages/LessonDetail";
 import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
 import MachinesPage from "./pages/MachinesPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import ProfilePage from "./pages/ProfilePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -150,7 +151,7 @@ export default function App() {
 								</Protected>
 							}
 						/>
-						<Route path="*" element={<div>404 Not Found</div>} />
+						<Route path="*" element={<NotFoundPage />} />
 					</Routes>
 				</InertWhileRevealed>
 				{/*
