@@ -288,15 +288,15 @@ for app in api web; do
 done
 
 echo
-echo "source-guards: one loading state, not four"
+echo "source-guards: one loading state, not six"
 
 # Matches a JSX text node beginning with "Loading" - either `<p>Loading …` on
 # one line, or a line whose first non-space token is `Loading <word>`, which is
 # the wrapped form LessonDetail used.
 #
 # Heuristic by construction: it cannot see a label built at runtime, and it is
-# not trying to. It catches the shape that actually recurred four times, so the
-# fifth page cannot quietly add a fifth spelling.
+# not trying to. It catches the shape that actually recurred six times, so the
+# seventh page cannot quietly add a seventh spelling.
 offenders="$(grep -rnE '(>[[:space:]]*Loading|^[[:space:]]+Loading [a-z])' \
 	"${ROOT}/apps/web/src" --include='*.tsx' 2>/dev/null |
 	grep -v 'components/ui.tsx' || true)"

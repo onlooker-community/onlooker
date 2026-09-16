@@ -221,11 +221,12 @@ export function Plate({
 /**
  * The page-level "still fetching" line.
  *
- * One component because there were four: a bare <p> on Activity and Profile, a
- * muted one on Machines, an inline one on LessonDetail, and two spellings of
- * the ellipsis between them. Three of the four were also silent - `role`
- * defaults to nothing on a <p>, so a screen reader was told a loading page was
- * an empty one.
+ * One component because there were six: a bare <p> on Activity, Profile and
+ * MachineInventory, a muted one on Machines and LessonsPage, and an inline
+ * one on LessonDetail, with two spellings of the ellipsis between them. Five
+ * of the six were also silent - `role` defaults to nothing on a <p>, so a
+ * screen reader was told a loading page was an empty one. Only LessonDetail
+ * already carried `role="status"`.
  *
  * Distinct from EmptyState: empty is a finished answer, loading is not an
  * answer yet, and giving them one component would make "no machines" and "not

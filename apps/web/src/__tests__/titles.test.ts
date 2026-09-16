@@ -32,4 +32,14 @@ describe("titleFor", () => {
 	it("falls back to the not-found title", () => {
 		expect(titleFor("/nothing-here")).toBe("Page not found · Onlooker");
 	});
+
+	// "/" matches neither SECTIONS nor TITLES, same as an unlisted path - but it
+	// is not one. RootRedirect occupies it for the whole session-restore
+	// window, and NotFoundPage itself goes out of its way not to claim a route
+	// is missing while that window is open (see not-found.test.tsx). The
+	// not-found fallback would make exactly that claim if "/" fell through to
+	// it, so it gets the bare product name instead.
+	it("does not call the root a page that does not exist", () => {
+		expect(titleFor("/")).toBe("Onlooker");
+	});
 });

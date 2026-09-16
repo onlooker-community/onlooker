@@ -1184,4 +1184,34 @@ describe("the visual language", () => {
 			expect(screen.getByRole("status").textContent).toMatch(/1 lesson/i),
 		);
 	});
+
+	// The pool's own hazard again, this time at mount instead of at a click:
+	// the region above already says "Loading the pool…" while `lessons` is
+	// null, so the loading branch below it must not ALSO carry role="status" -
+	// two live regions announcing the same words at once is exactly what the
+	// "load more" retirement message reasons about avoiding. getByRole throws
+	// on more than one match, so this fails loudly if that branch ever goes
+	// back to the primitive.
+	it("announces the pool's first load only once", async () => {
+		let resolveLoad: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveLoad = resolve;
+				}),
+		);
+
+		render(
+			<MemoryRouter initialEntries={["/lessons"]}>
+				<App />
+			</MemoryRouter>,
+		);
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalled());
+
+		expect(screen.getByRole("status").textContent).toMatch(/loading the pool/i);
+
+		await act(async () => {
+			resolveLoad({ lessons: [VITE], cursor: null, has_more: false });
+		});
+	});
 });

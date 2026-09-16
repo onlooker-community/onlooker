@@ -34,12 +34,24 @@ const NOT_FOUND = "Page not found";
  *
  * The fallback is the not-found title rather than the bare product name,
  * because a path matching neither list renders the catch-all route and IS the
- * not-found page. The 404 cannot set this itself - React runs child effects
- * before parent ones, so the hook below would overwrite whatever it set. What
- * keeps this from mislabeling a real route nobody listed is the source guard,
- * not this function.
+ * not-found page - "/" excepted, handled below, because it renders
+ * RootRedirect rather than the catch-all. The 404 cannot set this itself -
+ * React runs child effects before parent ones, so the hook below would
+ * overwrite whatever it set. What keeps this from mislabeling a real route
+ * nobody listed is the source guard, not this function.
  */
 export function titleFor(pathname: string): string {
+	// "/" is unmatched the same way an unlisted path is, but it is not one: it
+	// is RootRedirect's own route, and RootRedirect renders a bare <Loading>
+	// - not <Navigate> - for the whole session-restore window, so the location
+	// stays "/" for that entire window rather than moving on immediately. The
+	// not-found fallback below would tell the tab, and a screen reader on
+	// navigation, that "/" is a route that does not exist - the exact claim
+	// NotFoundPage itself refuses to make while a session is still resolving
+	// (see not-found.test.tsx). This is the one path that gets a name without
+	// appearing in SECTIONS or TITLES.
+	if (pathname === "/") return PRODUCT;
+
 	const section = sectionFor(pathname);
 	if (section) return `${section.label} · ${PRODUCT}`;
 

@@ -7,7 +7,6 @@ import { PALETTE } from "../components/palette";
 import {
 	Chip,
 	EmptyState,
-	Loading,
 	Panel,
 	Plate,
 	STATUS_ICONS,
@@ -355,7 +354,15 @@ export default function LessonsPage() {
 						{loadError}
 					</EmptyState>
 				) : lessons === null ? (
-					<Loading label="Loading the pool…" />
+					// Not <Loading>: the region above already carries the role="status"
+					// duty for this exact text - resultSummary reads "Loading the
+					// pool…" too while lessons is null - so mounting the primitive's
+					// own role="status" paragraph here sat a second live region next
+					// to the first, both announcing the same words at once. Same
+					// hazard the "load more" retirement message reasons about further
+					// down this file, just triggered by mount instead of by a click.
+					// This mirrors the primitive's look without a second role.
+					<p style={{ color: PALETTE.muted }}>{resultSummary}</p>
 				) : lessons.length === 0 ? (
 					filter ? (
 						// An empty FILTER result and an empty POOL say different
