@@ -16,9 +16,13 @@ import SettingsPage from "./pages/SettingsPage";
 import SignupPage from "./pages/SignupPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import { InertWhileRevealed, RevealHost, RevealProvider } from "./reveal";
+import { useDocumentTitle } from "./titles";
 
 export default function App() {
 	const location = useLocation();
+
+	// Once, here, rather than in each page - see titles.ts.
+	useDocumentTitle();
 
 	// Inside the router, so the fallback's links work and a broken page does not
 	// strand the session - BrowserRouter lives in main.tsx, above this.

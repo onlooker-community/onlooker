@@ -317,6 +317,35 @@ else
 fi
 
 echo
+echo "source-guards: every route App declares has a title"
+
+# Extracts the leading segment of every path= in App.tsx, skips the catch-all
+# and the root redirect - neither renders a page of its own - and asserts each
+# is named in sections.ts or titles.ts.
+#
+# This is what makes the not-found FALLBACK safe. Without it, adding a route
+# and forgetting to name it would title a real page "Page not found", which
+# claims something false rather than merely unhelpful.
+missing=""
+while read -r route; do
+	case "${route}" in
+		'*' | '/' | '' | :*) continue ;;
+	esac
+	segment="${route%%/*}"
+	if ! grep -q "\"/${segment}\"" "${ROOT}/apps/web/src/components/sections.ts" &&
+		! grep -q "\"/${segment}\"" "${ROOT}/apps/web/src/titles.ts"; then
+		missing="${missing} /${segment}"
+	fi
+done < <(grep -oE 'path="[^"]*"' "${ROOT}/apps/web/src/App.tsx" |
+	sed -E 's/path="\/?([^"]*)"/\1/')
+
+if [[ -n "${missing}" ]]; then
+	fail "no route in App.tsx is missing a title" "unnamed:${missing}"
+else
+	pass "no route in App.tsx is missing a title"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
