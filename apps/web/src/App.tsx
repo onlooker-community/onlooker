@@ -1,24 +1,86 @@
-import { Route, Routes, useLocation } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { Loading } from "./components/ui";
 import { monitor } from "./monitoring";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import HomePage from "./pages/HomePage";
 import LessonDetail from "./pages/LessonDetail";
 import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
 import MachinesPage from "./pages/MachinesPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import ProfilePage from "./pages/ProfilePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SettingsPage from "./pages/SettingsPage";
 import SignupPage from "./pages/SignupPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import { InertWhileRevealed, RevealHost, RevealProvider } from "./reveal";
+import { useDocumentTitle } from "./titles";
+
+/**
+ * Every authenticated route: the guard, the chrome, and what to show while the
+ * session is still resolving.
+ *
+ * The third of those is why this exists. RequireAuth's loadingFallback
+ * defaults to null and nothing here ever passed one, so a hard refresh of any
+ * shell route painted a blank page - no nav, no heading - until the session
+ * came back. Composing it once means a sixth route gets the fallback by using
+ * this wrapper rather than by someone remembering a prop.
+ *
+ * AppShell renders correctly with a null user; it already guards that case for
+ * the header (`{user ? … : null}`), so the frame can be drawn before anyone is
+ * known to be signed in.
+ *
+ * A signed-out person hitting a shell URL sees this frame briefly before
+ * RequireAuth redirects them to /login. That is the accepted cost: the
+ * alternative was a blank screen for everyone, including the signed-in case,
+ * which is the common one.
+ */
+function Protected({ children }: { children: ReactNode }) {
+	return (
+		<auth.RequireAuth
+			loadingFallback={
+				<AppShell>
+					<Loading label="Loading your session…" />
+				</AppShell>
+			}
+		>
+			<AppShell>{children}</AppShell>
+		</auth.RequireAuth>
+	);
+}
+
+/**
+ * `/` is a decision, not a page.
+ *
+ * onlooker-yfw deleted the placeholder dashboard - handler, contract cases,
+ * mock branch and page - and landed RequireAuth on /lessons. The landing route
+ * moved then; HomePage stayed behind saying "Welcome to the Onlooker platform"
+ * over a link to the pool.
+ *
+ * It waits for the session rather than guessing. Redirecting on an unresolved
+ * one would send a signed-in person refreshing / to /login and then back,
+ * which reads as having been logged out.
+ *
+ * AppShell's Sign out navigates here, so signing out resolves through this one
+ * decision rather than through a second copy of it.
+ */
+function RootRedirect() {
+	const { user, loading } = auth.useAuth();
+
+	if (loading) return <Loading label="Loading your session…" />;
+
+	return <Navigate to={user ? "/lessons" : "/login"} replace />;
+}
 
 export default function App() {
 	const location = useLocation();
+
+	// Once, here, rather than in each page - see titles.ts.
+	useDocumentTitle();
 
 	// Inside the router, so the fallback's links work and a broken page does not
 	// strand the session - BrowserRouter lives in main.tsx, above this.
@@ -53,7 +115,7 @@ export default function App() {
 			<RevealProvider>
 				<InertWhileRevealed>
 					<Routes>
-						<Route path="/" element={<HomePage />} />
+						<Route path="/" element={<RootRedirect />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -65,21 +127,17 @@ export default function App() {
 						<Route
 							path="/settings"
 							element={
-								<auth.RequireAuth>
-									<AppShell>
-										<SettingsPage />
-									</AppShell>
-								</auth.RequireAuth>
+								<Protected>
+									<SettingsPage />
+								</Protected>
 							}
 						/>
 						<Route
 							path="/profile"
 							element={
-								<auth.RequireAuth>
-									<AppShell>
-										<ProfilePage />
-									</AppShell>
-								</auth.RequireAuth>
+								<Protected>
+									<ProfilePage />
+								</Protected>
 							}
 						/>
 						{/*
@@ -92,11 +150,9 @@ export default function App() {
 						<Route
 							path="/lessons"
 							element={
-								<auth.RequireAuth>
-									<AppShell>
-										<LessonsPage />
-									</AppShell>
-								</auth.RequireAuth>
+								<Protected>
+									<LessonsPage />
+								</Protected>
 							}
 						>
 							<Route path=":id" element={<LessonDetail />} />
@@ -104,24 +160,20 @@ export default function App() {
 						<Route
 							path="/machines"
 							element={
-								<auth.RequireAuth>
-									<AppShell>
-										<MachinesPage />
-									</AppShell>
-								</auth.RequireAuth>
+								<Protected>
+									<MachinesPage />
+								</Protected>
 							}
 						/>
 						<Route
 							path="/activity"
 							element={
-								<auth.RequireAuth>
-									<AppShell>
-										<ActivityPage />
-									</AppShell>
-								</auth.RequireAuth>
+								<Protected>
+									<ActivityPage />
+								</Protected>
 							}
 						/>
-						<Route path="*" element={<div>404 Not Found</div>} />
+						<Route path="*" element={<NotFoundPage />} />
 					</Routes>
 				</InertWhileRevealed>
 				{/*

@@ -14,6 +14,7 @@ import {
 	Button,
 	Chip,
 	EmptyState,
+	Loading,
 	Panel,
 	STATUS_ICONS,
 	StatusBadge,
@@ -247,9 +248,7 @@ export default function LessonDetail() {
 		return (
 			<>
 				{back}
-				<p role="status" style={{ color: PALETTE.muted }}>
-					Loading that lesson...
-				</p>
+				<Loading label="Loading that lesson…" />
 			</>
 		);
 	}

@@ -5,6 +5,7 @@ import {
 	Button,
 	Chip,
 	EmptyState,
+	Loading,
 	Panel,
 	Plate,
 	StatusBadge,
@@ -281,5 +282,17 @@ describe("EmptyState", () => {
 		const plate = container.querySelector("span");
 		expect(plate).not.toBeNull();
 		expect((plate as HTMLElement).style.background).toBe(PALETTE.plateTeal);
+	});
+});
+
+describe("Loading", () => {
+	it("announces itself to a screen reader", () => {
+		render(<Loading label="Loading machines…" />);
+
+		// role="status" is the whole point of having one of these rather than
+		// four hand-rolled paragraphs: three of the four call sites this
+		// replaces rendered a bare <p>, so a screen reader was told nothing
+		// was happening at all.
+		expect(screen.getByRole("status").textContent).toBe("Loading machines…");
 	});
 });

@@ -22,16 +22,21 @@ vi.mock("../lib/reportError", () => ({
 	redactSecrets: (value: string) => value,
 }));
 
-// HomePage is the "/" route, so this throws on the first render App attempts.
-vi.mock("../pages/HomePage", () => ({
+// "/" is a redirect now (RootRedirect), not a page of its own, so there is no
+// page left to throw on the very first render by mounting at "/". This mounts
+// on a different public route instead - ForgotPasswordPage is not reached by
+// the /login -> /signup navigation the second mock below drives, so the two
+// throws stay independent.
+vi.mock("../pages/ForgotPasswordPage", () => ({
 	default: () => {
 		throw new Error("deliberate render failure");
 	},
 }));
 
 // A second throwing page, reached by navigating rather than mounted onto -
-// HomePage above only covers a throw the boundary catches at mount. /signup is
-// public and reachable by a real link from /login, which is not mocked.
+// ForgotPasswordPage above only covers a throw the boundary catches at mount.
+// /signup is public and reachable by a real link from /login, which is not
+// mocked.
 vi.mock("../pages/SignupPage", () => ({
 	default: () => {
 		throw new Error("SignupPage exploded");
@@ -57,7 +62,7 @@ describe("a render error reaches the reporter", () => {
 
 	it("reports it, rather than only showing a fallback", () => {
 		render(
-			<MemoryRouter initialEntries={["/"]}>
+			<MemoryRouter initialEntries={["/forgot-password"]}>
 				<App />
 			</MemoryRouter>,
 		);
@@ -79,7 +84,7 @@ describe("a render error reaches the reporter", () => {
 	// of it, which is most of the value of catching it at the boundary at all.
 	it("includes where in the tree it happened", () => {
 		render(
-			<MemoryRouter initialEntries={["/"]}>
+			<MemoryRouter initialEntries={["/forgot-password"]}>
 				<App />
 			</MemoryRouter>,
 		);

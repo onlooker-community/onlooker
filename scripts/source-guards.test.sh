@@ -288,6 +288,64 @@ for app in api web; do
 done
 
 echo
+echo "source-guards: one loading state, not six"
+
+# Matches a JSX text node beginning with "Loading" - either `<p>Loading …` on
+# one line, or a line whose first non-space token is `Loading <word>`, which is
+# the wrapped form LessonDetail used.
+#
+# Heuristic by construction: it cannot see a label built at runtime, and it is
+# not trying to. It catches the shape that actually recurred six times, so the
+# seventh page cannot quietly add a seventh spelling.
+offenders="$(grep -rnE '(>[[:space:]]*Loading|^[[:space:]]+Loading [a-z])' \
+	"${ROOT}/apps/web/src" --include='*.tsx' 2>/dev/null |
+	grep -v 'components/ui.tsx' || true)"
+
+if [[ -n "${offenders}" ]]; then
+	fail "no page renders its own loading paragraph" "found in:${offenders}"
+else
+	pass "no page renders its own loading paragraph"
+fi
+
+# The second check, following the pattern the lesson-query guard above
+# establishes: without it this passes trivially the day the primitive is
+# deleted and every call site with it.
+if grep -q 'export function Loading' "${ROOT}/apps/web/src/components/ui.tsx"; then
+	pass "ui.tsx is where the loading state lives"
+else
+	fail "ui.tsx is where the loading state lives" "no Loading export found there"
+fi
+
+echo
+echo "source-guards: every route App declares has a title"
+
+# Extracts the leading segment of every path= in App.tsx, skips the catch-all
+# and the root redirect - neither renders a page of its own - and asserts each
+# is named in sections.ts or titles.ts.
+#
+# This is what makes the not-found FALLBACK safe. Without it, adding a route
+# and forgetting to name it would title a real page "Page not found", which
+# claims something false rather than merely unhelpful.
+missing=""
+while read -r route; do
+	case "${route}" in
+		'*' | '/' | '' | :*) continue ;;
+	esac
+	segment="${route%%/*}"
+	if ! grep -q "\"/${segment}\"" "${ROOT}/apps/web/src/components/sections.ts" &&
+		! grep -q "\"/${segment}\"" "${ROOT}/apps/web/src/titles.ts"; then
+		missing="${missing} /${segment}"
+	fi
+done < <(grep -oE 'path="[^"]*"' "${ROOT}/apps/web/src/App.tsx" |
+	sed -E 's/path="\/?([^"]*)"/\1/')
+
+if [[ -n "${missing}" ]]; then
+	fail "no route in App.tsx is missing a title" "unnamed:${missing}"
+else
+	pass "no route in App.tsx is missing a title"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
