@@ -8,6 +8,7 @@ import {
 import { join, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { onlookerDir } from "./config";
+import type { EventEnvelope } from "./sessions";
 
 /**
  * What one pass over `logs/onlooker-events.jsonl` found.
@@ -410,6 +411,119 @@ export async function scanEvents(opts: {
 	}
 	scan.projectKeys = [...keys].sort((a, b) => a.localeCompare(b));
 	return scan;
+}
+
+/** What one pass over `logs/onlooker-events.jsonl` found for session reporting. */
+export interface EventLogEnvelopes {
+	/**
+	 * Envelope-only records read from the log - never `payload`. See
+	 * `EventEnvelope`'s own docstring: that absence is this feature's entire
+	 * safety story, and it holds here too, one layer below `scanEvents`.
+	 */
+	envelopes: EventEnvelope[];
+	/**
+	 * `null` when the log was read, even if it held zero lines worth
+	 * summarizing - a real answer, not a failure to look. Otherwise the
+	 * one-line reason it could not be, for a caller that has to word a local
+	 * problem differently from a refused request. Same distinction
+	 * `Collected["kind"]` draws in inventory.ts, and `scanEvents.missing`
+	 * draws here.
+	 */
+	unavailable: string | null;
+}
+
+/**
+ * Stream `logs/onlooker-events.jsonl` down to the envelope fields
+ * `summarizeSessions` (sessions.ts) needs to fold sessions out of it.
+ *
+ * Same streaming approach as `scanEvents` above, for the same reason: line by
+ * line via `createReadStream`, never `readFileSync`'d whole, because the file
+ * is tens of megabytes and growing. Unlike `scanEvents` this hands back the
+ * envelopes themselves rather than an aggregate - `summarizeSessions` already
+ * owns the folding, and this module must not grow a second way to do it.
+ *
+ * `payload` is never read. Only `event_type`, `session_id`, `timestamp`,
+ * `machine_id` and `plugin` are pulled off each parsed line.
+ *
+ * A line that is not valid JSON, or is missing a required field, is skipped
+ * rather than aborting the pass: the log is appended by many independent
+ * plugins, and one bad writer must not silently end session reporting for
+ * good.
+ */
+export async function readEventEnvelopes(
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<EventLogEnvelopes> {
+	const path = join(onlookerDir(env), "logs", "onlooker-events.jsonl");
+
+	if (!existsSync(path)) {
+		return {
+			envelopes: [],
+			unavailable: `${path} does not exist, so no sessions have been logged on this machine yet.`,
+		};
+	}
+
+	let stream: ReturnType<typeof createReadStream>;
+	try {
+		stream = createReadStream(path, { encoding: "utf8" });
+	} catch (error) {
+		// `existsSync` proves the path existed a moment ago, not that it can be
+		// opened - the same distinction `scanEvents` draws, for the same
+		// reason: it may be a directory, or unreadable.
+		return {
+			envelopes: [],
+			unavailable: `${path} could not be read: ${(error as Error).message}`,
+		};
+	}
+
+	const envelopes: EventEnvelope[] = [];
+	try {
+		for await (const line of createInterface({
+			input: stream,
+			crlfDelay: Number.POSITIVE_INFINITY,
+		})) {
+			const trimmed = line.trim();
+			if (trimmed === "") continue;
+
+			let record: Record<string, unknown>;
+			try {
+				const parsed: unknown = JSON.parse(trimmed);
+				if (typeof parsed !== "object" || parsed === null) continue;
+				record = parsed as Record<string, unknown>;
+			} catch {
+				continue;
+			}
+
+			if (
+				typeof record.event_type !== "string" ||
+				typeof record.session_id !== "string" ||
+				typeof record.timestamp !== "string"
+			) {
+				continue;
+			}
+
+			envelopes.push({
+				event_type: record.event_type,
+				session_id: record.session_id,
+				timestamp: record.timestamp,
+				machine_id:
+					typeof record.machine_id === "string" ? record.machine_id : undefined,
+				plugin: typeof record.plugin === "string" ? record.plugin : undefined,
+			});
+		}
+	} catch (error) {
+		// Same asymmetry `scanEvents` documents: `createReadStream` does not
+		// throw synchronously for EISDIR/EACCES, so a failure like that can
+		// surface here instead, asynchronously, as the read loop's first and
+		// only error. What was read so far cannot be told apart from a
+		// complete pass, so it is discarded rather than handed back as a
+		// partial result a caller might trust.
+		return {
+			envelopes: [],
+			unavailable: `${path} could not be fully read: ${(error as Error).message}`,
+		};
+	}
+
+	return { envelopes, unavailable: null };
 }
 
 /**

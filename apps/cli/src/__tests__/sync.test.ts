@@ -60,21 +60,36 @@ const pushes = (outcomes: Array<{ outcome: string; error?: string }> = []) =>
 	}));
 
 /**
- * A fetch stub that routes by path: inventory, the delta read, and the push.
+ * A fetch stub that routes by path: inventory, sessions, the delta read, and
+ * the push.
  *
- * sync now makes three different kinds of request, so a stub that answers
- * every URL with a push-shaped body feeds the delta reader a response it
- * cannot use. Defaults answer success with nothing waiting, and a test
- * overrides only the leg it is about.
+ * sync now makes four different kinds of request, so a stub that answers
+ * every URL with a push-shaped body feeds the delta reader (or the sessions
+ * reporter) a response it cannot use. Defaults answer success with nothing
+ * waiting, and a test overrides only the leg it is about.
  */
 const routed = (
-	over: { inventory?: unknown; pull?: unknown; push?: unknown } = {},
+	over: {
+		inventory?: unknown;
+		sessions?: unknown;
+		pull?: unknown;
+		push?: unknown;
+	} = {},
 ) =>
 	vi.fn().mockImplementation(async (url: unknown, init: { body: string }) => {
 		const path = String(url);
 		if (path.endsWith("/machine/inventory")) {
 			return (
 				over.inventory ?? {
+					ok: true,
+					status: 200,
+					json: async () => ({ ok: true }),
+				}
+			);
+		}
+		if (path.endsWith("/machine/sessions")) {
+			return (
+				over.sessions ?? {
 					ok: true,
 					status: 200,
 					json: async () => ({ ok: true }),
@@ -105,9 +120,10 @@ const routed = (
 
 const accepts = () => routed();
 
-/** Which of sync's three requests a URL is. */
-const leg = (url: string): "inventory" | "pull" | "push" => {
+/** Which of sync's four requests a URL is. */
+const leg = (url: string): "inventory" | "sessions" | "pull" | "push" => {
 	if (url.endsWith("/machine/inventory")) return "inventory";
+	if (url.endsWith("/machine/sessions")) return "sessions";
 	return url.includes("since=") ? "pull" : "push";
 };
 
@@ -656,6 +672,145 @@ describe("sync inventory reporting", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(/onlooker link/);
 
 		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * Reporting this machine's recent sessions, alongside the inventory report.
+ *
+ * Same three rules as `reportInventory`: non-fatal, never silent, and a local
+ * problem worded differently from a refused request. See `reportSessions`'s
+ * own doc comment in `commands/sync.ts`.
+ */
+describe("sync reports session summaries", () => {
+	/** One event envelope `minutesAgo` minutes before now - within the report's window by default. */
+	function eventEnvelope(
+		session_id: string,
+		event_type: string,
+		minutesAgo: number,
+	): Record<string, unknown> {
+		return {
+			event_type,
+			session_id,
+			timestamp: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+		};
+	}
+
+	/** `count` filler events for one session, oldest first, a minute apart, ending close to now. */
+	function sessionEvents(
+		session_id: string,
+		count: number,
+	): Record<string, unknown>[] {
+		return Array.from({ length: count }, (_, i) =>
+			eventEnvelope(session_id, "tool.shell.exec", count - i),
+		);
+	}
+
+	/** Writes `logs/onlooker-events.jsonl` under `env.ONLOOKER_DIR`. Objects are serialized; strings are written raw, so a malformed line can be injected. */
+	function withEventLog(env: NodeJS.ProcessEnv, lines: unknown[]): void {
+		const dir = join(env.ONLOOKER_DIR as string, "logs");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "onlooker-events.jsonl"),
+			`${lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n")}\n`,
+		);
+	}
+
+	/** Every `/machine/sessions` request a stub received. */
+	const sessionReports = (fetchImpl: {
+		mock: { calls: unknown[][] };
+	}): FetchCall[] =>
+		fetchImpl.mock.calls.filter(([url]) =>
+			String(url).endsWith("/machine/sessions"),
+		) as FetchCall[];
+
+	it("reports session summaries and says nothing when it works", async () => {
+		const env = linked();
+		withEventLog(env, sessionEvents("s1", 25));
+		const fetchImpl = routed();
+
+		const message = await sync({ env, fetchImpl });
+
+		const reports = sessionReports(fetchImpl);
+		expect(reports).toHaveLength(1);
+		const sent = JSON.parse(reports[0][1].body);
+		expect(sent).toEqual({
+			schema_version: 1,
+			sessions: [expect.objectContaining({ session_id: "s1" })],
+		});
+		expect(message).not.toMatch(/sessions not reported/i);
+	});
+
+	// The contract every reporting step in this command follows.
+	it("does not fail the sync when reporting sessions fails", async () => {
+		const env = linked();
+		withEventLog(env, sessionEvents("s1", 25));
+		const fetchImpl = routed({
+			sessions: {
+				ok: false,
+				status: 500,
+				json: async () => ({ error: "boom" }),
+			},
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		// The run as a whole still succeeds...
+		expect(message).toMatch(/nothing to sync/i);
+		// ...and the failure is named rather than swallowed.
+		expect(message).toMatch(/sessions not reported/i);
+	});
+
+	it("says so when the event log cannot be read", async () => {
+		// linked() alone creates no logs/ directory at all.
+		const env = linked();
+		const fetchImpl = routed();
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/sessions not reported/i);
+		// A missing file is a local problem someone can go fix, not a refused
+		// request - the two must not read alike.
+		expect(message).toMatch(/does not exist/i);
+		expect(sessionReports(fetchImpl)).toHaveLength(0);
+	});
+
+	it("sends only sessions above the threshold", async () => {
+		const env = linked();
+		withEventLog(env, [
+			...sessionEvents("big", 25),
+			...sessionEvents("small", 3),
+		]);
+		const fetchImpl = routed();
+
+		await sync({ env, fetchImpl });
+
+		const reports = sessionReports(fetchImpl);
+		expect(reports).toHaveLength(1);
+		const sent = JSON.parse(reports[0][1].body);
+		expect(sent.sessions).toHaveLength(1);
+		expect(sent.sessions[0].session_id).toBe("big");
+	});
+
+	// The log is appended to by many plugins. One bad writer must not stop the
+	// pass, or a single malformed line silently ends session reporting for good.
+	it("skips a malformed line and summarizes the rest", async () => {
+		const env = linked();
+		const events = sessionEvents("s1", 25);
+		withEventLog(env, [
+			...events.slice(0, 12),
+			"not valid json",
+			...events.slice(12),
+		]);
+		const fetchImpl = routed();
+
+		await sync({ env, fetchImpl });
+
+		const reports = sessionReports(fetchImpl);
+		expect(reports).toHaveLength(1);
+		const sent = JSON.parse(reports[0][1].body);
+		expect(sent.sessions).toHaveLength(1);
+		expect(sent.sessions[0].event_count).toBe(25);
 	});
 });
 

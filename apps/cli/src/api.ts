@@ -1,3 +1,5 @@
+import type { SessionSummary } from "./sessions";
+
 /**
  * The hosted API, and the four things a failure can mean.
  *
@@ -120,6 +122,8 @@ export interface ApiClient {
 	 * module is transport and has no opinion about the document's shape.
 	 */
 	reportInventory(inventory: unknown): Promise<void>;
+	/** Report this machine's recent session summaries. */
+	reportSessions(summaries: SessionSummary[]): Promise<void>;
 	/** One window of the machine-side delta, oldest first. */
 	readDelta(since: number, limit: number): Promise<DeltaResponse>;
 }
@@ -176,6 +180,15 @@ export function createClient(
 			await call("/machine/inventory", {
 				method: "PUT",
 				body: JSON.stringify(inventory),
+			});
+		},
+		reportSessions: async (summaries) => {
+			// POST, not PUT: this upserts rows in a collection keyed by
+			// (machine, session) rather than replacing one document, so it
+			// does not need inventory's replace-the-whole-thing semantics.
+			await call("/machine/sessions", {
+				method: "POST",
+				body: JSON.stringify({ schema_version: 1, sessions: summaries }),
 			});
 		},
 	};
