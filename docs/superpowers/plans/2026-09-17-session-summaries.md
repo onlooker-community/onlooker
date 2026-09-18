@@ -750,7 +750,7 @@ Then run `/git-workflow:commit`.
 
 ---
 
-### Task 4: `GET /sessions` and the contract
+### Task 4: `GET /api/sessions` and the contract
 
 **Files:**
 - Modify: `apps/api/src/db/session-summaries.ts` (add the read)
@@ -762,7 +762,7 @@ Then run `/git-workflow:commit`.
 
 **Interfaces:**
 - Consumes: `session_summaries`, `putSessionSummaries`.
-- Produces: `GET /sessions` answering `{ sessions, cursor, has_more }` — deliberately the same envelope `listActivity` already returns (`apps/web/src/api/lessonsApi.ts` defines `ActivityFeedPage` as `{ events, cursor, has_more }`). Task 6 consumes this shape.
+- Produces: `GET /api/sessions` answering `{ sessions, cursor, has_more }` — deliberately the same envelope `listActivity` already returns (`apps/web/src/api/lessonsApi.ts` defines `ActivityFeedPage` as `{ events, cursor, has_more }`). Task 6 consumes this shape.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -771,7 +771,7 @@ API cases:
 ```ts
 it("returns this user's sessions, newest first", async () => {
 	// Seed three summaries with different started_at values,
-	// GET /sessions with browser auth, assert order is newest first.
+	// GET /api/sessions with browser auth, assert order is newest first.
 });
 
 it("pages with a cursor", async () => {
@@ -792,7 +792,7 @@ it("answers an empty page for a user with no machines", async () => {
 });
 
 it("refuses a machine token", async () => {
-	// GET /sessions authenticated with a MACHINE token rather than a browser
+	// GET /api/sessions authenticated with a MACHINE token rather than a browser
 	// session, expect 401. Reading the feed is a browser-authenticated act.
 });
 ```
@@ -802,7 +802,7 @@ Contract cases in `packages/api-contract/src/index.ts` — read `authenticatedCa
 ```ts
 {
 	name: "sessions feed, empty",
-	path: "/sessions",
+	path: "/api/sessions",
 	init: { method: "GET" },
 	status: 200,
 	body: { sessions: expectArray, has_more: false },
@@ -818,7 +818,9 @@ Expected: FAIL on both — the route 404s, and the mock does not implement it.
 
 Add `listSessionSummaries(db, userId, cursor)` to `apps/api/src/db/session-summaries.ts`, ordered by `started_at` descending using the `session_summaries_user_started_idx` index. Parse `counts_by_prefix` and `plugins` from their JSON text columns on the way out, so the client never sees the storage representation.
 
-Add `handleGetSessions` to `apps/api/src/routes/sessions.ts` behind `requireAuth`, cursor-paginated exactly as the activity feed is — read that route and copy its cursor encoding rather than inventing a second scheme.
+Add `handleGetSessions` to `apps/api/src/routes/sessions.ts` behind `requireAuth`, cursor-paginated.
+
+Copy the activity feed's pagination *pattern* — overfetch by one, the `has_more`/`cursor` invariant, `InvalidCursorError` mapped to 400 — but NOT its literal codec. `encodeSeqCursor` keys on `lesson_feed.seq`, a unique per-user sequence integer that `session_summaries` has no equivalent of: two summaries can share a `started_at` when two machines sync at once, and the table's key is `(machine_id, session_id)` rather than `session_id` alone. Use the keyset pattern from `listLessonsPage` instead, widened to `(started_at, machine_id, session_id)`, and reuse `InvalidCursorError` and `BROWSE_MAX_LIMIT` from `db/lessons.ts` rather than reinventing them.
 
 - [ ] **Step 4: Implement the mock**
 
@@ -964,7 +966,7 @@ Then run `/git-workflow:commit`.
 - Test: `apps/web/src/__tests__/sessions-page.test.tsx`
 
 **Interfaces:**
-- Consumes: `GET /sessions` answering `{ sessions, cursor, has_more }` (Task 4); `Protected`, `Loading`, `EmptyState`, `Panel` from existing components.
+- Consumes: `GET /api/sessions` answering `{ sessions, cursor, has_more }` (Task 4); `Protected`, `Loading`, `EmptyState`, `Panel` from existing components.
 - Produces: nothing.
 
 - [ ] **Step 1: Pick the icon before writing anything**

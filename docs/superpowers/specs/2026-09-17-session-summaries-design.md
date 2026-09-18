@@ -154,8 +154,16 @@ migration; the API consumes it, as it does for every other table.
 
 - `POST /machine/sessions` behind `requireMachineToken`, mirroring
   `/machine/inventory`.
-- `GET /sessions` behind `requireAuth`, cursor-paginated the way `listActivity`
-  already is.
+- `GET /api/sessions` behind `requireAuth`, cursor-paginated the way
+  `listActivity` already is.
+
+The `/api/` prefix is not decoration. This API splits its namespaces by who may
+call them: `/api/lessons` and `/api/activity` are the browser-authenticated
+feeds, while a bare `/lessons` is the machine-authenticated delta route —
+`apps/web/src/api/lessonsApi.ts:8` says so outright. An earlier draft of this
+document put the browser-authenticated feed at a bare `/sessions`, which landed
+it in the machine namespace and forced the web app's mock to grow a branch
+solely to catch it.
 
 Both go in `packages/api-contract`, so `apps/api` and `apps/web`'s mock run the
 same cases. The README names contract drift as one of two things that are easy
@@ -199,7 +207,7 @@ This is the section most worth arguing with.
 - A failed `POST /machine/sessions` must not fail `sync` as a whole. Inventory
   reporting and session reporting are independent statements; one failing is not
   a reason to lose the other.
-- `GET /sessions` for a user with no machines returns an empty page, not an
+- `GET /api/sessions` for a user with no machines returns an empty page, not an
   error. "Nothing yet" is an answer.
 
 ## Testing *(approved)*
