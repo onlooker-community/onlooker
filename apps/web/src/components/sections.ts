@@ -13,6 +13,13 @@ export const SECTIONS = [
 	// Book: the log-shaped icon in the brand set, and the one not already
 	// spoken for by lessons, machines, settings or profile.
 	{ to: "/activity", label: "Activity", icon: "Book" },
+	// Monitor: a session summary is time spent on a machine's screen, and
+	// nothing else in the set names that. Clears the coverage floor with
+	// margin on every moving ground (52%/47%/53%/47% against night panel,
+	// day panel, night ground, day ground - all comfortably over the 25%
+	// floor in packages/brand/assets.test.ts), and is not already used by
+	// another section.
+	{ to: "/sessions", label: "Sessions", icon: "Monitor" },
 	{ to: "/settings", label: "Settings", icon: "Gear" },
 	// CatHead is an extension of the brand doc's mapping, not one of its
 	// entries - the set has no person icon, and it is the most person-like

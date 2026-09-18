@@ -14,6 +14,7 @@ import MachinesPage from "./pages/MachinesPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProfilePage from "./pages/ProfilePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import SessionsPage from "./pages/SessionsPage";
 import SettingsPage from "./pages/SettingsPage";
 import SignupPage from "./pages/SignupPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
@@ -170,6 +171,14 @@ export default function App() {
 							element={
 								<Protected>
 									<ActivityPage />
+								</Protected>
+							}
+						/>
+						<Route
+							path="/sessions"
+							element={
+								<Protected>
+									<SessionsPage />
 								</Protected>
 							}
 						/>

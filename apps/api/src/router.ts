@@ -16,11 +16,13 @@ import {
 	handleGetInventory,
 	handleGetLesson,
 	handleGetProfile,
+	handleGetSessions,
 	handleGetUserProfile,
 	handleListMachines,
 	handleLogin,
 	handleLogout,
 	handleMe,
+	handlePostSessions,
 	handlePushLessons,
 	handlePutInventory,
 	handleReadLessons,
@@ -191,6 +193,11 @@ const ROUTES: Route[] = [
 		path: "/machine/inventory",
 		handler: handlePutInventory,
 	},
+	{
+		method: "POST",
+		path: "/machine/sessions",
+		handler: handlePostSessions,
+	},
 
 	// =========================================================================
 	// Lessons (hosted pool ingest)
@@ -234,6 +241,11 @@ const ROUTES: Route[] = [
 		method: "GET",
 		path: "/api/activity",
 		handler: handleActivity,
+	},
+	{
+		method: "GET",
+		path: "/api/sessions",
+		handler: handleGetSessions,
 	},
 ];
 

@@ -187,6 +187,83 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	session_summaries: {
+		columns: [
+			{
+				name: "user_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "machine_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "session_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 2,
+			},
+			{
+				name: "started_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "ended_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
+				name: "event_count",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "counts_by_prefix",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "plugins",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "prompts",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "compactions",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "reported_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "session_summaries_user_started_idx",
+				unique: false,
+				columns: ["user_id", "started_at"],
+			},
+		],
+	},
 	sessions: {
 		columns: [
 			{

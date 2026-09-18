@@ -761,6 +761,44 @@ export async function mockDataApi(
 		return json({ events: [], cursor: null, has_more: false });
 	}
 
+	// GET /api/sessions is the browser's read of what POST /machine/sessions
+	// has written - a machine-authenticated push this mock does not implement
+	// (sync runs against a real apps/api or not at all, never the browser
+	// mock), so there is no path by which this store could ever hold a row.
+	// Permanently empty is therefore correct here, the same way the lesson
+	// pool and activity feed above are: enough to serve the contract, which
+	// pins the envelope shape and not its contents.
+	if (poolPath === "/api/sessions" && (options.method ?? "GET") === "GET") {
+		requireAuth(options);
+
+		// The real cursor is base64 of `<started_at>\n<machine_id>\n<session_id>`
+		// - see encodeSessionsCursor in apps/api/src/db/session-summaries.ts. A
+		// three-part split rather than /api/activity's bare integer parse above,
+		// because this table has no unique per-user sequence to encode. The
+		// mock's page is always empty, so a well-formed cursor still yields
+		// nothing; only the rejection needs to match.
+		const query = new URLSearchParams(path.split("?")[1] ?? "");
+		const cursor = query.get("cursor");
+		if (cursor) {
+			let decoded: string | null = null;
+			try {
+				decoded = atob(cursor);
+			} catch {
+				decoded = null;
+			}
+			const parts = decoded === null ? [] : decoded.split("\n");
+			if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+				throw new AuthApiError(
+					400,
+					"invalid_cursor",
+					"That cursor was not issued by this server; start from the first page",
+				);
+			}
+		}
+
+		return json({ sessions: [], cursor: null, has_more: false });
+	}
+
 	if (
 		poolPath.startsWith("/api/lessons/") &&
 		poolPath.endsWith("/status") &&

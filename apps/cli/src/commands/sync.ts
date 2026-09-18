@@ -1,10 +1,12 @@
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { type ApiClient, ApiError, createClient } from "../api";
 import { readConfig } from "../config";
+import { readEventEnvelopes } from "../eventlog";
 import { collectInventory } from "../inventory";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 import { type PullOutcome, pull } from "../pull";
+import { summarizeSessions } from "../sessions";
 
 export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
@@ -40,6 +42,68 @@ async function reportInventory(
 		return null;
 	} catch (error) {
 		return `Inventory not reported: ${(error as Error).message}`;
+	}
+}
+
+/** Seven days, per the design: a window over the data rather than over syncs. */
+const SESSION_WINDOW_DAYS = 7;
+
+/**
+ * Report this machine's recent sessions, describing the outcome rather than
+ * throwing.
+ *
+ * Non-fatal and never silent, for the same two reasons `reportInventory` is:
+ * a reporting failure must not cost a lesson push, and a command that exits 0
+ * while a page quietly stops updating is the successful-looking silence this
+ * codebase keeps rediscovering.
+ *
+ * A window over the data rather than since-last-sync: a machine that has not
+ * synced in a while still reports its recent work, and the bound does not
+ * depend on how often somebody happened to run this.
+ *
+ * Unlike `reportInventory`, an empty result is not reported: `POST
+ * /machine/sessions` upserts rows keyed by session id rather than replacing
+ * one document, so posting nothing would tell the server nothing it does not
+ * already know - there is no "assert this machine has no sessions" state the
+ * way an empty inventory is a real, reportable answer.
+ *
+ * `envelopes` is a stream, not an array: `readEventEnvelopes` yields one
+ * envelope at a time rather than collecting the log into memory, and
+ * `summarizeSessions` consumes it the same way, so a local read failure can
+ * surface two different ways - either immediately, as `unavailable`, or only
+ * once summarizing actually starts pulling lines. Both are worded as the same
+ * kind of local problem; only a refused request from `client.reportSessions`
+ * is worded as a transport one.
+ */
+async function reportSessions(
+	client: ApiClient,
+	env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+	const { envelopes, unavailable } = await readEventEnvelopes(env);
+	if (unavailable !== null) {
+		return `Sessions not reported: ${unavailable}`;
+	}
+
+	const since = new Date(
+		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+	).toISOString();
+
+	let summaries: Awaited<ReturnType<typeof summarizeSessions>>;
+	try {
+		summaries = await summarizeSessions(envelopes, { since });
+	} catch (error) {
+		// A failure discovered mid-stream rather than up front - see
+		// `EventLogEnvelopes.unavailable`'s own docstring. Still a local
+		// problem, so it is worded like one rather than like a refusal.
+		return `Sessions not reported: ${(error as Error).message}`;
+	}
+	if (summaries.length === 0) return null;
+
+	try {
+		await client.reportSessions(summaries);
+		return null;
+	} catch (error) {
+		return `Sessions not reported: ${(error as Error).message}`;
 	}
 }
 
@@ -109,6 +173,7 @@ export async function sync({
 	// the push would never fire for the machines whose page is emptiest. The
 	// note it returns rides along with whatever this command was going to say.
 	const inventoryNote = await reportInventory(client, env);
+	const sessionsNote = await reportSessions(client, env);
 
 	/**
 	 * Every exit runs through here, and receiving happens on the way out.
@@ -120,7 +185,7 @@ export async function sync({
 	 */
 	const withNote = async (message: string): Promise<string> => {
 		const received = describePull(await pull({ client, env }));
-		return [message, received, inventoryNote]
+		return [message, received, inventoryNote, sessionsNote]
 			.filter((line): line is string => line !== null)
 			.join("\n");
 	};

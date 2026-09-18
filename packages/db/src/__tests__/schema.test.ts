@@ -9,6 +9,7 @@ import {
 	lesson_feed,
 	lessons,
 	machine_tokens,
+	session_summaries,
 	sessions,
 	users,
 	verification_tokens,
@@ -228,14 +229,71 @@ describe("lesson_feed", () => {
 	});
 });
 
+describe("session_summaries", () => {
+	it("declares exactly the columns a session's feed row needs", () => {
+		expect(columnNames(session_summaries)).toEqual([
+			"compactions",
+			"counts_by_prefix",
+			"ended_at",
+			"event_count",
+			"machine_id",
+			"plugins",
+			"prompts",
+			"reported_at",
+			"session_id",
+			"started_at",
+			"user_id",
+		]);
+	});
+
+	it("cascades when its user or machine is deleted", () => {
+		const fks = getTableConfig(session_summaries).foreignKeys;
+		expect(fks).toHaveLength(2);
+		for (const fk of fks) {
+			expect(fk.onDelete).toBe("cascade");
+		}
+	});
+
+	// Keyed on (machine_id, session_id) rather than an id of its own - the CLI
+	// re-reports a session as it grows, and upserting on this key is what lets
+	// a still-running session (null ended_at) get replaced instead of
+	// duplicated on the next sync.
+	it("is keyed on (machine_id, session_id), not its own id", () => {
+		const pks = getTableConfig(session_summaries).primaryKeys;
+		expect(pks).toHaveLength(1);
+		expect(indexColumnNames(pks[0].columns)).toEqual([
+			"machine_id",
+			"session_id",
+		]);
+	});
+
+	it("allows ended_at to be null, meaning still running", () => {
+		const col = getTableConfig(session_summaries).columns.find(
+			(c) => c.name === "ended_at",
+		);
+		expect(col?.notNull).toBe(false);
+	});
+
+	// The feed's only query: this user's sessions, newest first.
+	it("indexes (user_id, started_at) for the feed query", () => {
+		const idx = getTableConfig(session_summaries).indexes.find(
+			(i) => i.config.name === "session_summaries_user_started_idx",
+		);
+		expect(indexColumnNames(idx?.config.columns ?? [])).toEqual([
+			"user_id",
+			"started_at",
+		]);
+	});
+});
+
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
 	// arrive with the feature that needs it, not by accident.
-	it("declares only the six tables in use", async () => {
+	it("declares only the seven tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(6);
+		expect(tables).toHaveLength(7);
 	});
 });
