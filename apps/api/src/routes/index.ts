@@ -43,4 +43,5 @@ export {
 	handleListMachines,
 	handleRevokeMachine,
 } from "./machines";
+export { handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";

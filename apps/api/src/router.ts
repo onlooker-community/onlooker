@@ -21,6 +21,7 @@ import {
 	handleLogin,
 	handleLogout,
 	handleMe,
+	handlePostSessions,
 	handlePushLessons,
 	handlePutInventory,
 	handleReadLessons,
@@ -190,6 +191,11 @@ const ROUTES: Route[] = [
 		method: "PUT",
 		path: "/machine/inventory",
 		handler: handlePutInventory,
+	},
+	{
+		method: "POST",
+		path: "/machine/sessions",
+		handler: handlePostSessions,
 	},
 
 	// =========================================================================
