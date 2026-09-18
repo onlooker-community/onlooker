@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { listMachines } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
@@ -40,18 +40,54 @@ function shapeOf(counts: Record<string, number>): string {
 		.join(" · ");
 }
 
+/**
+ * The machines read, as a real three-state rather than `boolean | null`
+ * standing in for both "still in flight" and "failed." Those are different
+ * facts and a type that cannot tell them apart lets a render read one as the
+ * other - which is exactly what happened here: gating only on
+ * `sessions === null` let a `hasMachines === false` check run against the
+ * `null` default while the real read was still out, so an account with zero
+ * machines flashed "Nothing has cleared the threshold yet" before correcting
+ * itself to "No machine has synced yet" a moment later. Both empty states
+ * below assert something about machines, so neither may render until this is
+ * `"known"` or `"failed"` - see the two guards ahead of them.
+ */
+type MachinesCheck =
+	| { kind: "pending" }
+	| { kind: "known"; hasMachines: boolean }
+	| { kind: "failed" };
+
 export default function SessionsPage() {
 	const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
-	// Tri-state: null until the machines read settles, then whether the user
-	// has ever minted one. Needed only to pick between the two empty states
-	// below - a populated page never reads it - so a failure here does not
-	// become the page's load error. See the comment on that catch, below.
-	const [hasMachines, setHasMachines] = useState<boolean | null>(null);
+	const [machinesCheck, setMachinesCheck] = useState<MachinesCheck>({
+		kind: "pending",
+	});
+	const [machinesError, setMachinesError] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
 	const [ended, setEnded] = useState(false);
+
+	// A second, independent read, kept apart from the sessions fetch rather
+	// than folded into one Promise.all: a failure here says nothing about
+	// whether the session history loaded, and coupling the two would turn an
+	// unrelated machines-list error into a full page failure for a person
+	// whose sessions came back fine. Its own `useCallback` rather than inline
+	// in the mount effect below, so the "Could not check your machines" empty
+	// state (rendered when `machinesCheck.kind === "failed"`) can offer a
+	// Retry that runs the exact same read rather than a second copy of it.
+	const checkMachines = useCallback(async () => {
+		setMachinesCheck({ kind: "pending" });
+		setMachinesError(null);
+		try {
+			const { machines } = await listMachines();
+			setMachinesCheck({ kind: "known", hasMachines: machines.length > 0 });
+		} catch (error) {
+			setMachinesCheck({ kind: "failed" });
+			setMachinesError(describeError(error, "Could not check your machines."));
+		}
+	}, []);
 
 	useEffect(() => {
 		// An `active` flag, not a request sequence number - this screen has no
@@ -68,26 +104,11 @@ export default function SessionsPage() {
 				if (!active) return;
 				setLoadError(describeError(error, "Could not load your sessions."));
 			});
-		// A second, independent read. Kept apart from the sessions fetch rather
-		// than folded into one Promise.all: a failure here says nothing about
-		// whether the session history loaded, and coupling the two would turn
-		// an unrelated machines-list error into a full page failure for a
-		// person whose sessions came back fine. Left `null` (unknown) on
-		// failure, which the empty-state branch below treats as its own case
-		// rather than guessing at either fact.
-		listMachines()
-			.then(({ machines }) => {
-				if (!active) return;
-				setHasMachines(machines.length > 0);
-			})
-			.catch(() => {
-				if (!active) return;
-				setHasMachines(null);
-			});
+		void checkMachines();
 		return () => {
 			active = false;
 		};
-	}, []);
+	}, [checkMachines]);
 
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
@@ -119,11 +140,37 @@ export default function SessionsPage() {
 	if (sessions === null) return <Loading label="Loading your sessions…" />;
 
 	if (sessions.length === 0) {
+		// Not yet known which empty state is true. Both assert a fact about
+		// machines, and rendering either one now would be a guess dressed up
+		// as an answer - the exact failure mode this type exists to close off.
+		// A moment more of loading is the honest cost; see MachinesCheck.
+		if (machinesCheck.kind === "pending") {
+			return <Loading label="Loading your sessions…" />;
+		}
+
+		// The read that would settle this failed outright. Neither empty state
+		// is safe to guess at - one claims no machine exists, the other claims
+		// some do but none cleared the threshold - so this gets its own honest
+		// wording rather than defaulting to either, plus a way to try again
+		// through the exact same read (`checkMachines`, not a second copy).
+		if (machinesCheck.kind === "failed") {
+			return (
+				<div style={{ maxWidth: "640px" }}>
+					<EmptyState
+						title="Could not check your machines"
+						action={{ label: "Retry", onClick: () => void checkMachines() }}
+					>
+						{machinesError}
+					</EmptyState>
+				</div>
+			);
+		}
+
 		// Two different facts, and telling someone whose machines HAVE synced
 		// to go connect one would be exactly the lie LessonsPage's own empty
 		// states were built to avoid - see that page's comment on an empty
 		// filter result and an empty pool.
-		if (hasMachines === false) {
+		if (!machinesCheck.hasMachines) {
 			return (
 				<div style={{ maxWidth: "640px" }}>
 					<EmptyState
@@ -141,11 +188,6 @@ export default function SessionsPage() {
 			);
 		}
 
-		// `hasMachines === true` or `=== null` (the machines read itself
-		// failed) land here together: neither can honestly claim "connect a
-		// machine" is the fix, and this copy is true either way - a session
-		// has to do enough to be worth a row, whether or not this page could
-		// confirm a machine exists to produce one.
 		return (
 			<div style={{ maxWidth: "640px" }}>
 				<EmptyState title="Nothing has cleared the threshold yet">

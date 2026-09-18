@@ -3,7 +3,7 @@
 // depends on the runner's zone. See that file's comment for the full case.
 process.env.TZ = "UTC";
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -159,6 +159,40 @@ describe("/sessions when nothing has synced", () => {
 		expect(
 			screen.queryByRole("link", { name: /connect a machine/i }),
 		).toBeNull();
+	});
+
+	// The race the mock harness otherwise cannot reproduce: `mockResolvedValue`
+	// settles both reads in the same microtask flush, so nothing in the tests
+	// above can tell "gated on the machines read" apart from "raced it." Here
+	// the sessions read is real (mockResolvedValue) but the machines read is a
+	// promise this test holds open by hand, so it is genuinely still pending
+	// when the sessions read lands - not a timing accident.
+	it("claims neither fact about machines while that read is still pending", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		let resolveMachines: (value: { machines: unknown[] }) => void = () => {};
+		mocks.listMachines.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveMachines = resolve;
+				}),
+		);
+		renderAppAt("/sessions");
+
+		// A macrotask flush drains every microtask ahead of it, including the
+		// sessions promise's `.then` and the state update it makes - which is
+		// the only way to let that settle without asserting on an
+		// implementation-only intermediate render.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+		expect(screen.queryByText(/no machine has synced/i)).toBeNull();
+		expect(screen.queryByText(/threshold/i)).toBeNull();
+
+		await act(async () => {
+			resolveMachines({ machines: [] });
+		});
+
+		expect(await screen.findByText(/no machine has synced/i)).toBeDefined();
+		expect(screen.queryByText(/threshold/i)).toBeNull();
 	});
 });
 
