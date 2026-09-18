@@ -66,13 +66,19 @@ const SESSION_WINDOW_DAYS = 7;
  * one document, so posting nothing would tell the server nothing it does not
  * already know - there is no "assert this machine has no sessions" state the
  * way an empty inventory is a real, reportable answer.
+ *
+ * `envelopes` is a stream, not an array: `readEventEnvelopes` yields one
+ * envelope at a time rather than collecting the log into memory, and
+ * `summarizeSessions` consumes it the same way, so a local read failure can
+ * surface two different ways - either immediately, as `unavailable`, or only
+ * once summarizing actually starts pulling lines. Both are worded as the same
+ * kind of local problem; only a refused request from `client.reportSessions`
+ * is worded as a transport one.
  */
 async function reportSessions(
 	client: ApiClient,
 	env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
-	// A missing or unreadable log is worded as a local problem; a refused
-	// request is worded as a transport problem.
 	const { envelopes, unavailable } = await readEventEnvelopes(env);
 	if (unavailable !== null) {
 		return `Sessions not reported: ${unavailable}`;
@@ -81,7 +87,16 @@ async function reportSessions(
 	const since = new Date(
 		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
 	).toISOString();
-	const summaries = summarizeSessions(envelopes, { since });
+
+	let summaries: Awaited<ReturnType<typeof summarizeSessions>>;
+	try {
+		summaries = await summarizeSessions(envelopes, { since });
+	} catch (error) {
+		// A failure discovered mid-stream rather than up front - see
+		// `EventLogEnvelopes.unavailable`'s own docstring. Still a local
+		// problem, so it is worded like one rather than like a refusal.
+		return `Sessions not reported: ${(error as Error).message}`;
+	}
 	if (summaries.length === 0) return null;
 
 	try {

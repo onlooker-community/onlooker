@@ -67,6 +67,15 @@ interface Accumulator {
 /**
  * Fold events into one summary per session worth showing.
  *
+ * Accepts a sync OR async iterable, and is itself async so a caller can hand
+ * it a streamed source without materializing it first. The fold was already
+ * incremental - one small accumulator per session, never the whole event
+ * list - so letting iteration itself be async is what lets that
+ * incrementality reach all the way back to the file read: eventlog.ts's
+ * `readEventEnvelopes` yields one envelope at a time from a ~90MB-and-growing
+ * log, and a caller that collected them into an array before calling this
+ * function would have defeated the entire point of streaming the read.
+ *
  * `threshold` drops sessions too small to be worth a row. `since` bounds the
  * report to sessions whose last event is recent, so a machine that has not
  * synced in a while still reports its recent work.
@@ -74,14 +83,14 @@ interface Accumulator {
  * Insertion-ordered by first appearance, which for an append-only log means
  * oldest session first. The caller sorts if it wants something else.
  */
-export function summarizeSessions(
-	events: Iterable<EventEnvelope>,
+export async function summarizeSessions(
+	events: Iterable<EventEnvelope> | AsyncIterable<EventEnvelope>,
 	opts: { threshold?: number; since?: string } = {},
-): SessionSummary[] {
+): Promise<SessionSummary[]> {
 	const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
 	const sessions = new Map<string, Accumulator>();
 
-	for (const event of events) {
+	for await (const event of events) {
 		// A line missing either of these cannot be attributed to a session or
 		// placed in time, and one bad writer must not stop the pass.
 		if (!event.session_id || !event.timestamp) continue;
