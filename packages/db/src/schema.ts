@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -251,6 +252,55 @@ export const lesson_feed = sqliteTable(
 	}),
 );
 
+/**
+ * One row per agent session worth showing, per machine.
+ *
+ * Keyed on (machine_id, session_id) rather than an id of its own, because the
+ * CLI reports the same session again as it grows: a session still running gets
+ * a null `ended_at` and is upserted on the next sync rather than duplicated.
+ * That is what lets the client keep no high-water mark at all - there is no
+ * local state to corrupt, and a wiped cli.json re-reports rather than orphaning
+ * history.
+ *
+ * `counts_by_prefix` and `plugins` are JSON text. D1 has no JSON column type,
+ * and the alternative - a row per prefix per session - would multiply a feed
+ * that is already the largest thing a machine reports.
+ *
+ * Nothing here derives from an event's payload. See the design: the summarizer
+ * never reads one.
+ */
+export const session_summaries = sqliteTable(
+	"session_summaries",
+	{
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		machine_id: text("machine_id")
+			.notNull()
+			.references(() => machine_tokens.id, { onDelete: "cascade" }),
+		session_id: text("session_id").notNull(),
+		started_at: text("started_at").notNull(),
+		/** Null while the session is still running. */
+		ended_at: text("ended_at"),
+		event_count: integer("event_count").notNull(),
+		/** JSON object: prefix -> count. */
+		counts_by_prefix: text("counts_by_prefix").notNull(),
+		/** JSON array of plugin names. */
+		plugins: text("plugins").notNull(),
+		prompts: integer("prompts").notNull().default(0),
+		compactions: integer("compactions").notNull().default(0),
+		reported_at: text("reported_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.machine_id, table.session_id] }),
+		// The feed's only query: this user's sessions, newest first.
+		userStartedIdx: index("session_summaries_user_started_idx").on(
+			table.user_id,
+			table.started_at,
+		),
+	}),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -267,3 +317,6 @@ export type Lesson = typeof lessons.$inferSelect;
 export type NewLesson = typeof lessons.$inferInsert;
 export type LessonFeedEntry = typeof lesson_feed.$inferSelect;
 export type NewLessonFeedEntry = typeof lesson_feed.$inferInsert;
+
+export type SessionSummary = typeof session_summaries.$inferSelect;
+export type NewSessionSummary = typeof session_summaries.$inferInsert;

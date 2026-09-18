@@ -18,12 +18,25 @@ import * as schema from "../dist/schema.js";
 export function describe(table) {
 	const config = getTableConfig(table);
 
+	// A composite primary key - declared via the primaryKey() table
+	// constraint, as opposed to .primaryKey() on a single column - leaves
+	// every member column's `c.primary` false; drizzle tracks the constraint
+	// separately in config.primaryKeys. SQLite's own PRAGMA table_info does
+	// not: a composite-PK column reports a 1-based ordinal, its position
+	// within the PRIMARY KEY(...) clause, not a flat 0/1. Without this, the
+	// expectation for any such table would permanently disagree with the live
+	// schema - not a staleness gap regeneration fixes, but a standing wrong
+	// answer. A SQLite table has at most one PRIMARY KEY clause, hence [0].
+	const compositePk = new Map(
+		(config.primaryKeys[0]?.columns ?? []).map((c, i) => [c.name, i + 1]),
+	);
+
 	return {
 		columns: config.columns.map((c) => ({
 			name: c.name,
 			type: c.getSQLType().toUpperCase(),
 			notnull: c.notNull ? 1 : 0,
-			pk: c.primary ? 1 : 0,
+			pk: c.primary ? 1 : (compositePk.get(c.name) ?? 0),
 		})),
 		// Columns as well as name and uniqueness. Recording only the name left
 		// this snapshot byte-identical after an index-COLUMN change, so the
