@@ -60,6 +60,34 @@ describe("summarizeSessions", () => {
 		expect(summary.counts_by_prefix).toEqual({ tool: 22, lineage: 1 });
 	});
 
+	// The event log is untrusted input. An event_type prefix of `__proto__` or
+	// `constructor` on a plain object literal reads back through Object.prototype
+	// and pollutes every object in the process. Object.create(null) guards against
+	// this, matching the guard in eventlog.ts:179-185.
+	it("safely counts __proto__ and constructor prefixes without prototype pollution", () => {
+		const events = run("s1", [
+			"__proto__.evil",
+			"constructor.trap",
+			...filler(19),
+		]);
+
+		const [summary] = summarizeSessions(events);
+
+		// Safely store as typed record to check string keys (not prototype pollution)
+		const counts = summary.counts_by_prefix as Record<string, number>;
+		// biome-ignore lint/suspicious/noProto lint/complexity/useLiteralKeys: __proto__ is a string key in Object.create(null)
+		expect(counts["__proto__"]).toBe(1);
+		// biome-ignore lint/complexity/useLiteralKeys: constructor is a string key in Object.create(null)
+		expect(counts["constructor"]).toBe(1);
+		expect(counts.tool).toBe(19);
+
+		// Verify the object has the expected keys (no prototype pollution)
+		const keys = Object.getOwnPropertyNames(summary.counts_by_prefix);
+		expect(keys).toContain("__proto__");
+		expect(keys).toContain("constructor");
+		expect(keys).toContain("tool");
+	});
+
 	// The measured shape of the log: 11,186 session ids, median 3 events, and a
 	// typical short one is a start, an end, and one plugin event having done
 	// nothing. Without a threshold the feed is eleven thousand rows of that.
@@ -139,17 +167,24 @@ describe("summarizeSessions", () => {
 	// The window is a property of the data, not of how often somebody ran the
 	// command: a machine that has not synced in a while still reports its
 	// recent work, and a session older than the window is simply not re-sent.
+	// The cutoff is the LAST event, not the first: a long session that started
+	// before the window but remains active must not be dropped.
 	it("drops sessions whose last event predates `since`", () => {
 		const events = [
-			...run("old", filler(25), 0),
-			...run("recent", filler(25), 600),
+			...run("old", filler(25), 0), // entirely before cutoff (12:00-12:25)
+			...run("recent", filler(25), 600), // entirely after cutoff (22:00-22:25)
+			// straddles the cutoff: first event at 14:50, last at 15:14
+			...run("straddling", filler(25), 170),
 		];
 
 		const ids = summarizeSessions(events, {
 			since: "2026-09-17T15:00:00.000Z",
 		}).map((s) => s.session_id);
 
-		expect(ids).toEqual(["recent"]);
+		// old is entirely before cutoff → dropped
+		// straddling starts before but ends after → kept
+		// recent is entirely after → kept (insertion order)
+		expect(ids).toEqual(["recent", "straddling"]);
 	});
 
 	// THE SAFETY PROPERTY. Envelope-only is the whole reason this feature can

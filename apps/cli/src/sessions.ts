@@ -94,7 +94,12 @@ export function summarizeSessions(
 				ended_at: null,
 				last_at: event.timestamp,
 				event_count: 0,
-				counts_by_prefix: {},
+				// `Object.create(null)`, not `{}`: an `event_type` prefix of
+				// `__proto__` or `constructor` on a plain object literal reads back
+				// through `Object.prototype` instead of returning `undefined`, and an
+				// assignment through it pollutes every object in the process for the
+				// life of the CLI invocation. See eventlog.ts:179-185 for the same guard.
+				counts_by_prefix: Object.create(null),
 				plugins: new Set(),
 				prompts: 0,
 				compactions: 0,
