@@ -240,3 +240,45 @@ export async function listSessionSummaries(
 
 	return { sessions, cursor, hasMore };
 }
+
+/**
+ * A hundred and eighty days.
+ *
+ * Not a capacity decision - one machine produces on the order of 9,000 rows a
+ * year and D1 would not notice. It is here so that "forever" is a thing someone
+ * chose rather than a thing nobody decided. Two quarters is long enough to see
+ * a trend and short enough that a row written today has a stated end.
+ */
+export const RETENTION_DAYS = 180;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Delete summaries whose session started before the retention window, and
+ * report how many rows went.
+ *
+ * The boundary belongs to the kept side: a row started exactly
+ * RETENTION_DAYS ago is not older than the cutoff, so it survives. That is
+ * the whole reason this compares with `<` rather than `<=` - "180 days of
+ * history" should mean 180, not 179.
+ *
+ * `now` defaults to the real clock and is only ever overridden by a test -
+ * see rateLimiting.ts's `now` for the same pattern. Passing it explicitly is
+ * what lets the boundary test seed a row and check the cutoff against the
+ * same instant instead of racing the wall clock between the two.
+ */
+export async function pruneSessionSummaries(
+	db: D1Database,
+	now: Date = new Date(),
+): Promise<number> {
+	const cutoff = new Date(
+		now.getTime() - RETENTION_DAYS * DAY_MS,
+	).toISOString();
+
+	const result = await db
+		.prepare("DELETE FROM session_summaries WHERE started_at < ?")
+		.bind(cutoff)
+		.run();
+
+	return result.meta.changes;
+}

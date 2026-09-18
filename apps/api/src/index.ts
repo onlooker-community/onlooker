@@ -14,6 +14,7 @@ import type {
 	ExecutionContext,
 	ScheduledController,
 } from "@cloudflare/workers-types";
+import { pruneSessionSummaries } from "./db/session-summaries.js";
 import { timedD1 } from "./db/timing.js";
 import { runHeartbeat } from "./heartbeat";
 import { preflightResponse, withCors } from "./middleware";
@@ -129,5 +130,30 @@ export default monitored({
 				checks: results.map(({ label, ok }) => ({ label, ok })),
 			}),
 		);
+
+		// Retention cleanup, riding the same cron for the same reason the
+		// heartbeat does: this is where the schedule is actually kept (see
+		// runHeartbeat's doc comment on GitHub's scheduled workflows drifting
+		// to a three-hour cadence).
+		//
+		// Caught rather than let through: this handler's other job is the
+		// production health check above, and a failed cleanup is not a reason
+		// for that check to stop running. Reported the same way a failed
+		// heartbeat check is - monitor.captureException, not a throw - so a
+		// broken prune shows up in the same place a broken heartbeat would,
+		// instead of failing this invocation silently the way an uncaught
+		// throw here would (the exact failure mode runHeartbeat itself is
+		// built to avoid).
+		try {
+			const pruned = await pruneSessionSummaries(env.DB);
+			console.log(
+				JSON.stringify({ event: "session_summaries_pruned", pruned }),
+			);
+		} catch (error) {
+			monitor.captureException(
+				error instanceof Error ? error : new Error(String(error)),
+				{ tags: { kind: "session_summaries_prune" } },
+			);
+		}
 	},
 });

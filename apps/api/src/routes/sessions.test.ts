@@ -1,8 +1,13 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import {
+	pruneSessionSummaries,
+	RETENTION_DAYS,
+} from "../db/session-summaries.js";
 
 const db = () => env.DB;
 const BASE = "https://api.onlooker.dev";
+const DAY_MS = 24 * 60 * 60 * 1000;
 // Assembled rather than written as one literal so the repository's secret
 // scanner does not flag a throwaway test fixture. Same value the sibling
 // route suites use; do not "simplify" it back into a single string.
@@ -326,5 +331,69 @@ describe("GET /api/sessions", () => {
 
 		const response = await get(access, "/api/sessions?cursor=nonsense!!");
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("pruneSessionSummaries", () => {
+	// A fixed anchor rather than the real clock, so the boundary test below is
+	// exact instead of racing the few milliseconds between seeding a row and
+	// calling the prune. now is passed straight through to the function under
+	// test, so both sides of the comparison agree on what "now" means.
+	const now = new Date("2026-09-17T00:00:00.000Z");
+
+	it("prunes summaries older than the retention window", async () => {
+		const access = await signup("prune-old@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "old",
+					started_at: new Date(now.getTime() - 200 * DAY_MS).toISOString(),
+				}),
+				summary({
+					session_id: "recent",
+					started_at: new Date(now.getTime() - 10 * DAY_MS).toISOString(),
+				}),
+			],
+		});
+
+		const pruned = await pruneSessionSummaries(db(), now);
+		expect(pruned).toBe(1);
+
+		const { results } = await db()
+			.prepare("SELECT session_id FROM session_summaries WHERE machine_id = ?")
+			.bind(machine.id)
+			.all();
+		expect(results.map((r) => r.session_id)).toEqual(["recent"]);
+	});
+
+	// The boundary belongs to the kept side: a row started exactly
+	// RETENTION_DAYS ago survives, so "180 days of history" means 180, not 179.
+	it("keeps a summary exactly at the boundary", async () => {
+		const access = await signup("prune-boundary@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "boundary",
+					started_at: new Date(
+						now.getTime() - RETENTION_DAYS * DAY_MS,
+					).toISOString(),
+				}),
+			],
+		});
+
+		const pruned = await pruneSessionSummaries(db(), now);
+		expect(pruned).toBe(0);
+
+		const { results } = await db()
+			.prepare("SELECT session_id FROM session_summaries WHERE machine_id = ?")
+			.bind(machine.id)
+			.all();
+		expect(results).toHaveLength(1);
 	});
 });
