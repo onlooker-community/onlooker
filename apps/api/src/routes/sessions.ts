@@ -102,7 +102,7 @@ export async function handlePostSessions(
 }
 
 /**
- * GET /sessions
+ * GET /api/sessions
  *
  * The browser's read of its own session history, across every machine that
  * has reported one. Browser-authenticated behind `requireAuth`, the same way
@@ -110,8 +110,10 @@ export async function handlePostSessions(
  * has no business reading a person's whole feed, so a machine token here
  * fails at requireAuth before this handler's body ever runs.
  *
- * Bare `/sessions`, not under `/api/` - see router.ts for where this is
- * registered and why.
+ * Under `/api/` deliberately: this API splits its namespaces by who may call
+ * them, browser-authenticated feeds under `/api/` and machine-authenticated
+ * routes bare (see router.ts) - the same split `/api/activity` and the bare
+ * `/lessons` delta route already draw.
  */
 export async function handleGetSessions(
 	request: Request,

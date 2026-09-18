@@ -57,7 +57,7 @@ function post(machineToken: string, body: unknown): Promise<Response> {
 	});
 }
 
-function get(accessToken: string, path = "/sessions"): Promise<Response> {
+function get(accessToken: string, path = "/api/sessions"): Promise<Response> {
 	return SELF.fetch(`${BASE}${path}`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
@@ -196,7 +196,7 @@ interface WireSummary {
 	plugins: string[];
 }
 
-describe("GET /sessions", () => {
+describe("GET /api/sessions", () => {
 	it("returns this user's sessions, newest first", async () => {
 		const access = await signup("newest-first@example.com");
 		const machine = await mint(access, "laptop");
@@ -242,7 +242,7 @@ describe("GET /sessions", () => {
 			],
 		});
 
-		const first = await get(access, "/sessions?limit=2");
+		const first = await get(access, "/api/sessions?limit=2");
 		expect(first.status).toBe(200);
 		const firstBody = (await first.json()) as {
 			sessions: WireSummary[];
@@ -255,7 +255,7 @@ describe("GET /sessions", () => {
 
 		const second = await get(
 			access,
-			`/sessions?limit=2&cursor=${encodeURIComponent(firstBody.cursor as string)}`,
+			`/api/sessions?limit=2&cursor=${encodeURIComponent(firstBody.cursor as string)}`,
 		);
 		expect(second.status).toBe(200);
 		const secondBody = (await second.json()) as {
@@ -324,7 +324,7 @@ describe("GET /sessions", () => {
 	it("answers 400 for a cursor it did not issue", async () => {
 		const access = await signup("bad-cursor@example.com");
 
-		const response = await get(access, "/sessions?cursor=nonsense!!");
+		const response = await get(access, "/api/sessions?cursor=nonsense!!");
 		expect(response.status).toBe(400);
 	});
 });
