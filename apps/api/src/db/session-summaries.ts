@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { session_summaries } from "@onlooker/db";
 import { client } from "./client.js";
+import { BROWSE_MAX_LIMIT, InvalidCursorError } from "./lessons.js";
 
 /**
  * One session summary as the route has validated it, ready to store.
@@ -90,4 +91,152 @@ export async function putSessionSummaries(
 			...(typeof statements)[number][],
 		],
 	);
+}
+
+/**
+ * One session summary as the browser reads it - `counts_by_prefix` and
+ * `plugins` already parsed out of their JSON TEXT columns, so a client never
+ * sees the storage representation.
+ */
+export interface SessionSummaryRow {
+	machine_id: string;
+	session_id: string;
+	started_at: string;
+	ended_at: string | null;
+	event_count: number;
+	counts_by_prefix: Record<string, number>;
+	plugins: string[];
+	prompts: number;
+	compactions: number;
+}
+
+export interface SessionSummariesPage {
+	sessions: SessionSummaryRow[];
+	cursor: string | null;
+	hasMore: boolean;
+}
+
+/**
+ * A keyset cursor over (started_at, machine_id, session_id), not started_at
+ * alone. Two summaries can share a started_at for one user - two machines
+ * syncing at once, or a fast pair of CLI runs - and (machine_id, session_id)
+ * is this table's actual primary key, so it is what breaks the tie. Same
+ * reasoning as encodeCursor in db/lessons.ts, one column wider because this
+ * table's key has two parts where a lesson's has one.
+ *
+ * `\n` is the join delimiter for the same reason encodeCursor uses it: none
+ * of started_at (ISO timestamp), a machine id or a session id can contain one.
+ */
+export function encodeSessionsCursor(
+	startedAt: string,
+	machineId: string,
+	sessionId: string,
+): string {
+	return btoa(`${startedAt}\n${machineId}\n${sessionId}`);
+}
+
+export function decodeSessionsCursor(
+	cursor: string,
+): { startedAt: string; machineId: string; sessionId: string } | null {
+	try {
+		const [startedAt, machineId, sessionId, ...rest] = atob(cursor).split("\n");
+		if (!startedAt || !machineId || !sessionId || rest.length > 0) {
+			return null;
+		}
+		return { startedAt, machineId, sessionId };
+	} catch {
+		// atob throws on anything that is not base64. A client-supplied cursor
+		// is untrusted input, and a malformed one is a 400, not a 500 - same
+		// reasoning as decodeCursor in db/lessons.ts.
+		return null;
+	}
+}
+
+/**
+ * One page of a user's session summaries, newest first.
+ *
+ * Ordered by (started_at, machine_id, session_id), all DESC - see
+ * encodeSessionsCursor for why started_at alone is not enough. The matching
+ * index, session_summaries_user_started_idx, covers (user_id, started_at) and
+ * leaves the tiebreaker to an in-memory sort over what should ordinarily be a
+ * handful of same-instant rows - the same trade listLessonsPage makes against
+ * lessons_user_promoted_at_idx, which does not index its own tiebreaker id
+ * either.
+ *
+ * Reuses InvalidCursorError and the browse limit ceiling from db/lessons.ts
+ * rather than declaring a second version of either - this is the same
+ * keyset-pagination shape listActivityPage and listLessonsPage already use,
+ * just walked over this table's own two-part key instead of a bare sequence.
+ */
+export async function listSessionSummaries(
+	db: D1Database,
+	userId: string,
+	opts: { cursor?: string | null; limit: number },
+): Promise<SessionSummariesPage> {
+	const limit = Math.min(Math.max(1, opts.limit), BROWSE_MAX_LIMIT);
+	const binds: unknown[] = [userId];
+	let where = "user_id = ?";
+
+	if (opts.cursor) {
+		const after = decodeSessionsCursor(opts.cursor);
+		if (!after) throw new InvalidCursorError();
+		where += " AND (started_at, machine_id, session_id) < (?, ?, ?)";
+		binds.push(after.startedAt, after.machineId, after.sessionId);
+	}
+
+	binds.push(limit + 1);
+
+	const { results } = await db
+		.prepare(
+			`SELECT machine_id, session_id, started_at, ended_at, event_count,
+			        counts_by_prefix, plugins, prompts, compactions
+			 FROM session_summaries
+			 WHERE ${where}
+			 ORDER BY started_at DESC, machine_id DESC, session_id DESC
+			 LIMIT ?`,
+		)
+		.bind(...binds)
+		.all<{
+			machine_id: string;
+			session_id: string;
+			started_at: string;
+			ended_at: string | null;
+			event_count: number;
+			counts_by_prefix: string;
+			plugins: string;
+			prompts: number;
+			compactions: number;
+		}>();
+
+	const rows = results ?? [];
+	const hasMore = rows.length > limit;
+	const sessions = (hasMore ? rows.slice(0, limit) : rows).map((r) => ({
+		machine_id: r.machine_id,
+		session_id: r.session_id,
+		started_at: r.started_at,
+		ended_at: r.ended_at,
+		event_count: r.event_count,
+		counts_by_prefix: JSON.parse(r.counts_by_prefix) as Record<string, number>,
+		plugins: JSON.parse(r.plugins) as string[],
+		prompts: r.prompts,
+		compactions: r.compactions,
+	}));
+
+	const last = sessions.at(-1);
+	const cursor =
+		hasMore && last
+			? encodeSessionsCursor(last.started_at, last.machine_id, last.session_id)
+			: null;
+
+	// Asserted rather than trusted, for the same reason listActivityPage
+	// asserts it: hasMore, the clamped limit and the cursor are three separate
+	// facts, and a change to any one of them would silently hide the tail of
+	// the list.
+	if (hasMore && cursor === null) {
+		throw new Error(
+			"listSessionSummaries: has_more is true with no cursor; the tail would be unreachable",
+		);
+	}
+
+	return { sessions, cursor, hasMore };
 }

@@ -163,6 +163,12 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			init: { method: "GET" },
 			status: 401,
 		},
+		{
+			name: "sessions, no token",
+			path: "/sessions",
+			init: { method: "GET" },
+			status: 401,
+		},
 	];
 }
 
@@ -466,6 +472,17 @@ export function authenticatedCases(): ContractCase[] {
 				cursor: null,
 				has_more: false,
 			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "sessions feed, empty",
+			path: "/sessions",
+			init: { method: "GET" },
+			status: 200,
+			// Bare, and `sessions` is an array even when nothing has synced yet -
+			// the two-empty-states distinction the web page draws (no machine vs.
+			// nothing over threshold) happens above this envelope, not in it.
+			body: { sessions: expectArray, has_more: false },
 			forbidden: NO_SECRETS,
 		},
 		{

@@ -16,6 +16,7 @@ import {
 	handleGetInventory,
 	handleGetLesson,
 	handleGetProfile,
+	handleGetSessions,
 	handleGetUserProfile,
 	handleListMachines,
 	handleLogin,
@@ -196,6 +197,25 @@ const ROUTES: Route[] = [
 		method: "POST",
 		path: "/machine/sessions",
 		handler: handlePostSessions,
+	},
+
+	// =========================================================================
+	// Session summaries (browser read)
+	//
+	// The other half of the self-report above, and deliberately not beside it.
+	// A machine may describe what it has been doing; reading that history back
+	// is a person looking at their own account, the same distinction
+	// /api/activity draws against the machine-authenticated /lessons ingest.
+	// requireAuth here means a machine token - which opens the block above -
+	// does not open this one.
+	//
+	// Bare `/sessions`, not under `/api/`, matching the frontend route it backs
+	// and the contract cases in packages/api-contract.
+	// =========================================================================
+	{
+		method: "GET",
+		path: "/sessions",
+		handler: handleGetSessions,
 	},
 
 	// =========================================================================

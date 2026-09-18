@@ -1,5 +1,10 @@
+import { BROWSE_DEFAULT_LIMIT, InvalidCursorError } from "../db/lessons.js";
 import type { SessionSummaryInput } from "../db/session-summaries.js";
-import { putSessionSummaries } from "../db/session-summaries.js";
+import {
+	listSessionSummaries,
+	putSessionSummaries,
+} from "../db/session-summaries.js";
+import { requireAuth } from "../middleware/auth.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
 import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
@@ -94,4 +99,51 @@ export async function handlePostSessions(
 	await putSessionSummaries(env.DB, userId, machineId, summaries);
 
 	return Response.json({ stored: summaries.length });
+}
+
+/**
+ * GET /sessions
+ *
+ * The browser's read of its own session history, across every machine that
+ * has reported one. Browser-authenticated behind `requireAuth`, the same way
+ * GET /api/activity is - a machine credential names exactly one machine and
+ * has no business reading a person's whole feed, so a machine token here
+ * fails at requireAuth before this handler's body ever runs.
+ *
+ * Bare `/sessions`, not under `/api/` - see router.ts for where this is
+ * registered and why.
+ */
+export async function handleGetSessions(
+	request: Request,
+	env: WorkerEnv,
+): Promise<Response> {
+	const { userId } = await requireAuth(request, env);
+	const url = new URL(request.url);
+
+	// Clamped rather than rejected, matching handleActivity: a client asking
+	// for more than the ceiling wants as much as it can get, and failing the
+	// request serves nobody.
+	const requested = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+	const limit = Number.isNaN(requested) ? BROWSE_DEFAULT_LIMIT : requested;
+
+	try {
+		const page = await listSessionSummaries(env.DB, userId, {
+			cursor: url.searchParams.get("cursor"),
+			limit,
+		});
+		return Response.json({
+			sessions: page.sessions,
+			cursor: page.cursor,
+			has_more: page.hasMore,
+		});
+	} catch (error) {
+		if (error instanceof InvalidCursorError) {
+			throw new ApiError(
+				400,
+				"invalid_cursor",
+				"That cursor was not issued by this server; start from the first page",
+			);
+		}
+		throw error;
+	}
 }

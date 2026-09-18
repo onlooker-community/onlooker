@@ -57,6 +57,12 @@ function post(machineToken: string, body: unknown): Promise<Response> {
 	});
 }
 
+function get(accessToken: string, path = "/sessions"): Promise<Response> {
+	return SELF.fetch(`${BASE}${path}`, {
+		headers: { Authorization: `Bearer ${accessToken}` },
+	});
+}
+
 beforeEach(async () => {
 	await db().prepare("DELETE FROM session_summaries").run();
 	await db().prepare("DELETE FROM machine_tokens").run();
@@ -178,5 +184,147 @@ describe("POST /machine/sessions", () => {
 		});
 
 		expect(response.status).toBe(401);
+	});
+});
+
+interface WireSummary {
+	session_id: string;
+	machine_id: string;
+	started_at: string;
+	event_count: number;
+	counts_by_prefix: Record<string, number>;
+	plugins: string[];
+}
+
+describe("GET /sessions", () => {
+	it("returns this user's sessions, newest first", async () => {
+		const access = await signup("newest-first@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "s-early",
+					started_at: "2026-09-10T00:00:00.000Z",
+				}),
+				summary({
+					session_id: "s-late",
+					started_at: "2026-09-16T00:00:00.000Z",
+				}),
+				summary({
+					session_id: "s-mid",
+					started_at: "2026-09-13T00:00:00.000Z",
+				}),
+			],
+		});
+
+		const response = await get(access);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { sessions: WireSummary[] };
+		expect(body.sessions.map((s) => s.session_id)).toEqual([
+			"s-late",
+			"s-mid",
+			"s-early",
+		]);
+	});
+
+	it("pages with a cursor", async () => {
+		const access = await signup("pages@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({ session_id: "s1", started_at: "2026-09-10T00:00:00.000Z" }),
+				summary({ session_id: "s2", started_at: "2026-09-12T00:00:00.000Z" }),
+				summary({ session_id: "s3", started_at: "2026-09-14T00:00:00.000Z" }),
+			],
+		});
+
+		const first = await get(access, "/sessions?limit=2");
+		expect(first.status).toBe(200);
+		const firstBody = (await first.json()) as {
+			sessions: WireSummary[];
+			cursor: string | null;
+			has_more: boolean;
+		};
+		expect(firstBody.has_more).toBe(true);
+		expect(firstBody.cursor).not.toBeNull();
+		expect(firstBody.sessions.map((s) => s.session_id)).toEqual(["s3", "s2"]);
+
+		const second = await get(
+			access,
+			`/sessions?limit=2&cursor=${encodeURIComponent(firstBody.cursor as string)}`,
+		);
+		expect(second.status).toBe(200);
+		const secondBody = (await second.json()) as {
+			sessions: WireSummary[];
+			cursor: string | null;
+			has_more: boolean;
+		};
+		expect(secondBody.has_more).toBe(false);
+		expect(secondBody.cursor).toBeNull();
+		expect(secondBody.sessions.map((s) => s.session_id)).toEqual(["s1"]);
+
+		// No row repeated, none skipped: the two pages together are exactly the
+		// three seeded sessions.
+		const allIds = [...firstBody.sessions, ...secondBody.sessions].map(
+			(s) => s.session_id,
+		);
+		expect(allIds).toEqual(["s3", "s2", "s1"]);
+	});
+
+	it("never returns another user's sessions", async () => {
+		const mine = await signup("mine@example.com");
+		const myMachine = await mint(mine, "laptop");
+		await post(myMachine.token, {
+			schema_version: 1,
+			sessions: [summary({ session_id: "mine" })],
+		});
+
+		const theirs = await signup("theirs@example.com");
+		const theirMachine = await mint(theirs, "laptop");
+		await post(theirMachine.token, {
+			schema_version: 1,
+			sessions: [summary({ session_id: "theirs" })],
+		});
+
+		const response = await get(mine);
+		const body = (await response.json()) as { sessions: WireSummary[] };
+		expect(body.sessions).toHaveLength(1);
+		expect(body.sessions[0].session_id).toBe("mine");
+	});
+
+	// "Nothing yet" is an answer, not an error. A user with no machines is the
+	// normal state of a new account.
+	it("answers an empty page for a user with no machines", async () => {
+		const access = await signup("empty@example.com");
+
+		const response = await get(access);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			sessions: [],
+			cursor: null,
+			has_more: false,
+		});
+	});
+
+	// Reading the feed is a browser-authenticated act, the same split
+	// GET /api/activity draws against the machine-authenticated ingest routes.
+	it("refuses a machine token", async () => {
+		const access = await signup("machine-token@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await get(machine.token);
+		expect(response.status).toBe(401);
+	});
+
+	// A cursor this server did not issue is client error, not server error.
+	it("answers 400 for a cursor it did not issue", async () => {
+		const access = await signup("bad-cursor@example.com");
+
+		const response = await get(access, "/sessions?cursor=nonsense!!");
+		expect(response.status).toBe(400);
 	});
 });

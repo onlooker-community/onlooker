@@ -877,6 +877,63 @@ export async function mockDataApi(
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
 }
 
+// ---------------------------------------------------------------------------
+// Session summaries. GET /sessions is the browser's read of what
+// POST /machine/sessions has written - a machine-authenticated push this mock
+// does not implement (sync runs against a real apps/api or not at all, never
+// the browser mock), so there is no path by which this store could ever hold
+// a row. Permanently empty is therefore correct here, the same way the lesson
+// pool and activity feed above are: enough to serve the contract, which pins
+// the envelope shape and not its contents.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /sessions
+ *
+ * Bare, not under /api/ - matching apps/api/src/router.ts, which keeps this
+ * route out of /api/ deliberately, and the contract case naming it that way.
+ * createMockFetch routes it here directly since it falls outside both of the
+ * prefixes mockAuthApi and mockDataApi otherwise claim.
+ */
+async function mockSessionsApi(
+	path: string,
+	options: RequestInit,
+): Promise<Response> {
+	const poolPath = path.split("?")[0];
+
+	if (poolPath === "/sessions" && (options.method ?? "GET") === "GET") {
+		requireAuth(options);
+
+		// The real cursor is base64 of `<started_at>\n<machine_id>\n<session_id>`
+		// - see encodeSessionsCursor in apps/api/src/db/session-summaries.ts.
+		// The mock's page is always empty, so a well-formed cursor still yields
+		// nothing; only the rejection needs to match, same reasoning as
+		// /api/activity's cursor check above.
+		const query = new URLSearchParams(path.split("?")[1] ?? "");
+		const cursor = query.get("cursor");
+		if (cursor) {
+			let decoded: string | null = null;
+			try {
+				decoded = atob(cursor);
+			} catch {
+				decoded = null;
+			}
+			const parts = decoded === null ? [] : decoded.split("\n");
+			if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+				throw new AuthApiError(
+					400,
+					"invalid_cursor",
+					"That cursor was not issued by this server; start from the first page",
+				);
+			}
+		}
+
+		return json({ sessions: [], cursor: null, has_more: false });
+	}
+
+	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
+}
+
 function errorResponse(error: unknown): Response {
 	if (error instanceof AuthApiError) {
 		// Byte-identical to apps/api's errorHandler, including the header. A
@@ -939,6 +996,16 @@ export function createMockFetch() {
 		if (path.startsWith("/api/")) {
 			try {
 				return await mockDataApi(path, options);
+			} catch (error) {
+				return errorResponse(error);
+			}
+		}
+
+		// Bare /sessions lives outside /api/ on purpose (see router.ts), so it
+		// needs its own prefix check here rather than falling into mockDataApi's.
+		if (path.startsWith("/sessions")) {
+			try {
+				return await mockSessionsApi(path, options);
 			} catch (error) {
 				return errorResponse(error);
 			}
