@@ -4,23 +4,7 @@ import { type ActivityEvent, listActivity } from "../api/lessonsApi";
 import { LoadMore } from "../components/LoadMore";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
-
-/** The day an event belongs to, in the reader's own timezone. */
-function dayKey(iso: string): string {
-	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return iso;
-	return d.toLocaleDateString(undefined, {
-		weekday: "long",
-		month: "long",
-		day: "numeric",
-	});
-}
-
-function timeOf(iso: string): string {
-	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return "";
-	return d.toLocaleTimeString(undefined, { timeStyle: "short" });
-}
+import { dayKey, timeOf } from "../lib/dayKey";
 
 /**
  * What happened, in the order the feed recorded it.

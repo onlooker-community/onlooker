@@ -28,7 +28,7 @@ vi.mock("../auth", () => ({
 const { default: App } = await import("../App");
 
 describe("an authenticated route while the session is still loading", () => {
-	// The symptom was a blank white page on every hard refresh of five routes.
+	// The symptom was a blank white page on every hard refresh of six routes.
 	// Asserting on the nav rather than on the loading text is deliberate: the
 	// nav is the part whose absence people actually experienced.
 	it("renders the app frame rather than nothing", () => {

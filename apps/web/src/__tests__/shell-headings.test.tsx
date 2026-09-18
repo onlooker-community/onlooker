@@ -57,6 +57,11 @@ vi.mock("../api/lessonsApi", () => ({
 	listActivity: () =>
 		Promise.resolve({ events: [], cursor: null, has_more: false }),
 }));
+vi.mock("../api/sessionsApi", () => ({
+	SESSION_ENDPOINTS: { sessions: "/api/sessions" },
+	listSessions: () =>
+		Promise.resolve({ sessions: [], cursor: null, has_more: false }),
+}));
 
 const { default: App } = await import("../App");
 const { SECTIONS } = await import("../components/AppShell");
@@ -72,7 +77,7 @@ function renderAppAt(path: string) {
 describe("the page heading on shell routes", () => {
 	// Driven off SECTIONS rather than a hand-written list, so a route added to
 	// the nav is covered without anyone remembering to extend this test. That
-	// is what makes this a policy rather than a description of five pages.
+	// is what makes this a policy rather than a description of six pages.
 	//
 	// Equality, not a match: the whole reason the h1 is rendered from SECTIONS
 	// is so the heading and the nav label cannot drift. Before this, the nav
