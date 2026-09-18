@@ -8,10 +8,11 @@ the API behind it, and the shared packages they are built from. The local-first
 tooling lives elsewhere; what is here exists to support what cannot be local —
 sharing lessons between people, and holding a summary of every session
 substantial enough to be worth keeping. A summary is an envelope, not a
-transcript: session id, machine, start and end times, event counts by type,
-which plugins fired, and how often the agent was prompted or compacted. It
-never carries an event's payload, because the summarizer has no code path that
-reads one — a plugin shipping a new event type cannot leak through it.
+transcript: session id, machine, start and end times, event counts by type
+prefix (`tool.shell.exec` and `tool.file.edit` both count as `tool`), which
+plugins fired, and how often the agent was prompted or compacted. It never
+carries an event's payload, because the summarizer has no code path that reads
+one — a plugin shipping a new event type cannot leak through it.
 
 **Status: early.** One deployed user, a working auth and account surface, and no
 lesson-sharing yet. The [shared lesson contract](packages/lesson-contract) is
