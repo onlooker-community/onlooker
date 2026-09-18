@@ -8,7 +8,13 @@ import {
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { byteAtOffsetIsNewline, scanEvents, scanHooks } from "../eventlog";
+import {
+	byteAtOffsetIsNewline,
+	readEventEnvelopes,
+	scanEvents,
+	scanHooks,
+} from "../eventlog";
+import type { EventEnvelope } from "../sessions";
 
 /** A temp `$ONLOOKER_DIR` holding a `logs/onlooker-events.jsonl` of `lines`. */
 function withEvents(lines: unknown[]): NodeJS.ProcessEnv {
@@ -556,6 +562,64 @@ describe("scanEvents", () => {
 			"2026-09-01T00:00:00Z",
 		);
 		expect(Object.getPrototypeOf(scan.lastByPrefix)).toBeNull();
+	});
+});
+
+/** Drain `envelopes` into an array, for assertions that just want the list. */
+async function collect(
+	envelopes: AsyncIterable<EventEnvelope>,
+): Promise<EventEnvelope[]> {
+	const out: EventEnvelope[] = [];
+	for await (const envelope of envelopes) out.push(envelope);
+	return out;
+}
+
+describe("readEventEnvelopes / streamEnvelopes", () => {
+	it("yields an envelope for each well-formed line", async () => {
+		const env = withEvents([
+			event("session.start", "2026-09-01T00:00:00Z"),
+			event("tool.shell.exec", "2026-09-01T00:01:00Z"),
+		]);
+		const { envelopes, unavailable } = await readEventEnvelopes(env);
+		expect(unavailable).toBeNull();
+		const collected = await collect(envelopes);
+		expect(collected.map((e) => e.event_type)).toEqual([
+			"session.start",
+			"tool.shell.exec",
+		]);
+	});
+
+	// The sibling checks in `scanEvents` (`isValidTimestamp`, used around
+	// lines 269 and 719 of eventlog.ts) exist because `typeof timestamp ===
+	// "string"` alone lets through a value like this one - valid JSON, a
+	// string, but not the Z-suffixed UTC shape `summarizeSessions` (sessions.ts)
+	// assumes when it compares `started_at`/`last_at` lexically. Before this
+	// fix, `streamEnvelopes` checked only `typeof`, so a record shaped exactly
+	// like this one passed straight through as a real envelope.
+	it("skips an envelope whose timestamp is a valid string but not the expected UTC shape, and keeps reading", async () => {
+		const env = withEvents([
+			event("session.start", "2026-09-01T00:00:00Z"),
+			event("tool.shell.exec", "Sep 2 2020"),
+			event("session.end", "2026-09-01T00:02:00Z"),
+		]);
+		const { envelopes } = await readEventEnvelopes(env);
+		const collected = await collect(envelopes);
+		expect(collected.map((e) => e.event_type)).toEqual([
+			"session.start",
+			"session.end",
+		]);
+	});
+
+	// `EventLogEnvelopes.envelopes`'s own docstring says this is yielded one
+	// at a time, never collected into an array first - the whole point of
+	// streaming a ~90MB-and-growing log. An array does not carry
+	// `Symbol.asyncIterator`, so this catches a future regression back to
+	// `.push()`-based collection directly, rather than relying on a memory
+	// test to notice it.
+	it("hands back an async iterable, not a collected array", async () => {
+		const env = withEvents([event("session.start", "2026-09-01T00:00:00Z")]);
+		const { envelopes } = await readEventEnvelopes(env);
+		expect(Symbol.asyncIterator in envelopes).toBe(true);
 	});
 });
 

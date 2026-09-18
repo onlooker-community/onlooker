@@ -77,17 +77,45 @@ export default function SessionsPage() {
 	// in the mount effect below, so the "Could not check your machines" empty
 	// state (rendered when `machinesCheck.kind === "failed"`) can offer a
 	// Retry that runs the exact same read rather than a second copy of it.
-	const checkMachines = useCallback(async () => {
-		setMachinesCheck({ kind: "pending" });
-		setMachinesError(null);
-		try {
-			const { machines } = await listMachines();
-			setMachinesCheck({ kind: "known", hasMachines: machines.length > 0 });
-		} catch (error) {
-			setMachinesCheck({ kind: "failed" });
-			setMachinesError(describeError(error, "Could not check your machines."));
-		}
-	}, []);
+	//
+	// `hasMachines` asks whether any machine has actually synced, not whether
+	// one was ever minted: `machines` here is every token this account has
+	// ever created, revoked ones included, and `last_used_at` stays null until
+	// a token is actually presented by `sync` (see `verifyMachineToken` in
+	// apps/api's machine-tokens.ts). Reading `machines.length > 0` for this
+	// answers "has this account ever minted a token," which is a different
+	// fact - mint one, never run sync, and that read is true while no session
+	// could possibly exist yet, sending someone to the threshold copy below
+	// instead of the "no machine has synced yet" state that is actually true.
+	//
+	// `isActive` defaults to always-true for the Retry button's call - a click
+	// only happens while mounted - and is threaded through by the mount effect
+	// below with its own `active` flag, the same one already guarding its two
+	// sibling setters, so a `listMachines()` that resolves after unmount does
+	// not set state on a page that is gone.
+	const checkMachines = useCallback(
+		async (isActive: () => boolean = () => true) => {
+			setMachinesCheck({ kind: "pending" });
+			setMachinesError(null);
+			try {
+				const { machines } = await listMachines();
+				if (!isActive()) return;
+				setMachinesCheck({
+					kind: "known",
+					hasMachines: machines.some(
+						(m) => m.revoked_at === null && m.last_used_at !== null,
+					),
+				});
+			} catch (error) {
+				if (!isActive()) return;
+				setMachinesCheck({ kind: "failed" });
+				setMachinesError(
+					describeError(error, "Could not check your machines."),
+				);
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		// An `active` flag, not a request sequence number - this screen has no
@@ -104,7 +132,7 @@ export default function SessionsPage() {
 				if (!active) return;
 				setLoadError(describeError(error, "Could not load your sessions."));
 			});
-		void checkMachines();
+		void checkMachines(() => active);
 		return () => {
 			active = false;
 		};
@@ -220,7 +248,10 @@ export default function SessionsPage() {
 				<Panel key={group.day} title={group.day} icon="Monitor">
 					{group.sessions.map((session) => (
 						<div
-							key={session.session_id}
+							// `session_id` alone is not unique across the feed - it spans
+							// every machine this account has, and two machines can each
+							// mint their own session id independently.
+							key={`${session.machine_id}:${session.session_id}`}
 							style={{
 								display: "flex",
 								flexWrap: "wrap",
@@ -249,7 +280,11 @@ export default function SessionsPage() {
 				cursor={cursor}
 				loading={loadingMore}
 				ended={ended}
-				endLabel="That's the whole history."
+				// Not "the whole history" - the server only keeps 180 days of it
+				// (see RETENTION_DAYS, apps/api's session-summaries.ts), so this
+				// names the actual boundary rather than a claim the data doesn't
+				// back.
+				endLabel="That's the last 180 days of history."
 				error={moreError}
 				onLoadMore={() => void loadMore()}
 			/>

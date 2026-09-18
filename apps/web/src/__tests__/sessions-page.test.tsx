@@ -3,7 +3,7 @@
 // depends on the runner's zone. See that file's comment for the full case.
 process.env.TZ = "UTC";
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +51,24 @@ const ONE_MACHINE = {
 			name: "work laptop",
 			created_at: "2026-08-01T00:00:00Z",
 			last_used_at: "2026-09-01T00:00:00Z",
+			revoked_at: null,
+			inventory_at: null,
+			plugin_count: null,
+		},
+	],
+};
+
+// A token minted but never presented by `sync` - `last_used_at` stays null
+// until then (see machinesApi.ts's own doc comment on `Machine.last_used_at`)
+// - not revoked, just never used. This is the case the old `machines.length
+// > 0` predicate could not tell apart from `ONE_MACHINE`.
+const NOT_YET_SYNCED = {
+	machines: [
+		{
+			id: "m2",
+			name: "new laptop",
+			created_at: "2026-09-10T00:00:00Z",
+			last_used_at: null,
 			revoked_at: null,
 			inventory_at: null,
 			plugin_count: null,
@@ -193,6 +211,43 @@ describe("/sessions when nothing has synced", () => {
 
 		expect(await screen.findByText(/no machine has synced/i)).toBeDefined();
 		expect(screen.queryByText(/threshold/i)).toBeNull();
+	});
+
+	// The conflation the whole-branch review found: `hasMachines` used to ask
+	// "has this account ever minted a token," not "has any machine ever
+	// synced." A token minted but never presented by `sync` must read the
+	// same as no machine at all - it is not the fact this page's threshold
+	// copy claims either.
+	it("says nothing has synced when a machine was minted but never used", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockResolvedValue(NOT_YET_SYNCED);
+		renderAppAt("/sessions");
+
+		expect(await screen.findByText(/no machine has synced/i)).toBeDefined();
+		expect(screen.queryByText(/threshold/i)).toBeNull();
+	});
+
+	// The failed-read state and its Retry - previously untested. Neither
+	// empty state is safe to guess at when the read that would settle it
+	// failed outright, so this asserts the third, honest state and that
+	// Retry recovers through the exact same read rather than a dead end.
+	it("offers a retry when the machines check fails, and recovers through it", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockRejectedValueOnce(new Error("machines API is down"));
+		renderAppAt("/sessions");
+
+		expect(
+			await screen.findByRole("heading", {
+				name: /could not check your machines/i,
+			}),
+		).toBeDefined();
+		expect(await screen.findByText(/machines API is down/i)).toBeDefined();
+
+		mocks.listMachines.mockResolvedValue(NO_MACHINES);
+		fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+		expect(await screen.findByText(/no machine has synced/i)).toBeDefined();
+		expect(mocks.listMachines).toHaveBeenCalledTimes(2);
 	});
 });
 

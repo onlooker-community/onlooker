@@ -458,7 +458,11 @@ async function* emptyEnvelopes(): AsyncGenerator<EventEnvelope> {}
  * A line that is not valid JSON, or is missing a required field, is skipped
  * rather than aborting the pass: the log is appended by many independent
  * plugins, and one bad writer must not silently end session reporting for
- * good.
+ * good. `timestamp` is held to `isValidTimestamp`, not just `typeof …
+ * === "string"` - `summarizeSessions` (sessions.ts) compares `started_at`/
+ * `last_at` lexically, the same Z-suffixed-UTC assumption that function's own
+ * docstring explains, and a malformed-but-string timestamp would corrupt
+ * those comparisons the same way it would `scanEvents`'s `lastByPrefix`.
  */
 async function* streamEnvelopes(
 	stream: ReturnType<typeof createReadStream>,
@@ -484,7 +488,8 @@ async function* streamEnvelopes(
 			if (
 				typeof record.event_type !== "string" ||
 				typeof record.session_id !== "string" ||
-				typeof record.timestamp !== "string"
+				typeof record.timestamp !== "string" ||
+				!isValidTimestamp(record.timestamp)
 			) {
 				continue;
 			}

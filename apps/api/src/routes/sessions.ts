@@ -33,6 +33,9 @@ function isValidSummary(value: unknown): value is SessionSummaryInput {
 		typeof candidate.counts_by_prefix === "object" &&
 		candidate.counts_by_prefix !== null &&
 		!Array.isArray(candidate.counts_by_prefix) &&
+		Object.values(candidate.counts_by_prefix).every(
+			(count) => typeof count === "number",
+		) &&
 		Array.isArray(candidate.plugins) &&
 		candidate.plugins.every((plugin) => typeof plugin === "string") &&
 		typeof candidate.prompts === "number" &&
@@ -93,6 +96,12 @@ export async function handlePostSessions(
 				"One or more session summaries are malformed",
 			);
 		}
+		// `candidate` itself, not a field-by-field copy: `isValidSummary` only
+		// confirms every field `putSessionSummaries` needs is present and the
+		// right type, not that the object carries nothing else - an unknown
+		// extra field on the body survives to the DB layer. Noted rather than
+		// narrowed: there is one choke point on this payload instead of two,
+		// which is a deliberate trade-off already made, not an oversight.
 		summaries.push(candidate);
 	}
 

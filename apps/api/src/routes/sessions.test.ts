@@ -155,6 +155,21 @@ describe("POST /machine/sessions", () => {
 		expect(response.status).toBe(400);
 	});
 
+	// `counts_by_prefix`'s keys were checked as an object, but its VALUES were
+	// never checked as numbers - a string here would round-trip through
+	// storage and reach `count.toLocaleString()` on the web page.
+	it("refuses a session whose counts_by_prefix holds a non-number value", async () => {
+		const access = await signup("counts@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_prefix: { tool: "not-a-number" } })],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
 	it("refuses an unknown schema version", async () => {
 		const access = await signup("version@example.com");
 		const machine = await mint(access, "laptop");
