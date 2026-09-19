@@ -71,7 +71,17 @@ LOOKBACK_MINUTES=""
 readonly CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 readonly CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 
-# Test seams. Both exit before any network request.
+# Test seams: four of them now. MONITOR_PREFLIGHT_ONLY, MONITOR_PRINT_QUERY,
+# and MONITOR_RENDER_EVENTS each exit the script before any request goes out.
+# MONITOR_RUNS_RESPONSE does not exit - it substitutes for the GitHub runs
+# response inside resolve_lookback_minutes, the only place it is read.
+#
+# MONITOR_PRINT_QUERY's no-network guarantee is not free from its position in
+# the file: build_query itself never talks to the network, but
+# resolve_lookback_minutes runs first and would call GitHub live if it were
+# not also checking MONITOR_PRINT_QUERY before doing so. That check lives
+# inside resolve_lookback_minutes, not here - remove it and this comment is
+# wrong again.
 readonly MONITOR_PREFLIGHT_ONLY="${MONITOR_PREFLIGHT_ONLY:-}"
 readonly MONITOR_PRINT_QUERY="${MONITOR_PRINT_QUERY:-}"
 readonly MONITOR_RENDER_EVENTS="${MONITOR_RENDER_EVENTS:-}"
@@ -152,7 +162,12 @@ resolve_lookback_minutes() {
 	local response=""
 	if [[ -n "${MONITOR_RUNS_RESPONSE}" ]]; then
 		response="${MONITOR_RUNS_RESPONSE}"
-	elif [[ -n "${auth}" && -n "${repo}" ]]; then
+	elif [[ -z "${MONITOR_PRINT_QUERY}" && -n "${auth}" && -n "${repo}" ]]; then
+		# The MONITOR_PRINT_QUERY guard is not optional: that seam's own comment
+		# promises it exits before any network request. Without it, a developer
+		# who has GITHUB_TOKEN and GITHUB_REPOSITORY exported ambiently turns the
+		# offline test suite into one that calls api.github.com for real.
+		#
 		# status=completed excludes the run doing the asking, which would
 		# otherwise always be the most recent one. per_page=1 because the API
 		# returns newest first and only the newest is wanted.

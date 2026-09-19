@@ -235,6 +235,16 @@ lookback "no credential falls back to 480" 480
 lookback "an explicit override beats derivation" 45 \
 	CLIENT_ERROR_LOOKBACK_MINUTES=45 MONITOR_RUNS_RESPONSE="$(runs_fixture 120)"
 
+# MONITOR_PRINT_QUERY's own comment promises it exits before any network
+# request. Without a guard in resolve_lookback_minutes, a developer who has
+# GITHUB_TOKEN and GITHUB_REPOSITORY exported ambiently would turn this
+# "offline" suite into one that calls api.github.com for real - which is
+# exactly what a passing suite could not previously see. The token and repo
+# below are obviously fake, so if the guard regresses this fails loudly
+# against a bogus endpoint rather than quietly reaching a real one.
+lookback "MONITOR_PRINT_QUERY blocks a live call even with credentials present" 480 \
+	GITHUB_TOKEN=not-a-real-token GITHUB_REPOSITORY=example/nope
+
 # A silent fallback is the failure mode this change exists to end, so the
 # fallback announces itself.
 fallback_stderr="$(env CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a GITHUB_TOKEN= \
