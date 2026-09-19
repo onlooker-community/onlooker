@@ -275,6 +275,8 @@ bash scripts/cli-version.test.sh
 
 Expected: `cli-version.test.sh: all 4 tests passed`
 
+> **Revised during execution (2026-09-19).** Task 1's review found that `expect_paths` asserted stdout only — so a case could exit non-zero and still pass — and that neither documented error path had a test. A fix round made `expect_paths` assert the exit status too (following `expect_sha` in `deployable.test.sh`), added cases for a missing manifest and an unresolvable `workspace:*` dependency, and split the empty-`dependencies` case from a genuinely absent key. **Task 1 therefore ends at 7 tests, not 4**, and every cumulative count below accounts for that.
+
 - [ ] **Step 5: Commit**
 
 Run `/git-workflow:commit` with this message:
@@ -437,7 +439,7 @@ And extend the `case` block — add this branch before the `*)` fallthrough:
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 12 tests passed`
+Expected: `cli-version.test.sh: all 15 tests passed` (Task 1's 7, plus these 8)
 
 - [ ] **Step 5: Commit**
 
@@ -596,7 +598,7 @@ expect_verdict "fail:no-bump" "one CLI file among many that are not" \
 bash scripts/cli-version.test.sh
 ```
 
-Expected: the twelve earlier cases still pass; all fifteen `expect_verdict` cases report `FAIL ... -> '' exit 2`.
+Expected: the fifteen earlier cases still pass; all fifteen `expect_verdict` cases report `FAIL ... -> '' exit 2`.
 
 - [ ] **Step 3: Write the minimal implementation**
 
@@ -748,7 +750,7 @@ Finally, update the usage block in the `*)` branch to list all three subcommands
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 27 tests passed`
+Expected: `cli-version.test.sh: all 30 tests passed` (7 + 8 + these 15)
 
 - [ ] **Step 5: Commit**
 
@@ -931,7 +933,7 @@ fi
 bash scripts/cli-version.test.sh
 ```
 
-Expected: the 27 earlier cases pass; the 9 new cases fail. With no gatherer yet, running the script with no arguments hits the usage branch and exits 2, so each reports `exit 2` against its expected 0 or 1.
+Expected: the 30 earlier cases pass; the 9 new cases fail. With no gatherer yet, running the script with no arguments hits the usage branch and exits 2, so each reports `exit 2` against its expected 0 or 1.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1069,7 +1071,7 @@ esac
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 36 tests passed`. If one of the 27 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
+Expected: `cli-version.test.sh: all 39 tests passed` (7 + 8 + 15 + these 9). If one of the 30 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
 
 - [ ] **Step 5: Exercise the gatherer against this branch by hand**
 
