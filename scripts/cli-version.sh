@@ -363,14 +363,25 @@ printf '%s\n' "${changed}" >&2
 echo "cli-version: source paths" >&2
 printf '%s\n' "${source_paths}" >&2
 
-verdict="$(printf '%s\n' "${changed}" | decide \
-	"${source_paths}" "${old_version}" "${new_version}" "${labels}")"
+# A herestring, not `printf | decide`. touches_source returns on its first
+# match without draining the rest of stdin, so once the changed-file list
+# outgrows the pipe buffer the upstream printf takes EPIPE, pipefail turns
+# that into a failed pipeline, and set -e kills the run - silently, on a
+# legitimate pass:bumped, with no annotation printed at all. deployable.sh's
+# match_paths comment documents this exact trap; a herestring has no upstream
+# process to signal, so there is nothing left to kill.
+verdict="$(decide \
+	"${source_paths}" "${old_version}" "${new_version}" "${labels}" <<<"${changed}")"
 
 # Which files made it count. Recomputed rather than threaded out of `decide`,
 # which stays a pure function of its inputs and answers one question.
 touched="$(printf '%s\n' "${changed}" | while read -r file; do
 	[[ -n "${file}" ]] || continue
-	if printf '%s\n' "${file}" | touches_source "${source_paths}"; then
+	# Same herestring reasoning as the `decide` call above: one file per
+	# iteration fits the pipe buffer today, but the early return inside
+	# touches_source is the same shape of risk, and a herestring costs
+	# nothing to rule it out.
+	if touches_source "${source_paths}" <<<"${file}"; then
 		printf '%s ' "${file}"
 	fi
 done)"

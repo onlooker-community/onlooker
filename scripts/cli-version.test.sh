@@ -176,8 +176,15 @@ expect_run() {
 
 	tests=$((tests + 1))
 
+	# PR_NUMBER and GH_TOKEN are cleared explicitly rather than left to
+	# whatever the environment happens to be. Without this, "no network" is a
+	# property of the shell that ran the suite rather than of the suite
+	# itself - a PR_NUMBER exported by a caller (a real one from the same
+	# pull request this gate runs in, say) would send this to `gh`, and a
+	# real `cli-batch` label on it would flip run-nobump from a failure to a
+	# pass while the suite still reported green.
 	local output="" status=0
-	output="$(CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" "${CLI_VERSION}" 2>&1)" || status=$?
+	output="$(PR_NUMBER= GH_TOKEN= CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" "${CLI_VERSION}" 2>&1)" || status=$?
 
 	if [[ "${status}" == "${expected_exit}" && "${output}" == *"${expected_text}"* ]]; then
 		echo "  ok    ${description}"
@@ -424,6 +431,23 @@ base="$(make_repo "${work}/run-backward" "${SAME}" \
 	"apps/cli/src/sessions.ts")"
 expect_run 1 "CLI version moved backward" \
 	"the version moved backward" "${work}/run-backward" "${base}"
+
+# A changed-file list larger than a pipe buffer must not kill the run.
+# touches_source returns on its first match without draining the rest of
+# stdin, so `printf | decide` used to take EPIPE once the list grew past the
+# buffer, and pipefail + set -e turned that into a silent exit 1 with no
+# annotation - on a pull request that should have passed. 9000 filler paths
+# plus the one that matters reliably exceeds the buffer on every platform
+# this runs on.
+large_paths=("apps/cli/src/sessions.ts")
+i=0
+while ((i < 9000)); do
+	large_paths+=("docs/filler-${i}.md")
+	i=$((i + 1))
+done
+base="$(make_repo "${work}/run-large" "${SAME}" "${BUMPED}" "${large_paths[@]}")"
+expect_run 0 "2.6.0 -> 2.7.0" \
+	"a changed-file list past the pipe buffer still resolves" "${work}/run-large" "${base}"
 
 # Fails closed. A gate that cannot work out what to compare against must block
 # rather than wave the pull request through.
