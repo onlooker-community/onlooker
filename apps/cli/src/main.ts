@@ -5,3 +5,6 @@ import { run } from "./cli";
 // is how the exit code is set before the process ends. `tsconfig.json` targets
 // ES2023 to allow it.
 process.exitCode = await run(process.argv);
+
+// Scratch change on a pull request that will never merge, to watch the release
+// gate block it. Delete the branch rather than this line.
