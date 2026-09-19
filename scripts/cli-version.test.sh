@@ -469,6 +469,43 @@ expect_verdict "pass:no-cli-change" "a doc that merely names a source path" \
 expect_verdict "pass:no-cli-change" "a sibling directory with a shared prefix" \
 	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/srcextra/x.ts"
 
+# Tests live inside both watched paths - 22 under apps/cli/src, 5 beside the
+# contract's source - and none of them is in the bundle. esbuild's entry point
+# is src/main.ts and it follows imports, not directories; verified that nothing
+# under either path imports a *.test.ts or anything in __tests__. So a pull
+# request that only fixes a flaky test used to be blocked, and its author had to
+# cut a meaningless release or reach for cli-batch. Habitual use of the escape
+# hatch is how a gate stops being read, which is the failure this gate exists to
+# prevent arriving by the other door. See onlooker-78f0.
+expect_verdict "pass:no-cli-change" "a co-located test file is not bundled" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "packages/lesson-contract/src/lesson.test.ts"
+
+expect_verdict "pass:no-cli-change" "a file under __tests__ is not bundled" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/src/__tests__/sessions.test.ts"
+
+expect_verdict "pass:no-cli-change" "a non-test fixture under __tests__" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/src/__tests__/fixtures/lesson.json"
+
+expect_verdict "pass:no-cli-change" "several test files and nothing else" \
+	"${PATHS}" "2.6.0" "2.6.0" "" \
+	"apps/cli/src/__tests__/a.test.ts" "packages/lesson-contract/src/b.test.ts"
+
+# The exclusion must not swallow the source beside it. A pull request that
+# changes production code AND its test is the common shape, and it still needs
+# a release.
+expect_verdict "fail:no-bump" "source changed alongside its test" \
+	"${PATHS}" "2.6.0" "2.6.0" "" \
+	"apps/cli/src/__tests__/sessions.test.ts" "apps/cli/src/sessions.ts"
+
+# Anchored on the path segment, not a substring: a directory that merely starts
+# with the same letters is production code.
+expect_verdict "fail:no-bump" "a directory whose name only begins with __tests__" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/src/__tests__helpers/real.ts"
+
+# `.test.ts` is a suffix, not something that can appear anywhere in the name.
+expect_verdict "fail:no-bump" "a production file with test in its name" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/src/test-harness.ts"
+
 expect_verdict "fail:no-bump" "one CLI file among many that are not" \
 	"${PATHS}" "2.6.0" "2.6.0" "" \
 	"README.md" "docs/notes.md" "apps/cli/src/main.ts" ".beads/issues.jsonl"
@@ -608,6 +645,20 @@ expect_run 1 "packages/lesson-contract/package.json" \
 base="$(make_repo "${work}/run-nonascii" "${SAME}" "${SAME}" "apps/cli/src/café.ts")"
 expect_run 1 "CLI source changed without a release" \
 	"a non-ASCII filename is still seen" "${work}/run-nonascii" "${base}"
+
+# The whole run, for the shape somebody will actually hit: one flaky test
+# fixed, nothing else. It used to block and demand a release nobody wanted.
+base="$(make_repo "${work}/run-testonly" "${SAME}" "${SAME}" \
+	"apps/cli/src/__tests__/sessions.test.ts")"
+expect_run 0 "nothing in this pull request reaches the CLI binary" \
+	"a test-only change does not demand a release" "${work}/run-testonly" "${base}"
+
+# And the pairing that must still block, driven the same way.
+base="$(make_repo "${work}/run-test-and-source" "${SAME}" "${SAME}" \
+	"apps/cli/src/__tests__/sessions.test.ts" "apps/cli/src/sessions.ts")"
+expect_run 1 "CLI source changed without a release" \
+	"a test beside its source still demands a release" \
+	"${work}/run-test-and-source" "${base}"
 
 echo
 if ((failures > 0)); then
