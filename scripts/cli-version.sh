@@ -46,18 +46,20 @@ readonly REPO_ROOT_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # wedges the whole gate closed for every pull request rather than widening it.
 # That fails closed, and after the ::error added below it is loud, so it is
 # recorded here rather than fixed.
-derive_paths() {
-	local root="${1:-${REPO_ROOT_DEFAULT}}"
-	local manifest="${root}/apps/cli/package.json"
+# Print the directory of every workspace dependency the CLI bundles.
+#
+# Shared by derive_paths and derive_manifests rather than written twice, so the
+# two cannot drift. A gate whose source list knows about a dependency its
+# manifest list does not is a gate with a blind spot, which is the shape of
+# onlooker-dnkx.
+workspace_dirs() {
+	local root="$1" manifest="${root}/apps/cli/package.json" dep="" dir=""
 
 	if [[ ! -f "${manifest}" ]]; then
 		echo "cli-version: no manifest at ${manifest}" >&2
 		return 1
 	fi
 
-	echo "apps/cli/src"
-
-	local dep dir
 	while read -r dep; do
 		[[ -n "${dep}" ]] || continue
 
@@ -66,13 +68,51 @@ derive_paths() {
 			return 1
 		fi
 
-		echo "${dir}/src"
+		echo "${dir}"
 	done < <(jq -r '
 		.dependencies // {}
 		| to_entries[]
 		| select(.value | startswith("workspace:"))
 		| .key
 	' "${manifest}")
+}
+
+derive_paths() {
+	local root="${1:-${REPO_ROOT_DEFAULT}}" dirs="" dir=""
+
+	# Resolved before anything is printed. The earlier shape emitted
+	# apps/cli/src and then failed partway through the dependency loop, so a
+	# caller reading stdout without checking the exit status saw what looked
+	# like a short but successful answer. Command substitution propagates the
+	# failure; a process substitution driving the loop directly would not.
+	dirs="$(workspace_dirs "${root}")" || return 1
+
+	echo "apps/cli/src"
+
+	while read -r dir; do
+		[[ -n "${dir}" ]] || continue
+		echo "${dir}/src"
+	done <<<"${dirs}"
+}
+
+# Print every manifest whose contents can change what the binary contains.
+#
+# The CLI's own, plus one per bundled workspace dependency. Watching
+# packages/<dir>/src without packages/<dir>/package.json was the hole
+# onlooker-dnkx records: zod is the runtime behind ZLesson, so bumping it
+# inside the contract recompiles a different dist/onlooker.mjs through a file
+# the gate never read.
+derive_manifests() {
+	local root="${1:-${REPO_ROOT_DEFAULT}}" dirs="" dir=""
+
+	dirs="$(workspace_dirs "${root}")" || return 1
+
+	echo "apps/cli/package.json"
+
+	while read -r dir; do
+		[[ -n "${dir}" ]] || continue
+		echo "${dir}/package.json"
+	done <<<"${dirs}"
 }
 
 # Map a package name to its directory by reading each manifest's own `name`.
@@ -96,16 +136,24 @@ package_dir() {
 	return 1
 }
 
-# Did the dependencies block move between two manifests?
+# Did anything that reaches the binary move between two manifests?
 #
-# Not "did the manifest change": apps/cli/package.json changes on every release
-# by definition, and it also carries scripts, bin and devDependencies, none of
-# which alter the shipped binary. Only a dependency change does, and only that
-# should make the manifest count as CLI source.
+# Everything except `version`, rather than a list of the fields that matter.
+# That inversion is the point. This compared `dependencies` alone until
+# onlooker-dnkx, on the stated grounds that scripts, bin and devDependencies do
+# not alter the artifact - which is false. scripts.build IS the esbuild
+# invocation that produces dist/onlooker.mjs, so --target, --format, --minify
+# and the shebang banner all change it; bin is what `onlooker` resolves to once
+# installed; devDependencies.esbuild is the bundler itself.
 #
-# -S sorts keys so a formatter reordering the block does not read as a change,
-# and `// {}` makes a missing block compare equal to an empty one rather than
-# `null` against `{}`.
+# A list of fields that matter has to stay right forever, and every field added
+# later is a fresh blind spot. The list of fields that provably do not matter
+# has exactly one entry, because the version IS the release. Measured before
+# choosing: of the nine changes ever made to apps/cli/package.json, eight were
+# version-only and the ninth created the file, so this has never over-fired.
+#
+# -S sorts keys recursively, so a formatter reordering a block does not read as
+# a change.
 #
 # Exit 0 = the dependencies moved, 1 = they did not, 2 = the question could
 # not be answered (a missing, unreadable or non-JSON manifest). That third
@@ -115,8 +163,8 @@ package_dir() {
 # whole script exists to end. Checking both files up front, rather than
 # letting jq's own exit code leak out of the comparison below, is what keeps
 # 2 distinguishable from 1.
-deps_differ() {
-	local old="$1" new="$2" old_deps="" new_deps="" manifest=""
+manifest_differs() {
+	local old="$1" new="$2" old_body="" new_body="" manifest=""
 
 	for manifest in "${old}" "${new}"; do
 		if [[ ! -r "${manifest}" ]]; then
@@ -130,10 +178,10 @@ deps_differ() {
 		fi
 	done
 
-	old_deps="$(jq -S -c '.dependencies // {}' "${old}")"
-	new_deps="$(jq -S -c '.dependencies // {}' "${new}")"
+	old_body="$(jq -S -c 'del(.version)' "${old}")"
+	new_body="$(jq -S -c 'del(.version)' "${new}")"
 
-	[[ "${old_deps}" != "${new_deps}" ]]
+	[[ "${old_body}" != "${new_body}" ]]
 }
 
 # The label that turns a missing bump into a recorded decision.
@@ -245,12 +293,16 @@ case "${1:-}" in
 		derive_paths "${2:-}"
 		exit $?
 		;;
-	--deps-differ)
+	--manifests)
+		derive_manifests "${2:-}"
+		exit $?
+		;;
+	--manifest-differs)
 		if [[ $# -ne 3 ]]; then
-			echo "usage: $(basename "$0") --deps-differ OLD NEW" >&2
+			echo "usage: $(basename "$0") --manifest-differs OLD NEW" >&2
 			exit 2
 		fi
-		deps_differ "$2" "$3"
+		manifest_differs "$2" "$3"
 		exit $?
 		;;
 	--decide)
@@ -281,7 +333,8 @@ case "${1:-}" in
 	*)
 		echo "usage: $(basename "$0")" >&2
 		echo "       $(basename "$0") --paths [ROOT]" >&2
-		echo "       $(basename "$0") --deps-differ OLD NEW" >&2
+		echo "       $(basename "$0") --manifests [ROOT]" >&2
+		echo "       $(basename "$0") --manifest-differs OLD NEW" >&2
 		echo "       $(basename "$0") --decide --source-paths L --old-version X --new-version Y --labels L  < changed-file-list" >&2
 		exit 2
 		;;
@@ -318,40 +371,67 @@ if ! source_paths="$(derive_paths "${REPO_ROOT}")"; then
 	exit 1
 fi
 
+manifests=""
+if ! manifests="$(derive_manifests "${REPO_ROOT}")"; then
+	echo "::error title=CLI release gate cannot derive its manifests::apps/cli/package.json could not be read, or one of its workspace dependencies has no matching package under packages/ - see the step log above. Blocking rather than guessing what the bundle contains."
+	exit 1
+fi
+
 old_manifest="$(mktemp)"
 trap 'rm -f "${old_manifest}"' EXIT
 
+# No manifest is in the derived path set on purpose. Each changes on every
+# release of its own package, and each carries fields that do not reach the
+# binary. One earns a place in the set only when manifest_differs says
+# something other than its version moved.
+#
+# Every bundled manifest, not only the CLI's. Watching packages/<dir>/src
+# without packages/<dir>/package.json was the hole in onlooker-dnkx: zod is the
+# runtime behind ZLesson, so a bump inside the contract recompiles a different
+# dist/onlooker.mjs through a file nothing here read.
+manifest=""
+while read -r manifest; do
+	[[ -n "${manifest}" ]] || continue
+
+	# A manifest absent from the base is a bundle input this range introduced,
+	# which is a change by definition. Blocking instead would fail every pull
+	# request that adds a workspace dependency.
+	if ! git show "${BASE_REF}:${manifest}" >"${old_manifest}" 2>/dev/null; then
+		source_paths="${source_paths}"$'\n'"${manifest}"
+		echo "cli-version: ${manifest} is new since ${BASE_REF}; counting it as source" >&2
+		continue
+	fi
+
+	# Captured rather than written as `if manifest_differs ...; then`. Bash
+	# exempts an `if` condition from set -e, so every non-zero status collapses
+	# into "false" there - and "false" means "nothing moved", which means the
+	# manifest is not counted as source, which lets an unreleased change
+	# through. An unreadable manifest would produce the exact silence this
+	# script exists to end. manifest_differs answers 0 differ, 1 same, 2 cannot
+	# answer, and 2 has to be told apart from 1 rather than blurred into it.
+	manifest_status=0
+	manifest_differs "${old_manifest}" "${REPO_ROOT}/${manifest}" || manifest_status=$?
+
+	case "${manifest_status}" in
+		0)
+			source_paths="${source_paths}"$'\n'"${manifest}"
+			echo "cli-version: ${manifest} moved in something other than its version; counting it as source" >&2
+			;;
+		1)
+			;;
+		*)
+			echo "::error title=CLI release gate cannot read a manifest::Could not compare ${manifest} across ${BASE_REF}...HEAD - one side is missing or is not valid JSON. Blocking rather than guessing whether the bundle changed."
+			exit 1
+			;;
+	esac
+done <<<"${manifests}"
+
+# Re-read, because the loop above overwrote the temp file once per manifest and
+# the versions that decide the verdict are the CLI's own.
 if ! git show "${BASE_REF}:apps/cli/package.json" >"${old_manifest}" 2>/dev/null; then
 	echo "::error title=CLI release gate cannot read the base::apps/cli/package.json is not present at ${BASE_REF}. Without it there is nothing to compare, and this gate blocks rather than guess."
 	exit 1
 fi
-
-# The manifest is not in the derived set on purpose - it changes on every
-# release, and it carries scripts, bin and devDependencies too. It earns a
-# place in the set only when its dependencies moved, because that is the only
-# part of it that changes the bundle.
-# Captured rather than written as `if deps_differ ...; then`. Bash exempts an
-# `if` condition from set -e, so every non-zero status collapses into "false"
-# there - and "false" means "dependencies did not change", which means the
-# manifest is not counted as source, which lets an unreleased change through.
-# An unreadable manifest would produce the exact silence this script exists to
-# end. deps_differ answers 0 differ, 1 same, 2 cannot answer, and 2 has to be
-# told apart from 1 rather than blurred into it.
-deps_status=0
-deps_differ "${old_manifest}" "${MANIFEST}" || deps_status=$?
-
-case "${deps_status}" in
-	0)
-		source_paths="${source_paths}"$'\n'"apps/cli/package.json"
-		echo "cli-version: the CLI's dependencies moved; counting the manifest as source" >&2
-		;;
-	1)
-		;;
-	*)
-		echo "::error title=CLI release gate cannot read the manifest::Could not compare apps/cli/package.json's dependencies across ${BASE_REF}...HEAD - one side is missing or is not valid JSON. Blocking rather than guessing whether the bundle changed."
-		exit 1
-		;;
-esac
 
 old_version="$(jq -r '.version // ""' "${old_manifest}")"
 new_version="$(jq -r '.version // ""' "${MANIFEST}")"
@@ -370,7 +450,14 @@ else
 	echo "cli-version: no PR_NUMBER; treating this run as unlabelled" >&2
 fi
 
-changed="$(git diff --name-only "${BASE_REF}...HEAD")"
+# core.quotePath=false, because its default is true and that breaks the match.
+# With quoting on, git renders apps/cli/src/café.ts as the literal
+# "apps/cli/src/caf\303\251.ts" - surrounding double quotes included - and the
+# leading quote defeats the anchored prefix test in touches_source, so the file
+# reads as untouched. A gate that silently stops seeing a file because somebody
+# named it in their own language is the failure this whole script exists to
+# end. scripts/deployable.sh carries the same flag for the same reason.
+changed="$(git -c core.quotePath=false diff --name-only "${BASE_REF}...HEAD")"
 
 # Printed because it is the whole explanation for the answer, and the run log
 # is where anyone will look when the answer surprises them.

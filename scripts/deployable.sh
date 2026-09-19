@@ -183,7 +183,16 @@ echo "deployable: ${ENVIRONMENT} last deployed ${base_sha}" >&2
 # is the whole explanation for the answer, and the run log is where anyone will
 # look when the answer surprises them - and `git diff | tee | match` would put
 # two more processes in a pipeline whose failure mode is a blocked deploy.
-changed="$(git diff --name-only "${base_sha}" "${HEAD_SHA}")"
+# core.quotePath=false, because its default is true and DEPLOYABLE_PATHS is
+# anchored at the start of the path. With quoting on, git renders
+# apps/api/src/café.ts as the literal "apps/api/src/caf\303\251.ts" - the
+# surrounding double quotes included - and the leading quote defeats the `^`,
+# so the file reads as not deployable. That is this filter's worst failure:
+# a green run that deployed nothing, which is onlooker-txcu.7 arriving by a
+# different door. Every path in this repository is ASCII today, so the flag
+# changes nothing yet; it is here so that stays true when one is not.
+# scripts/cli-version.sh carries the same flag for the same reason.
+changed="$(git -c core.quotePath=false diff --name-only "${base_sha}" "${HEAD_SHA}")"
 printf '%s\n' "${changed}" >&2
 
 printf '%s\n' "${changed}" | match_paths

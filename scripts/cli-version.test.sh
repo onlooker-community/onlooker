@@ -71,21 +71,42 @@ expect_paths() {
 	fi
 }
 
-# expect_deps <expected-exit> <description> <old-json> <new-json>
+# expect_manifests <expected-newline-list> <expected-exit> <description> <dir>
+#
+# Asserts which manifests the gate compares across the range. Same output-plus-
+# exit pair as expect_paths, for the same reason.
+expect_manifests() {
+	local expected="$1" expected_exit="$2" description="$3" dir="$4"
+
+	tests=$((tests + 1))
+
+	local actual="" actual_exit=0
+	actual="$("${CLI_VERSION}" --manifests "${dir}" 2>/dev/null)" || actual_exit=$?
+
+	if [[ "${actual}" == "${expected}" && "${actual_exit}" == "${expected_exit}" ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> '${actual}' exit ${actual_exit}" \
+			"(expected '${expected}' exit ${expected_exit})"
+		failures=$((failures + 1))
+	fi
+}
+
+# expect_manifest <expected-exit> <description> <old-json> <new-json>
 #
 # The exit code is the whole answer here, so it is what gets asserted. 0 means
-# the dependencies moved, 1 means they did not.
-expect_deps() {
+# something that reaches the binary moved, 1 means nothing did.
+expect_manifest() {
 	local expected="$1" description="$2" old_json="$3" new_json="$4"
 
 	tests=$((tests + 1))
 
-	local old_file="${work}/deps-old.json" new_file="${work}/deps-new.json"
+	local old_file="${work}/manifest-old.json" new_file="${work}/manifest-new.json"
 	printf '%s\n' "${old_json}" >"${old_file}"
 	printf '%s\n' "${new_json}" >"${new_file}"
 
 	local actual=0
-	"${CLI_VERSION}" --deps-differ "${old_file}" "${new_file}" >/dev/null 2>&1 || actual=$?
+	"${CLI_VERSION}" --manifest-differs "${old_file}" "${new_file}" >/dev/null 2>&1 || actual=$?
 
 	if [[ "${actual}" == "${expected}" ]]; then
 		echo "  ok    ${description}"
@@ -284,66 +305,113 @@ expect_paths "" 1 "no apps/cli manifest at all" "${work}/no-manifest"
 
 # A workspace dependency the CLI manifest names but that has no package built
 # for it - make_tree with no name:dir pair for the one dependency it declares.
+#
+# Nothing is printed before the failure. The earlier shape emitted
+# apps/cli/src and then failed partway through the loop, so a caller reading
+# stdout without checking the exit status saw a short but plausible answer.
 make_tree "${work}/missing-pkg" '{"@onlooker-community/lesson-contract":"workspace:*"}'
-expect_paths "apps/cli/src" 1 \
+expect_paths "" 1 \
 	"a workspace dependency with no matching package" "${work}/missing-pkg"
 
-echo "cli-version.sh: a dependency change against everything else in the manifest"
+echo "cli-version.sh: which manifests reach the binary"
 
-expect_deps 0 "a dependency version moved" \
+# The hole onlooker-dnkx names. Watching packages/<dir>/src but not
+# packages/<dir>/package.json means a zod bump inside the bundled contract
+# recompiles a different binary that the gate never looks at - and zod is the
+# runtime behind ZLesson, which is the whole reason the contract is watched.
+expect_manifests "apps/cli/package.json
+packages/lesson-contract/package.json" 0 \
+	"the CLI manifest and its one workspace dependency" "${work}/one"
+
+expect_manifests "apps/cli/package.json
+packages/lesson-contract/package.json
+packages/logger/package.json" 0 \
+	"a second workspace dependency widens it" "${work}/two"
+
+expect_manifests "apps/cli/package.json" 0 \
+	"a registry dependency contributes no manifest" "${work}/registry"
+
+expect_manifests "apps/cli/package.json" 0 \
+	"no dependencies at all" "${work}/empty-deps"
+
+expect_manifests "" 1 "no apps/cli manifest at all" "${work}/no-manifest"
+
+expect_manifests "" 1 \
+	"a workspace dependency with no matching package" "${work}/missing-pkg"
+
+echo "cli-version.sh: what counts as a manifest change that reaches the binary"
+
+expect_manifest 0 "a dependency version moved" \
 	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
 	'{"version":"2.6.0","dependencies":{"zod":"4.5.0"}}'
 
-expect_deps 0 "a dependency was added" \
+expect_manifest 0 "a dependency was added" \
 	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
 	'{"version":"2.6.0","dependencies":{"zod":"4.4.3","@onlooker/logger":"workspace:*"}}'
 
-expect_deps 0 "a dependency was removed" \
+expect_manifest 0 "a dependency was removed" \
 	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
 	'{"version":"2.6.0","dependencies":{}}'
 
-# The case that keeps every release from reading as a source change. If a bump
-# counted, the gate would see source in every release-only pull request - which
-# still passes, but for the wrong reason, and the test that proves it does not
-# is cheaper than the confusion later.
-expect_deps 1 "only the version moved" \
+# scripts.build IS the esbuild invocation that produces dist/onlooker.mjs, so
+# --target, --format, --minify and the shebang banner each change the artifact.
+# This read as "unchanged" until onlooker-dnkx, on the stated grounds that
+# scripts does not affect the binary. It does.
+expect_manifest 0 "the build script changed" \
+	'{"version":"2.6.0","scripts":{"build":"esbuild --target=node20"}}' \
+	'{"version":"2.6.0","scripts":{"build":"esbuild --target=node22"}}'
+
+# esbuild is the bundler. A different bundler emits a different bundle.
+expect_manifest 0 "the bundler version moved" \
+	'{"version":"2.6.0","devDependencies":{"esbuild":"0.28.1"}}' \
+	'{"version":"2.6.0","devDependencies":{"esbuild":"0.29.0"}}'
+
+# bin is what `onlooker` resolves to once installed.
+expect_manifest 0 "the bin mapping changed" \
+	'{"version":"2.6.0","bin":{"onlooker":"./dist/onlooker.mjs"}}' \
+	'{"version":"2.6.0","bin":{"onlooker":"./dist/cli.mjs"}}'
+
+# The whole argument for comparing everything-but-version rather than a list of
+# fields that matter: a field nobody has thought about yet is watched by
+# default. Under an enumeration it would be a fresh blind spot, which is
+# precisely how onlooker-dnkx came to exist.
+expect_manifest 0 "a field the gate has never heard of appeared" \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"},"imports":{"#x":"./x.js"}}'
+
+# The one field that provably cannot change the artifact, because it IS the
+# release. If a bump counted, every release-only pull request would read as a
+# source change - passing, but for the wrong reason.
+expect_manifest 1 "only the version moved" \
 	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
 	'{"version":"2.7.0","dependencies":{"zod":"4.4.3"}}'
 
-expect_deps 1 "only a script changed" \
-	'{"version":"2.6.0","scripts":{"build":"old"},"dependencies":{"zod":"4.4.3"}}' \
-	'{"version":"2.6.0","scripts":{"build":"new"},"dependencies":{"zod":"4.4.3"}}'
-
-expect_deps 1 "only devDependencies changed" \
-	'{"version":"2.6.0","devDependencies":{"vitest":"4.1.9"},"dependencies":{"zod":"4.4.3"}}' \
-	'{"version":"2.6.0","devDependencies":{"vitest":"4.2.0"},"dependencies":{"zod":"4.4.3"}}'
-
 # Key order is a formatting accident, not a change. Without -S this reports a
-# dependency move every time a formatter reorders the block.
-expect_deps 1 "the same dependencies in a different order" \
+# change every time a formatter reorders a block.
+expect_manifest 1 "the same content in a different key order" \
 	'{"dependencies":{"zod":"4.4.3","@onlooker/logger":"workspace:*"}}' \
 	'{"dependencies":{"@onlooker/logger":"workspace:*","zod":"4.4.3"}}'
 
-expect_deps 1 "no dependencies block on either side" \
+expect_manifest 1 "two manifests that differ in nothing but the version" \
 	'{"version":"2.6.0"}' '{"version":"2.7.0"}'
 
-echo "cli-version.sh: --deps-differ failing closed"
+echo "cli-version.sh: --manifest-differs failing closed"
 
-# The gatherer this feeds calls --deps-differ inside an `if`, which bash
-# exempts from set -e - so a raw jq failure leaking through as an ordinary
-# nonzero exit would read as "1 = unchanged" and let an unreleased dependency
-# change pass silently. Exit 2 is what tells the gatherer to block instead.
-deps_valid="${work}/deps-valid.json"
+# The gatherer this feeds captures the status rather than testing it in an `if`,
+# because bash exempts an `if` condition from set -e - so a raw jq failure
+# leaking through as an ordinary nonzero exit would read as "1 = unchanged" and
+# let an unreleased change pass silently. Exit 2 is what tells it to block.
+deps_valid="${work}/manifest-valid.json"
 printf '{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}\n' >"${deps_valid}"
 
-deps_malformed="${work}/deps-malformed.json"
+deps_malformed="${work}/manifest-malformed.json"
 printf '{not valid json\n' >"${deps_malformed}"
 
 expect_exit 2 "old manifest does not exist" \
-	--deps-differ "${work}/deps-missing.json" "${deps_valid}"
+	--manifest-differs "${work}/manifest-missing.json" "${deps_valid}"
 
 expect_exit 2 "new manifest is not valid JSON" \
-	--deps-differ "${deps_valid}" "${deps_malformed}"
+	--manifest-differs "${deps_valid}" "${deps_malformed}"
 
 echo "cli-version.sh: the verdict"
 
@@ -435,14 +503,17 @@ expect_run 1 "packages/lesson-contract/src/lesson.ts" \
 
 base="$(make_repo "${work}/run-deps" "${SAME}" \
 	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*","zod":"4.4.3"}}')"
-expect_run 1 "counting the manifest as source" \
+expect_run 1 "moved in something other than its version" \
 	"a dependency moved and the version did not" "${work}/run-deps" "${base}"
 
-# devDependencies are not in the bundle, so moving one is not a source change.
+# A devDependency now counts, where it used to be waved through. The gate
+# cannot tell vitest from esbuild without a list of which names matter, and
+# esbuild IS the bundler - so everything but the version counts, and the
+# release-only pull request stays the case that passes. See onlooker-dnkx.
 base="$(make_repo "${work}/run-devdeps" "${SAME}" \
 	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"},"devDependencies":{"vitest":"4.2.0"}}')"
-expect_run 0 "nothing in this pull request reaches the CLI binary" \
-	"only a devDependency moved" "${work}/run-devdeps" "${base}"
+expect_run 1 "moved in something other than its version" \
+	"a devDependency moved and the version did not" "${work}/run-devdeps" "${base}"
 
 base="$(make_repo "${work}/run-backward" "${SAME}" \
 	'{"name":"@onlooker/cli","version":"2.5.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}' \
@@ -495,6 +566,48 @@ no_manifest_base="$(git_throwaway -C "${work}/run-no-manifest" rev-parse HEAD)"
 expect_run 1 "::error title=CLI release gate cannot derive its source paths" \
 	"a missing apps/cli manifest blocks with an annotation, not just a log line" \
 	"${work}/run-no-manifest" "${no_manifest_base}"
+
+# The hole onlooker-dnkx names, driven end to end. apps/cli/package.json never
+# moves, apps/cli/src never moves, and the only change in the range is a
+# dependency inside the bundled contract. zod is the runtime behind ZLesson, so
+# this recompiles a different dist/onlooker.mjs - and until now the gate
+# answered pass:no-cli-change, because it compared the CLI manifest and nothing
+# else.
+contract_deps="${work}/run-contract-deps"
+mkdir -p "${contract_deps}/apps/cli/src" "${contract_deps}/packages/lesson-contract/src"
+git_throwaway -C "${contract_deps}" init -q
+git_throwaway -C "${contract_deps}" config user.email "test@example.invalid"
+git_throwaway -C "${contract_deps}" config user.name "cli-version tests"
+printf '%s\n' "${SAME}" >"${contract_deps}/apps/cli/package.json"
+printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1","dependencies":{"zod":"4.4.3"}}\n' \
+	>"${contract_deps}/packages/lesson-contract/package.json"
+echo "base" >"${contract_deps}/apps/cli/src/main.ts"
+git_throwaway -C "${contract_deps}" add -A
+git_throwaway -C "${contract_deps}" commit -qm base
+contract_deps_base="$(git_throwaway -C "${contract_deps}" rev-parse HEAD)"
+
+printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1","dependencies":{"zod":"4.5.0"}}\n' \
+	>"${contract_deps}/packages/lesson-contract/package.json"
+git_throwaway -C "${contract_deps}" add -A
+git_throwaway -C "${contract_deps}" commit -qm head
+
+expect_run 1 "CLI source changed without a release" \
+	"a dependency bump inside the bundled contract blocks" \
+	"${contract_deps}" "${contract_deps_base}"
+
+expect_run 1 "packages/lesson-contract/package.json" \
+	"the failure names the contract manifest that moved" \
+	"${contract_deps}" "${contract_deps_base}"
+
+# git's core.quotePath defaults to true, which renders this path as the literal
+# "apps/cli/src/caf\303\251.ts" - surrounding double quotes included - and the
+# leading quote defeats the anchored prefix match, so the file reads as
+# untouched. Without the flag on the diff, this case answers pass:no-cli-change
+# and an unreleased change ships because somebody named a file in their own
+# language.
+base="$(make_repo "${work}/run-nonascii" "${SAME}" "${SAME}" "apps/cli/src/café.ts")"
+expect_run 1 "CLI source changed without a release" \
+	"a non-ASCII filename is still seen" "${work}/run-nonascii" "${base}"
 
 echo
 if ((failures > 0)); then
