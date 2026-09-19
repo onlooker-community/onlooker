@@ -213,6 +213,33 @@ as_lines() {
 # both directions: `apps/cli/src` must match `apps/cli/src/main.ts` but neither
 # `apps/cli/srcextra/x.ts` nor `docs/apps/cli/src/notes.md`. Unanchored, a
 # document that merely mentions a source path would demand a release.
+# Is this path inside a watched directory but demonstrably not in the bundle?
+#
+# esbuild takes apps/cli/src/main.ts as its entry point and follows imports
+# rather than directories, so a file nothing imports cannot reach
+# dist/onlooker.mjs. 22 test files live under apps/cli/src and 5 more beside
+# the contract source, and nothing under either path imports a *.test.ts or
+# anything in __tests__ - checked with grep before this was written, not
+# assumed from the naming convention.
+#
+# Without this, a pull request that only fixed a flaky test was blocked, and
+# its author had to cut a meaningless release or reach for cli-batch. Habitual
+# use of the escape hatch is how a gate stops being read, which is the failure
+# this gate exists to prevent, arriving by the other door. See onlooker-78f0.
+#
+# Matched on a whole path segment and a real suffix, so apps/cli/src/
+# __tests__helpers/ and apps/cli/src/test-harness.ts stay production code. The
+# risk this accepts is somebody importing a file named like a test into the
+# bundle, which would be strange enough to notice in review.
+not_bundled() {
+	case "$1" in
+		*/__tests__/*) return 0 ;;
+		*.test.ts | *.test.tsx) return 0 ;;
+	esac
+
+	return 1
+}
+
 touches_source() {
 	local source_paths="$1" file="" path=""
 	local -a paths=()
@@ -224,6 +251,10 @@ touches_source() {
 
 	while read -r file; do
 		[[ -n "${file}" ]] || continue
+
+		if not_bundled "${file}"; then
+			continue
+		fi
 
 		for path in "${paths[@]}"; do
 			if [[ "${file}" == "${path}" || "${file}" == "${path}/"* ]]; then

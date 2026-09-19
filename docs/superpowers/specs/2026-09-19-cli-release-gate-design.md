@@ -186,6 +186,24 @@ The gatherer supplies `--old-version` from `git show
    hardcoded, so adding a workspace dependency to the CLI widens the gate
    automatically instead of silently reopening this hole.
 
+   **Tests inside those paths are excluded** *(added 2026-09-19,
+   `onlooker-78f0`)*. `*.test.ts`, `*.test.tsx`, and anything under a
+   `__tests__/` segment. 22 test files live under `apps/cli/src` and 5 beside
+   the contract source, and none of them is in the bundle: esbuild takes
+   `apps/cli/src/main.ts` as its entry point and follows imports rather than
+   directories, and nothing under either path imports a test file — grepped,
+   not inferred from the naming convention.
+
+   Without the exclusion a pull request that only fixed a flaky test was
+   blocked, and its author had to cut a meaningless release or reach for
+   `cli-batch`. Habitual use of the escape hatch is how a gate stops being
+   read, which is this gate's own failure mode arriving by the other door.
+
+   Matched on a whole path segment and a real suffix, so
+   `apps/cli/src/__tests__helpers/` and `apps/cli/src/test-harness.ts` remain
+   production code. The risk accepted is somebody importing a file named like
+   a test into the bundle, which would be strange enough to catch in review.
+
 2. **Did any of it change** in `BASE...HEAD`, where `BASE` is
    `origin/${{ github.base_ref }}`? Nothing changed → `pass:no-cli-change`.
 
@@ -272,6 +290,9 @@ that talks to `gh` is not the code being tested.
 | `--manifest-differs` | A field the gate has never heard of appears | exit 0 |
 | `--manifest-differs` | Only `version` differs | exit 1 |
 | `--manifests` | One manifest per bundled workspace dependency | both |
+| `--decide` | A `*.test.ts` or `__tests__/` file, alone | `pass:no-cli-change` |
+| `--decide` | A test file beside the source it covers | `fail:no-bump` |
+| `--decide` | `__tests__helpers/` or `test-harness.ts` | `fail:no-bump` |
 | `--paths` | Manifest with one `workspace:*` dependency | both paths |
 | `--paths` | A second `workspace:*` dependency added | widens |
 
