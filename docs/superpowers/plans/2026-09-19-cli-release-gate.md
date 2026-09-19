@@ -786,12 +786,154 @@ Refs onlooker-mcwn
 - Modify: `scripts/cli-version.sh`
 
 **Interfaces:**
-- Consumes: `derive_paths`, `deps_differ`, and `decide` from Tasks 1–3.
-- Produces: `scripts/cli-version.sh` with no arguments. Reads `BASE_REF` (required), `PR_NUMBER` (optional), and `GH_TOKEN` from the environment. Exits 0 on a `pass:` verdict, 1 on a `fail:` verdict or on anything it cannot work out.
+- Consumes: `derive_paths`, `deps_differ`, `touches_source`, `decide`, and `BATCH_LABEL` from Tasks 1–3.
+- Produces: `scripts/cli-version.sh` with no arguments. Reads `BASE_REF` (required), `PR_NUMBER` (optional), `GH_TOKEN` (optional), and `CLI_VERSION_ROOT` (optional) from the environment. Exits 0 on a `pass:` verdict, 1 on a `fail:` verdict or on anything it cannot work out.
 
-No new tests: everything testable was tested in Tasks 1–3, and what remains is the composition plus the two calls that need a network and a git history. `deployable.sh` draws the line in the same place, and its header says why — the code that talks to `gh` is not the code worth stubbing.
+**`CLI_VERSION_ROOT` is what makes this task testable.** The gatherer would otherwise resolve its repository from the script's own location, so it could only ever run against this repository and a test could not drive it at all. With the override it runs against a throwaway git repo built in a temp directory, and with `PR_NUMBER` unset it takes no network. That covers everything except the `gh` call itself: `BASE_REF` handling, the `deps_differ` integration, verdict routing, the exit codes, and the annotation text.
 
-- [ ] **Step 1: Write the implementation**
+The `gh` call stays untested, which is where `deployable.sh` draws the same line — its header argues that the code talking to `gh` is not the code worth stubbing.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `scripts/cli-version.test.sh`, add this helper immediately after `expect_verdict`:
+
+```bash
+# make_repo <dir> <old-manifest-json> <new-manifest-json> <changed-path...>
+#
+# Builds a throwaway git repository with two commits - a base carrying the old
+# manifest, a head carrying the new one plus the named changed paths - and
+# prints the base sha for BASE_REF. Real commits rather than a stub of git,
+# because the gatherer's whole job is asking git questions and a stub would
+# answer them the way the test already believes.
+make_repo() {
+	local dir="$1" old_json="$2" new_json="$3"
+	shift 3
+
+	mkdir -p "${dir}/apps/cli/src" "${dir}/packages/lesson-contract/src"
+	git -C "${dir}" init -q
+	git -C "${dir}" config user.email "test@example.invalid"
+	git -C "${dir}" config user.name "cli-version tests"
+
+	printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1"}\n' \
+		>"${dir}/packages/lesson-contract/package.json"
+	printf '%s\n' "${old_json}" >"${dir}/apps/cli/package.json"
+	echo "base" >"${dir}/apps/cli/src/main.ts"
+	git -C "${dir}" add -A
+	git -C "${dir}" commit -qm base
+
+	printf '%s\n' "${new_json}" >"${dir}/apps/cli/package.json"
+
+	local path
+	for path in "$@"; do
+		mkdir -p "${dir}/$(dirname "${path}")"
+		echo "changed" >>"${dir}/${path}"
+	done
+
+	git -C "${dir}" add -A
+	# --allow-empty so a case where nothing moved at all still produces a head
+	# commit to diff against rather than failing the harness.
+	git -C "${dir}" commit -q --allow-empty -m head
+
+	git -C "${dir}" rev-parse HEAD~1
+}
+
+# expect_run <expected-exit> <expected-substring> <description> <dir> <base>
+#
+# Drives the whole gatherer against a throwaway repository. PR_NUMBER is unset
+# on purpose: with no pull request to ask about, the label read is skipped and
+# these tests touch no network. Both the exit code and a distinctive phrase
+# from the output are asserted - the exit code is what CI acts on, and the
+# message is the only thing a person will read.
+expect_run() {
+	local expected_exit="$1" expected_text="$2" description="$3"
+	local dir="$4" base="$5"
+
+	tests=$((tests + 1))
+
+	local output="" status=0
+	output="$(CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" "${CLI_VERSION}" 2>&1)" || status=$?
+
+	if [[ "${status}" == "${expected_exit}" && "${output}" == *"${expected_text}"* ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> exit ${status}, expected ${expected_exit} and '${expected_text}'"
+		printf '        %s\n' "${output}"
+		failures=$((failures + 1))
+	fi
+}
+```
+
+And add this block immediately before the final `echo` / summary:
+
+```bash
+echo "cli-version.sh: the whole run, against a throwaway repository"
+
+readonly BUMPED='{"name":"@onlooker/cli","version":"2.7.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}'
+readonly SAME='{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}'
+
+base="$(make_repo "${work}/run-nobump" "${SAME}" "${SAME}" "apps/cli/src/sessions.ts")"
+expect_run 1 "CLI source changed without a release" \
+	"CLI source changed and the version did not" "${work}/run-nobump" "${base}"
+
+# The annotation has to name the file, or the person reading it has to go
+# looking for what tripped the gate.
+expect_run 1 "apps/cli/src/sessions.ts" \
+	"the failure names the file that tripped it" "${work}/run-nobump" "${base}"
+
+base="$(make_repo "${work}/run-bumped" "${SAME}" "${BUMPED}" "apps/cli/src/sessions.ts")"
+expect_run 0 "2.6.0 -> 2.7.0" \
+	"CLI source changed and the version moved" "${work}/run-bumped" "${base}"
+
+base="$(make_repo "${work}/run-clean" "${SAME}" "${SAME}" "README.md")"
+expect_run 0 "nothing in this pull request reaches the CLI binary" \
+	"nothing relevant changed" "${work}/run-clean" "${base}"
+
+# The case a gate scoped to apps/cli/src would miss, driven end to end.
+base="$(make_repo "${work}/run-contract" "${SAME}" "${SAME}" \
+	"packages/lesson-contract/src/lesson.ts")"
+expect_run 1 "packages/lesson-contract/src/lesson.ts" \
+	"the bundled contract changed and the version did not" "${work}/run-contract" "${base}"
+
+base="$(make_repo "${work}/run-deps" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*","zod":"4.4.3"}}')"
+expect_run 1 "counting the manifest as source" \
+	"a dependency moved and the version did not" "${work}/run-deps" "${base}"
+
+# devDependencies are not in the bundle, so moving one is not a source change.
+base="$(make_repo "${work}/run-devdeps" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"},"devDependencies":{"vitest":"4.2.0"}}')"
+expect_run 0 "nothing in this pull request reaches the CLI binary" \
+	"only a devDependency moved" "${work}/run-devdeps" "${base}"
+
+base="$(make_repo "${work}/run-backward" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.5.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}' \
+	"apps/cli/src/sessions.ts")"
+expect_run 1 "CLI version moved backward" \
+	"the version moved backward" "${work}/run-backward" "${base}"
+
+# Fails closed. A gate that cannot work out what to compare against must block
+# rather than wave the pull request through.
+tests=$((tests + 1))
+status=0
+output="$(CLI_VERSION_ROOT="${work}/run-clean" "${CLI_VERSION}" 2>&1)" || status=$?
+if [[ "${status}" == 1 && "${output}" == *"BASE_REF is not set"* ]]; then
+	echo "  ok    a missing BASE_REF blocks rather than passes"
+else
+	echo "  FAIL  a missing BASE_REF blocks rather than passes -> exit ${status}"
+	printf '        %s\n' "${output}"
+	failures=$((failures + 1))
+fi
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+```bash
+bash scripts/cli-version.test.sh
+```
+
+Expected: the 27 earlier cases pass; the 9 new cases fail. With no gatherer yet, running the script with no arguments hits the usage branch and exits 2, so each reports `exit 2` against its expected 0 or 1.
+
+- [ ] **Step 3: Write the implementation**
 
 In `scripts/cli-version.sh`, replace the `*)` branch of the `case` block so that no arguments runs the gatherer rather than printing usage. The `case` block's final two branches become:
 
@@ -815,8 +957,17 @@ Then append the gatherer below the `esac`:
 # The full run. Everything above is pure; everything below reads the world.
 # ---------------------------------------------------------------------------
 
-readonly REPO_ROOT="${REPO_ROOT_DEFAULT}"
+# CLI_VERSION_ROOT exists so the composition below can be tested. Without it
+# this resolves from the script's own location and can only ever run against
+# this repository, which would leave the gatherer - the part that decides what
+# actually happens - as the one piece with no test at all. Nothing in CI sets
+# it; the default is the repository the script lives in.
+readonly REPO_ROOT="${CLI_VERSION_ROOT:-${REPO_ROOT_DEFAULT}}"
 readonly MANIFEST="${REPO_ROOT}/apps/cli/package.json"
+
+# Every git command below is relative to the repository being examined, which
+# is not necessarily the one this script lives in.
+cd "${REPO_ROOT}"
 
 if [[ -z "${BASE_REF:-}" ]]; then
 	echo "::error title=CLI release gate misconfigured::BASE_REF is not set. It must name the base to diff against, e.g. origin/main."
@@ -912,15 +1063,15 @@ case "${verdict}" in
 esac
 ```
 
-- [ ] **Step 2: Run the existing tests to verify nothing regressed**
+- [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 27 tests passed`. The gatherer is new code below the `esac`, and none of the pure subcommands changed, so a failure here means the `case` restructuring in Step 1 broke a subcommand.
+Expected: `cli-version.test.sh: all 36 tests passed`. If one of the 27 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
 
-- [ ] **Step 3: Exercise the gatherer against this branch by hand**
+- [ ] **Step 5: Exercise the gatherer against this branch by hand**
 
 ```bash
 BASE_REF=origin/main bash scripts/cli-version.sh; echo "exit: $status"
@@ -930,7 +1081,7 @@ Expected: `cli-version: no PR_NUMBER; treating this run as unlabelled` on stderr
 
 Note: the shell here is fish, where the exit status is `$status`, not `$?`.
 
-- [ ] **Step 4: Exercise the failing path by hand**
+- [ ] **Step 6: Exercise the failing path by hand**
 
 ```bash
 echo "// gate check, to be reverted" >> apps/cli/src/main.ts
@@ -940,7 +1091,7 @@ git checkout apps/cli/src/main.ts
 
 Expected: the `::error title=CLI source changed without a release::` annotation naming `apps/cli/src/main.ts` and version `2.6.0`, and exit 1. Confirm `git status` is clean afterward — the revert matters, this file ships.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 Run `/git-workflow:commit` with this message:
 
@@ -961,6 +1112,12 @@ worse than a redundant one. Here a gate that wrongly passes restores the
 exact silence it was built to end, and one that wrongly fails costs a
 label or a re-run. An unreadable base, an unreachable label API and an
 unrecognized verdict all block.
+
+CLI_VERSION_ROOT is why this part has tests at all. Resolving the
+repository from the script's own location would leave the piece that
+decides what actually happens as the only piece nothing covers, so the
+root is overridable and the tests drive the whole run against throwaway
+repositories with no network in reach. Nothing in CI sets it.
 
 Refs onlooker-mcwn
 ```
@@ -1106,6 +1263,8 @@ Refs onlooker-mcwn
 
 ### Task 6: Prove the gate on a real pull request
 
+> **Not a subagent task.** Decided 2026-09-19: this runs in the main session, driven interactively. It pushes the branch, opens a real pull request, mutates repository labels, and commits a temporary version bump that would cut an unintended `cli-v2.7.0` if it ever escaped Step 5's revert. Those are outward-facing and worth watching. Tasks 1–5 are the subagent-executed scope.
+
 **Files:** none — this task verifies the five before it.
 
 **Interfaces:**
@@ -1219,4 +1378,6 @@ Refs onlooker-mcwn"
 
 **One deliberate redundancy.** Task 4 recomputes which files matched, for the message, rather than having `decide` return them. `decide` stays a pure function answering one question, and the alternative — a second output line, or a token carrying a payload — would make every test in Task 3 assert on formatting instead of on the decision.
 
-**Known gap.** Task 4's gatherer has no automated test; it is verified by hand in Task 4 Steps 3–4 and on a real pull request in Task 6. That matches where `deployable.sh` draws the line, and the untested part is composition plus two calls that need a network and a git history.
+**Known gap.** The `gh pr view` call is the only thing no test covers. Everything else in the gatherer — `BASE_REF` handling, the `deps_differ` integration, verdict routing, exit codes, and the annotation text — is driven end to end in Task 4 Step 1 against throwaway git repositories, reached through `CLI_VERSION_ROOT`. That is a narrower gap than `deployable.sh` leaves, and it is the same *kind* of gap: the code that talks to `gh` is not the code worth stubbing.
+
+**Revision note (2026-09-19).** Task 4 originally mandated no tests at all, and Task 6 was written as subagent-executable. Both changed before execution: the gatherer became testable through `CLI_VERSION_ROOT`, and Task 6 was scoped to the main session because it pushes, opens a pull request, and mutates labels.
