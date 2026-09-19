@@ -95,6 +95,39 @@ expect_deps() {
 	fi
 }
 
+# expect_verdict <expected> <description> <source-paths> <old> <new> <labels> <changed-path...>
+#
+# The changed paths are passed as arguments and fed in on stdin, because that
+# is how the real run hands them over - `git diff --name-only` output, one per
+# line. The exit code is asserted alongside the output: a verdict is a token,
+# and a missing or broken script prints the empty string, which would otherwise
+# make a "no verdict expected" case pass against no script at all.
+expect_verdict() {
+	local expected="$1" description="$2" source_paths="$3"
+	local old="$4" new="$5" labels="$6"
+	shift 6
+
+	tests=$((tests + 1))
+
+	local actual="" status=0
+	actual="$(printf '%s\n' "$@" | "${CLI_VERSION}" --decide \
+		--source-paths "${source_paths}" \
+		--old-version "${old}" \
+		--new-version "${new}" \
+		--labels "${labels}" 2>/dev/null)" || status=$?
+
+	if [[ "${actual}" == "${expected}" && "${status}" == 0 ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> '${actual}' exit ${status} (expected '${expected}' exit 0)"
+		failures=$((failures + 1))
+	fi
+}
+
+# The path set the real repository derives today. Written once so every verdict
+# case below reads as the question it is asking rather than as plumbing.
+readonly PATHS="apps/cli/src,packages/lesson-contract/src"
+
 # expect_exit <expected-exit> <description> <arg...>
 #
 # For cases expect_deps can't express: it always writes two well-formed JSON
@@ -222,6 +255,66 @@ expect_exit 2 "old manifest does not exist" \
 
 expect_exit 2 "new manifest is not valid JSON" \
 	--deps-differ "${deps_valid}" "${deps_malformed}"
+
+echo "cli-version.sh: the verdict"
+
+expect_verdict "pass:no-cli-change" "nothing touched the binary" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "README.md" "apps/api/src/index.ts"
+
+expect_verdict "pass:no-cli-change" "nothing changed at all" \
+	"${PATHS}" "2.6.0" "2.6.0" "" ""
+
+# A release-only pull request. It passes at step one, before the version is
+# even considered, and that is correct - there is no source to release.
+expect_verdict "pass:no-cli-change" "only the version moved" \
+	"${PATHS}" "2.6.0" "2.7.0" "" "apps/cli/package.json"
+
+expect_verdict "pass:bumped" "CLI source changed and the version moved" \
+	"${PATHS}" "2.6.0" "2.7.0" "" "apps/cli/src/sessions.ts"
+
+expect_verdict "fail:no-bump" "CLI source changed and the version did not" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/src/sessions.ts"
+
+# The case a gate scoped to apps/cli/src would get wrong. ZLesson is a runtime
+# value, so this ships a different binary having touched no CLI file.
+expect_verdict "fail:no-bump" "the bundled contract changed and the version did not" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "packages/lesson-contract/src/lesson.ts"
+
+# The manifest counts only when the gatherer has already decided its
+# dependencies moved, and says so by adding it to the path set.
+expect_verdict "fail:no-bump" "a dependency change the gatherer flagged" \
+	"${PATHS},apps/cli/package.json" "2.6.0" "2.6.0" "" "apps/cli/package.json"
+
+expect_verdict "pass:deferred" "the batch label defers the release" \
+	"${PATHS}" "2.6.0" "2.6.0" "cli-batch" "apps/cli/src/sessions.ts"
+
+expect_verdict "pass:deferred" "the batch label among several" \
+	"${PATHS}" "2.6.0" "2.6.0" "enhancement,cli-batch,documentation" \
+	"apps/cli/src/sessions.ts"
+
+expect_verdict "fail:no-bump" "labels that are not the batch label" \
+	"${PATHS}" "2.6.0" "2.6.0" "enhancement,documentation" "apps/cli/src/sessions.ts"
+
+# A bump still has to be a bump. The CLI has a Homebrew tap, and it would take
+# the lower number the same way a registry moves a dist-tag backward.
+expect_verdict "fail:backward" "the version moved backward" \
+	"${PATHS}" "2.6.0" "2.5.0" "" "apps/cli/src/sessions.ts"
+
+expect_verdict "fail:backward" "backward wins over the batch label" \
+	"${PATHS}" "2.6.0" "2.5.0" "cli-batch" "apps/cli/src/sessions.ts"
+
+# Anchored prefix matching, the same property DEPLOYABLE_PATHS is anchored for.
+# Unanchored, a document that merely lives under a similar path would demand a
+# CLI release.
+expect_verdict "pass:no-cli-change" "a doc that merely names a source path" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "docs/apps/cli/src/notes.md"
+
+expect_verdict "pass:no-cli-change" "a sibling directory with a shared prefix" \
+	"${PATHS}" "2.6.0" "2.6.0" "" "apps/cli/srcextra/x.ts"
+
+expect_verdict "fail:no-bump" "one CLI file among many that are not" \
+	"${PATHS}" "2.6.0" "2.6.0" "" \
+	"README.md" "docs/notes.md" "apps/cli/src/main.ts" ".beads/issues.jsonl"
 
 echo
 if ((failures > 0)); then

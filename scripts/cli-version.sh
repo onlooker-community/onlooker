@@ -128,6 +128,110 @@ deps_differ() {
 	[[ "${old_deps}" != "${new_deps}" ]]
 }
 
+# The label that turns a missing bump into a recorded decision.
+#
+# Batching several CLI changes across pull requests and cutting one release at
+# the end is legitimate, so this gate cannot simply forbid a missing bump the
+# way contract-version forbids a missing schema bump. Forgetting fails;
+# batching costs one deliberate act that leaves a trace on the pull request.
+readonly BATCH_LABEL="cli-batch"
+
+# Split a comma- or newline-separated list into lines.
+#
+# Both separators are accepted so the gatherer can pipe `--paths` output and
+# `gh pr view --jq '.labels[].name'` output straight through, while a test can
+# write one readable flag value.
+#
+# The trailing newline is not decoration: every caller here reads the result
+# with `while read`, whose loop condition is `read`'s own exit status. `read`
+# returns nonzero on a final line with no trailing delimiter, so a `while read`
+# loop skips its body for that last line - silently dropping the last path or
+# the only label. `printf '%s\n'` guarantees the final field always has one.
+as_lines() {
+	printf '%s\n' "$1" | tr ',' '\n'
+}
+
+# Does any changed file live under one of the source paths?
+#
+# Prefix-matched and anchored at the path boundary, which is load-bearing in
+# both directions: `apps/cli/src` must match `apps/cli/src/main.ts` but neither
+# `apps/cli/srcextra/x.ts` nor `docs/apps/cli/src/notes.md`. Unanchored, a
+# document that merely mentions a source path would demand a release.
+touches_source() {
+	local source_paths="$1" file="" path=""
+	local -a paths=()
+
+	while read -r path; do
+		[[ -n "${path}" ]] || continue
+		paths+=("${path}")
+	done < <(as_lines "${source_paths}")
+
+	while read -r file; do
+		[[ -n "${file}" ]] || continue
+
+		for path in "${paths[@]}"; do
+			if [[ "${file}" == "${path}" || "${file}" == "${path}/"* ]]; then
+				return 0
+			fi
+		done
+	done
+
+	return 1
+}
+
+# Is the batch label among the pull request's labels?
+has_batch_label() {
+	local labels="$1" label=""
+
+	while read -r label; do
+		[[ "${label}" == "${BATCH_LABEL}" ]] && return 0
+	done < <(as_lines "${labels}")
+
+	return 1
+}
+
+# Read a changed-file list on stdin, print one verdict.
+#
+# Separated from the git and API calls so it can be tested as itself, on real
+# file lists, rather than through a stub of something else. Always exits 0: the
+# token is the answer, and a `fail:` result is a verdict rather than a broken
+# run. The caller decides what to do about it, and an empty token - which is
+# what a missing script prints - is not a verdict at all.
+decide() {
+	local source_paths="$1" old_version="$2" new_version="$3" labels="$4"
+
+	if ! touches_source "${source_paths}"; then
+		echo "pass:no-cli-change"
+		return 0
+	fi
+
+	if [[ "${old_version}" != "${new_version}" ]]; then
+		# Checked before the bump is accepted, not after. The CLI has a
+		# Homebrew tap, and a lower number would move the formula backward the
+		# same way publishing one moves a registry dist-tag backward - which
+		# cannot be cleanly undone. contract-version carries this guard for
+		# the same reason.
+		local newest=""
+		newest="$(printf '%s\n%s\n' "${old_version}" "${new_version}" | sort -V | tail -1)"
+
+		if [[ "${newest}" != "${new_version}" ]]; then
+			echo "fail:backward"
+			return 0
+		fi
+
+		echo "pass:bumped"
+		return 0
+	fi
+
+	if has_batch_label "${labels}"; then
+		echo "pass:deferred"
+		return 0
+	fi
+
+	echo "fail:no-bump"
+	return 0
+}
+
 case "${1:-}" in
 	--paths)
 		derive_paths "${2:-}"
@@ -141,9 +245,34 @@ case "${1:-}" in
 		deps_differ "$2" "$3"
 		exit $?
 		;;
+	--decide)
+		shift
+		decide_source_paths=""
+		decide_old=""
+		decide_new=""
+		decide_labels=""
+
+		while [[ $# -gt 0 ]]; do
+			case "$1" in
+				--source-paths) decide_source_paths="${2:-}"; shift 2 ;;
+				--old-version) decide_old="${2:-}"; shift 2 ;;
+				--new-version) decide_new="${2:-}"; shift 2 ;;
+				--labels) decide_labels="${2:-}"; shift 2 ;;
+				*)
+					echo "cli-version: unknown --decide flag '$1'" >&2
+					exit 2
+					;;
+			esac
+		done
+
+		decide "${decide_source_paths}" "${decide_old}" "${decide_new}" "${decide_labels}"
+		exit 0
+		;;
 	*)
 		echo "usage: $(basename "$0")" >&2
 		echo "       $(basename "$0") --paths [ROOT]" >&2
+		echo "       $(basename "$0") --deps-differ OLD NEW" >&2
+		echo "       $(basename "$0") --decide --source-paths L --old-version X --new-version Y --labels L  < changed-file-list" >&2
 		exit 2
 		;;
 esac
