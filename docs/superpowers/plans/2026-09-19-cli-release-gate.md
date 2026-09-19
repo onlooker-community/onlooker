@@ -863,7 +863,14 @@ expect_run() {
 	tests=$((tests + 1))
 
 	local output="" status=0
-	output="$(CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" "${CLI_VERSION}" 2>&1)" || status=$?
+	# PR_NUMBER and GH_TOKEN are cleared, not merely left unset. Without that,
+	# "these tests touch no network" is a property of whatever environment the
+	# suite happens to run in rather than of the suite - and with PR_NUMBER
+	# exported, the run reaches gh and a real cli-batch label on that pull
+	# request flips the no-bump case from exit 1 to exit 0. The suite would go
+	# green while the gate was broken.
+	output="$(PR_NUMBER= GH_TOKEN= CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" \
+		"${CLI_VERSION}" 2>&1)" || status=$?
 
 	if [[ "${status}" == "${expected_exit}" && "${output}" == *"${expected_text}"* ]]; then
 		echo "  ok    ${description}"
@@ -1049,14 +1056,28 @@ printf '%s\n' "${changed}" >&2
 echo "cli-version: source paths" >&2
 printf '%s\n' "${source_paths}" >&2
 
-verdict="$(printf '%s\n' "${changed}" | decide \
-	"${source_paths}" "${old_version}" "${new_version}" "${labels}")"
+# A herestring, not `printf | decide`. touches_source returns on its first
+# match without draining stdin, so once the changed list outgrows the pipe
+# buffer the upstream printf takes EPIPE, pipefail turns that into a failed
+# pipeline, and set -e kills the run - silently, with no annotation, on a
+# large pull request. Measured at 9001 files before this was changed.
+#
+# deployable.sh documents the same trap above match_paths, where the fix was
+# to keep reading rather than exit early. Here there is no pipeline to keep
+# reading: a herestring has no upstream process to signal.
+verdict="$(decide \
+	"${source_paths}" "${old_version}" "${new_version}" "${labels}" \
+	<<<"${changed}")"
 
 # Which files made it count. Recomputed rather than threaded out of `decide`,
 # which stays a pure function of its inputs and answers one question.
 touched="$(printf '%s\n' "${changed}" | while read -r file; do
 	[[ -n "${file}" ]] || continue
-	if printf '%s\n' "${file}" | touches_source "${source_paths}"; then
+	# Same herestring reasoning as the `decide` call above: one file per
+	# iteration fits the pipe buffer today, but the early return inside
+	# touches_source is the same shape of risk, and a herestring costs
+	# nothing to rule it out.
+	if touches_source "${source_paths}" <<<"${file}"; then
 		printf '%s ' "${file}"
 	fi
 done)"
@@ -1101,6 +1122,8 @@ bash scripts/cli-version.test.sh
 
 Expected: `cli-version.test.sh: all 41 tests passed` (7 + 10 + 15 + these 9). If one of the 32 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
 
+> **Revised during execution (2026-09-19).** Task 4's review found the gatherer dying on a large changed-file list: `touches_source` returns on its first match without draining stdin, so past the pipe buffer the upstream `printf` took EPIPE, `pipefail` failed the pipeline, and `set -e` killed the run — exit 1, no output, no annotation, reproduced at 9001 files. `scripts/deployable.sh` documents this same trap above `match_paths`. The fix round replaced both pipes into early-returning functions with herestrings, made `expect_run` clear `PR_NUMBER` and `GH_TOKEN` so the suite's isolation is enforced rather than ambient, and added a large-list regression test. **The final total is 42, not 41.** Task 5 adds no test cases, so 42 stands for the branch.
+
 - [ ] **Step 5: Exercise the gatherer against this branch by hand**
 
 ```bash
@@ -1113,13 +1136,29 @@ Note: the shell here is fish, where the exit status is `$status`, not `$?`.
 
 - [ ] **Step 6: Exercise the failing path by hand**
 
+> **Corrected during execution (2026-09-19).** This step originally appended a line to `apps/cli/src/main.ts` and ran the script without committing. That does not reproduce the failure: the gatherer diffs `BASE_REF...HEAD`, which compares two *commits*, so an uncommitted working-tree edit is invisible to it. The recipe below commits the change somewhere disposable instead. This is a property of the gate, not a bug in it — in CI the pull request head is always a commit.
+
+Build a throwaway repository, commit a change to CLI source without bumping the version, and run the real script against it through `CLI_VERSION_ROOT`:
+
 ```bash
-echo "// gate check, to be reverted" >> apps/cli/src/main.ts
-BASE_REF=origin/main bash scripts/cli-version.sh; echo "exit: $status"
-git checkout apps/cli/src/main.ts
+tmp="$(mktemp -d)"
+git init -q "$tmp"
+mkdir -p "$tmp/apps/cli/src" "$tmp/packages/lesson-contract/src"
+printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1"}\n' > "$tmp/packages/lesson-contract/package.json"
+printf '{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}\n' > "$tmp/apps/cli/package.json"
+echo "base" > "$tmp/apps/cli/src/main.ts"
+git -C "$tmp" add -A && git -C "$tmp" -c user.email=t@example.invalid -c user.name=t commit -qm base
+base="$(git -C "$tmp" rev-parse HEAD)"
+echo "changed" >> "$tmp/apps/cli/src/main.ts"
+git -C "$tmp" add -A && git -C "$tmp" -c user.email=t@example.invalid -c user.name=t commit -qm head
+
+env CLI_VERSION_ROOT="$tmp" BASE_REF="$base" bash scripts/cli-version.sh; echo "exit: $status"
+rm -rf "$tmp"
 ```
 
-Expected: the `::error title=CLI source changed without a release::` annotation naming `apps/cli/src/main.ts` and version `2.6.0`, and exit 1. Confirm `git status` is clean afterward — the revert matters, this file ships.
+Expected: the `::error title=CLI source changed without a release::` annotation naming `apps/cli/src/main.ts` and version `2.6.0`, and exit 1.
+
+Nothing here touches this repository, so there is no revert to get wrong. Confirm `git status` is clean anyway, and that `git diff origin/main -- apps/cli` is empty.
 
 - [ ] **Step 7: Commit**
 
