@@ -310,7 +310,9 @@ Refs onlooker-mcwn
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: `cli-version.sh --deps-differ OLD_MANIFEST NEW_MANIFEST` — exit 0 when the two files' `dependencies` blocks differ, exit 1 when they match. Both arguments are paths to JSON files. Exits 2 on a usage error.
+- Produces: `cli-version.sh --deps-differ OLD_MANIFEST NEW_MANIFEST` — exit **0 when the two files' `dependencies` blocks differ, 1 when they match, 2 when the question cannot be answered** (a usage error, or an argument that is missing or is not valid JSON). Both arguments are paths to JSON files.
+
+> **Revised during execution (2026-09-19).** The exit contract originally stopped at 0/1 plus a usage 2, and let `set -e` propagate `jq`'s raw status on unreadable input — exit 2 for a missing file, 5 for malformed JSON. Task 4's gatherer calls this inside an `if`, where bash exempts the condition from `set -e` and every non-zero status collapses to "false" — meaning "dependencies did not change", meaning the manifest is not counted as source. An unreadable manifest would have let an unreleased change through. `deps_differ` now checks both arguments explicitly and returns a documented 2, and the gatherer branches on it.
 
 Why this is its own subcommand rather than a line in the gatherer: `apps/cli/package.json` cannot go in the derived path set, because it changes on *every* bump and also carries `scripts`, `bin`, and `devDependencies`, none of which alter the shipped binary. Only the `dependencies` block earns the manifest a place, and that comparison needs to be testable on its own.
 
@@ -440,6 +442,8 @@ bash scripts/cli-version.test.sh
 ```
 
 Expected: `cli-version.test.sh: all 15 tests passed` (Task 1's 7, plus these 8)
+
+> **Revised during execution (2026-09-19).** The fix round above added an `expect_exit` helper and two cases — a nonexistent file and malformed JSON, both asserting exit 2 — because `expect_deps` cannot express them. **Task 2 therefore ends at 17 tests, not 15**, and the counts below account for that.
 
 - [ ] **Step 5: Commit**
 
@@ -598,7 +602,7 @@ expect_verdict "fail:no-bump" "one CLI file among many that are not" \
 bash scripts/cli-version.test.sh
 ```
 
-Expected: the fifteen earlier cases still pass; all fifteen `expect_verdict` cases report `FAIL ... -> '' exit 2`.
+Expected: the seventeen earlier cases still pass; all fifteen `expect_verdict` cases report `FAIL ... -> '' exit 2`.
 
 - [ ] **Step 3: Write the minimal implementation**
 
@@ -750,7 +754,7 @@ Finally, update the usage block in the `*)` branch to list all three subcommands
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 30 tests passed` (7 + 8 + these 15)
+Expected: `cli-version.test.sh: all 32 tests passed` (7 + 10 + these 15)
 
 - [ ] **Step 5: Commit**
 
@@ -933,7 +937,7 @@ fi
 bash scripts/cli-version.test.sh
 ```
 
-Expected: the 30 earlier cases pass; the 9 new cases fail. With no gatherer yet, running the script with no arguments hits the usage branch and exits 2, so each reports `exit 2` against its expected 0 or 1.
+Expected: the 32 earlier cases pass; the 9 new cases fail. With no gatherer yet, running the script with no arguments hits the usage branch and exits 2, so each reports `exit 2` against its expected 0 or 1.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -990,10 +994,28 @@ fi
 # release, and it carries scripts, bin and devDependencies too. It earns a
 # place in the set only when its dependencies moved, because that is the only
 # part of it that changes the bundle.
-if deps_differ "${old_manifest}" "${MANIFEST}"; then
-	source_paths="${source_paths}"$'\n'"apps/cli/package.json"
-	echo "cli-version: the CLI's dependencies moved; counting the manifest as source" >&2
-fi
+# Captured rather than written as `if deps_differ ...; then`. Bash exempts an
+# `if` condition from set -e, so every non-zero status collapses into "false"
+# there - and "false" means "dependencies did not change", which means the
+# manifest is not counted as source, which lets an unreleased change through.
+# An unreadable manifest would produce the exact silence this script exists to
+# end. deps_differ answers 0 differ, 1 same, 2 cannot answer, and 2 has to be
+# told apart from 1 rather than blurred into it.
+deps_status=0
+deps_differ "${old_manifest}" "${MANIFEST}" || deps_status=$?
+
+case "${deps_status}" in
+	0)
+		source_paths="${source_paths}"$'\n'"apps/cli/package.json"
+		echo "cli-version: the CLI's dependencies moved; counting the manifest as source" >&2
+		;;
+	1)
+		;;
+	*)
+		echo "::error title=CLI release gate cannot read the manifest::Could not compare apps/cli/package.json's dependencies across ${BASE_REF}...HEAD - one side is missing or is not valid JSON. Blocking rather than guessing whether the bundle changed."
+		exit 1
+		;;
+esac
 
 old_version="$(jq -r '.version // ""' "${old_manifest}")"
 new_version="$(jq -r '.version // ""' "${MANIFEST}")"
@@ -1071,7 +1093,7 @@ esac
 bash scripts/cli-version.test.sh
 ```
 
-Expected: `cli-version.test.sh: all 39 tests passed` (7 + 8 + 15 + these 9). If one of the 30 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
+Expected: `cli-version.test.sh: all 41 tests passed` (7 + 10 + 15 + these 9). If one of the 32 earlier cases now fails, the `case` restructuring in Step 3 broke a subcommand — the pure functions themselves did not change.
 
 - [ ] **Step 5: Exercise the gatherer against this branch by hand**
 
