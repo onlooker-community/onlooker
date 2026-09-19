@@ -38,6 +38,14 @@ readonly REPO_ROOT_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # different binary without touching apps/cli/src at all. Reading the manifest
 # means adding a workspace dependency widens this gate by itself instead of
 # quietly reopening the hole.
+#
+# That claim holds only for a dependency under packages/ - package_dir below
+# globs packages/*/package.json, not apps/*/package.json, even though
+# pnpm-workspace.yaml declares both. A workspace dependency on something under
+# apps/ makes package_dir return 1, which makes this function return 1, which
+# wedges the whole gate closed for every pull request rather than widening it.
+# That fails closed, and after the ::error added below it is loud, so it is
+# recorded here rather than fixed.
 derive_paths() {
 	local root="${1:-${REPO_ROOT_DEFAULT}}"
 	local manifest="${root}/apps/cli/package.json"
@@ -300,7 +308,15 @@ if [[ -z "${BASE_REF:-}" ]]; then
 	exit 1
 fi
 
-source_paths="$(derive_paths "${REPO_ROOT}")"
+# Captured rather than left to set -e, the same reasoning as deps_status
+# below: derive_paths already prints its own reason on stderr, but stderr
+# never reaches the annotation surface a pull request shows by default, and
+# every other blocking path in this script emits one.
+source_paths=""
+if ! source_paths="$(derive_paths "${REPO_ROOT}")"; then
+	echo "::error title=CLI release gate cannot derive its source paths::apps/cli/package.json could not be read, or one of its workspace dependencies has no matching package under packages/ - see the step log above for which. The CLI's source path set could not be worked out, and this gate blocks rather than guessing what the bundle actually contains."
+	exit 1
+fi
 
 old_manifest="$(mktemp)"
 trap 'rm -f "${old_manifest}"' EXIT

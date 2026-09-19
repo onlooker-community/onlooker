@@ -131,21 +131,39 @@ expect_verdict() {
 # prints the base sha for BASE_REF. Real commits rather than a stub of git,
 # because the gatherer's whole job is asking git questions and a stub would
 # answer them the way the test already believes.
+# Every git command make_repo runs goes through this rather than plain git, so
+# the throwaway repo's isolation is a property of the test and not of whatever
+# config happens to sit on the machine running it - the same argument
+# expect_run already makes below for clearing PR_NUMBER and GH_TOKEN. This is
+# not hypothetical: this exact hazard already fired on this branch. The
+# throwaway identity below escaped into the real repository's local
+# .git/config and authored four commits before it was caught and reverted.
+# GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM keep every setting on this machine
+# out of the throwaway repo entirely, rather than trusting each git config
+# call below to override the ambient config one key at a time - a global
+# commit.gpgsign or core.hooksPath would break this suite on another machine
+# today, and a global core.excludesFile could silently drop the filler files
+# below.
+git_throwaway() {
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+		git -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"
+}
+
 make_repo() {
 	local dir="$1" old_json="$2" new_json="$3"
 	shift 3
 
 	mkdir -p "${dir}/apps/cli/src" "${dir}/packages/lesson-contract/src"
-	git -C "${dir}" init -q
-	git -C "${dir}" config user.email "test@example.invalid"
-	git -C "${dir}" config user.name "cli-version tests"
+	git_throwaway -C "${dir}" init -q
+	git_throwaway -C "${dir}" config user.email "test@example.invalid"
+	git_throwaway -C "${dir}" config user.name "cli-version tests"
 
 	printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1"}\n' \
 		>"${dir}/packages/lesson-contract/package.json"
 	printf '%s\n' "${old_json}" >"${dir}/apps/cli/package.json"
 	echo "base" >"${dir}/apps/cli/src/main.ts"
-	git -C "${dir}" add -A
-	git -C "${dir}" commit -qm base
+	git_throwaway -C "${dir}" add -A
+	git_throwaway -C "${dir}" commit -qm base
 
 	printf '%s\n' "${new_json}" >"${dir}/apps/cli/package.json"
 
@@ -155,12 +173,12 @@ make_repo() {
 		echo "changed" >>"${dir}/${path}"
 	done
 
-	git -C "${dir}" add -A
+	git_throwaway -C "${dir}" add -A
 	# --allow-empty so a case where nothing moved at all still produces a head
 	# commit to diff against rather than failing the harness.
-	git -C "${dir}" commit -q --allow-empty -m head
+	git_throwaway -C "${dir}" commit -q --allow-empty -m head
 
-	git -C "${dir}" rev-parse HEAD~1
+	git_throwaway -C "${dir}" rev-parse HEAD~1
 }
 
 # expect_run <expected-exit> <expected-substring> <description> <dir> <base>
@@ -461,6 +479,22 @@ else
 	printf '        %s\n' "${output}"
 	failures=$((failures + 1))
 fi
+
+# derive_paths' own failure used to reach no further than the step log - see
+# the ::error added for it. A repo with no apps/cli manifest at all exercises
+# the same path F6 says a future apps/* workspace dependency will take.
+mkdir -p "${work}/run-no-manifest"
+git_throwaway -C "${work}/run-no-manifest" init -q
+git_throwaway -C "${work}/run-no-manifest" config user.email "test@example.invalid"
+git_throwaway -C "${work}/run-no-manifest" config user.name "cli-version tests"
+echo "hello" >"${work}/run-no-manifest/README.md"
+git_throwaway -C "${work}/run-no-manifest" add -A
+git_throwaway -C "${work}/run-no-manifest" commit -qm base
+no_manifest_base="$(git_throwaway -C "${work}/run-no-manifest" rev-parse HEAD)"
+
+expect_run 1 "::error title=CLI release gate cannot derive its source paths" \
+	"a missing apps/cli manifest blocks with an annotation, not just a log line" \
+	"${work}/run-no-manifest" "${no_manifest_base}"
 
 echo
 if ((failures > 0)); then
