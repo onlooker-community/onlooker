@@ -77,12 +77,16 @@ scoped to the path the bead names. `contract-version` does not cover this: it
 bumps the *contract's* version, not the CLI's, and it watches `schema/` rather
 than `src/`.
 
-The closure is shallow for *paths*: `lesson-contract` depends on `zod` and
-nothing in this workspace, so resolving one level reaches every file in the
-bundle today. **Known limitation:** it is not shallow for *dependency
-blocks*. `deps_differ` (below) runs against `apps/cli/package.json` only, so
-a `zod` bump in `packages/lesson-contract/package.json` recompiles a
-different binary that this gate never looks at.
+The closure is shallow: `lesson-contract` depends on `zod` and nothing in this
+workspace, so resolving one level reaches every file in the bundle today.
+
+*Closed 2026-09-19 by `onlooker-dnkx`.* This section previously recorded a
+limitation here: the closure was shallow for *paths* but not for *manifests*,
+because the comparison ran against `apps/cli/package.json` alone. A `zod` bump
+inside the contract therefore recompiled a different binary through a file the
+gate never read. `--manifests` now derives one manifest per bundled workspace
+dependency alongside `--paths`, from the same `workspace_dirs` helper so the
+two cannot drift apart.
 
 ## Where a blocking check has to live *(measured)*
 
@@ -153,7 +157,8 @@ structure here.
 | Invocation | Does | Pure |
 | --- | --- | --- |
 | `--paths` | Reads `apps/cli/package.json`, resolves each `workspace:*` dependency to its directory by matching `name` across `packages/*/package.json`, prints `apps/cli/src` and each dependency's `src` | yes |
-| `--deps-differ OLD NEW` | Compares `jq -S .dependencies` of two manifest files; exit 0 when they differ | yes |
+| `--manifests` | The same derivation as `--paths`, but prints `apps/cli/package.json` and each dependency's `package.json` | yes |
+| `--manifest-differs OLD NEW` | Compares `jq -S -c 'del(.version)'` of two manifest files; exit 0 when they differ, 1 same, 2 cannot answer | yes |
 | `--decide` | Reads a changed-file list on stdin; takes `--source-paths`, `--old-version`, `--new-version`, `--labels`; prints one verdict | yes |
 | *(no arguments)* | Gathers all four from git and `gh`, composes them, emits the annotation | no |
 
@@ -184,23 +189,34 @@ The gatherer supplies `--old-version` from `git show
 2. **Did any of it change** in `BASE...HEAD`, where `BASE` is
    `origin/${{ github.base_ref }}`? Nothing changed → `pass:no-cli-change`.
 
-   `apps/cli/package.json` is a special case and is deliberately *not* in the
-   derived path set. It changes on every bump, so counting the whole file as
-   source would report a source change on every release-only pull request. So
-   the gatherer runs `--deps-differ` across the range and appends the
-   manifest to the **source path set** it hands `--decide` — not to the
-   changed-file list, which already contains it — **only** when the
-   `dependencies` block itself differs.
+   Manifests are deliberately *not* in the derived path set. Each changes on
+   every release of its own package, so counting a whole manifest as source
+   would report a source change on every release-only pull request. Instead the
+   gatherer runs `--manifest-differs` across the range for each manifest
+   `--manifests` names, and appends that manifest to the **source path set** it
+   hands `--decide` — not to the changed-file list, which already contains it —
+   only when something other than its `version` moved. A manifest absent from
+   the base is a bundle input the range introduced, so it counts as changed
+   rather than blocking; otherwise every pull request adding a workspace
+   dependency would fail.
 
-   **Known limitation, not a harmless one.** `scripts.build`, `bin` and
-   `devDependencies.esbuild` also change the shipped binary, and the gate
-   watches none of them. `scripts.build` *is* the esbuild invocation that
-   produces the artifact — `--target=node20`, `--format`, the shebang
-   banner and `--minify` all change what ships. `bin` is what the installed
-   `onlooker` resolves to. `devDependencies.esbuild`, pinned exact, is the
-   bundler itself. A pull request that edits only `scripts.build` reports
-   `pass:no-cli-change` while shipping a materially different binary, and
-   the gate has no way to notice.
+   **Everything except `version`, not a list of the fields that matter**
+   *(revised 2026-09-19, `onlooker-dnkx`)*. This originally compared
+   `dependencies` alone, on the stated grounds that `scripts`, `bin` and
+   `devDependencies` do not alter the artifact. That was wrong.
+   `scripts.build` *is* the esbuild invocation that produces the artifact —
+   `--target=node20`, `--format`, the shebang banner and `--minify` all change
+   what ships. `bin` is what the installed `onlooker` resolves to.
+   `devDependencies.esbuild`, pinned exact, is the bundler itself.
+
+   The lesson generalizes past those three names. A list of fields that matter
+   has to stay correct forever, and every field added later is a fresh blind
+   spot — which is exactly how that error survived review. The list of fields
+   that provably *cannot* change the artifact has one entry, because the
+   version **is** the release. Measured before choosing: of the nine changes
+   ever made to `apps/cli/package.json`, eight were version-only and the ninth
+   created the file, so the stricter rule has never over-fired. When it does,
+   it blocks — and `cli-batch` clears it.
 
 3. **Did `version` change** between base and head? Yes → `pass:bumped`, unless
    `sort -V` says it moved backward → `fail:backward`. `contract-version`
@@ -251,16 +267,28 @@ that talks to `gh` is not the code being tested.
 | `--decide` | `packages/lesson-contract/src` changed, version unchanged | `fail:no-bump` |
 | `--decide` | Only unrelated files changed, version bumped | `pass:no-cli-change` |
 | `--decide` | Version moved 2.6.0 → 2.5.0 | `fail:backward` |
-| `--deps-differ` | `dependencies` differ | exit 0 |
-| `--deps-differ` | Only `version` differs | exit 1 |
-| `--deps-differ` | Only `scripts` or `devDependencies` differ | exit 1 |
+| `--manifest-differs` | `dependencies` differ | exit 0 |
+| `--manifest-differs` | `scripts.build`, `bin` or `devDependencies` differ | exit 0 |
+| `--manifest-differs` | A field the gate has never heard of appears | exit 0 |
+| `--manifest-differs` | Only `version` differs | exit 1 |
+| `--manifests` | One manifest per bundled workspace dependency | both |
 | `--paths` | Manifest with one `workspace:*` dependency | both paths |
 | `--paths` | A second `workspace:*` dependency added | widens |
 
-Row six is the one a gate scoped to `apps/cli/src` would get wrong. Rows ten
-and eleven are what stop every version bump and every script edit from reading
-as a source change. Row thirteen keeps the derivation honest as the manifest
-grows.
+The `packages/lesson-contract/src` row is the one a gate scoped to
+`apps/cli/src` would get wrong. The "field the gate has never heard of" row is
+the one that makes the rule self-maintaining rather than a list somebody has to
+keep correct. The "only `version` differs" row is what keeps a release-only
+pull request from reading as a source change. The `--paths` and `--manifests`
+widening rows keep both derivations honest as the manifest grows.
+
+One more, added with `onlooker-dnkx`: a changed path containing a non-ASCII
+character. `git diff --name-only` quotes such paths by default —
+`"apps/cli/src/caf\303\251.ts"`, surrounding quotes included — and the leading
+quote defeats the anchored prefix match, so the file reads as untouched.
+Both this script and `deployable.sh` now pass `-c core.quotePath=false`.
+Verified by removing the flag and watching the case answer
+`pass:no-cli-change`.
 
 ## Deliberately out of scope *(approved)*
 
