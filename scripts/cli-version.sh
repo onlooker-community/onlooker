@@ -268,11 +268,140 @@ case "${1:-}" in
 		decide "${decide_source_paths}" "${decide_old}" "${decide_new}" "${decide_labels}"
 		exit 0
 		;;
+	"")
+		;;
 	*)
 		echo "usage: $(basename "$0")" >&2
 		echo "       $(basename "$0") --paths [ROOT]" >&2
 		echo "       $(basename "$0") --deps-differ OLD NEW" >&2
 		echo "       $(basename "$0") --decide --source-paths L --old-version X --new-version Y --labels L  < changed-file-list" >&2
 		exit 2
+		;;
+esac
+
+# ---------------------------------------------------------------------------
+# The full run. Everything above is pure; everything below reads the world.
+# ---------------------------------------------------------------------------
+
+# CLI_VERSION_ROOT exists so the composition below can be tested. Without it
+# this resolves from the script's own location and can only ever run against
+# this repository, which would leave the gatherer - the part that decides what
+# actually happens - as the one piece with no test at all. Nothing in CI sets
+# it; the default is the repository the script lives in.
+readonly REPO_ROOT="${CLI_VERSION_ROOT:-${REPO_ROOT_DEFAULT}}"
+readonly MANIFEST="${REPO_ROOT}/apps/cli/package.json"
+
+# Every git command below is relative to the repository being examined, which
+# is not necessarily the one this script lives in.
+cd "${REPO_ROOT}"
+
+if [[ -z "${BASE_REF:-}" ]]; then
+	echo "::error title=CLI release gate misconfigured::BASE_REF is not set. It must name the base to diff against, e.g. origin/main."
+	exit 1
+fi
+
+source_paths="$(derive_paths "${REPO_ROOT}")"
+
+old_manifest="$(mktemp)"
+trap 'rm -f "${old_manifest}"' EXIT
+
+if ! git show "${BASE_REF}:apps/cli/package.json" >"${old_manifest}" 2>/dev/null; then
+	echo "::error title=CLI release gate cannot read the base::apps/cli/package.json is not present at ${BASE_REF}. Without it there is nothing to compare, and this gate blocks rather than guess."
+	exit 1
+fi
+
+# The manifest is not in the derived set on purpose - it changes on every
+# release, and it carries scripts, bin and devDependencies too. It earns a
+# place in the set only when its dependencies moved, because that is the only
+# part of it that changes the bundle.
+# Captured rather than written as `if deps_differ ...; then`. Bash exempts an
+# `if` condition from set -e, so every non-zero status collapses into "false"
+# there - and "false" means "dependencies did not change", which means the
+# manifest is not counted as source, which lets an unreleased change through.
+# An unreadable manifest would produce the exact silence this script exists to
+# end. deps_differ answers 0 differ, 1 same, 2 cannot answer, and 2 has to be
+# told apart from 1 rather than blurred into it.
+deps_status=0
+deps_differ "${old_manifest}" "${MANIFEST}" || deps_status=$?
+
+case "${deps_status}" in
+	0)
+		source_paths="${source_paths}"$'\n'"apps/cli/package.json"
+		echo "cli-version: the CLI's dependencies moved; counting the manifest as source" >&2
+		;;
+	1)
+		;;
+	*)
+		echo "::error title=CLI release gate cannot read the manifest::Could not compare apps/cli/package.json's dependencies across ${BASE_REF}...HEAD - one side is missing or is not valid JSON. Blocking rather than guessing whether the bundle changed."
+		exit 1
+		;;
+esac
+
+old_version="$(jq -r '.version // ""' "${old_manifest}")"
+new_version="$(jq -r '.version // ""' "${MANIFEST}")"
+
+# A missing label read fails closed. A transient API error must not quietly
+# turn a deliberate batch into a passing run or an unlabelled one into a pass -
+# it leaves labels empty, which can only make the gate stricter, and the run
+# log says so.
+labels=""
+if [[ -n "${PR_NUMBER:-}" ]]; then
+	if ! labels="$(gh pr view "${PR_NUMBER}" --json labels --jq '.labels[].name' 2>/dev/null)"; then
+		labels=""
+		echo "cli-version: could not read the labels of #${PR_NUMBER}; treating it as unlabelled" >&2
+	fi
+else
+	echo "cli-version: no PR_NUMBER; treating this run as unlabelled" >&2
+fi
+
+changed="$(git diff --name-only "${BASE_REF}...HEAD")"
+
+# Printed because it is the whole explanation for the answer, and the run log
+# is where anyone will look when the answer surprises them.
+echo "cli-version: comparing ${BASE_REF}...HEAD" >&2
+printf '%s\n' "${changed}" >&2
+echo "cli-version: source paths" >&2
+printf '%s\n' "${source_paths}" >&2
+
+verdict="$(printf '%s\n' "${changed}" | decide \
+	"${source_paths}" "${old_version}" "${new_version}" "${labels}")"
+
+# Which files made it count. Recomputed rather than threaded out of `decide`,
+# which stays a pure function of its inputs and answers one question.
+touched="$(printf '%s\n' "${changed}" | while read -r file; do
+	[[ -n "${file}" ]] || continue
+	if printf '%s\n' "${file}" | touches_source "${source_paths}"; then
+		printf '%s ' "${file}"
+	fi
+done)"
+touched="${touched% }"
+
+case "${verdict}" in
+	pass:no-cli-change)
+		echo "cli-version: nothing in this pull request reaches the CLI binary"
+		exit 0
+		;;
+	pass:bumped)
+		echo "cli-version: CLI source changed and the version moved ${old_version} -> ${new_version}"
+		exit 0
+		;;
+	pass:deferred)
+		echo "cli-version: ${touched} changed and the version is still ${new_version}, deferred by the ${BATCH_LABEL} label. Remember to bump before this reaches anybody."
+		exit 0
+		;;
+	fail:backward)
+		echo "::error title=CLI version moved backward::apps/cli/package.json went from ${old_version} to ${new_version}. release-cli.yml would cut cli-v${new_version} and the Homebrew tap would take the lower number, which cannot be cleanly undone once somebody has installed it."
+		exit 1
+		;;
+	fail:no-bump)
+		echo "::error title=CLI source changed without a release::${touched} changed, but apps/cli/package.json is still ${new_version}. tag-cli.yml releases on a version change and nothing else, so this merges, deploys the API and the web app, and leaves every installed \`onlooker\` running the old binary - the failure in #141 and #167. Bump the version here, or add the \`${BATCH_LABEL}\` label and re-run this job to release these changes together later."
+		exit 1
+		;;
+	*)
+		# Fails closed, unlike deployable.sh next door. A gate that cannot work
+		# out an answer and passes anyway restores exactly the silence it was
+		# built to end.
+		echo "::error title=CLI release gate could not decide::The verdict was '${verdict}', which is not one this script knows. Blocking rather than guessing."
+		exit 1
 		;;
 esac

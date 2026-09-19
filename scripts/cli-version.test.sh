@@ -124,6 +124,70 @@ expect_verdict() {
 	fi
 }
 
+# make_repo <dir> <old-manifest-json> <new-manifest-json> <changed-path...>
+#
+# Builds a throwaway git repository with two commits - a base carrying the old
+# manifest, a head carrying the new one plus the named changed paths - and
+# prints the base sha for BASE_REF. Real commits rather than a stub of git,
+# because the gatherer's whole job is asking git questions and a stub would
+# answer them the way the test already believes.
+make_repo() {
+	local dir="$1" old_json="$2" new_json="$3"
+	shift 3
+
+	mkdir -p "${dir}/apps/cli/src" "${dir}/packages/lesson-contract/src"
+	git -C "${dir}" init -q
+	git -C "${dir}" config user.email "test@example.invalid"
+	git -C "${dir}" config user.name "cli-version tests"
+
+	printf '{"name":"@onlooker-community/lesson-contract","version":"2.0.1"}\n' \
+		>"${dir}/packages/lesson-contract/package.json"
+	printf '%s\n' "${old_json}" >"${dir}/apps/cli/package.json"
+	echo "base" >"${dir}/apps/cli/src/main.ts"
+	git -C "${dir}" add -A
+	git -C "${dir}" commit -qm base
+
+	printf '%s\n' "${new_json}" >"${dir}/apps/cli/package.json"
+
+	local path
+	for path in "$@"; do
+		mkdir -p "${dir}/$(dirname "${path}")"
+		echo "changed" >>"${dir}/${path}"
+	done
+
+	git -C "${dir}" add -A
+	# --allow-empty so a case where nothing moved at all still produces a head
+	# commit to diff against rather than failing the harness.
+	git -C "${dir}" commit -q --allow-empty -m head
+
+	git -C "${dir}" rev-parse HEAD~1
+}
+
+# expect_run <expected-exit> <expected-substring> <description> <dir> <base>
+#
+# Drives the whole gatherer against a throwaway repository. PR_NUMBER is unset
+# on purpose: with no pull request to ask about, the label read is skipped and
+# these tests touch no network. Both the exit code and a distinctive phrase
+# from the output are asserted - the exit code is what CI acts on, and the
+# message is the only thing a person will read.
+expect_run() {
+	local expected_exit="$1" expected_text="$2" description="$3"
+	local dir="$4" base="$5"
+
+	tests=$((tests + 1))
+
+	local output="" status=0
+	output="$(CLI_VERSION_ROOT="${dir}" BASE_REF="${base}" "${CLI_VERSION}" 2>&1)" || status=$?
+
+	if [[ "${status}" == "${expected_exit}" && "${output}" == *"${expected_text}"* ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> exit ${status}, expected ${expected_exit} and '${expected_text}'"
+		printf '        %s\n' "${output}"
+		failures=$((failures + 1))
+	fi
+}
+
 # The path set the real repository derives today. Written once so every verdict
 # case below reads as the question it is asking rather than as plumbing.
 readonly PATHS="apps/cli/src,packages/lesson-contract/src"
@@ -315,6 +379,64 @@ expect_verdict "pass:no-cli-change" "a sibling directory with a shared prefix" \
 expect_verdict "fail:no-bump" "one CLI file among many that are not" \
 	"${PATHS}" "2.6.0" "2.6.0" "" \
 	"README.md" "docs/notes.md" "apps/cli/src/main.ts" ".beads/issues.jsonl"
+
+echo "cli-version.sh: the whole run, against a throwaway repository"
+
+readonly BUMPED='{"name":"@onlooker/cli","version":"2.7.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}'
+readonly SAME='{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}'
+
+base="$(make_repo "${work}/run-nobump" "${SAME}" "${SAME}" "apps/cli/src/sessions.ts")"
+expect_run 1 "CLI source changed without a release" \
+	"CLI source changed and the version did not" "${work}/run-nobump" "${base}"
+
+# The annotation has to name the file, or the person reading it has to go
+# looking for what tripped the gate.
+expect_run 1 "apps/cli/src/sessions.ts" \
+	"the failure names the file that tripped it" "${work}/run-nobump" "${base}"
+
+base="$(make_repo "${work}/run-bumped" "${SAME}" "${BUMPED}" "apps/cli/src/sessions.ts")"
+expect_run 0 "2.6.0 -> 2.7.0" \
+	"CLI source changed and the version moved" "${work}/run-bumped" "${base}"
+
+base="$(make_repo "${work}/run-clean" "${SAME}" "${SAME}" "README.md")"
+expect_run 0 "nothing in this pull request reaches the CLI binary" \
+	"nothing relevant changed" "${work}/run-clean" "${base}"
+
+# The case a gate scoped to apps/cli/src would miss, driven end to end.
+base="$(make_repo "${work}/run-contract" "${SAME}" "${SAME}" \
+	"packages/lesson-contract/src/lesson.ts")"
+expect_run 1 "packages/lesson-contract/src/lesson.ts" \
+	"the bundled contract changed and the version did not" "${work}/run-contract" "${base}"
+
+base="$(make_repo "${work}/run-deps" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*","zod":"4.4.3"}}')"
+expect_run 1 "counting the manifest as source" \
+	"a dependency moved and the version did not" "${work}/run-deps" "${base}"
+
+# devDependencies are not in the bundle, so moving one is not a source change.
+base="$(make_repo "${work}/run-devdeps" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.6.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"},"devDependencies":{"vitest":"4.2.0"}}')"
+expect_run 0 "nothing in this pull request reaches the CLI binary" \
+	"only a devDependency moved" "${work}/run-devdeps" "${base}"
+
+base="$(make_repo "${work}/run-backward" "${SAME}" \
+	'{"name":"@onlooker/cli","version":"2.5.0","dependencies":{"@onlooker-community/lesson-contract":"workspace:*"}}' \
+	"apps/cli/src/sessions.ts")"
+expect_run 1 "CLI version moved backward" \
+	"the version moved backward" "${work}/run-backward" "${base}"
+
+# Fails closed. A gate that cannot work out what to compare against must block
+# rather than wave the pull request through.
+tests=$((tests + 1))
+status=0
+output="$(CLI_VERSION_ROOT="${work}/run-clean" "${CLI_VERSION}" 2>&1)" || status=$?
+if [[ "${status}" == 1 && "${output}" == *"BASE_REF is not set"* ]]; then
+	echo "  ok    a missing BASE_REF blocks rather than passes"
+else
+	echo "  FAIL  a missing BASE_REF blocks rather than passes -> exit ${status}"
+	printf '        %s\n' "${output}"
+	failures=$((failures + 1))
+fi
 
 echo
 if ((failures > 0)); then
