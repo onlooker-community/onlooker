@@ -98,8 +98,29 @@ package_dir() {
 # -S sorts keys so a formatter reordering the block does not read as a change,
 # and `// {}` makes a missing block compare equal to an empty one rather than
 # `null` against `{}`.
+#
+# Exit 0 = the dependencies moved, 1 = they did not, 2 = the question could
+# not be answered (a missing, unreadable or non-JSON manifest). That third
+# code is load-bearing: the caller runs this inside an `if`, which bash
+# exempts from set -e, so a raw jq failure would otherwise surface as an
+# ordinary nonzero exit and read as "1 = unchanged" - the same silence this
+# whole script exists to end. Checking both files up front, rather than
+# letting jq's own exit code leak out of the comparison below, is what keeps
+# 2 distinguishable from 1.
 deps_differ() {
-	local old="$1" new="$2" old_deps="" new_deps=""
+	local old="$1" new="$2" old_deps="" new_deps="" manifest=""
+
+	for manifest in "${old}" "${new}"; do
+		if [[ ! -r "${manifest}" ]]; then
+			echo "cli-version: cannot read ${manifest}" >&2
+			return 2
+		fi
+
+		if ! jq empty "${manifest}" 2>/dev/null; then
+			echo "cli-version: ${manifest} is not valid JSON" >&2
+			return 2
+		fi
+	done
 
 	old_deps="$(jq -S -c '.dependencies // {}' "${old}")"
 	new_deps="$(jq -S -c '.dependencies // {}' "${new}")"

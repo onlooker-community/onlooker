@@ -95,6 +95,29 @@ expect_deps() {
 	fi
 }
 
+# expect_exit <expected-exit> <description> <arg...>
+#
+# For cases expect_deps can't express: it always writes two well-formed JSON
+# files, and these need a path that has no file behind it at all, or one that
+# is not JSON. Args are passed straight through to the script, same shape as
+# deployable.test.sh's helper of the same name.
+expect_exit() {
+	local expected="$1" description="$2"
+	shift 2
+
+	tests=$((tests + 1))
+
+	local actual=0
+	"${CLI_VERSION}" "$@" >/dev/null 2>&1 || actual=$?
+
+	if [[ "${actual}" == "${expected}" ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> exit ${actual} (expected ${expected})"
+		failures=$((failures + 1))
+	fi
+}
+
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
@@ -181,6 +204,24 @@ expect_deps 1 "the same dependencies in a different order" \
 
 expect_deps 1 "no dependencies block on either side" \
 	'{"version":"2.6.0"}' '{"version":"2.7.0"}'
+
+echo "cli-version.sh: --deps-differ failing closed"
+
+# The gatherer this feeds calls --deps-differ inside an `if`, which bash
+# exempts from set -e - so a raw jq failure leaking through as an ordinary
+# nonzero exit would read as "1 = unchanged" and let an unreleased dependency
+# change pass silently. Exit 2 is what tells the gatherer to block instead.
+deps_valid="${work}/deps-valid.json"
+printf '{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}\n' >"${deps_valid}"
+
+deps_malformed="${work}/deps-malformed.json"
+printf '{not valid json\n' >"${deps_malformed}"
+
+expect_exit 2 "old manifest does not exist" \
+	--deps-differ "${work}/deps-missing.json" "${deps_valid}"
+
+expect_exit 2 "new manifest is not valid JSON" \
+	--deps-differ "${deps_valid}" "${deps_malformed}"
 
 echo
 if ((failures > 0)); then
