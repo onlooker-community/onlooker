@@ -71,6 +71,30 @@ expect_paths() {
 	fi
 }
 
+# expect_deps <expected-exit> <description> <old-json> <new-json>
+#
+# The exit code is the whole answer here, so it is what gets asserted. 0 means
+# the dependencies moved, 1 means they did not.
+expect_deps() {
+	local expected="$1" description="$2" old_json="$3" new_json="$4"
+
+	tests=$((tests + 1))
+
+	local old_file="${work}/deps-old.json" new_file="${work}/deps-new.json"
+	printf '%s\n' "${old_json}" >"${old_file}"
+	printf '%s\n' "${new_json}" >"${new_file}"
+
+	local actual=0
+	"${CLI_VERSION}" --deps-differ "${old_file}" "${new_file}" >/dev/null 2>&1 || actual=$?
+
+	if [[ "${actual}" == "${expected}" ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> exit ${actual} (expected ${expected})"
+		failures=$((failures + 1))
+	fi
+}
+
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
@@ -118,6 +142,45 @@ expect_paths "" 1 "no apps/cli manifest at all" "${work}/no-manifest"
 make_tree "${work}/missing-pkg" '{"@onlooker-community/lesson-contract":"workspace:*"}'
 expect_paths "apps/cli/src" 1 \
 	"a workspace dependency with no matching package" "${work}/missing-pkg"
+
+echo "cli-version.sh: a dependency change against everything else in the manifest"
+
+expect_deps 0 "a dependency version moved" \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","dependencies":{"zod":"4.5.0"}}'
+
+expect_deps 0 "a dependency was added" \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3","@onlooker/logger":"workspace:*"}}'
+
+expect_deps 0 "a dependency was removed" \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","dependencies":{}}'
+
+# The case that keeps every release from reading as a source change. If a bump
+# counted, the gate would see source in every release-only pull request - which
+# still passes, but for the wrong reason, and the test that proves it does not
+# is cheaper than the confusion later.
+expect_deps 1 "only the version moved" \
+	'{"version":"2.6.0","dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.7.0","dependencies":{"zod":"4.4.3"}}'
+
+expect_deps 1 "only a script changed" \
+	'{"version":"2.6.0","scripts":{"build":"old"},"dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","scripts":{"build":"new"},"dependencies":{"zod":"4.4.3"}}'
+
+expect_deps 1 "only devDependencies changed" \
+	'{"version":"2.6.0","devDependencies":{"vitest":"4.1.9"},"dependencies":{"zod":"4.4.3"}}' \
+	'{"version":"2.6.0","devDependencies":{"vitest":"4.2.0"},"dependencies":{"zod":"4.4.3"}}'
+
+# Key order is a formatting accident, not a change. Without -S this reports a
+# dependency move every time a formatter reorders the block.
+expect_deps 1 "the same dependencies in a different order" \
+	'{"dependencies":{"zod":"4.4.3","@onlooker/logger":"workspace:*"}}' \
+	'{"dependencies":{"@onlooker/logger":"workspace:*","zod":"4.4.3"}}'
+
+expect_deps 1 "no dependencies block on either side" \
+	'{"version":"2.6.0"}' '{"version":"2.7.0"}'
 
 echo
 if ((failures > 0)); then

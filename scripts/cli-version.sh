@@ -88,9 +88,36 @@ package_dir() {
 	return 1
 }
 
+# Did the dependencies block move between two manifests?
+#
+# Not "did the manifest change": apps/cli/package.json changes on every release
+# by definition, and it also carries scripts, bin and devDependencies, none of
+# which alter the shipped binary. Only a dependency change does, and only that
+# should make the manifest count as CLI source.
+#
+# -S sorts keys so a formatter reordering the block does not read as a change,
+# and `// {}` makes a missing block compare equal to an empty one rather than
+# `null` against `{}`.
+deps_differ() {
+	local old="$1" new="$2" old_deps="" new_deps=""
+
+	old_deps="$(jq -S -c '.dependencies // {}' "${old}")"
+	new_deps="$(jq -S -c '.dependencies // {}' "${new}")"
+
+	[[ "${old_deps}" != "${new_deps}" ]]
+}
+
 case "${1:-}" in
 	--paths)
 		derive_paths "${2:-}"
+		exit $?
+		;;
+	--deps-differ)
+		if [[ $# -ne 3 ]]; then
+			echo "usage: $(basename "$0") --deps-differ OLD NEW" >&2
+			exit 2
+		fi
+		deps_differ "$2" "$3"
 		exit $?
 		;;
 	*)
