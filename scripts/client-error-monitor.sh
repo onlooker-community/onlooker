@@ -43,13 +43,30 @@ esac
 
 readonly API_BASE="https://api.cloudflare.com/client/v4"
 
-# Wider than the schedule that drives it. The cron interval is nominal: the
-# heartbeat's delivery was remeasured over 100 runs at a 24 minute median with
-# a 112 minute maximum (onlooker-2ho), so a window equal to the interval leaves
-# gaps whenever GitHub runs late, and a gap here is a client error nobody hears
-# about. The overlap costs a repeated email for an error that is still inside
-# two windows, which is the cheaper mistake.
-readonly LOOKBACK_MINUTES="${CLIENT_ERROR_LOOKBACK_MINUTES:-180}"
+# The window is derived per run, not declared - see resolve_lookback_minutes.
+# These are its bounds, and each number has a reason.
+#
+# Fallback 480: the worst gap between runs measured on 2026-09-19 was 327
+# minutes. This covers it with headroom, and is only reached when run history
+# cannot be read at all.
+readonly LOOKBACK_FALLBACK_MINUTES=480
+# Floor 60: a workflow_dispatch seconds after a scheduled run would otherwise
+# query a 30-second window and miss the very report it was dispatched to check.
+readonly LOOKBACK_FLOOR_MINUTES=60
+# Ceiling 1440: if this workflow is disabled for a week, the window must not
+# become a week. Workers Logs keeps three days regardless, and each run already
+# reads over a million rows.
+readonly LOOKBACK_CEILING_MINUTES=1440
+# Overlap 5: GitHub stamps the run and Cloudflare stamps the log, and those are
+# not the same clock.
+readonly LOOKBACK_OVERLAP_MINUTES=5
+
+readonly LOOKBACK_OVERRIDE="${CLIENT_ERROR_LOOKBACK_MINUTES:-}"
+readonly RUNS_WORKFLOW_FILE="client-error-monitor.yml"
+
+# Resolved once by resolve_lookback_minutes, then read by build_query and by
+# the result messages at the end of the run.
+LOOKBACK_MINUTES=""
 
 readonly CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 readonly CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
@@ -58,6 +75,7 @@ readonly CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 readonly MONITOR_PREFLIGHT_ONLY="${MONITOR_PREFLIGHT_ONLY:-}"
 readonly MONITOR_PRINT_QUERY="${MONITOR_PRINT_QUERY:-}"
 readonly MONITOR_RENDER_EVENTS="${MONITOR_RENDER_EVENTS:-}"
+readonly MONITOR_RUNS_RESPONSE="${MONITOR_RUNS_RESPONSE:-}"
 
 # build_filters
 #
@@ -90,6 +108,86 @@ build_filters() {
 	fi
 
 	printf '%s' "${filters}"
+}
+
+# resolve_lookback_minutes
+#
+# Sets LOOKBACK_MINUTES to how many minutes this run should read, derived from
+# when this workflow last completed rather than from a constant.
+#
+# WHY NOT A CONSTANT: there was one. 180 minutes, sized on 2026-08-16 against a
+# 24-minute median delivery (onlooker-2ho). By 2026-09-19 GitHub was delivering
+# this workflow every 197 minutes at the median and 327 at the worst, so 11 of
+# the last 19 runs left a window nobody read - up to 147 minutes of client
+# error reports at the worst. Nothing changed but GitHub, and nothing here
+# noticed. A wider constant inherits exactly that shelf life. Run history does
+# not: it tracks throttling as throttling changes.
+#
+# COMPLETED, NOT SUCCESSFUL: this script exits 1 when it finds client errors,
+# which fails the run on purpose. A failed run still queried. Asking only for
+# successful runs would drag the window back across every failure and re-report
+# the same errors on every run until a clean one, turning one alert into a
+# repeating one.
+#
+# The hole that leaves, stated rather than engineered around: exit 2 means the
+# monitor could not do its job, and from the runs API that is indistinguishable
+# from exit 1. Such a run's interval is treated as covered. That is acceptable
+# because an exit 2 run already emailed a human. The gap worth closing here is
+# the silent one.
+resolve_lookback_minutes() {
+	if [[ -n "${LOOKBACK_MINUTES}" ]]; then
+		return
+	fi
+
+	if [[ -n "${LOOKBACK_OVERRIDE}" ]]; then
+		LOOKBACK_MINUTES="${LOOKBACK_OVERRIDE}"
+		return
+	fi
+
+	# Read here rather than hoisted to a constant: this is the only consumer,
+	# and a top-level readonly ending in TOKEN trips the secret-scanning hook.
+	local auth="${GITHUB_TOKEN:-}"
+	local repo="${GITHUB_REPOSITORY:-}"
+
+	local response=""
+	if [[ -n "${MONITOR_RUNS_RESPONSE}" ]]; then
+		response="${MONITOR_RUNS_RESPONSE}"
+	elif [[ -n "${auth}" && -n "${repo}" ]]; then
+		# status=completed excludes the run doing the asking, which would
+		# otherwise always be the most recent one. per_page=1 because the API
+		# returns newest first and only the newest is wanted.
+		response="$(curl --silent --max-time 10 \
+			--header "Authorization: Bearer ${auth}" \
+			--header "Accept: application/vnd.github+json" \
+			"https://api.github.com/repos/${repo}/actions/workflows/${RUNS_WORKFLOW_FILE}/runs?status=completed&per_page=1" \
+			2>/dev/null || true)"
+	fi
+
+	# try/catch rather than a shape check: an error response has no
+	# workflow_runs at all, and fromdateiso8601 on null throws rather than
+	# returning empty.
+	local last_epoch=""
+	if [[ -n "${response}" ]]; then
+		last_epoch="$(printf '%s' "${response}" |
+			jq -r 'try (.workflow_runs[0].created_at | fromdateiso8601) catch empty' 2>/dev/null || true)"
+	fi
+
+	if [[ ! "${last_epoch}" =~ ^[0-9]+$ ]]; then
+		LOOKBACK_MINUTES="${LOOKBACK_FALLBACK_MINUTES}"
+		echo "client-error-monitor: no previous run to measure from, falling back to a ${LOOKBACK_FALLBACK_MINUTES}m window" >&2
+		return
+	fi
+
+	local minutes=$(( ( $(date +%s) - last_epoch ) / 60 + LOOKBACK_OVERLAP_MINUTES ))
+
+	if (( minutes < LOOKBACK_FLOOR_MINUTES )); then
+		minutes="${LOOKBACK_FLOOR_MINUTES}"
+	elif (( minutes > LOOKBACK_CEILING_MINUTES )); then
+		echo "client-error-monitor: last run was over ${LOOKBACK_CEILING_MINUTES}m ago, capping the window there" >&2
+		minutes="${LOOKBACK_CEILING_MINUTES}"
+	fi
+
+	LOOKBACK_MINUTES="${minutes}"
 }
 
 # build_query [filters-json]
@@ -148,6 +246,7 @@ require_jq() {
 
 if [[ -n "${MONITOR_PRINT_QUERY}" ]]; then
 	require_jq
+	resolve_lookback_minutes
 	build_query
 	exit 0
 fi
@@ -192,6 +291,11 @@ preflight
 if [[ -n "${MONITOR_PREFLIGHT_ONLY}" ]]; then
 	exit 0
 fi
+
+# Resolved here, at top level, and not inside build_query: build_query is
+# called from $(...) at the control and client-error queries below, and a value
+# resolved inside a subshell is lost - which would also mean two API calls.
+resolve_lookback_minutes
 
 # telemetry_query <body>
 #

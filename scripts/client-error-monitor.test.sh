@@ -95,7 +95,7 @@ echo "client-error-monitor.sh: the filter key"
 # finds it. Workers Logs parses the JSON string given to console.error into
 # top-level keys, and promotes the report's own `message` property into
 # $metadata.message - so the literal string 'client_error' is never in it.
-body="$(query all CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a)"
+body="$(query all CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a GITHUB_TOKEN=)"
 
 discriminator="$(printf '%s' "${body}" |
 	jq -r '.parameters.filters[] | select(.value == "client_error") | .key' 2>/dev/null || true)"
@@ -152,10 +152,10 @@ fi
 
 span="$(printf '%s' "${body}" |
 	jq -r '(.timeframe.to - .timeframe.from) / 60000 | round' 2>/dev/null || true)"
-if [[ "${span}" == "180" ]]; then
-	pass "default lookback is 180 minutes"
+if [[ "${span}" == "480" ]]; then
+	pass "the window falls back to 480 minutes without run history"
 else
-	fail "default lookback is 180 minutes" "got ${span}"
+	fail "the window falls back to 480 minutes without run history" "got ${span}"
 fi
 
 custom_span="$(query all CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a CLIENT_ERROR_LOOKBACK_MINUTES=45 |
@@ -164,6 +164,85 @@ if [[ "${custom_span}" == "45" ]]; then
 	pass "lookback is configurable"
 else
 	fail "lookback is configurable" "got ${custom_span}"
+fi
+
+echo
+echo "client-error-monitor.sh: lookback derivation"
+
+# runs_fixture <minutes-ago> [conclusion]
+#
+# Prints what the GitHub runs API returns for one completed run that started
+# the given number of minutes ago. jq does the date conversion because
+# `date -d` is GNU-only and `date -j -f` is BSD-only, and this suite runs on
+# both.
+runs_fixture() {
+	local minutes_ago="$1" conclusion="${2:-success}"
+	local stamp
+	stamp="$(jq -rn --argjson ago "$(( $(date +%s) - minutes_ago * 60 ))" '$ago | todateiso8601')"
+	jq -n -c --arg created "${stamp}" --arg conclusion "${conclusion}" \
+		'{workflow_runs: [{created_at: $created, conclusion: $conclusion}]}'
+}
+
+# lookback <description> <expected-minutes> [env-assignments...]
+#
+# GITHUB_TOKEN is blanked on every call so the suite can never reach the
+# network, whatever the ambient environment holds.
+lookback() {
+	local description="$1" expected="$2"
+	shift 2
+	local actual
+	actual="$(query all CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a GITHUB_TOKEN= "$@" |
+		jq -r '(.timeframe.to - .timeframe.from) / 60000 | round' 2>/dev/null || true)"
+	if [[ "${actual}" == "${expected}" ]]; then
+		pass "${description}"
+	else
+		fail "${description}" "got ${actual}, expected ${expected}"
+	fi
+}
+
+lookback "derives the window from the previous run" 125 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 120)"
+
+# The bug this whole change exists to fix: on 2026-09-19 the gap between runs
+# reached 327 minutes against a fixed 180-minute window.
+lookback "a 327-minute gap is covered, not truncated" 332 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 327)"
+
+# A workflow_dispatch seconds after a scheduled run must not query a
+# 30-second window and miss the report it was dispatched to check.
+lookback "a too-recent previous run is floored at 60" 60 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 1)"
+
+lookback "an ancient previous run is capped at 1440" 1440 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 4320)"
+
+# A failed run still queried - it failed because it found client errors.
+# Skipping it would re-report the same errors until a clean run.
+lookback "a failed previous run still counts" 125 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 120 failure)"
+
+lookback "empty run history falls back to 480" 480 \
+	MONITOR_RUNS_RESPONSE='{"workflow_runs":[]}'
+
+lookback "an error response falls back to 480" 480 \
+	MONITOR_RUNS_RESPONSE='{"message":"Bad credentials"}'
+
+lookback "unparseable JSON falls back to 480" 480 \
+	MONITOR_RUNS_RESPONSE='not json at all'
+
+lookback "no credential falls back to 480" 480
+
+lookback "an explicit override beats derivation" 45 \
+	CLIENT_ERROR_LOOKBACK_MINUTES=45 MONITOR_RUNS_RESPONSE="$(runs_fixture 120)"
+
+# A silent fallback is the failure mode this change exists to end, so the
+# fallback announces itself.
+fallback_stderr="$(env CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a GITHUB_TOKEN= \
+	MONITOR_PRINT_QUERY=1 "${MONITOR}" all 2>&1 >/dev/null || true)"
+if [[ "${fallback_stderr}" == *"falling back"* && "${fallback_stderr}" == *"480"* ]]; then
+	pass "the fallback says so on stderr"
+else
+	fail "the fallback says so on stderr" "got '${fallback_stderr}'"
 fi
 
 echo
