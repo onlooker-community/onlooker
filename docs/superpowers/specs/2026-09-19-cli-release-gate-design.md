@@ -181,12 +181,13 @@ The gatherer supplies `--old-version` from `git show
    `origin/${{ github.base_ref }}`? Nothing changed → `pass:no-cli-change`.
 
    `apps/cli/package.json` is a special case and is deliberately *not* in the
-   path set. It changes on every bump, and it also carries `scripts`, `bin` and
-   `devDependencies`, none of which alter the shipped binary. So the gatherer
-   runs `--deps-differ` across the range and appends the manifest to the
-   changed-file list **only** when the `dependencies` block itself differs — a
-   dependency bump changes the bundle without touching a line of first-party
-   source, and everything else in that file does not.
+   derived path set. It changes on every bump, and it also carries `scripts`,
+   `bin` and `devDependencies`, none of which alter the shipped binary. So the
+   gatherer runs `--deps-differ` across the range and appends the manifest to
+   the **source path set** it hands `--decide` — not to the changed-file list,
+   which already contains it — **only** when the `dependencies` block itself
+   differs. A dependency bump changes the bundle without touching a line of
+   first-party source; everything else in that file does not.
 
 3. **Did `version` change** between base and head? Yes → `pass:bumped`, unless
    `sort -V` says it moved backward → `fail:backward`. `contract-version`
