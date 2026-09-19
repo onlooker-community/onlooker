@@ -159,6 +159,14 @@ jobs:
       - name: Source guard tests
         run: bash scripts/source-guards.test.sh
 
+      # The gate is the only thing that notices when the code on main is not
+      # the code anybody is running, and like the deployable filter it fails
+      # silently in the direction that matters: a wrong "nothing changed" is a
+      # green merge that released nothing. That has already cost two releases,
+      # #141/#142 and #167/#168.
+      - name: CLI release gate tests
+        run: bash scripts/cli-version.test.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -230,6 +238,42 @@ jobs:
           fi
 
           echo "version moved ${old} -> ${new}"
+
+  cli-version:
+    name: CLI released with its source
+    runs-on: ubuntu-latest
+    # Pull requests only, for contract-version's reason: the comparison is
+    # against the PR's base, which a push to main does not have.
+    if: github.event_name == 'pull_request'
+    # Explicit because deploy.yml has no top-level permissions block. The label
+    # read is the only thing this needs beyond a checkout.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Full history so the base ref is available to diff against.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The labels are read live from the API rather than from
+      # github.event.pull_request.labels, which is a snapshot taken when the
+      # run started. Adding the label after a failure therefore counts, and
+      # costs a click plus "Re-run failed jobs" - which re-runs this job and
+      # the gate and nothing else.
+      #
+      # The alternative was adding `labeled` to this workflow's pull_request
+      # trigger, which would re-run quality, test and changes on every label
+      # change. Gating those off for label events is worse: they would be
+      # SKIPPED, and `required` counts skipped as passing, so labeling a pull
+      # request would mint a green "All checks passed" from a run that tested
+      # nothing.
+      - name: Fail if CLI source changed without a release
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/cli-version.sh
 
   # ============================================================================
   # PUBLISH THE LESSON CONTRACT
@@ -794,19 +838,20 @@ jobs:
   required:
     name: All checks passed
     runs-on: ubuntu-latest
-    needs: [quality, test, contract-version, changes]
+    needs: [quality, test, contract-version, cli-version, changes]
     # Without always(), one failed dependency skips the gate rather than
     # failing it, and a skipped required check is pending forever.
     if: always()
     steps:
       - name: Check results
         run: |
-          # `contract-version` is pull-request-only, so it is skipped on a push
-          # to main - expected, not a failure. Anything other than success or
-          # skipped fails the gate.
+          # `contract-version` and `cli-version` are pull-request-only, so both
+          # are skipped on a push to main - expected, not a failure. Anything
+          # other than success or skipped fails the gate.
           for r in "${{ needs.quality.result }}" \
                    "${{ needs.test.result }}" \
                    "${{ needs.contract-version.result }}" \
+                   "${{ needs.cli-version.result }}" \
                    "${{ needs.changes.result }}"; do
             if [[ "$r" != "success" && "$r" != "skipped" ]]; then
               echo "One or more required checks failed (got: $r)"
