@@ -623,7 +623,13 @@ readonly BATCH_LABEL="cli-batch"
 # `gh pr view --jq '.labels[].name'` output straight through, while a test can
 # write one readable flag value.
 as_lines() {
-	printf '%s' "$1" | tr ',' '\n'
+	# printf '%s\n', not '%s'. Without the trailing newline the last field has
+	# no line terminator, and `while read -r` discards an unterminated final
+	# line - so a single-entry list vanishes completely. That would have made
+	# has_batch_label always answer no, and pass:deferred unreachable: the
+	# cli-batch escape hatch named in the failure message could never have
+	# fired. Caught by Task 3's own tests on 2026-09-19.
+	printf '%s\n' "$1" | tr ',' '\n'
 }
 
 # Does any changed file live under one of the source paths?
