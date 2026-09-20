@@ -76,6 +76,19 @@ routes = [
   { pattern = "api-staging.onlooker.dev", custom_domain = true }
 ]
 
+# Wrangler writes index.js.map beside the bundle on every build and uploads it
+# only when told to. Without this a stack names errorHandler and then points at
+# a line of a 42,000-line bundle; with it the same stack resolves to
+# apps/api/src/middleware/error.ts. The bundle is not minified either way -
+# wrangler does not minify by default - so this buys the source line, not the
+# identifiers, which is the part a bundle line cannot give back.
+#
+# Declared per environment rather than at the top level, like observability
+# below. `routes` was inheritable and top-level once, and inheritance handed a
+# nameless worker the production hostname with no bindings; see the note at the
+# head of this file.
+upload_source_maps = true
+
 [env.staging.vars]
 TOKEN_EXPIRY_MINUTES = "15"
 REFRESH_TOKEN_EXPIRY_DAYS = "30"
@@ -130,6 +143,10 @@ migrations_dir = "../../packages/db/migrations"
 routes = [
   { pattern = "api.onlooker.dev/*", zone_name = "onlooker.dev" }
 ]
+
+# See the note under [env.staging]. Both deployed environments upload, so a
+# production stack and the staging stack that rehearses it read the same way.
+upload_source_maps = true
 
 [env.production.vars]
 TOKEN_EXPIRY_MINUTES = "15"
