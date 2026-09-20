@@ -134,9 +134,9 @@ export function guarded(monitor: Monitor): Monitor {
  * Say the same thing to several monitors.
  *
  * Exists for the move between destinations. apps/web reports to Workers Logs
- * today and an hourly workflow alerts on it; sending to a new provider instead
- * of that would leave the workflow green and blind. Fanning out keeps both fed
- * until the old one is retired on purpose.
+ * today and a workflow reading a derived window alerts on it; sending to a new
+ * provider instead of that would leave the workflow green and blind. Fanning
+ * out keeps both fed until the old one is retired on purpose.
  *
  * Each monitor is guarded, so one that throws cannot starve the rest.
  */

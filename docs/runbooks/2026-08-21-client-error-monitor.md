@@ -15,7 +15,7 @@ already this project's only alerting mechanism and the only one anyone watches.
 | Workflow | `.github/workflows/client-error-monitor.yml` |
 | Script | `scripts/client-error-monitor.sh` |
 | Tests | `scripts/client-error-monitor.test.sh` |
-| Schedule | Hourly, with a 180-minute lookback |
+| Schedule | Declared hourly; delivered ~197 min median (measured 2026-09-19). Lookback derived from the previous completed run, floored at 60 and capped at 1440, with a 480-minute fallback |
 | Token secret | `CLOUDFLARE_OBSERVABILITY_TOKEN` |
 | Account secret | `CLOUDFLARE_ACCOUNT_ID` |
 
@@ -132,11 +132,12 @@ printed there with service, kind, message, and URL.
 2. **Check whether it is one user or everyone.** The blank-dashboard incident
    that motivated this whole epic was a render throw affecting every logged-in
    user while the API answered 200 throughout.
-3. **Expect repeats.** The 180-minute lookback is wider than the hourly
-   schedule, so a single error is reported by roughly three consecutive runs
-   before it falls out of the window. That overlap is deliberate: GitHub's cron
-   was measured at a 24-minute median and a 112-minute maximum delay
-   (onlooker-2ho), and a window equal to the interval would leave gaps.
+3. **Expect repeats.** The lookback window is derived from when this workflow
+   last completed, plus a 5-minute overlap for clock skew, so an error near a
+   window boundary can be reported twice. That overlap is deliberate: a
+   repeated email costs less than a report nobody reads. It replaced a fixed
+   180-minute window that had become narrower than the median gap between runs
+   (onlooker-txcu.5).
 
 ## Testing it by hand
 

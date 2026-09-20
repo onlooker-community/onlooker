@@ -10,9 +10,25 @@ name: Client error monitor
 # user there is not. That decision has a dated revisit trigger of 2026-10-01,
 # when trace spans stop being free (onlooker-k34).
 #
-# Hourly rather than every five minutes. The reports being watched here are
-# already hours old by the time anyone can act on them, and each run reads over
-# a million log rows, so a tighter schedule buys nothing and spends quota.
+# Declared hourly, delivered every ~197 minutes at the median and 327 at the
+# worst - measured 2026-09-19 over the last 20 scheduled runs. GitHub throttles
+# scheduled workflows silently, dropping runs rather than queueing them, so
+# every run that does fire succeeds and nothing looks wrong. The cron below is
+# a request, not a promise.
+#
+# The declared hour is kept rather than rewritten to match: a frequent
+# declaration acts as continuous retry, and a sparse cron that gets dropped has
+# no attempts behind it to catch. Re-declaring would trade a measured cadence
+# for an unmeasured one.
+#
+# The reports being watched here are already hours old by the time anyone can
+# act on them, and each run reads over a million log rows, so a tighter
+# schedule would buy nothing and spend quota.
+#
+# What the drift cost, before it was noticed: the lookback window was a fixed
+# 180 minutes, narrower than the median gap, so 11 of the last 19 runs left
+# client errors that no run ever read. The window is now derived from this
+# workflow's own run history. See onlooker-txcu.5 (ONL-51).
 on:
   schedule:
     - cron: '0 * * * *'
@@ -20,6 +36,11 @@ on:
 
 permissions:
   contents: read
+  # Reading this workflow's own run history is how the script sizes its
+  # lookback window - see resolve_lookback_minutes in
+  # scripts/client-error-monitor.sh. Without this it falls back to a fixed
+  # 480-minute window and says so on stderr.
+  actions: read
 
 # A slow run must never stack up behind the next scheduled one.
 concurrency:
@@ -53,10 +74,13 @@ jobs:
       #
       # The Sentry monitor expects one of these every 6 HOURS with a 2 hour
       # margin, which is far looser than the hourly cron above and is set from
-      # measurement rather than from the schedule. Over the last 12 runs the
-      # real gaps were 104 to 295 minutes, median 134: GitHub throttles
-      # scheduled workflows silently, and this fires about every two hours at
-      # best.
+      # measurement rather than from the schedule. Over the last 12 runs
+      # (measured 2026-09-13 over 12 runs) the real gaps were 104 to 295
+      # minutes, median 134: GitHub throttles scheduled workflows silently,
+      # and this fires about every two hours at best.
+      # Remeasured 2026-09-19 over 20 runs: 197-minute median, 327 at the
+      # worst. The monitor's 6h interval plus 2h margin still covers 327, so
+      # nobody needs to re-derive that tolerance from this newer number.
       #
       # A monitor cannot be tighter than the thing it monitors actually runs.
       # Setting it to the declared hour would mean a permanent missed-check-in
@@ -72,6 +96,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_OBSERVABILITY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if ! scripts/client-error-monitor.sh staging; then
             echo "::warning title=Staging client errors::Client errors were reported in staging, or the monitor could not run. This does not fail the run."
@@ -88,6 +113,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_OBSERVABILITY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: scripts/client-error-monitor.sh production
 
       # always(), so a run that found client errors closes its check-in as an

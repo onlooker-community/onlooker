@@ -95,15 +95,19 @@ MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ing
 [env.staging.placement]
 mode = "smart"
 
-# The shallow heartbeat, every five minutes - and unlike the GitHub workflow
-# that declares the same interval, this one actually runs at it.
+# The shallow heartbeat, declared every five minutes - and unlike the GitHub
+# workflow that declares the same interval, this one is outside the throttling
+# that stops GitHub keeping to it.
 #
 # heartbeat.yml says every five minutes and fires every 102 to 280 minutes,
 # median 186, measured over fifteen runs on 2026-09-13: GitHub throttles
 # scheduled workflows silently. The project believed it had a five-minute
-# production heartbeat and had a three-hour one. Cloudflare cron triggers keep
-# their schedule, so the frequent check moved here (src/heartbeat.ts) and the
-# deep authenticated one stays in the workflow, where lateness costs less.
+# production heartbeat and had a three-hour one.
+# Remeasured 2026-09-19 over 20 runs: 203-minute median, 332 at the worst.
+# Cloudflare cron triggers are not subject to that throttling,
+# so the frequent check moved here (src/heartbeat.ts) and the deep
+# authenticated one stays in the workflow, where lateness costs less. Whether
+# Cloudflare keeps its own schedule has not been measured here.
 #
 # Declared per environment, like observability below and for the same reason:
 # there is no top-level block, so `wrangler dev` never schedules anything.

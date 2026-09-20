@@ -7,12 +7,16 @@
  * last fifteen runs, heartbeat.yml declares a five-minute cron and actually
  * fires every 102 to 280 minutes, median 186. The project believed it had a
  * five-minute production heartbeat and had a three-hour one; a comment in
- * deploy.yml still reasoned about the alarm ringing "up to 31 minutes later on
- * the cron". See onlooker-txcu.5.
+ * deploy.yml reasoned, until 2026-09-19, about the alarm ringing "up to 31
+ * minutes later on the cron". See onlooker-txcu.5.
+ * Remeasured 2026-09-19 over 20 runs: a 203-minute median, 332 at the worst.
+ * The throttling tightened rather than eased.
  *
- * Cloudflare cron triggers actually fire on their schedule, so the frequent
+ * Cloudflare cron triggers are not subject to that throttling, so the frequent
  * shallow check moves here and the deep authenticated one stays in the
- * workflow, where a slow cadence costs less.
+ * workflow, where a slow cadence costs less. Whether Cloudflare keeps its own
+ * schedule has not been measured here; what is measured is that GitHub does
+ * not keep its own.
  *
  * WHAT THIS CANNOT DO, stated plainly because the gap is easy to miss: it
  * cannot tell you this Worker is down. If the Worker is not running, the cron

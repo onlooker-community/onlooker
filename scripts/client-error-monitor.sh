@@ -43,21 +43,61 @@ esac
 
 readonly API_BASE="https://api.cloudflare.com/client/v4"
 
-# Wider than the schedule that drives it. The cron interval is nominal: the
-# heartbeat's delivery was remeasured over 100 runs at a 24 minute median with
-# a 112 minute maximum (onlooker-2ho), so a window equal to the interval leaves
-# gaps whenever GitHub runs late, and a gap here is a client error nobody hears
-# about. The overlap costs a repeated email for an error that is still inside
-# two windows, which is the cheaper mistake.
-readonly LOOKBACK_MINUTES="${CLIENT_ERROR_LOOKBACK_MINUTES:-180}"
+# The window is derived per run, not declared - see resolve_lookback_minutes.
+# These are its bounds, and each number has a reason.
+#
+# Fallback 480: the worst gap between runs measured on 2026-09-19 was 327
+# minutes. This covers it with headroom, and is only reached when run history
+# cannot be read at all.
+readonly LOOKBACK_FALLBACK_MINUTES=480
+# Floor 60: a workflow_dispatch seconds after a scheduled run would otherwise
+# query a 30-second window and miss the very report it was dispatched to check.
+readonly LOOKBACK_FLOOR_MINUTES=60
+# Ceiling 1440: if this workflow is disabled for a week, the window must not
+# become a week. Workers Logs keeps three days regardless, and each run already
+# reads over a million rows.
+readonly LOOKBACK_CEILING_MINUTES=1440
+# Overlap 5: GitHub stamps the run and Cloudflare stamps the log, and those are
+# not the same clock.
+readonly LOOKBACK_OVERLAP_MINUTES=5
+
+# The control query asks a different question from the alert query - "is the
+# dataset readable at all?" rather than "what happened since we last looked" -
+# and only the first needs a span tied to the heartbeat's worst delivery. 360
+# covers the 332-minute maximum measured 2026-09-19 with margin.
+#
+# Fixed rather than derived, and deliberately not solved by raising
+# LOOKBACK_FLOOR_MINUTES: a floor high enough to underwrite this query would
+# clamp 8 of the 19 gaps measured on 2026-09-19, making the constant the
+# operative window on most runs and quietly restoring the fixed window this
+# change removed.
+readonly CONTROL_SPAN_MINUTES=360
+
+readonly LOOKBACK_OVERRIDE="${CLIENT_ERROR_LOOKBACK_MINUTES:-}"
+readonly RUNS_WORKFLOW_FILE="client-error-monitor.yml"
+
+# Resolved once by resolve_lookback_minutes, then read by build_query and by
+# the result messages at the end of the run.
+LOOKBACK_MINUTES=""
 
 readonly CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 readonly CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 
-# Test seams. Both exit before any network request.
+# Test seams: four of them now. MONITOR_PREFLIGHT_ONLY, MONITOR_PRINT_QUERY,
+# and MONITOR_RENDER_EVENTS each exit the script before any request goes out.
+# MONITOR_RUNS_RESPONSE does not exit - it substitutes for the GitHub runs
+# response inside resolve_lookback_minutes, the only place it is read.
+#
+# MONITOR_PRINT_QUERY's no-network guarantee is not free from its position in
+# the file: build_query itself never talks to the network, but
+# resolve_lookback_minutes runs first and would call GitHub live if it were
+# not also checking MONITOR_PRINT_QUERY before doing so. That check lives
+# inside resolve_lookback_minutes, not here - remove it and this comment is
+# wrong again.
 readonly MONITOR_PREFLIGHT_ONLY="${MONITOR_PREFLIGHT_ONLY:-}"
 readonly MONITOR_PRINT_QUERY="${MONITOR_PRINT_QUERY:-}"
 readonly MONITOR_RENDER_EVENTS="${MONITOR_RENDER_EVENTS:-}"
+readonly MONITOR_RUNS_RESPONSE="${MONITOR_RUNS_RESPONSE:-}"
 
 # build_filters
 #
@@ -92,6 +132,100 @@ build_filters() {
 	printf '%s' "${filters}"
 }
 
+# resolve_lookback_minutes
+#
+# Sets LOOKBACK_MINUTES to how many minutes this run should read, derived from
+# when this workflow last completed rather than from a constant.
+#
+# WHY NOT A CONSTANT: there was one. 180 minutes, sized on 2026-08-16 against a
+# 24-minute median delivery (onlooker-2ho). By 2026-09-19 GitHub was delivering
+# this workflow every 197 minutes at the median and 327 at the worst, so 11 of
+# the last 19 runs left a window nobody read - up to 147 minutes of client
+# error reports at the worst. Nothing changed but GitHub, and nothing here
+# noticed. A wider constant inherits exactly that shelf life. Run history does
+# not: it tracks throttling as throttling changes.
+#
+# COMPLETED, NOT SUCCESSFUL: this script exits 1 when it finds client errors,
+# which fails the run on purpose. A failed run still queried. Asking only for
+# successful runs would drag the window back across every failure and re-report
+# the same errors on every run until a clean one, turning one alert into a
+# repeating one.
+#
+# The hole that leaves, stated rather than engineered around: exit 2 means the
+# monitor could not do its job, and from the runs API that is indistinguishable
+# from exit 1. Such a run's interval is treated as covered. That is acceptable
+# because an exit 2 run already emailed a human. The gap worth closing here is
+# the silent one.
+resolve_lookback_minutes() {
+	if [[ -n "${LOOKBACK_MINUTES}" ]]; then
+		return
+	fi
+
+	if [[ -n "${LOOKBACK_OVERRIDE}" ]]; then
+		LOOKBACK_MINUTES="${LOOKBACK_OVERRIDE}"
+		return
+	fi
+
+	# Read here rather than hoisted to a constant: this is the only consumer,
+	# and a top-level readonly ending in TOKEN trips the secret-scanning hook.
+	local auth="${GITHUB_TOKEN:-}"
+	local repo="${GITHUB_REPOSITORY:-}"
+
+	local response=""
+	if [[ -n "${MONITOR_RUNS_RESPONSE}" ]]; then
+		response="${MONITOR_RUNS_RESPONSE}"
+	elif [[ -z "${MONITOR_PRINT_QUERY}" && -n "${auth}" && -n "${repo}" ]]; then
+		# The MONITOR_PRINT_QUERY guard is not optional: that seam's own comment
+		# promises it exits before any network request. Without it, a developer
+		# who has GITHUB_TOKEN and GITHUB_REPOSITORY exported ambiently turns the
+		# offline test suite into one that calls api.github.com for real.
+		#
+		# status=completed excludes the run doing the asking, which would
+		# otherwise always be the most recent one. per_page=5 rather than 1:
+		# status=completed also matches cancelled, skipped, and timed_out runs,
+		# none of which queried anything, so the newest completed run is not
+		# always the one this needs. See the jq filter below for why only
+		# success/failure count.
+		response="$(curl --silent --max-time 10 \
+			--header "Authorization: Bearer ${auth}" \
+			--header "Accept: application/vnd.github+json" \
+			"https://api.github.com/repos/${repo}/actions/workflows/${RUNS_WORKFLOW_FILE}/runs?status=completed&per_page=5" \
+			2>/dev/null || true)"
+	fi
+
+	# try/catch rather than a shape check: an error response has no
+	# workflow_runs at all, and fromdateiso8601 on null throws rather than
+	# returning empty.
+	#
+	# Filtered to success/failure, not every completed run: success means it
+	# ran and found nothing, failure means it ran and found something or could
+	# not read the logs - both queried. Cancelled and timed-out runs never
+	# queried and told nobody, so treating one as covering its interval would
+	# silently lose reports.
+	local last_epoch=""
+	if [[ -n "${response}" ]]; then
+		last_epoch="$(printf '%s' "${response}" |
+			jq -r 'try ([.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].created_at | fromdateiso8601) catch empty' 2>/dev/null || true)"
+	fi
+
+	if [[ ! "${last_epoch}" =~ ^[0-9]+$ ]]; then
+		LOOKBACK_MINUTES="${LOOKBACK_FALLBACK_MINUTES}"
+		echo "client-error-monitor: no previous run to measure from, falling back to a ${LOOKBACK_FALLBACK_MINUTES}m window" >&2
+		return
+	fi
+
+	local minutes=$(( ( $(date +%s) - last_epoch ) / 60 + LOOKBACK_OVERLAP_MINUTES ))
+
+	if (( minutes < LOOKBACK_FLOOR_MINUTES )); then
+		minutes="${LOOKBACK_FLOOR_MINUTES}"
+	elif (( minutes > LOOKBACK_CEILING_MINUTES )); then
+		echo "client-error-monitor: last run was over ${LOOKBACK_CEILING_MINUTES}m ago, capping the window there" >&2
+		minutes="${LOOKBACK_CEILING_MINUTES}"
+	fi
+
+	LOOKBACK_MINUTES="${minutes}"
+}
+
 # build_query [filters-json]
 #
 # Defaults to the client error filters; the control query passes an empty array.
@@ -100,9 +234,10 @@ build_filters() {
 # a value this API reads as 1970 and a window that matches nothing.
 build_query() {
 	local filters="${1:-$(build_filters)}"
+	local minutes="${2:-${LOOKBACK_MINUTES}}"
 	local to_ms from_ms
 	to_ms=$(( $(date +%s) * 1000 ))
-	from_ms=$(( to_ms - LOOKBACK_MINUTES * 60 * 1000 ))
+	from_ms=$(( to_ms - minutes * 60 * 1000 ))
 
 	jq -n -c \
 		--argjson from "${from_ms}" \
@@ -148,6 +283,7 @@ require_jq() {
 
 if [[ -n "${MONITOR_PRINT_QUERY}" ]]; then
 	require_jq
+	resolve_lookback_minutes
 	build_query
 	exit 0
 fi
@@ -192,6 +328,11 @@ preflight
 if [[ -n "${MONITOR_PREFLIGHT_ONLY}" ]]; then
 	exit 0
 fi
+
+# Resolved here, at top level, and not inside build_query: build_query is
+# called from $(...) at the control and client-error queries below, and a value
+# resolved inside a subshell is lost - which would also mean two API calls.
+resolve_lookback_minutes
 
 # telemetry_query <body>
 #
@@ -264,18 +405,21 @@ run_query() {
 # since the day it shipped" - which is the shape of the apex-path heartbeat
 # that passed all its checks through a total outage.
 #
-# This asks the same endpoint, over the same window, with no filters at all. It
-# must find something. If it does not, the monitor cannot see the dataset and
-# its silence is worthless, so it fails loudly instead of reporting quiet.
+# This asks the same endpoint, with no filters at all, over CONTROL_SPAN_MINUTES
+# rather than the derived LOOKBACK_MINUTES - see the constant above for why the
+# two are decoupled. It must find something. If it does not, the monitor
+# cannot see the dataset and its silence is worthless, so it fails loudly
+# instead of reporting quiet.
 #
-# It is sound because the heartbeat runs against both API environments every
-# few minutes and every request logs an invocation, so a three-hour window is
-# never legitimately empty. If the heartbeat is ever retired, this assumption
-# retires with it.
-run_query "control" "$(build_query '[]')"
+# It is sound because the Cloudflare cron on the api Worker logs an invocation
+# every run (apps/api/wrangler.toml, src/heartbeat.ts), plus ambient traffic.
+# Whether Cloudflare keeps its own schedule has not been measured here - same
+# hedge as everywhere else this branch touched. If that heartbeat is ever
+# retired, this assumption retires with it.
+run_query "control" "$(build_query '[]' "${CONTROL_SPAN_MINUTES}")"
 
 if (( event_count == 0 )); then
-	echo "client-error-monitor: the control query found no events at all in the last ${LOOKBACK_MINUTES}m" >&2
+	echo "client-error-monitor: the control query found no events at all in the last ${CONTROL_SPAN_MINUTES}m" >&2
 	echo "client-error-monitor: the dataset is unreadable or empty, so silence here proves nothing" >&2
 	exit 2
 fi

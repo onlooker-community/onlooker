@@ -207,6 +207,10 @@ is what CI runs.
 
 Counted, not derived from the median gap. The distribution's long tail makes the
 median of 24 minutes imply ~60 runs/day, which overstates the real rate by ~13%.
+(That 24-minute median was measured 2026-08-16. The same workflow measured a
+203-minute median on 2026-09-19 — GitHub's throttling tightened roughly
+eightfold with nothing in the repository changing, so treat any run-rate
+arithmetic here as a snapshot with a short shelf life. See onlooker-txcu.5.)
 
 | | per day |
 |---|---|
@@ -240,14 +244,20 @@ Deploys add a burst on top — the same script runs as a post-deploy smoke test,
 so each deploy contributes 9 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
-consecutive hours" — over any absolute count, but note how little headroom that
-rule has. The largest observed gap is 112 minutes, or 93% of a two-hour window, so
-a single empty hourly bucket is normal cadence on a healthy system and only the
-second one carries information.
+consecutive hours" — over any absolute count, but that rule as written no
+longer fits its own margin. It was sized from a 112-minute largest observed
+gap, measured 2026-08-16, or 93% of a two-hour window — a single empty hourly
+bucket as normal cadence on a healthy system and only the second one carrying
+information. heartbeat.yml's delivery was remeasured at a 332-minute maximum
+on 2026-09-19, nearly three times that gap, so a two-hour rule now fires
+routinely on a healthy system rather than only on a real outage and needs
+re-sizing before it is trusted again. Flagged rather than fixed here:
+re-sizing the rule is a separate pass from establishing that it is stale.
 
-That tail also sets the detection latency, which is worse than the cadence suggests:
-two consecutive missed runs at the observed maximum is ~3.7 h before anything is
-noticed. Write any alerting SLO against the tail, not the median.
+That tail also sets the detection latency, which is worse than the cadence
+suggests: two consecutive missed runs at the 2026-08-16 maximum was ~3.7 h
+before anything is noticed. At the 2026-09-19 maximum, that same arithmetic is
+roughly 11 h. Write any alerting SLO against the tail, not the median.
 
 Every figure here has been wrong twice. The original set assumed the configured
 5-minute cron and was out by roughly 6x. The set that replaced it inferred a steady
@@ -268,7 +278,10 @@ healthy state; one dropping out is the `api-staging` DNS failure that motivated
 the whole design." **That premise does not hold and cannot be made to hold.** At
 any bucket width the tool can render, a healthy heartbeat-only host reads zero
 some of the time: ~4.4% of clock-hours at hourly, constantly at the 15 minutes
-Auto picks. See the bucketing note at the top for the measurements.
+Auto picks. That 4.4% rests on a 24-minute median (measured 2026-08-16);
+heartbeat.yml's delivery was remeasured at a 203-minute median on 2026-09-19,
+so the real figure is far higher and has not been recomputed here. See the
+bucketing note at the top for the measurements.
 
 So read it for **shape and totals, not for a floor**. The legend totals are
 reliable at any bucket width — they are what to compare between hosts and across

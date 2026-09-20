@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // App reports through `monitor`, which fans out to the provider and to this
 // reporter. Following it here, rather than to `monitor`, keeps the assertion on
-// the path the hourly client-error workflow actually reads.
+// the path the client-error workflow actually reads.
 const reportClientError = vi.fn();
 vi.mock("../lib/reportError", () => ({
 	reportClientError: (...args: unknown[]) => reportClientError(...args),

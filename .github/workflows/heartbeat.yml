@@ -6,6 +6,18 @@ name: Heartbeat
 #
 # workflow_dispatch is deliberate: without it the only way to test a change
 # here is to wait for the next scheduled run.
+#
+# The cron below is a request, not a promise. Measured 2026-09-19 over the last
+# 20 scheduled runs, it delivers every 203 minutes at the median and 332 at the
+# worst. GitHub throttles scheduled workflows silently: it drops runs rather
+# than queueing them, so every run that fires succeeds and nothing looks wrong.
+#
+# It stays '*/5' anyway. That declaration functions as continuous retry, and a
+# sparse cron that gets dropped has no attempts behind it to catch - declaring
+# '0 */3 * * *' would read honestly and might well deliver worse. The frequent
+# shallow check that actually needs a kept schedule already moved to a
+# Cloudflare cron trigger (apps/api/src/heartbeat.ts); what is left here is the
+# deep authenticated check, where lateness costs less. See onlooker-txcu.5.
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -40,8 +52,9 @@ jobs:
       #
       # The one seat went to client-error-monitor.yml, because THIS workflow's
       # job is now largely covered elsewhere. apps/api runs the frequent
-      # shallow check on a Cloudflare cron trigger, which keeps its schedule
-      # where GitHub does not, and reports failures as Sentry ISSUES - and
+      # shallow check on a Cloudflare cron trigger, which GitHub's throttling
+      # cannot reach. Whether Cloudflare keeps its own schedule has not been
+      # measured here. That check reports failures as Sentry ISSUES - and
       # issues need no cron seat. See apps/api/src/heartbeat.ts and
       # onlooker-txcu.5. Nothing else watches whether the client error monitor
       # runs at all.

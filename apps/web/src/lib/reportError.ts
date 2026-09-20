@@ -13,7 +13,7 @@
  *
  * Nothing calls this directly any more. The app reports through `monitor` in
  * ../monitoring, which fans out to the provider and to this - kept so the
- * hourly workflow stays fed until it is retired on purpose.
+ * client-error-monitor workflow stays fed until it is retired on purpose.
  */
 
 import { redactSecrets } from "@onlooker/api-contract";
