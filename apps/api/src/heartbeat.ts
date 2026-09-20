@@ -16,7 +16,7 @@
  * shallow check moves here and the deep authenticated one stays in the
  * workflow, where a slow cadence costs less. Whether Cloudflare keeps its own
  * schedule has not been measured here; what is measured is that GitHub does
- * not keep its.
+ * not keep its own.
  *
  * WHAT THIS CANNOT DO, stated plainly because the gap is easy to miss: it
  * cannot tell you this Worker is down. If the Worker is not running, the cron

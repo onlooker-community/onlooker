@@ -272,9 +272,10 @@ healthy state; one dropping out is the `api-staging` DNS failure that motivated
 the whole design." **That premise does not hold and cannot be made to hold.** At
 any bucket width the tool can render, a healthy heartbeat-only host reads zero
 some of the time: ~4.4% of clock-hours at hourly, constantly at the 15 minutes
-Auto picks — on the delivery measured 2026-09-19 (~197-minute median) the
-hourly figure is closer to constant. See the bucketing note at the top for the
-measurements.
+Auto picks. That 4.4% rests on a 24-minute median (measured 2026-08-16);
+heartbeat.yml's delivery was remeasured at a 203-minute median on 2026-09-19,
+so the real figure is far higher and has not been recomputed here. See the
+bucketing note at the top for the measurements.
 
 So read it for **shape and totals, not for a floor**. The legend totals are
 reliable at any bucket width — they are what to compare between hosts and across
