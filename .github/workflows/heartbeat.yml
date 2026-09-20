@@ -54,8 +54,8 @@ jobs:
       # job is now largely covered elsewhere. apps/api runs the frequent
       # shallow check on a Cloudflare cron trigger, which GitHub's throttling
       # cannot reach. Whether Cloudflare keeps its own schedule has not been
-      # measured here. It reports failures as Sentry ISSUES - and issues need
-      # no cron seat. See apps/api/src/heartbeat.ts and
+      # measured here. That check reports failures as Sentry ISSUES - and
+      # issues need no cron seat. See apps/api/src/heartbeat.ts and
       # onlooker-txcu.5. Nothing else watches whether the client error monitor
       # runs at all.
       #

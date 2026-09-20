@@ -15,7 +15,7 @@ already this project's only alerting mechanism and the only one anyone watches.
 | Workflow | `.github/workflows/client-error-monitor.yml` |
 | Script | `scripts/client-error-monitor.sh` |
 | Tests | `scripts/client-error-monitor.test.sh` |
-| Schedule | Hourly, with a 180-minute lookback |
+| Schedule | Declared hourly; delivered ~197 min median (measured 2026-09-19). Lookback derived from the previous completed run, floored at 60 and capped at 1440, with a 480-minute fallback |
 | Token secret | `CLOUDFLARE_OBSERVABILITY_TOKEN` |
 | Account secret | `CLOUDFLARE_ACCOUNT_ID` |
 

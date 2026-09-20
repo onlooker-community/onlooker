@@ -213,6 +213,18 @@ lookback "a 327-minute gap is covered, not truncated" 332 \
 lookback "a too-recent previous run is floored at 60" 60 \
 	MONITOR_RUNS_RESPONSE="$(runs_fixture 1)"
 
+# The clamp edge itself, which the single point above does not pin: derived
+# minutes are (age + 5m overlap), so a 55-minute-old run derives to exactly 60
+# and must stay there, while a 56-minute-old run derives to 61 and must clear
+# the floor unchanged. A wrong comparison operator, an unconditionally applied
+# floor, or a derivation that ignored the fixture would all still pass the
+# single 1-minute assertion above.
+lookback "a 55-minute-old run is still floored at 60" 60 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 55)"
+
+lookback "a 56-minute-old run clears the floor at 61" 61 \
+	MONITOR_RUNS_RESPONSE="$(runs_fixture 56)"
+
 lookback "an ancient previous run is capped at 1440" 1440 \
 	MONITOR_RUNS_RESPONSE="$(runs_fixture 4320)"
 
@@ -238,12 +250,46 @@ lookback "an explicit override beats derivation" 45 \
 # MONITOR_PRINT_QUERY's own comment promises it exits before any network
 # request. Without a guard in resolve_lookback_minutes, a developer who has
 # GITHUB_TOKEN and GITHUB_REPOSITORY exported ambiently would turn this
-# "offline" suite into one that calls api.github.com for real - which is
-# exactly what a passing suite could not previously see. The token and repo
-# below are obviously fake, so if the guard regresses this fails loudly
-# against a bogus endpoint rather than quietly reaching a real one.
-lookback "MONITOR_PRINT_QUERY blocks a live call even with credentials present" 480 \
-	GITHUB_TOKEN=not-a-real-token GITHUB_REPOSITORY=example/nope
+# "offline" suite into one that calls api.github.com for real.
+#
+# The obvious version of this test only checks that the window comes out to
+# 480 - but that number is identical whether the guard exists or not: without
+# it, curl fires for real, GitHub answers 401 for the fake repo below, no
+# workflow_runs comes back, and resolve_lookback_minutes falls back to 480
+# anyway. Same result either way, so that assertion alone reports coverage
+# that is not there. What actually proves the guard works is that curl is
+# never invoked at all - so this stubs curl on PATH, runs the seam, and
+# asserts the stub recorded nothing. The script invokes curl unqualified and
+# exits under this seam before any Cloudflare request, so the stub is only
+# reachable from the branch under test.
+stub_dir="$(mktemp -d)"
+stub_sentinel="${stub_dir}/curl-called"
+cat > "${stub_dir}/curl" <<STUB
+#!/usr/bin/env bash
+echo "called" >> "${stub_sentinel}"
+STUB
+chmod +x "${stub_dir}/curl"
+
+guard_output="$(env PATH="${stub_dir}:${PATH}" \
+	CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a MONITOR_PRINT_QUERY=1 \
+	GITHUB_TOKEN=not-a-real-token GITHUB_REPOSITORY=example/nope \
+	"${MONITOR}" all 2>/dev/null)"
+
+if [[ ! -s "${stub_sentinel}" ]]; then
+	pass "MONITOR_PRINT_QUERY blocks the live call itself, not just its result"
+else
+	fail "MONITOR_PRINT_QUERY blocks the live call itself, not just its result" "the curl stub was invoked"
+fi
+
+guard_span="$(printf '%s' "${guard_output}" |
+	jq -r '(.timeframe.to - .timeframe.from) / 60000 | round' 2>/dev/null || true)"
+if [[ "${guard_span}" == "480" ]]; then
+	pass "MONITOR_PRINT_QUERY blocks a live call even with credentials present"
+else
+	fail "MONITOR_PRINT_QUERY blocks a live call even with credentials present" "got ${guard_span}"
+fi
+
+rm -rf "${stub_dir}"
 
 # A silent fallback is the failure mode this change exists to end, so the
 # fallback announces itself.

@@ -74,10 +74,13 @@ jobs:
       #
       # The Sentry monitor expects one of these every 6 HOURS with a 2 hour
       # margin, which is far looser than the hourly cron above and is set from
-      # measurement rather than from the schedule. Over the last 12 runs the
-      # real gaps were 104 to 295 minutes, median 134: GitHub throttles
-      # scheduled workflows silently, and this fires about every two hours at
-      # best.
+      # measurement rather than from the schedule. Over the last 12 runs
+      # (measured 2026-09-13 over 12 runs) the real gaps were 104 to 295
+      # minutes, median 134: GitHub throttles scheduled workflows silently,
+      # and this fires about every two hours at best.
+      # Remeasured 2026-09-19 over 20 runs: 197-minute median, 327 at the
+      # worst. The monitor's 6h interval plus 2h margin still covers 327, so
+      # nobody needs to re-derive that tolerance from this newer number.
       #
       # A monitor cannot be tighter than the thing it monitors actually runs.
       # Setting it to the declared hour would mean a permanent missed-check-in

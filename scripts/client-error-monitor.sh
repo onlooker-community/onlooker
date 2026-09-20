@@ -61,6 +61,18 @@ readonly LOOKBACK_CEILING_MINUTES=1440
 # not the same clock.
 readonly LOOKBACK_OVERLAP_MINUTES=5
 
+# The control query asks a different question from the alert query - "is the
+# dataset readable at all?" rather than "what happened since we last looked" -
+# and only the first needs a span tied to the heartbeat's worst delivery. 360
+# covers the 332-minute maximum measured 2026-09-19 with margin.
+#
+# Fixed rather than derived, and deliberately not solved by raising
+# LOOKBACK_FLOOR_MINUTES: a floor high enough to underwrite this query would
+# clamp 8 of the 19 gaps measured on 2026-09-19, making the constant the
+# operative window on most runs and quietly restoring the fixed window this
+# change removed.
+readonly CONTROL_SPAN_MINUTES=360
+
 readonly LOOKBACK_OVERRIDE="${CLIENT_ERROR_LOOKBACK_MINUTES:-}"
 readonly RUNS_WORKFLOW_FILE="client-error-monitor.yml"
 
@@ -169,22 +181,31 @@ resolve_lookback_minutes() {
 		# offline test suite into one that calls api.github.com for real.
 		#
 		# status=completed excludes the run doing the asking, which would
-		# otherwise always be the most recent one. per_page=1 because the API
-		# returns newest first and only the newest is wanted.
+		# otherwise always be the most recent one. per_page=5 rather than 1:
+		# status=completed also matches cancelled, skipped, and timed_out runs,
+		# none of which queried anything, so the newest completed run is not
+		# always the one this needs. See the jq filter below for why only
+		# success/failure count.
 		response="$(curl --silent --max-time 10 \
 			--header "Authorization: Bearer ${auth}" \
 			--header "Accept: application/vnd.github+json" \
-			"https://api.github.com/repos/${repo}/actions/workflows/${RUNS_WORKFLOW_FILE}/runs?status=completed&per_page=1" \
+			"https://api.github.com/repos/${repo}/actions/workflows/${RUNS_WORKFLOW_FILE}/runs?status=completed&per_page=5" \
 			2>/dev/null || true)"
 	fi
 
 	# try/catch rather than a shape check: an error response has no
 	# workflow_runs at all, and fromdateiso8601 on null throws rather than
 	# returning empty.
+	#
+	# Filtered to success/failure, not every completed run: success means it
+	# ran and found nothing, failure means it ran and found something or could
+	# not read the logs - both queried. Cancelled and timed-out runs never
+	# queried and told nobody, so treating one as covering its interval would
+	# silently lose reports.
 	local last_epoch=""
 	if [[ -n "${response}" ]]; then
 		last_epoch="$(printf '%s' "${response}" |
-			jq -r 'try (.workflow_runs[0].created_at | fromdateiso8601) catch empty' 2>/dev/null || true)"
+			jq -r 'try ([.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].created_at | fromdateiso8601) catch empty' 2>/dev/null || true)"
 	fi
 
 	if [[ ! "${last_epoch}" =~ ^[0-9]+$ ]]; then
@@ -213,9 +234,10 @@ resolve_lookback_minutes() {
 # a value this API reads as 1970 and a window that matches nothing.
 build_query() {
 	local filters="${1:-$(build_filters)}"
+	local minutes="${2:-${LOOKBACK_MINUTES}}"
 	local to_ms from_ms
 	to_ms=$(( $(date +%s) * 1000 ))
-	from_ms=$(( to_ms - LOOKBACK_MINUTES * 60 * 1000 ))
+	from_ms=$(( to_ms - minutes * 60 * 1000 ))
 
 	jq -n -c \
 		--argjson from "${from_ms}" \
@@ -383,18 +405,21 @@ run_query() {
 # since the day it shipped" - which is the shape of the apex-path heartbeat
 # that passed all its checks through a total outage.
 #
-# This asks the same endpoint, over the same window, with no filters at all. It
-# must find something. If it does not, the monitor cannot see the dataset and
-# its silence is worthless, so it fails loudly instead of reporting quiet.
+# This asks the same endpoint, with no filters at all, over CONTROL_SPAN_MINUTES
+# rather than the derived LOOKBACK_MINUTES - see the constant above for why the
+# two are decoupled. It must find something. If it does not, the monitor
+# cannot see the dataset and its silence is worthless, so it fails loudly
+# instead of reporting quiet.
 #
-# It is sound because the heartbeat runs against both API environments every
-# few minutes and every request logs an invocation, so a three-hour window is
-# never legitimately empty. If the heartbeat is ever retired, this assumption
-# retires with it.
-run_query "control" "$(build_query '[]')"
+# It is sound because the Cloudflare cron on the api Worker logs an invocation
+# every run (apps/api/wrangler.toml, src/heartbeat.ts), plus ambient traffic.
+# Whether Cloudflare keeps its own schedule has not been measured here - same
+# hedge as everywhere else this branch touched. If that heartbeat is ever
+# retired, this assumption retires with it.
+run_query "control" "$(build_query '[]' "${CONTROL_SPAN_MINUTES}")"
 
 if (( event_count == 0 )); then
-	echo "client-error-monitor: the control query found no events at all in the last ${LOOKBACK_MINUTES}m" >&2
+	echo "client-error-monitor: the control query found no events at all in the last ${CONTROL_SPAN_MINUTES}m" >&2
 	echo "client-error-monitor: the dataset is unreadable or empty, so silence here proves nothing" >&2
 	exit 2
 fi

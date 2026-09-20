@@ -244,14 +244,20 @@ Deploys add a burst on top — the same script runs as a post-deploy smoke test,
 so each deploy contributes 9 requests per environment it touches.
 
 Do not set thresholds on these. Prefer a shape-based rule — "zero for two
-consecutive hours" — over any absolute count, but note how little headroom that
-rule has. The largest observed gap is 112 minutes, or 93% of a two-hour window, so
-a single empty hourly bucket is normal cadence on a healthy system and only the
-second one carries information.
+consecutive hours" — over any absolute count, but that rule as written no
+longer fits its own margin. It was sized from a 112-minute largest observed
+gap, measured 2026-08-16, or 93% of a two-hour window — a single empty hourly
+bucket as normal cadence on a healthy system and only the second one carrying
+information. heartbeat.yml's delivery was remeasured at a 332-minute maximum
+on 2026-09-19, nearly three times that gap, so a two-hour rule now fires
+routinely on a healthy system rather than only on a real outage and needs
+re-sizing before it is trusted again. Flagged rather than fixed here:
+re-sizing the rule is a separate pass from establishing that it is stale.
 
-That tail also sets the detection latency, which is worse than the cadence suggests:
-two consecutive missed runs at the observed maximum is ~3.7 h before anything is
-noticed. Write any alerting SLO against the tail, not the median.
+That tail also sets the detection latency, which is worse than the cadence
+suggests: two consecutive missed runs at the 2026-08-16 maximum was ~3.7 h
+before anything is noticed. At the 2026-09-19 maximum, that same arithmetic is
+roughly 11 h. Write any alerting SLO against the tail, not the median.
 
 Every figure here has been wrong twice. The original set assumed the configured
 5-minute cron and was out by roughly 6x. The set that replaced it inferred a steady
