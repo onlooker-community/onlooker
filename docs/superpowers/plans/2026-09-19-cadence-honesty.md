@@ -248,7 +248,12 @@ resolve_lookback_minutes() {
 	local response=""
 	if [[ -n "${MONITOR_RUNS_RESPONSE}" ]]; then
 		response="${MONITOR_RUNS_RESPONSE}"
-	elif [[ -n "${auth}" && -n "${repo}" ]]; then
+	elif [[ -z "${MONITOR_PRINT_QUERY}" && -n "${auth}" && -n "${repo}" ]]; then
+		# The MONITOR_PRINT_QUERY guard is what keeps that seam's promise that
+		# it exits before any network request. Without it, a developer with
+		# GITHUB_TOKEN exported turns the offline test suite into a networked
+		# one - every query assertion in the suite routes through this seam.
+		#
 		# status=completed excludes the run doing the asking, which would
 		# otherwise always be the most recent one. per_page=1 because the API
 		# returns newest first and only the newest is wanted.
@@ -289,6 +294,8 @@ resolve_lookback_minutes() {
 
 - [ ] **Step 5: Wire the resolver into both call paths**
 
+**Corrected 2026-09-19, after review.** As first written, this step wired the resolver into the `MONITOR_PRINT_QUERY` seam with nothing stopping it from reaching the network — and review verified by execution that with `GITHUB_TOKEN` and `GITHUB_REPOSITORY` in the environment, the seam fired a live request to api.github.com. That contradicted this plan's own binding constraint, and the ruling was that the constraint governs. The guard in Step 4's `elif` is what resolves it; the wiring below is correct only alongside that guard. The consequence, accepted deliberately: with the seam active, the printed query always shows the 480-minute fallback window rather than a derived one. `MONITOR_RUNS_RESPONSE` is checked first and remains how the suite demonstrates a derived window.
+
 In the `MONITOR_PRINT_QUERY` seam at `:149-153`, add the resolve call between `require_jq` and `build_query`:
 
 ```bash
@@ -315,6 +322,8 @@ resolve_lookback_minutes
 
 Run: `bash scripts/client-error-monitor.test.sh`
 Expected: PASS — `client-error-monitor.test.sh: all N tests passed`, with N raised by exactly 11 over the previous run (10 `lookback` assertions plus the stderr one; the `span` assertion was changed, not added).
+
+A twelfth assertion arrived with the post-review correction above: with `MONITOR_PRINT_QUERY` set and both `GITHUB_TOKEN` and `GITHUB_REPOSITORY` present but no `MONITOR_RUNS_RESPONSE`, the window must be the 480 fallback — proving no live call was made. Use an obviously fake token and repo so a regressed guard fails loudly instead of quietly reaching GitHub.
 
 - [ ] **Step 7: Verify the seams still make no network request**
 
