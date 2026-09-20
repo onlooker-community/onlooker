@@ -1,6 +1,8 @@
 {
 	"_comment": [
-		"apps/website, the marketing site. Its Sentry project is javascript-astro.",
+		"apps/website, the marketing site. Its Sentry project is onlooker-marketing",
+		"(id 4512074226401280, the `project` below). Renamed from Sentry's Astro-",
+		"wizard default on 2026-09-20; the id did not change and never does.",
 		"",
 		"Scoped to production like the other two, and here that filter earns its",
 		"keep in a way worth stating: sentry.client.config.ts hard-codes the DSN,",

@@ -52,7 +52,7 @@
 	"timeWindow": 60,
 	"thresholdType": 0,
 	"environment": "production",
-	"projects": ["javascript-astro"],
+	"projects": ["onlooker-marketing"],
 	"owner": "team:4512074220437504",
 	"triggers": [
 		{
