@@ -71,15 +71,18 @@ export function errorHandler(
 		);
 	}
 
-	const message =
-		error instanceof Error ? error.message : "Internal server error";
-
+	// Fixed, never the error's own message. An unexpected error is one this code
+	// never described - a D1 string, a runtime TypeError, whatever a dependency
+	// threw - and its message is written for whoever debugs it: it names tables,
+	// columns and ids. Echoing it handed all of that to anyone who could provoke
+	// it. The real message still reaches monitoring above, which is the audience
+	// it was written for; the client gets the code, which is what it acts on.
 	return new Response(
 		JSON.stringify({
 			success: false,
 			error: {
 				code: "INTERNAL_ERROR",
-				message,
+				message: "Internal server error",
 			},
 		}),
 		{

@@ -125,8 +125,9 @@ describe("POST /lessons when the write fails", () => {
 		expect(results.map((r) => r.id)).toEqual([one.id, two.id]);
 	});
 
-	// The failure text is a D1 string we do not control, and errorHandler echoes
-	// error.message verbatim. Anything internal in it would reach a client.
+	// The failure text is a D1 string we do not control. errorHandler no longer
+	// echoes it, but this asserts the property at the route's own edge, where a
+	// handler that builds its own body would escape that guarantee.
 	it("does not echo the database's own error text", async () => {
 		const response = await handlePushLessons(
 			pushRequest(machineToken, [lesson()]),
@@ -153,11 +154,13 @@ describe("POST /lessons when the write fails", () => {
 		expect(errorHandler(thrown).status).toBe(503);
 	});
 
-	// Separate from the status, because it is a separate failure. errorHandler
-	// echoes a bare Error's message verbatim into the body, and the message the
-	// named class replaced put the internal user id there - so provoking
-	// contention published it. Asserted first-and-alone so nothing else in the
-	// test can fail ahead of it and hide that it stopped checking.
+	// Separate from the status, because it is a separate failure. The message the
+	// named class replaced put the internal user id in the body back when
+	// errorHandler echoed a bare Error verbatim, so provoking contention
+	// published it. That echo is gone; this pins the layer that does not depend
+	// on it, since the 503 carries a message of its own either way. Asserted
+	// first-and-alone so nothing else in the test can fail ahead of it and hide
+	// that it stopped checking.
 	it("does not name the user in the contention response", async () => {
 		const thrown = await thrownBy(
 			handlePushLessons(
@@ -238,8 +241,9 @@ describe("POST /lessons/:id/status when the write fails", () => {
 });
 
 describe("SequenceExhaustedError", () => {
-	// errorHandler echoes error.message verbatim into the response body, so the
-	// user id must not be in it - while still being available to a log line.
+	// The id belongs on the error as a property, not in its message: the message
+	// is what a log line or a handler is most likely to pass along, and it was
+	// reaching response bodies until errorHandler stopped echoing it.
 	it("carries the user id as a property, never in the message", () => {
 		const error = new SequenceExhaustedError("user_0123456789abcdef", 5);
 

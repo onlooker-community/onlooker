@@ -50,6 +50,59 @@ describe("errorHandler", () => {
 	});
 });
 
+// An unexpected error is one this code never described: a D1 string, a runtime
+// TypeError, whatever a dependency threw. Its message is written for whoever
+// debugs it, not for whoever provoked it, and it routinely names tables,
+// columns and ids. Echoing it verbatim put all of that one bad request away
+// from a browser - so the client gets a fixed sentence and the real message
+// goes to monitoring, which is the audience it was always written for.
+//
+// An ApiError is the opposite case and keeps its message: this code chose both
+// the status and the words, for the client to read.
+describe("errorHandler on an unexpected failure", () => {
+	it("does not echo the error's own message to the client", async () => {
+		const recorder = createRecordingMonitor();
+
+		const res = errorHandler(
+			new Error("D1_ERROR: no such column: lessons.visibility"),
+			recorder.monitor,
+		);
+
+		expect(await res.text()).not.toContain("no such column");
+	});
+
+	it("answers 500 with a message that describes nothing", async () => {
+		const recorder = createRecordingMonitor();
+
+		const res = errorHandler(
+			new Error("connect ECONNREFUSED"),
+			recorder.monitor,
+		);
+
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({
+			success: false,
+			error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+		});
+	});
+
+	it("keeps the message an ApiError chose for the client", async () => {
+		const recorder = createRecordingMonitor();
+
+		const res = errorHandler(
+			new ApiError(503, "sequence_contention", "Nothing was written; retry"),
+			recorder.monitor,
+		);
+
+		expect(await res.json()).toMatchObject({
+			error: {
+				code: "sequence_contention",
+				message: "Nothing was written; retry",
+			},
+		});
+	});
+});
+
 // Unexpected errors used to reach the client as a 500 and go nowhere else - not
 // logged, not reported. Expected ones must stay quiet, or the reports that
 // matter drown under wrong passwords and missing routes.
