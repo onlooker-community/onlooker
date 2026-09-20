@@ -28,7 +28,22 @@
 		"logs-dataset twin. That is consistent with the query matching nothing,",
 		"and equally consistent with subscriptions simply not evaluating",
 		"historical data, so it proves neither. See onlooker-txcu.2. Do not treat",
-		"this alert as load-bearing until it has been seen to fire."
+		"this alert as load-bearing until it has been seen to fire.",
+		"",
+		"`projects` below is a SLUG, and deliberately so - do not 'fix' it to the",
+		"numeric id to match the rest of scripts/sentry/. The files here do not",
+		"disagree; the endpoints do. ../rules/ posts project ids because a",
+		"workflow binds through a detector, ../dashboards/ posts ints in its own",
+		"`projects` array, and this endpoint took the slug when the rule was",
+		"accepted on 2026-09-13. Sentry publishes no schema for it (onlooker-",
+		"txcu.2), so the accepted form is the only evidence there is, and swapping",
+		"it would trade a value that worked for one that is untested.",
+		"",
+		"The cost of the slug is that it tracks the project's NAME. Rename the",
+		"project in Sentry and this file has to change with it, along with",
+		"apps/website/astro.config.mjs and the prose in ../rules/website-errors.",
+		"json. The id 4512074226401280 is the stable handle if this endpoint ever",
+		"turns out to accept one."
 	],
 	"name": "Waitlist submit failing (production)",
 	"aggregate": "count(value)",
@@ -37,7 +52,7 @@
 	"timeWindow": 60,
 	"thresholdType": 0,
 	"environment": "production",
-	"projects": ["javascript-astro"],
+	"projects": ["onlooker-marketing"],
 	"owner": "team:4512074220437504",
 	"triggers": [
 		{
