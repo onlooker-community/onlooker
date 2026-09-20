@@ -235,8 +235,8 @@ export async function handlePushLessons(
 			// Contention is a condition of the whole user's stream, not of any one
 			// lesson: nothing was written, and retrying items individually cannot
 			// help. The spec answers 503 there - "never a partial write" - and the
-			// named class is what carries that past errorHandler, which would
-			// otherwise echo a bare Error's message, user id and all, as a 500.
+			// named class is what carries that past errorHandler, which collapses
+			// any bare Error into a 500.
 			if (error instanceof SequenceExhaustedError) {
 				throw new ApiError(
 					503,
@@ -399,8 +399,8 @@ export async function handleTransitionLesson(
 	try {
 		seq = await transitionLesson(env.DB, userId, id, status, supersededBy);
 	} catch (error) {
-		// Same reason as the push route: a bare Error becomes a 500 whose body is
-		// error.message verbatim, and that message named the internal user id.
+		// Same reason as the push route: a bare Error collapses into a 500, and
+		// the spec asks for a 503 here.
 		if (error instanceof SequenceExhaustedError) {
 			throw new ApiError(
 				503,

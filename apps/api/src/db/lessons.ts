@@ -26,11 +26,15 @@ export interface StoredLesson {
  *
  * A named class rather than a plain Error, for two reasons. It is what lets a
  * route answer 503 - "the pool is contended, come back" - instead of the 500
- * that a bare Error collapses into, which is what the spec asks for. And
- * `errorHandler` echoes `error.message` into the response body verbatim, so
- * the message this replaced published the internal user id to anyone who could
- * provoke contention. The id now travels as a property, where the handler
- * cannot reach it, and remains available for logging.
+ * that a bare Error collapses into, which is what the spec asks for. And the id
+ * travels as a property rather than inside the message, so it stays out of
+ * anything built from the message while remaining available for logging.
+ *
+ * That second reason used to be the only thing keeping the id out of a response
+ * body: `errorHandler` echoed a bare Error's message verbatim. It no longer
+ * does - an unexpected error gets a fixed sentence - so this is now the inner of
+ * two layers rather than the whole defense. It stays because the message is
+ * still what a log line or a future handler is most likely to pass along.
  */
 export class SequenceExhaustedError extends Error {
 	constructor(
