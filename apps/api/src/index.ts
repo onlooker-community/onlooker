@@ -132,9 +132,10 @@ export default monitored({
 		);
 
 		// Retention cleanup, riding the same cron for the same reason the
-		// heartbeat does: this is where the schedule is actually kept (see
+		// heartbeat does: this cron is outside GitHub's throttling (see
 		// runHeartbeat's doc comment on GitHub's scheduled workflows drifting
-		// to a three-hour cadence).
+		// to a three-hour cadence). Whether Cloudflare keeps its own schedule
+		// has not been measured.
 		//
 		// Caught rather than let through: this handler's other job is the
 		// production health check above, and a failed cleanup is not a reason

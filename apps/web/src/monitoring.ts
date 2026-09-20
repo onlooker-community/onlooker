@@ -37,10 +37,11 @@ function kindOf(tag: string | undefined): ClientErrorKind {
  * The vendor-less path, as a `Monitor`.
  *
  * Reports still go to /api/client-errors and on to Workers Logs, where
- * client-error-monitor.yml alerts hourly. Sending to the provider instead of
- * this would leave that workflow green and blind, so both are fed until it is
- * retired on purpose (revisit 2026-10-01, onlooker-k34). Only exceptions
- * travel this way; counts, logs and spans are the provider's alone.
+ * client-error-monitor.yml alerts every few hours (~197 min median, measured
+ * 2026-09-19). Sending to the provider instead of this would leave that
+ * workflow green and blind, so both are fed until it is retired on purpose
+ * (revisit 2026-10-01, onlooker-k34). Only exceptions travel this way; counts,
+ * logs and spans are the provider's alone.
  *
  * It is also what catches everything in the moment before the provider's
  * chunk arrives, and everything when that chunk fails to load at all.
