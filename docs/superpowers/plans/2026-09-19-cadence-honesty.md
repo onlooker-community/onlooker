@@ -452,9 +452,15 @@ Replace the comment at `:798-802` — the paragraph ending `up to 31 minutes lat
       # This used to say "up to 31 minutes later on the cron". That number was
       # wrong twice over: heartbeat.yml delivers every ~203 minutes, not 31
       # (measured 2026-09-19), and the frequent check no longer lives there at
-      # all - it runs on a Cloudflare cron trigger every five minutes, which is
-      # a schedule that is actually kept. See onlooker-txcu.5.
+      # all - it runs on a Cloudflare cron trigger declared every five minutes.
+      # Whether Cloudflare keeps that schedule has not been measured here; the
+      # move was made because GitHub demonstrably does not keep its own.
+      # See onlooker-txcu.5.
 ```
+
+**Corrected 2026-09-19, after review.** As first written, this replacement text ended "...a Cloudflare cron trigger every five minutes, which is a schedule that is actually kept" — asserting Cloudflare's delivery as settled fact with no measurement behind it, inside the change whose whole purpose is removing unmeasured cadence claims. Review caught it; the ruling was to claim only what is established.
+
+Chasing that clause showed the claim had propagated to **six** places, not the one: `deploy.yml`, `heartbeat.yml:55`, `apps/api/src/heartbeat.ts:13`, `apps/api/src/index.ts:135`, and two in `apps/api/wrangler.toml`. All six now carry the same hedge. The last two were missed by a first search because line-based grep cannot match a phrase that wraps across two comment lines — "Cloudflare cron triggers keep" ends one line and "their schedule" begins the next. Searching comment prose needs the lines joined first.
 
 - [ ] **Step 3: Verify both workflows still parse**
 
