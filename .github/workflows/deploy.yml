@@ -798,8 +798,15 @@ jobs:
       # Runs after the website deploy as well as the app and API, so it is the
       # last word on a production release. A failure here means production is
       # already serving the bad build - the gate is the alarm, not the
-      # prevention - but the alarm rings in the run that caused it rather than
-      # up to 31 minutes later on the cron, and next to the commit responsible.
+      # prevention - but the alarm rings in the run that caused it, next to the
+      # commit responsible, rather than whenever the next periodic check
+      # happens to notice.
+      #
+      # This used to say "up to 31 minutes later on the cron". That number was
+      # wrong twice over: heartbeat.yml delivers every ~203 minutes, not 31
+      # (measured 2026-09-19), and the frequent check no longer lives there at
+      # all - it runs on a Cloudflare cron trigger every five minutes, which is
+      # a schedule that is actually kept. See onlooker-txcu.5.
       - name: Smoke test Production
         env:
           HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_PRODUCTION }}
