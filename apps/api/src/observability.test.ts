@@ -60,3 +60,52 @@ describe("tracing stays on", () => {
 		expect(websiteConfig()).not.toMatch(/"head_sampling_rate"\s*:/);
 	});
 });
+
+// A stack trace that names errorHandler but points at line 31,402 of a bundle
+// is readable only in the sense that it is not minified. Wrangler writes
+// index.js.map beside the worker on every build and, unless told otherwise,
+// uploads none of it - so nothing maps that line back to
+// apps/api/src/middleware/error.ts. The flag is the whole difference between a
+// bundle line and a source line.
+describe("worker stacks resolve to source", () => {
+	// Per environment rather than at the top level, for the reason the traces
+	// block above gives and one this file learned the hard way: `routes` was
+	// declared at the top level, inheritance handed a nameless worker the
+	// production hostname with no bindings, and only luck kept it off the
+	// account. An inheritable key that matters is declared where it applies.
+	// Read the one table rather than regexing across the file. A pattern like
+	// /\[env\.staging\][\s\S]*?upload_source_maps = true/ passes when staging
+	// has no flag and production does, because nothing stops it running past
+	// the section it names - it would have reported this feature working with
+	// staging unconfigured.
+	//
+	// Bounding it at the next table also enforces the TOML placement: the key
+	// belongs to [env.<name>], so it has to appear before [env.<name>.vars] or
+	// it silently becomes a key of that table instead.
+	const envTable = (config: string, env: string): string => {
+		const lines = config.split("\n");
+		const start = lines.indexOf(`[env.${env}]`);
+		expect(start, `no [env.${env}] table`).toBeGreaterThan(-1);
+		const rest = lines.slice(start + 1);
+		const end = rest.findIndex((line) => line.startsWith("["));
+		return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+	};
+
+	it("uploads source maps from every deployed environment", () => {
+		const config = apiConfig();
+
+		for (const env of ["staging", "production"]) {
+			expect(
+				envTable(config, env),
+				`source maps not uploaded for env.${env}`,
+			).toMatch(/^upload_source_maps = true$/m);
+		}
+	});
+
+	// Matches an assignment, not the word, for the same reason the sampling
+	// test does: the prose above explains what the flag is for, and a pattern
+	// that cannot tell the two apart would pass on the comment alone.
+	it("does not leave the flag off anywhere it is mentioned", () => {
+		expect(apiConfig()).not.toMatch(/^\s*upload_source_maps\s*=\s*false/m);
+	});
+});
