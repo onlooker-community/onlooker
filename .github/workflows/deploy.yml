@@ -805,8 +805,10 @@ jobs:
       # This used to say "up to 31 minutes later on the cron". That number was
       # wrong twice over: heartbeat.yml delivers every ~203 minutes, not 31
       # (measured 2026-09-19), and the frequent check no longer lives there at
-      # all - it runs on a Cloudflare cron trigger every five minutes, which is
-      # a schedule that is actually kept. See onlooker-txcu.5.
+      # all - it runs on a Cloudflare cron trigger declared every five minutes.
+      # Whether Cloudflare keeps that schedule has not been measured here; the
+      # move was made because GitHub demonstrably does not keep its own.
+      # See onlooker-txcu.5.
       - name: Smoke test Production
         env:
           HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_PRODUCTION }}
