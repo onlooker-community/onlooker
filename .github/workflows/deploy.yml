@@ -745,6 +745,16 @@ jobs:
           # Website source maps upload during `astro build`, which is this
           # step. `pnpm deploy:website` is wrangler-only and never sees it.
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # The release the maps are filed under. Without it sentry-cli guesses
+          # one from git, which happened to be this same SHA - but a guess is
+          # not a promise, and the value has to equal the one the running site
+          # reports or the artifacts are filed where no event looks for them.
+          SENTRY_RELEASE: ${{ github.sha }}
+          # The release the browser bundle reports, inlined by Vite here
+          # because nothing can tell the bundle afterwards. Same commit as
+          # SENTRY_RELEASE above and as the worker's MONITORING_RELEASE below;
+          # all three are one deploy.
+          PUBLIC_MONITORING_RELEASE: ${{ github.sha }}
 
       - name: Apply D1 migrations to Production
         run: pnpm migrate:prod
@@ -789,8 +799,13 @@ jobs:
       #
       # Until this step existed, merging a website change shipped nothing and
       # the run still went green.
+      #
+      # --var appended for the reason the API deploys give: it merges with the
+      # vars wrangler.jsonc declares, so the release does not have to be
+      # written into a committed file that would ship a stale commit whenever
+      # the flag was forgotten.
       - name: Deploy Website to Production
-        run: pnpm deploy:website
+        run: pnpm deploy:website --var MONITORING_RELEASE:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

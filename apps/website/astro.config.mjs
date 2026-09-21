@@ -8,6 +8,32 @@ import { defineConfig, envField } from "astro/config";
 export default defineConfig({
 	output: "server",
 	adapter: cloudflare(),
+	vite: {
+		build: {
+			// Pinned, and the pin is the fix. @sentry/astro reads this setting to
+			// decide two things, and the second is not obvious: left *unset* it
+			// both forces maps on and auto-sets
+			// `sourcemaps.filesToDeleteAfterUpload` to delete every map after
+			// upload (@sentry/astro 10.74.0, the exact version package.json
+			// pins: build/esm/integration/index.js:65-67 and :241-246).
+			//
+			// astro+cloudflare runs vite three times and the plugin uploads once
+			// per pass, so on 2026-09-20 the first pass uploaded nine maps and
+			// deleted them, and a later pass re-uploaded those same nine debug
+			// ids with "no sourcemap found" against each. That is the whole of
+			// "Bundled 18 files" followed by "Bundled 15 files" in that run.
+			//
+			// Deleting them also cost two things nobody chose. dist/server/*.map
+			// are what wrangler's `upload_source_maps` sends to Cloudflare - the
+			// adapter turns that on in the wrangler.json it generates, and it has
+			// been finding nothing. And apps/web/vite.config.ts:76-79 records why
+			// the client maps are emitted rather than hidden: this repository is
+			// public, so hiding them protects source that is already on GitHub
+			// and costs the ability to read a stack in devtools against
+			// production. `true` rather than "hidden" is that same decision.
+			sourcemap: true,
+		},
+	},
 	integrations: [
 		sentry({
 			org: "onlooker-vw",

@@ -1,19 +1,5 @@
 import handler from "@astrojs/cloudflare/entrypoints/server";
 import * as Sentry from "@sentry/cloudflare";
+import { type WebsiteEnv, websiteMonitoringConfig } from "./src/lib/monitoring";
 
-type WebsiteEnv = {
-	SENTRY_DSN?: string;
-	SENTRY_ENVIRONMENT?: string;
-};
-
-export default Sentry.withSentry<WebsiteEnv>(
-	(env) => ({
-		dsn: env.SENTRY_DSN,
-		tracesSampleRate: 1.0,
-		environment: env.SENTRY_ENVIRONMENT ?? "production",
-		dataCollection: {
-			httpBodies: [],
-		},
-	}),
-	handler,
-);
+export default Sentry.withSentry<WebsiteEnv>(websiteMonitoringConfig, handler);
