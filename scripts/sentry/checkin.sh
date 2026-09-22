@@ -54,7 +54,16 @@ esac
 # detected" - which sounds like a credentials problem and is a URL shape
 # problem. Verified against the live endpoint on 2026-09-13: this form returns
 # 202 and the check-in appears on the monitor.
-readonly URL="https://${SENTRY_HOST}/api/${SENTRY_PROJECT}/cron/${SLUG}/${SENTRY_KEY}/?status=${STATUS}"
+#
+# environment is stated rather than left to default. Sentry's documentation says
+# "if you don't specify an environment with your check-ins the default is
+# production", so this changes nothing today - every check-in this repo has sent
+# already arrived tagged production. It is written down because something now
+# depends on it: rules/cron-checkin-missed.json is scoped to environment
+# production, and a workflow whose filter stops matching does not fail. It stays
+# enabled, looks configured, and quietly notices nothing. A documented default
+# is a fine thing to rely on and a poor thing to rely on silently.
+readonly URL="https://${SENTRY_HOST}/api/${SENTRY_PROJECT}/cron/${SLUG}/${SENTRY_KEY}/?status=${STATUS}&environment=production"
 
 code=""
 if ! code="$(curl --silent --show-error --max-time 10 --request POST \
