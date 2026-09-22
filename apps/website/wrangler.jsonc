@@ -52,5 +52,27 @@
 		"traces": {
 			"enabled": true
 		}
-	}
+	},
+
+	// Off because it never worked, not because nobody wanted it. Stacks for
+	// this worker are symbolicated in Sentry, which receives the server maps
+	// at build time (astro.config.mjs); Cloudflare's own view - Workers Logs,
+	// the observability tab above - stays minified, and that is accepted.
+	//
+	// Nobody wrote `true` here. @cloudflare/vite-plugin 1.42.0 injects it into
+	// the generated dist/server/wrangler.json whenever this key is unset and
+	// vite's build.sourcemap is on (dist/index.mjs:64946), and the same block
+	// hard-codes no_bundle: true, correctly, because vite already bundled.
+	// Wrangler 4.102.0 only uploads maps for bundles it builds itself, so
+	// under no_bundle it shipped none - with every .map on disk beside its
+	// module and a sourceMappingURL pointing at it. Checked with
+	//   pnpm build && pnpm exec wrangler deploy --dry-run --outdir <dir>
+	// which emitted zero .map files. Flipping no_bundle would make wrangler
+	// re-bundle finished output (+113 KiB) for what Sentry already provides.
+	//
+	// Declared false rather than left unset so the generated config stops
+	// claiming an upload that does not happen. Revisit if wrangler starts
+	// collecting existing maps under no_bundle: the same dry-run will show it.
+	// ONL-99.
+	"upload_source_maps": false
 }
