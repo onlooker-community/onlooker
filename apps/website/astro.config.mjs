@@ -23,11 +23,11 @@ export default defineConfig({
 			// ids with "no sourcemap found" against each. That is the whole of
 			// "Bundled 18 files" followed by "Bundled 15 files" in that run.
 			//
-			// Deleting them also cost two things nobody chose. dist/server/*.map
-			// are what wrangler's `upload_source_maps` sends to Cloudflare - the
-			// adapter turns that on in the wrangler.json it generates, and it has
-			// been finding nothing. And apps/web/vite.config.ts:76-79 records why
-			// the client maps are emitted rather than hidden: this repository is
+			// Deleting them also cost something nobody chose. (Not Cloudflare's
+			// copy: wrangler never uploaded the server maps under no_bundle, and
+			// wrangler.jsonc now says so - see upload_source_maps there.)
+			// apps/web/vite.config.ts:76-79 records why the client maps are
+			// emitted rather than hidden: this repository is
 			// public, so hiding them protects source that is already on GitHub
 			// and costs the ability to read a stack in devtools against
 			// production. `true` rather than "hidden" is that same decision.
