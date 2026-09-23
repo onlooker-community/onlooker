@@ -1,0 +1,102 @@
+{
+	"_comment": [
+		"client-error-monitor.yml checks in to a Sentry cron monitor every run.",
+		"The monitor notices a check-in that does not arrive, which is the only",
+		"thing watching whether that workflow still runs at all - GitHub drops",
+		"scheduled runs silently rather than queueing them, and disables",
+		"schedules on inactive repositories without a word. Until this file, the",
+		"monitor noticed and then told nobody: the detector existed and no",
+		"workflow listed it. Detection without notification is the shape of bug",
+		"this whole epic was opened for.",
+		"",
+		"detectorName is required HERE and absent from the other files in this",
+		"directory, and that is not an inconsistency. A workflow binds to a",
+		"project through a detector, and apply.sh resolves one by (project,",
+		"type). Project 4512075995283456 holds TWO detectors of type",
+		"monitor_check_in_failure, one per cron monitor:",
+		"",
+		"  10315978  Heartbeat workflow",
+		"  10315979  Client error monitor workflow   <- this one",
+		"",
+		"so type alone does not identify one. apply.sh refuses rather than",
+		"picking; the name is how this file says which. The id is deliberately",
+		"not written here for the reason apply.sh's header gives: a number means",
+		"nothing to a reviewer and breaks when a project is recreated. The cost",
+		"is that renaming the detector in Sentry means renaming it here.",
+		"",
+		"THE HEARTBEAT IS NOT COVERED, and that is a decision rather than an",
+		"oversight. Sentry Crons bills per ACTIVE monitor and this org has one",
+		"seat, which went to client-error-monitor.yml; heartbeat.yml's check-in",
+		"step was removed in PR #163 for that reason and says so at lines 41-69.",
+		"Detector 10315978 therefore fronts a monitor that receives nothing and",
+		"could never fire. Pointing this workflow at it would produce exactly the",
+		"fault the file is meant to fix. Covering the heartbeat means buying a",
+		"second seat, not editing this file.",
+		"",
+		"environment is production, like every workflow here, and cron check-ins",
+		"do carry one: Sentry's check-in API defaults it to production and",
+		"checkin.sh now states it outright rather than relying on that default.",
+		"",
+		"SEEN TO FIRE on 2026-09-23, which is the only thing that settles it -",
+		"the metric alert in ../alerts/ is still carrying an UNVERIFIED block",
+		"precisely because Sentry accepting a payload says nothing about whether",
+		"it ever notifies anyone. Two error check-ins raised issue",
+		"ONLOOKER-API-1 'Cron failure: Client error monitor workflow'",
+		"(monitor.incident 38588910, environment production), and the email for",
+		"it reads 'This email was triggered by Client error monitor missed a",
+		"check-in (production)' - this workflow, by name. first_seen_event is",
+		"therefore a valid trigger for a monitor_check_in_failure detector; the",
+		"empty-conditions fallback was not needed.",
+		"",
+		"HOW LATE THIS ALERT CAN BE, because the number is not obvious and is",
+		"not ours to set here. The monitor's own config carries schedule 6h,",
+		"checkin_margin 120, failure_issue_threshold 2, recovery_threshold 1. A",
+		"threshold of 2 means CONSECUTIVE failures, so a workflow that dies",
+		"silently takes up to about 16 hours to raise an issue - two missed",
+		"windows plus the margin. The milestone this sits under asks for minutes.",
+		"Still far better than the nothing it replaces, but do not read this",
+		"alert as prompt. Tightening it means editing the monitor, not this file.",
+		"",
+		"email/issue_owners matches the other files. A missed check-in has no",
+		"suspect commit to own it, so it falls through to AllMembers, which is",
+		"the intended audience anyway."
+	],
+	"project": "4512075995283456",
+	"detectorType": "monitor_check_in_failure",
+	"detectorName": "Client error monitor workflow",
+	"workflow": {
+		"name": "Client error monitor missed a check-in (production)",
+		"environment": "production",
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
+			{
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
+			}
+		]
+	}
+}

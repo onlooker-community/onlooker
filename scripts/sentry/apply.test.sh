@@ -220,6 +220,128 @@ else
 fi
 
 echo
+echo "sentry/apply: which detector a rule binds to"
+
+# Project 4512075995283456 carries two monitor_check_in_failure detectors, one
+# per cron monitor. detector_for used to select on (projectId, type) and take
+# `first`, so a rule naming only those two fields bound to whichever Sentry
+# listed first - and one of the two fronts a monitor that was created DISABLED
+# and receives nothing. Binding there produces a workflow that cannot fire,
+# which is the fault onlooker-txcu.9 exists to remove. Picking silently is the
+# bug; refusing out loud is the fix.
+if command -v python3 >/dev/null 2>&1; then
+	detectors_port=8794
+	python3 "${SCRIPT_DIR}/testdata/detectors-server.py" "${detectors_port}" >/dev/null 2>&1 &
+	detectors_pid=$!
+	for _ in $(seq 1 50); do
+		curl -s -o /dev/null "http://127.0.0.1:${detectors_port}/" && break
+		sleep 0.1
+	done
+
+	# Built from a shipped rule so these test only the detector binding, and do
+	# not quietly re-test the workflow payload alongside it.
+	cron_base="$(mktemp -t sentry-rule-XXXXXX).json"
+	jq '.project = "4512075995283456"
+		| .detectorType = "monitor_check_in_failure"
+		| .workflow.name = "Client error monitor missed a check-in (production)"' \
+		"${RULES_DIR}/api-faults.json" >"${cron_base}"
+
+	ambiguous_rule="$(mktemp -t sentry-rule-XXXXXX).json"
+	cp "${cron_base}" "${ambiguous_rule}"
+
+	named_rule="$(mktemp -t sentry-rule-XXXXXX).json"
+	jq '.detectorName = "Client error monitor workflow"' "${cron_base}" >"${named_rule}"
+
+	absent_rule="$(mktemp -t sentry-rule-XXXXXX).json"
+	jq '.detectorName = "No such detector"' "${cron_base}" >"${absent_rule}"
+
+	apply_against_fake() {
+		env SENTRY_AUTH_TOKEN=not-a-real-value \
+			SENTRY_API_BASE="http://127.0.0.1:${detectors_port}" \
+			"${APPLY}" "$1" 2>&1 || true
+	}
+
+	# The exit code cannot carry this on its own. apply.sh exits 1 for a
+	# malformed file, an unscoped one and a Sentry rejection alike, so an
+	# exit-only assertion would pass whether or not this branch exists at all.
+	# It has to be caught saying which fault it hit.
+	ambiguous_output="$(apply_against_fake "${ambiguous_rule}")"
+	if [[ "${ambiguous_output}" == *"ambiguous"* ]]; then
+		pass "refuses a rule whose (project, type) matches two detectors"
+	else
+		fail "refuses a rule whose (project, type) matches two detectors" \
+			"${ambiguous_output}"
+	fi
+
+	# Listing the candidates is the difference between a refusal you can act on
+	# and one that sends you to the Sentry UI to find the name yourself.
+	if [[ "${ambiguous_output}" == *"10315978"* && "${ambiguous_output}" == *"10315979"* ]]; then
+		pass "names both candidate detectors when it refuses"
+	else
+		fail "names both candidate detectors when it refuses" "${ambiguous_output}"
+	fi
+
+	# The positive case. It has to differ from the refusal in something the
+	# refusal cannot produce - the bound id - rather than only in exit status.
+	named_output="$(apply_against_fake "${named_rule}")"
+	if [[ "${named_output}" == *"detector 10315979"* ]]; then
+		pass "binds to the detector the rule names"
+	else
+		fail "binds to the detector the rule names" "${named_output}"
+	fi
+
+	# The half that matters: not merely that it found the right one, but that
+	# the wrong one is nowhere in the result.
+	if [[ "${named_output}" == *"10315978"* ]]; then
+		fail "leaves the other detector of that type alone" \
+			"named the heartbeat detector: ${named_output}"
+	else
+		pass "leaves the other detector of that type alone"
+	fi
+
+	absent_output="$(apply_against_fake "${absent_rule}")"
+	if [[ "${absent_output}" == *"named 'No such detector'"* ]]; then
+		pass "errors when detectorName matches no detector"
+	else
+		fail "errors when detectorName matches no detector" "${absent_output}"
+	fi
+
+	echo
+	echo "sentry/apply: drift is measured against the repo, not the argv"
+
+	# Observed for real on 2026-09-22, applying cron-checkin-missed.json alone
+	# against the live org: it called "API fault (production)" undefined drift
+	# while rules/api-faults.json defines it, because report_drift built both
+	# `ours` and `known` from RULE_FILES - the files named on the command line.
+	# Drift is a property of this repo against Sentry; the selection of files to
+	# APPLY has nothing to say about which workflows the repo defines. A check
+	# that cries wolf on an ordinary subset run is one people learn to skim, and
+	# then the real drift is skimmed with it.
+	if [[ "${named_output}" != *"drift"*"API fault (production)"* ]]; then
+		pass "a subset run does not call the repo's other rules drift"
+	else
+		fail "a subset run does not call the repo's other rules drift" \
+			"${named_output}"
+	fi
+
+	# The other half, and the one that keeps the fix honest: silencing drift
+	# entirely would satisfy the assertion above and destroy the feature. A
+	# workflow no file defines must still be named.
+	if [[ "${named_output}" == *"drift"*"Hand-made during an incident"* ]]; then
+		pass "still reports a workflow no file in the repo defines"
+	else
+		fail "still reports a workflow no file in the repo defines" \
+			"${named_output}"
+	fi
+
+	kill "${detectors_pid}" 2>/dev/null || true
+	wait "${detectors_pid}" 2>/dev/null || true
+	rm -f "${cron_base}" "${ambiguous_rule}" "${named_rule}" "${absent_rule}"
+else
+	echo "  skip  detector binding tests (python3 not available)"
+fi
+
+echo
 if ((failures > 0)); then
 	echo "apply.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

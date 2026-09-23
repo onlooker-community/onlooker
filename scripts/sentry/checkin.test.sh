@@ -75,6 +75,19 @@ else
 	fail "does not also send ?sentry_key=" "found sentry_key in the URL"
 fi
 
+# Sentry's check-in API takes an environment and defaults it to production, so
+# stating it changes nothing today. It is stated anyway because something now
+# depends on it: rules/cron-checkin-missed.json is scoped to production, and
+# apply.sh REFUSES any workflow that is not. If check-ins ever began arriving
+# under a different environment - a changed default, a caller adding one - that
+# workflow would stay correct, enabled, and deaf, which is the failure this
+# whole directory exists to prevent. A default is not a guarantee.
+if [[ "${url_line}" == *'environment=production'* ]]; then
+	pass "states the environment rather than resting on Sentry's default"
+else
+	fail "states the environment rather than resting on Sentry's default" "${url_line}"
+fi
+
 echo
 if ((failures > 0)); then
 	echo "checkin.test.sh: ${failures} of ${tests} tests failed"

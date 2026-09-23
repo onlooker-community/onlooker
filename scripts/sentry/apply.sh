@@ -24,6 +24,13 @@
 # means nothing to a reviewer in the diff, and break whenever a project is
 # recreated.
 #
+# A type does not always identify one detector. onlooker-api holds two of type
+# monitor_check_in_failure, one per cron monitor, and one of those fronts a
+# monitor created DISABLED that receives nothing - so a workflow bound to it
+# cannot fire. A file may add an optional "detectorName" to say which it means;
+# where that still leaves more than one match, this script REFUSES rather than
+# choosing, because the wrong choice does not fail, it just never fires.
+#
 # Usage: scripts/sentry/apply.sh [--dry-run] [rule.json...]
 #   no file arguments means every rule in scripts/sentry/rules/
 #
@@ -164,36 +171,72 @@ load_detectors() {
 	DETECTORS="$(body_of "${response}")"
 }
 
-# The detector a file binds to, or empty if this project has none of that type.
-detector_for() {
-	local project="$1" type="$2"
-	jq -r --arg p "${project}" --arg t "${type}" \
-		'[.[] | select((.projectId|tostring) == $p and .type == $t) | .id] | first // empty' \
+# Every detector a file could bind to, one `id<TAB>name` per line: those
+# matching its project and type, narrowed by name when the file gives one.
+#
+# This used to return `first` of the matches, which is only correct while a
+# project holds one detector per type. onlooker-api holds two of type
+# monitor_check_in_failure, one per cron monitor, and one of those fronts a
+# monitor created DISABLED that receives nothing - so `first` could bind a
+# workflow to a monitor that never fires. The caller refuses rather than
+# choosing; see apply_workflow.
+detectors_matching() {
+	local project="$1" type="$2" name="${3:-}"
+	jq -r --arg p "${project}" --arg t "${type}" --arg n "${name}" \
+		'[.[] | select((.projectId|tostring) == $p and .type == $t)
+			| select($n == "" or .name == $n)]
+		| .[] | [.id, .name] | @tsv' \
 		<<<"${DETECTORS}"
 }
 
 apply_workflow() {
 	local file="$1"
-	local project type name detector payload
+	local project type name wanted detector payload
 
 	project="$(jq -r '.project' "${file}")"
 	type="$(jq -r '.detectorType' "${file}")"
 	name="$(jq -r '.workflow.name' "${file}")"
+	wanted="$(jq -r '.detectorName // empty' "${file}")"
 
 	if ((DRY_RUN == 1)); then
-		echo "  would apply  ${name}  ->  project ${project}, detector type ${type}"
+		echo "  would apply  ${name}  ->  project ${project}, detector type ${type}${wanted:+, named ${wanted}}"
 		jq -c '.workflow' "${file}" | sed 's/^/                 /'
 		return 0
 	fi
 
-	detector="$(detector_for "${project}" "${type}")"
-	if [[ -z "${detector}" ]]; then
-		echo "  ERROR    ${name}: project ${project} has no '${type}' detector" >&2
-		echo "           Sentry creates the standard ones with a project, so this" >&2
-		echo "           usually means the project id is wrong rather than that a" >&2
-		echo "           detector is missing." >&2
+	local -a matches=()
+	while IFS= read -r line; do
+		[[ -n "${line}" ]] && matches+=("${line}")
+	done < <(detectors_matching "${project}" "${type}" "${wanted}")
+
+	if ((${#matches[@]} == 0)); then
+		echo "  ERROR    ${name}: project ${project} has no '${type}' detector${wanted:+ named '${wanted}'}" >&2
+		if [[ -n "${wanted}" ]]; then
+			echo "           No detector of that type in this project carries that" >&2
+			echo "           name. A detector renamed in Sentry has to be renamed" >&2
+			echo "           here too - the name is how this file finds it." >&2
+		else
+			echo "           Sentry creates the standard ones with a project, so this" >&2
+			echo "           usually means the project id is wrong rather than that a" >&2
+			echo "           detector is missing." >&2
+		fi
 		return 1
 	fi
+
+	# Refusing beats choosing. Two detectors of a type means one of them is
+	# probably not the one you want, and binding to the wrong one does not fail
+	# - it produces a workflow that sits there looking configured and never
+	# fires, which is the fault this whole epic exists to remove.
+	if ((${#matches[@]} > 1)); then
+		echo "  REFUSED  ${name}: ambiguous. ${#matches[@]} detectors in project" >&2
+		echo "           ${project} are of type '${type}', and this file names" >&2
+		echo "           none of them." >&2
+		echo "           Add a \"detectorName\" to it, one of:" >&2
+		printf '             %s\n' "${matches[@]}" >&2
+		return 1
+	fi
+
+	detector="${matches[0]%%$'\t'*}"
 
 	# detectorIds is injected rather than stored in the file - see the header.
 	payload="$(jq -c --arg d "${detector}" '.workflow + {detectorIds: [$d]}' "${file}")"
@@ -260,13 +303,40 @@ report_drift() {
 		return 0
 	fi
 
+	# Drift is a property of this REPO against Sentry, so both sides of the
+	# comparison come from every rule the repo defines - not from whichever
+	# files were named on the command line.
+	#
+	# Building these from RULE_FILES made a subset run slander its own config.
+	# Observed on 2026-09-22 applying rules/cron-checkin-missed.json alone: it
+	# reported "API fault (production)" as a workflow this repo does not define,
+	# while rules/api-faults.json sitting beside it defines exactly that. Both
+	# halves came from the same mistake - `known` held one name, and `ours`
+	# narrowed to one project, which is why the web and website workflows went
+	# unmentioned rather than being slandered too.
+	#
+	# Files named explicitly are unioned in, so applying one from outside
+	# rules/ does not make that workflow its own drift.
+	local -a known_files=()
+	while IFS= read -r file; do
+		[[ -r "${file}" ]] && known_files+=("${file}")
+	done < <({
+		find "${RULES_DIR}" -maxdepth 1 -name '*.json'
+		printf '%s\n' "${RULE_FILES[@]}"
+	} | sort -u)
+
+	if ((${#known_files[@]} == 0)); then
+		echo "  UNKNOWN  no readable rule files to compare against - drift not checked" >&2
+		return 0
+	fi
+
 	# Only detectors belonging to projects this repo manages. A workflow bound
 	# to some other project is not this repo's business to report.
-	ours="$(jq -r '.project' "${RULE_FILES[@]}" | sort -u |
+	ours="$(jq -r '.project' "${known_files[@]}" | sort -u |
 		while IFS= read -r project; do
 			jq -r --arg p "${project}" '.[] | select((.projectId|tostring) == $p) | .id' <<<"${DETECTORS}"
 		done)"
-	known="$(jq -r '.workflow.name' "${RULE_FILES[@]}")"
+	known="$(jq -r '.workflow.name' "${known_files[@]}")"
 
 	# One line per workflow as `id<TAB>name<TAB>detectorId,...`, then the set
 	# membership is done in bash where it can be read.
