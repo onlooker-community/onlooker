@@ -306,6 +306,34 @@ if command -v python3 >/dev/null 2>&1; then
 		fail "errors when detectorName matches no detector" "${absent_output}"
 	fi
 
+	echo
+	echo "sentry/apply: drift is measured against the repo, not the argv"
+
+	# Observed for real on 2026-09-22, applying cron-checkin-missed.json alone
+	# against the live org: it called "API fault (production)" undefined drift
+	# while rules/api-faults.json defines it, because report_drift built both
+	# `ours` and `known` from RULE_FILES - the files named on the command line.
+	# Drift is a property of this repo against Sentry; the selection of files to
+	# APPLY has nothing to say about which workflows the repo defines. A check
+	# that cries wolf on an ordinary subset run is one people learn to skim, and
+	# then the real drift is skimmed with it.
+	if [[ "${named_output}" != *"drift"*"API fault (production)"* ]]; then
+		pass "a subset run does not call the repo's other rules drift"
+	else
+		fail "a subset run does not call the repo's other rules drift" \
+			"${named_output}"
+	fi
+
+	# The other half, and the one that keeps the fix honest: silencing drift
+	# entirely would satisfy the assertion above and destroy the feature. A
+	# workflow no file defines must still be named.
+	if [[ "${named_output}" == *"drift"*"Hand-made during an incident"* ]]; then
+		pass "still reports a workflow no file in the repo defines"
+	else
+		fail "still reports a workflow no file in the repo defines" \
+			"${named_output}"
+	fi
+
 	kill "${detectors_pid}" 2>/dev/null || true
 	wait "${detectors_pid}" 2>/dev/null || true
 	rm -f "${cron_base}" "${ambiguous_rule}" "${named_rule}" "${absent_rule}"

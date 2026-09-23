@@ -16,6 +16,12 @@ POST echoes the detectorIds it was handed, and apply.sh prints the id it bound -
 which is what lets a test tell "refused because ambiguous" apart from "bound to
 the right one", two outcomes that otherwise share an exit code.
 
+The workflow list carries one of each kind on purpose. `API fault (production)`
+is defined in rules/api-faults.json and must never be called drift; the
+hand-made one is in no file and always must be. A fix that silenced drift
+altogether would satisfy the first on its own, so the second is what stops that
+from passing.
+
 Used by apply.test.sh. Not shipped and not imported by anything else.
 """
 
@@ -42,6 +48,19 @@ DETECTORS = [
     },
 ]
 
+WORKFLOWS = [
+    {
+        "id": "3984740",
+        "name": "API fault (production)",
+        "detectorIds": ["10314452"],
+    },
+    {
+        "id": "7777777",
+        "name": "Hand-made during an incident",
+        "detectorIds": ["10314452"],
+    },
+]
+
 
 class H(http.server.BaseHTTPRequestHandler):
     def _json(self, code, payload):
@@ -56,7 +75,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if self.path.endswith("/detectors/"):
             return self._json(200, DETECTORS)
         if self.path.endswith("/workflows/"):
-            return self._json(200, [])
+            return self._json(200, WORKFLOWS)
         self._json(404, {"detail": "no such endpoint"})
 
     def do_POST(self):

@@ -175,6 +175,35 @@ in CI, the same way `apply.sh`'s header already documents at `apply.sh:84-90`.
 Forcing an `error` check-in is what makes this provable in minutes instead of
 waiting out a 6 hour interval plus a 2 hour margin for a real miss.
 
+## Found during verification: drift measured against argv *(measured)*
+
+The first live apply, on 2026-09-22, bound the right detector and then printed:
+
+```
+  ok       created: Client error monitor missed a check-in (production)  (detector 10315979)
+  drift    Sentry has a workflow this repo does not define: API fault (production) [id 3984740]
+```
+
+`rules/api-faults.json` defines exactly that workflow. `report_drift` built both
+of its inputs from `RULE_FILES` — the files named on the command line — so
+applying one file made the repo's other rules look undefined. The same line
+explains why only the api workflow was named and not the web and website ones:
+`ours` narrowed to that single file's project, so the others were never in scope
+to be slandered.
+
+It never fails a run, which is what makes it worth fixing rather than tolerating.
+A drift check that cries wolf on an ordinary subset run is one people learn to
+skim, and the real drift gets skimmed with it — the same erosion `apply.sh`'s own
+comments describe for a muted alert channel.
+
+Both inputs now come from every rule in `rules/`, unioned with any file named
+explicitly so that applying one from outside the directory does not make it its
+own drift.
+
+Two tests, and the second is the one that matters: a subset run must not report
+the repo's own rules, **and** must still report a workflow no file defines.
+Satisfying the first alone is what silencing drift entirely would do.
+
 ## What this does not do
 
 - It does not monitor `heartbeat.yml`. See *Scope*.

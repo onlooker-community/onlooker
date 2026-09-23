@@ -303,13 +303,40 @@ report_drift() {
 		return 0
 	fi
 
+	# Drift is a property of this REPO against Sentry, so both sides of the
+	# comparison come from every rule the repo defines - not from whichever
+	# files were named on the command line.
+	#
+	# Building these from RULE_FILES made a subset run slander its own config.
+	# Observed on 2026-09-22 applying rules/cron-checkin-missed.json alone: it
+	# reported "API fault (production)" as a workflow this repo does not define,
+	# while rules/api-faults.json sitting beside it defines exactly that. Both
+	# halves came from the same mistake - `known` held one name, and `ours`
+	# narrowed to one project, which is why the web and website workflows went
+	# unmentioned rather than being slandered too.
+	#
+	# Files named explicitly are unioned in, so applying one from outside
+	# rules/ does not make that workflow its own drift.
+	local -a known_files=()
+	while IFS= read -r file; do
+		[[ -r "${file}" ]] && known_files+=("${file}")
+	done < <({
+		find "${RULES_DIR}" -maxdepth 1 -name '*.json'
+		printf '%s\n' "${RULE_FILES[@]}"
+	} | sort -u)
+
+	if ((${#known_files[@]} == 0)); then
+		echo "  UNKNOWN  no readable rule files to compare against - drift not checked" >&2
+		return 0
+	fi
+
 	# Only detectors belonging to projects this repo manages. A workflow bound
 	# to some other project is not this repo's business to report.
-	ours="$(jq -r '.project' "${RULE_FILES[@]}" | sort -u |
+	ours="$(jq -r '.project' "${known_files[@]}" | sort -u |
 		while IFS= read -r project; do
 			jq -r --arg p "${project}" '.[] | select((.projectId|tostring) == $p) | .id' <<<"${DETECTORS}"
 		done)"
-	known="$(jq -r '.workflow.name' "${RULE_FILES[@]}")"
+	known="$(jq -r '.workflow.name' "${known_files[@]}")"
 
 	# One line per workflow as `id<TAB>name<TAB>detectorId,...`, then the set
 	# membership is done in bash where it can be read.
