@@ -175,6 +175,44 @@ in CI, the same way `apply.sh`'s header already documents at `apply.sh:84-90`.
 Forcing an `error` check-in is what makes this provable in minutes instead of
 waiting out a 6 hour interval plus a 2 hour margin for a real miss.
 
+### Result *(measured 2026-09-23)*
+
+All three passed.
+
+1. Applied cleanly, bound to detector `10315979`. A second full run reported
+   `updated:` for all four rules, which is the read-back — `apply.sh` only takes
+   that path when it finds a workflow of that name already in Sentry's list.
+2. Sentry accepted `first_seen_event` for a `monitor_check_in_failure` detector.
+   The empty-`conditions` fallback was not needed.
+3. Two error check-ins raised `ONLOOKER-API-1`, *Cron failure: Client error
+   monitor workflow* (`monitor.incident 38588910`, environment `production`,
+   failure reason "2 error check-ins detected"). Its email reads **"This email
+   was triggered by Client error monitor missed a check-in (production)"** —
+   this workflow, named.
+
+Three things the run taught that the design did not anticipate:
+
+**`failure_issue_threshold` is 2.** The first error check-in produced no issue,
+and that was correct rather than broken. Read from the monitor's live config:
+`schedule 6h`, `checkin_margin 120`, `failure_issue_threshold 2`,
+`recovery_threshold 1`. Consecutive failures, so a silently dead workflow takes
+up to roughly **16 hours** to raise an issue. The milestone this sits under asks
+for minutes. Still better than the nothing it replaces, and changing it means
+editing the monitor rather than any file here.
+
+**The `environment=production` change is a no-op, proven rather than argued.**
+The monitor lists exactly one environment, `production`, `dateCreated
+2026-09-13` — before the change — and the check-ins sent after it land in that
+same bucket. The risk was that explicit and defaulted check-ins would split the
+series; they do not.
+
+**A monitor read during recovery looks like one that never fired.** At
+`01:53:04Z` the config showed `status: "ok"` and `activeIncident: null`, which
+reads identically to "the threshold was never reached". The issue had in fact
+been raised at `01:43:58Z` and resolved by the next successful check-in —
+`recovery_threshold` is 1, so one `ok` closes it. Anyone verifying this again
+should read the issue history, not the monitor's instantaneous status.
+
 ## Found during verification: drift measured against argv *(measured)*
 
 The first live apply, on 2026-09-22, bound the right detector and then printed:
