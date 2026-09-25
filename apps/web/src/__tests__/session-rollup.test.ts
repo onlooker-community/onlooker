@@ -116,6 +116,29 @@ describe("rollupSessions", () => {
 		expect(result.days[1].durationMs).toBe(90 * 60_000);
 	});
 
+	it("orders days newest-first regardless of input order", () => {
+		const result = rollupSessions(
+			[
+				session({
+					session_id: "older",
+					started_at: "2026-09-22T10:00:00Z",
+					ended_at: "2026-09-22T11:00:00Z",
+				}),
+				session({
+					session_id: "newer",
+					started_at: "2026-09-24T10:00:00Z",
+					ended_at: "2026-09-24T10:30:00Z",
+				}),
+			],
+			false,
+		);
+		// Despite Sep 22 session appearing first in input, Sep 24 should be
+		// first in days output.
+		const days = result.days.map((d) => d.day);
+		expect(days[0]).toBe("Thursday, September 24");
+		expect(days[1]).toBe("Tuesday, September 22");
+	});
+
 	it("names the longest ended session", () => {
 		const result = rollupSessions(
 			[

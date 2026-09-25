@@ -74,7 +74,11 @@ export function rollupSessions(
 	sessions: SessionSummary[],
 	hasMore: boolean,
 ): Rollup {
-	const days = new Map<string, DayRollup>();
+	interface DayRollupInternal extends DayRollup {
+		newestStartedAt: string;
+	}
+
+	const days = new Map<string, DayRollupInternal>();
 	let durationMs = 0;
 	let longest: SessionSummary | null = null;
 	let longestMs = -1;
@@ -83,8 +87,18 @@ export function rollupSessions(
 
 	for (const session of sessions) {
 		const day = dayKey(session.started_at);
-		const bucket = days.get(day) ?? { day, sessions: 0, durationMs: 0 };
+		const bucket = days.get(day) ?? {
+			day,
+			sessions: 0,
+			durationMs: 0,
+			newestStartedAt: session.started_at,
+		};
 		bucket.sessions += 1;
+
+		// Track the newest timestamp for this day for sorting.
+		if (session.started_at > bucket.newestStartedAt) {
+			bucket.newestStartedAt = session.started_at;
+		}
 
 		const ms = durationMsOf(session);
 		if (ms !== null) {
@@ -105,12 +119,16 @@ export function rollupSessions(
 		}
 	}
 
+	// Sort days newest first by the newest timestamp seen per day,
+	// then strip the internal timestamp field before returning.
+	const sortedDays = [...days.values()]
+		.sort((a, b) => b.newestStartedAt.localeCompare(a.newestStartedAt))
+		.map(({ newestStartedAt, ...rest }) => rest);
+
 	return {
 		sessions: sessions.length,
 		durationMs,
-		// Insertion order is the order rows arrived, which the API returns
-		// newest first - the same assumption SessionsPage's own grouping makes.
-		days: [...days.values()],
+		days: sortedDays,
 		range: earliest && latest ? formatRange(earliest, latest) : "",
 		longest,
 		complete: !hasMore,
