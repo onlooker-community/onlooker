@@ -4,9 +4,11 @@ import { listMachines } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
+import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { dayKey, timeOf } from "../lib/dayKey";
+import { formatDurationMs, rollupSessions } from "../lib/sessionRollup";
 
 // A person's own read of the CLI sessions their machines have reported -
 // every row here already cleared apps/cli's reporting threshold, so unlike
@@ -16,13 +18,9 @@ import { dayKey, timeOf } from "../lib/dayKey";
 /** How long a session ran, or that it is still running. */
 function durationOf(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "Still running";
-	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
-	if (!Number.isFinite(ms) || ms < 0) return "";
-	const minutes = Math.round(ms / 60_000);
-	if (minutes < 1) return "<1m";
-	const hours = Math.floor(minutes / 60);
-	const mins = minutes % 60;
-	return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+	return formatDurationMs(
+		new Date(endedAt).getTime() - new Date(startedAt).getTime(),
+	);
 }
 
 /**
@@ -68,6 +66,7 @@ export default function SessionsPage() {
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
 	const [ended, setEnded] = useState(false);
+	const [hasMore, setHasMore] = useState(false);
 
 	// A second, independent read, kept apart from the sessions fetch rather
 	// than folded into one Promise.all: a failure here says nothing about
@@ -122,11 +121,12 @@ export default function SessionsPage() {
 		// filter to mint a second query, so the only thing to guard against is
 		// an unmount mid-flight. Same reasoning as ActivityPage's own effect.
 		let active = true;
-		listSessions()
+		listSessions({ limit: 200 })
 			.then((page) => {
 				if (!active) return;
 				setSessions(page.sessions);
 				setCursor(page.has_more ? page.cursor : null);
+				setHasMore(page.has_more);
 			})
 			.catch((error: unknown) => {
 				if (!active) return;
@@ -147,6 +147,7 @@ export default function SessionsPage() {
 			setSessions((current) => [...(current ?? []), ...page.sessions]);
 			setCursor(page.has_more ? page.cursor : null);
 			setEnded(!page.has_more);
+			setHasMore(page.has_more);
 		} catch (error) {
 			// The pages already loaded stay. A failed append is a missing tail.
 			setMoreError(describeError(error, "Could not load more sessions."));
@@ -244,6 +245,8 @@ export default function SessionsPage() {
 
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
+			<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
+
 			{days.map((group) => (
 				<Panel key={group.day} title={group.day} icon="Monitor">
 					{group.sessions.map((session) => (
@@ -266,8 +269,15 @@ export default function SessionsPage() {
 								{durationOf(session.started_at, session.ended_at)}
 							</span>
 							<span style={{ flex: "none" }}>
-								{session.event_count.toLocaleString()} events
+								{session.prompts.toLocaleString()}{" "}
+								{session.prompts === 1 ? "prompt" : "prompts"}
 							</span>
+							{session.compactions ? (
+								<span style={{ flex: "none" }}>
+									{session.compactions}{" "}
+									{session.compactions === 1 ? "compaction" : "compactions"}
+								</span>
+							) : null}
 							<span style={{ color: PALETTE.muted }}>
 								{shapeOf(session.counts_by_prefix)}
 							</span>

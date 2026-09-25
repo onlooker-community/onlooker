@@ -3,9 +3,10 @@
 // depends on the runner's zone. See that file's comment for the full case.
 process.env.TZ = "UTC";
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import SessionsPage from "../pages/SessionsPage";
 
 vi.mock("../auth", () => ({
 	auth: {
@@ -264,6 +265,102 @@ describe("/sessions with a session logged", () => {
 		mocks.listSessions.mockResolvedValue(TWO_DAYS);
 		renderAppAt("/sessions");
 
-		expect(await screen.findAllByRole("heading", { level: 2 })).toHaveLength(2);
+		// Excludes the summary header's own "What you loaded" heading by name
+		// rather than by count: that Panel is a level-2 heading too now, and a
+		// bare length check would conflate "one panel per day" with "one panel
+		// per day plus the summary."
+		const headings = await screen.findAllByRole("heading", { level: 2 });
+		const dayHeadings = headings.filter(
+			(h) => h.textContent !== "What you loaded",
+		);
+		expect(dayHeadings).toHaveLength(2);
+	});
+});
+
+describe("/sessions summary header", () => {
+	it("asks for a full page so the header can cover the history", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+		expect(mocks.listSessions).toHaveBeenCalledWith({ limit: 200 });
+	});
+
+	// The load-bearing assertion. The header's numbers are derived, and the
+	// failure this guards is a rollup that drifts from the rows beside it -
+	// which looks authoritative and reads as fact.
+	//
+	// Anchored at the start rather than a bare substring: SessionsSummary
+	// also renders one "N sessions" row per day, so an unanchored match
+	// against the whole page can find more than one element once a fixture
+	// has more than one day.
+	it("header totals match the rows rendered", async () => {
+		mocks.listSessions.mockResolvedValue(TWO_DAYS);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+		const expected = TWO_DAYS.sessions.length;
+		expect(screen.getByText(new RegExp(`^${expected} sessions`))).toBeTruthy();
+	});
+
+	it("says most recent rather than a total when more pages remain", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...ONE_SESSION,
+			cursor: "c1",
+			has_more: true,
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+		expect(screen.getByText(/most recent 1 session/)).toBeTruthy();
+	});
+
+	// Scoped to the row itself, not a page-wide getByText: SessionsSummary's
+	// own "Longest" line restates this same session's prompts and
+	// compactions count, so an unscoped query would find both. "6,311 tool"
+	// only ever comes from shapeOf on this row, so its closest row div is an
+	// unambiguous anchor for the row this test is actually about.
+	it("shows prompts and compactions on a row", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+		const row = screen.getByText(/6,311 tool/i).closest("div");
+		expect(row).not.toBeNull();
+		expect(within(row as HTMLElement).getByText(/5 prompts/)).toBeTruthy();
+		expect(within(row as HTMLElement).getByText(/1 compaction/)).toBeTruthy();
+	});
+
+	it("renders no header when there are no sessions", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+		expect(screen.queryByText(/sessions ·/)).toBeNull();
 	});
 });
