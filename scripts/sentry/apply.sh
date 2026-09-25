@@ -64,6 +64,15 @@ while (($# > 0)); do
 			sed -n '2,20p' "${BASH_SOURCE[0]}"
 			exit 0
 			;;
+		# The payload directories this script actually sends, one per line.
+		# apply.test.sh reads this and fails if a directory of payloads is
+		# neither listed here nor explained in unapplied.txt - because a
+		# committed payload nothing sends looks identical, in a diff, to one
+		# that ships. alerts/ was exactly that for twelve days.
+		--applied-dirs)
+			basename "${RULES_DIR}"
+			exit 0
+			;;
 		-*)
 			echo "unknown option: $1" >&2
 			exit 2
