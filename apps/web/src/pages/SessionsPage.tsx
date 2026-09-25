@@ -7,8 +7,14 @@ import { PALETTE } from "../components/palette";
 import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
-import { dayKey, timeOf } from "../lib/dayKey";
-import { formatDurationMs, rollupSessions } from "../lib/sessionRollup";
+import { timeOf } from "../lib/dayKey";
+import {
+	durationMsOf,
+	formatDurationMs,
+	groupSessionsByDay,
+	plural,
+	rollupSessions,
+} from "../lib/sessionRollup";
 
 // A person's own read of the CLI sessions their machines have reported -
 // every row here already cleared apps/cli's reporting threshold, so unlike
@@ -18,9 +24,8 @@ import { formatDurationMs, rollupSessions } from "../lib/sessionRollup";
 /** How long a session ran, or that it is still running. */
 function durationOf(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "Still running";
-	return formatDurationMs(
-		new Date(endedAt).getTime() - new Date(startedAt).getTime(),
-	);
+	const ms = durationMsOf({ started_at: startedAt, ended_at: endedAt });
+	return ms === null ? "" : formatDurationMs(ms);
 }
 
 /**
@@ -143,7 +148,7 @@ export default function SessionsPage() {
 		setLoadingMore(true);
 		setMoreError(null);
 		try {
-			const page = await listSessions({ cursor });
+			const page = await listSessions({ cursor, limit: 200 });
 			setSessions((current) => [...(current ?? []), ...page.sessions]);
 			setCursor(page.has_more ? page.cursor : null);
 			setEnded(!page.has_more);
@@ -227,27 +232,17 @@ export default function SessionsPage() {
 		);
 	}
 
-	// Grouped the same way ActivityPage groups events: a Map keyed by day
-	// rather than merging same-day sessions that are merely adjacent in
-	// `sessions`, since two sessions from different machines can commit with
-	// the same `started_at` second and arrive in either order.
-	const groups = new Map<string, SessionSummary[]>();
-	for (const session of sessions) {
-		const day = dayKey(session.started_at);
-		const existing = groups.get(day);
-		if (existing) existing.push(session);
-		else groups.set(day, [session]);
-	}
-	const days = [...groups.entries()].map(([day, daySessions]) => ({
-		day,
-		sessions: daySessions,
-	}));
-
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
 			<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
 
-			{days.map((group) => (
+			{/* Same grouping rollupSessions's own day totals use - see
+			    groupSessionsByDay's doc comment in sessionRollup.ts for why a
+			    Map keyed by day is used rather than merging same-day sessions
+			    that are merely adjacent in `sessions`. Sharing the function
+			    keeps the header's day order and this feed's day order
+			    structurally identical rather than independently maintained. */}
+			{groupSessionsByDay(sessions).map((group) => (
 				<Panel key={group.day} title={group.day} icon="Monitor">
 					{group.sessions.map((session) => (
 						<div
@@ -255,6 +250,10 @@ export default function SessionsPage() {
 							// every machine this account has, and two machines can each
 							// mint their own session id independently.
 							key={`${session.machine_id}:${session.session_id}`}
+							// Lets tests count the rows actually rendered rather than
+							// trust a fixture's own length - see sessions-page.test.tsx's
+							// header-totals test.
+							data-testid="session-row"
 							style={{
 								display: "flex",
 								flexWrap: "wrap",
@@ -269,13 +268,11 @@ export default function SessionsPage() {
 								{durationOf(session.started_at, session.ended_at)}
 							</span>
 							<span style={{ flex: "none" }}>
-								{session.prompts.toLocaleString()}{" "}
-								{session.prompts === 1 ? "prompt" : "prompts"}
+								{plural(session.prompts, "prompt")}
 							</span>
 							{session.compactions ? (
 								<span style={{ flex: "none" }}>
-									{session.compactions}{" "}
-									{session.compactions === 1 ? "compaction" : "compactions"}
+									{plural(session.compactions, "compaction")}
 								</span>
 							) : null}
 							<span style={{ color: PALETTE.muted }}>

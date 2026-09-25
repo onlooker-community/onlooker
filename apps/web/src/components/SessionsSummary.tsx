@@ -12,9 +12,17 @@
  * arithmetic, and SessionsPage decides whether this renders at all.
  */
 
-import { formatDurationMs, type Rollup } from "../lib/sessionRollup";
+import { formatDurationMs, plural, type Rollup } from "../lib/sessionRollup";
 import { PALETTE } from "./palette";
 import { Panel } from "./ui";
+
+/**
+ * Show at most this many day rows. Against 180 days of retention an
+ * unbounded list stacks one bar per day above the feed; the totals line
+ * above keeps describing everything loaded, so capping the rows is
+ * presentational only and never changes the numbers this component states.
+ */
+const MAX_VISIBLE_DAYS = 7;
 
 export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 	// Not an empty state - SessionsPage owns those, and its three variants say
@@ -22,25 +30,30 @@ export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 	if (rollup.sessions === 0) return null;
 
 	const total = formatDurationMs(rollup.durationMs);
-	const sessionWord = rollup.sessions === 1 ? "session" : "sessions";
 	const headline = rollup.complete
-		? `${rollup.sessions.toLocaleString()} ${sessionWord}`
-		: `most recent ${rollup.sessions.toLocaleString()} ${sessionWord}`;
+		? plural(rollup.sessions, "session")
+		: `most recent ${plural(rollup.sessions, "session")}`;
 
-	// Bars are relative to the busiest loaded day, so the tallest is always
-	// full width. An absolute scale would render every bar as a sliver on a
-	// quiet week.
-	const busiest = Math.max(...rollup.days.map((d) => d.durationMs), 1);
+	const visibleDays = rollup.days.slice(0, MAX_VISIBLE_DAYS);
+	const hiddenDayCount = rollup.days.length - visibleDays.length;
+
+	// Bars are relative to the busiest VISIBLE day, so the tallest among the
+	// rows actually on screen is always full width, regardless of whether a
+	// busier day got capped out of view.
+	const busiest = Math.max(...visibleDays.map((d) => d.durationMs), 1);
 
 	return (
 		<Panel title="What you loaded" icon="Monitor">
-			<div style={{ marginBottom: "var(--space-3)" }}>
+			<div
+				data-testid="sessions-headline"
+				style={{ marginBottom: "var(--space-3)" }}
+			>
 				{headline}
 				{total ? ` · ${total}` : ""}
 				{rollup.range ? ` · ${rollup.range}` : ""}
 			</div>
 
-			{rollup.days.map((day) => (
+			{visibleDays.map((day) => (
 				<div
 					key={day.day}
 					style={{
@@ -57,7 +70,15 @@ export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 							flex: "none",
 							width: "8rem",
 							height: "0.5rem",
-							background: PALETTE.track,
+							// No background here on purpose: PALETTE.track is
+							// --panel, the same fill this Panel sits on, so a
+							// filled track would paint nothing (form.tsx hit
+							// this identical pair and documented it). The
+							// border bounds the track's full extent instead, so
+							// a quiet day's sliver of a bar still reads as a
+							// sliver inside a knowable length rather than
+							// floating on nothing.
+							border: "2px solid var(--ink-dim)",
 							borderRadius: "2px",
 						}}
 					>
@@ -72,22 +93,25 @@ export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 						/>
 					</span>
 					<span style={{ color: PALETTE.muted }}>
-						{day.sessions} {day.sessions === 1 ? "session" : "sessions"}
+						{plural(day.sessions, "session")}
 						{day.durationMs ? ` · ${formatDurationMs(day.durationMs)}` : ""}
 					</span>
 				</div>
 			))}
 
+			{hiddenDayCount > 0 ? (
+				<div style={{ padding: "0.2rem 0", color: PALETTE.muted }}>
+					… {plural(hiddenDayCount, "more day")}
+				</div>
+			) : null}
+
 			{rollup.longest && rollup.longestMs !== null ? (
 				<div style={{ marginTop: "var(--space-3)", color: PALETTE.muted }}>
 					Longest {formatDurationMs(rollup.longestMs)}
 					{" · "}
-					{rollup.longest.prompts.toLocaleString()}{" "}
-					{rollup.longest.prompts === 1 ? "prompt" : "prompts"}
+					{plural(rollup.longest.prompts, "prompt")}
 					{rollup.longest.compactions
-						? ` · ${rollup.longest.compactions} ${
-								rollup.longest.compactions === 1 ? "compaction" : "compactions"
-							}`
+						? ` · ${plural(rollup.longest.compactions, "compaction")}`
 						: ""}
 				</div>
 			) : null}
