@@ -1,0 +1,20 @@
+# Payload directories that nothing applies, and why.
+#
+# Format: <directory><TAB><reason>.  Lines starting with # are ignored.
+#
+# apply.test.sh fails if a directory here holds .json payloads and is neither
+# applied by apply.sh (see --applied-dirs) nor named below, and fails again if
+# an entry here names a directory that no longer exists.
+#
+# This file exists because a committed payload that nothing sends looks
+# exactly like one that ships. Both are reviewed, both are in git, both sit in
+# scripts/sentry/. Only one has any effect, and nothing in a diff tells them
+# apart. alerts/ sat here for twelve days describing an alert that did not
+# exist, while a bead tracked "why doesn't it fire".
+#
+# Adding a line here is not a fix. It is a written admission, which is the
+# point: the reason has to survive review.
+
+alerts	POST /organizations/{org}/alert-rules/ answers 404. That is the API onlooker-txcu.8 migrated apply.sh away from (deprecated 2026-05-14, 410 brownouts, now gone). Applying this file is impossible, not merely unimplemented - the metric alert has to be re-expressed as a detector + workflow first, and no metric-type detector exists in the org, so whether Sentry supports one is an open question. See onlooker-txcu.2.1.
+
+dashboards	No applier written. The endpoint (POST /organizations/{org}/dashboards/) is believed live, unlike alerts/ above, so this one is unimplemented rather than blocked. The dashboard was created by hand on 2026-09-13 and onlooker-txcu.3 closed on that; nothing has confirmed it still exists. Note the dataset vocabulary differs from alerts/ - widgets want 'tracemetrics' where alerts want 'events_analytics_platform' - so an applier cannot share the alert payload shape. See onlooker-txcu.13.

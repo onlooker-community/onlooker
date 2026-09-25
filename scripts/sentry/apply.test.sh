@@ -342,6 +342,64 @@ else
 fi
 
 echo
+echo "sentry/apply: every payload directory is applied or explained"
+
+# The bug class this guards, found four times in one evening on 2026-09-25:
+# a directory of committed, reviewed, diffable JSON that NOTHING EVER SENDS.
+#
+# alerts/waitlist-submit-failed.json sat beside the applied rules for twelve
+# days looking exactly as legitimate. It targets POST .../alert-rules/, which
+# now answers 404 - the API onlooker-txcu.8 migrated apply.sh away from - and
+# no script has ever posted it. The alert it describes does not exist in
+# Sentry in any form, which is why it never fired. Nobody could tell, because
+# an unapplied payload and an applied one look identical in a diff.
+# dashboards/waitlist-funnel.json is in the same position and its bead is
+# closed.
+#
+# So: a payload directory must either be applied by this script, or be named
+# in unapplied.txt with a reason. Writing the reason is the point - it is the
+# friction that stops a directory going quiet again.
+applied="$("${APPLY}" --applied-dirs 2>/dev/null || true)"
+unapplied_file="${SCRIPT_DIR}/unapplied.txt"
+
+for dir in "${SCRIPT_DIR}"/*/; do
+	name="$(basename "${dir}")"
+
+	# Only directories that hold payloads. testdata/ ships fixtures, not
+	# things anyone sends.
+	has_json=0
+	for candidate in "${dir}"*.json; do
+		[[ -e "${candidate}" ]] && has_json=1 && break
+	done
+	((has_json == 1)) || continue
+
+	if grep -Fxq "${name}" <<<"${applied}"; then
+		pass "${name}/ is applied by apply.sh"
+		continue
+	fi
+
+	reason="$(grep -E "^${name}[[:space:]]+" "${unapplied_file}" 2>/dev/null | head -n1 | sed 's/^[^[:space:]]*[[:space:]]*//')"
+	if [[ -n "${reason}" ]]; then
+		pass "${name}/ is not applied, and unapplied.txt says why"
+	else
+		fail "${name}/ is applied or explained" \
+			"nothing applies it and unapplied.txt does not name it"
+	fi
+done
+
+# A quarantine list that outlives its directories rots into noise, and then
+# nobody reads the one entry that still matters.
+while IFS= read -r entry; do
+	[[ -n "${entry}" ]] || continue
+	if [[ -d "${SCRIPT_DIR}/${entry}" ]]; then
+		pass "unapplied.txt entry '${entry}' still exists"
+	else
+		fail "unapplied.txt entry '${entry}' still exists" \
+			"no such directory - remove the stale entry"
+	fi
+done < <(grep -vE '^[[:space:]]*(#|$)' "${unapplied_file}" 2>/dev/null | awk '{print $1}')
+
+echo
 if ((failures > 0)); then
 	echo "apply.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
