@@ -3,7 +3,14 @@
 // depends on the runner's zone. See that file's comment for the full case.
 process.env.TZ = "UTC";
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SessionsPage from "../pages/SessionsPage";
@@ -293,12 +300,16 @@ describe("/sessions summary header", () => {
 
 	// The load-bearing assertion. The header's numbers are derived, and the
 	// failure this guards is a rollup that drifts from the rows beside it -
-	// which looks authoritative and reads as fact.
+	// which looks authoritative and reads as fact. Compared against the rows
+	// actually rendered in the DOM rather than a fixture constant, so a page
+	// that silently dropped a row would show a headline that no longer
+	// matches what's on screen instead of passing by coincidence.
 	//
-	// Anchored at the start rather than a bare substring: SessionsSummary
-	// also renders one "N sessions" row per day, so an unanchored match
-	// against the whole page can find more than one element once a fixture
-	// has more than one day.
+	// Scoped to the summary Panel's own headline (`sessions-headline`)
+	// rather than an anchored page-wide regex: SessionsSummary also renders
+	// one "N sessions" row per day, so an unanchored match - or even an
+	// anchored one, if a fixture ever put every session on a single day -
+	// can find more than one element.
 	it("header totals match the rows rendered", async () => {
 		mocks.listSessions.mockResolvedValue(TWO_DAYS);
 		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
@@ -309,8 +320,11 @@ describe("/sessions summary header", () => {
 				</MemoryRouter>,
 			);
 		});
-		const expected = TWO_DAYS.sessions.length;
-		expect(screen.getByText(new RegExp(`^${expected} sessions`))).toBeTruthy();
+		const renderedRows = screen.getAllByTestId("session-row");
+		const headline = screen.getByTestId("sessions-headline");
+		expect(headline.textContent).toMatch(
+			new RegExp(`^${renderedRows.length} sessions`),
+		);
 	});
 
 	it("says most recent rather than a total when more pages remain", async () => {
@@ -361,6 +375,67 @@ describe("/sessions summary header", () => {
 				</MemoryRouter>,
 			);
 		});
-		expect(screen.queryByText(/sessions ·/)).toBeNull();
+		// Not /sessions ·/: SessionsSummary only emits "·" when duration or
+		// range is non-empty, so that regex would pass even if the header
+		// leaked into this empty state with zeroed totals. Anchoring on the
+		// Panel's own heading tests the fact this case is named for - that no
+		// header renders at all - rather than a wording detail of one.
+		expect(screen.queryByText("What you loaded")).toBeNull();
+	});
+
+	// The design's central claim, exercised across a page boundary: nothing
+	// else drove `loadMore` and re-checked the header. Every way `loadMore`
+	// can go wrong leaves `hasMore` stale-true, which errs toward "most
+	// recent" rather than silently overstating a total - but that bias was
+	// never actually pinned by a test.
+	it("switches from most recent to a total once loadMore exhausts the pages", async () => {
+		const SECOND_PAGE_SESSION = {
+			session_id: "s3",
+			machine_id: "m1",
+			started_at: "2026-09-17T10:00:00Z",
+			ended_at: "2026-09-17T10:20:00Z",
+			event_count: 20,
+			counts_by_prefix: { tool: 20 },
+			plugins: [],
+			prompts: 1,
+			compactions: 0,
+		};
+		mocks.listSessions
+			.mockReset()
+			.mockResolvedValueOnce({
+				sessions: [ONE_SESSION.sessions[0]],
+				cursor: "c1",
+				has_more: true,
+			})
+			.mockResolvedValueOnce({
+				sessions: [SECOND_PAGE_SESSION],
+				cursor: null,
+				has_more: false,
+			});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		await act(async () => {
+			render(
+				<MemoryRouter>
+					<SessionsPage />
+				</MemoryRouter>,
+			);
+		});
+
+		expect(
+			(await screen.findByTestId("sessions-headline")).textContent,
+		).toMatch(/^most recent 1 session/);
+
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() => {
+			expect(screen.getAllByTestId("session-row")).toHaveLength(2);
+		});
+		const headline = screen.getByTestId("sessions-headline");
+		expect(headline.textContent).toMatch(/^2 sessions/);
+		expect(headline.textContent).not.toMatch(/most recent/);
+		expect(mocks.listSessions).toHaveBeenLastCalledWith({
+			cursor: "c1",
+			limit: 200,
+		});
 	});
 });
