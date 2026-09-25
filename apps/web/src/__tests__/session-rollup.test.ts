@@ -154,6 +154,32 @@ describe("rollupSessions", () => {
 		expect(result.longest?.session_id).toBe("long");
 	});
 
+	it("provides the longest session's duration", () => {
+		const result = rollupSessions(
+			[
+				session({ session_id: "short" }),
+				session({
+					session_id: "long",
+					started_at: "2026-09-24T12:00:00Z",
+					ended_at: "2026-09-24T14:00:00Z",
+				}),
+			],
+			false,
+		);
+		expect(result.longestMs).toBe(2 * 60 * 60_000);
+	});
+
+	it("sets longestMs to null when every session is still running", () => {
+		const result = rollupSessions(
+			[
+				session({ session_id: "a", ended_at: null }),
+				session({ session_id: "b", ended_at: null }),
+			],
+			false,
+		);
+		expect(result.longestMs).toBeNull();
+	});
+
 	it("is incomplete when more pages remain", () => {
 		expect(rollupSessions([session()], true).complete).toBe(false);
 		expect(rollupSessions([session()], false).complete).toBe(true);

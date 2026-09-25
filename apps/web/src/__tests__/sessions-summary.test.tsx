@@ -15,6 +15,7 @@ function rollup(over: Partial<Rollup> = {}): Rollup {
 		],
 		range: "Sep 3 – Sep 24",
 		longest: null,
+		longestMs: null,
 		complete: true,
 		...over,
 	};
@@ -23,7 +24,8 @@ function rollup(over: Partial<Rollup> = {}): Rollup {
 describe("SessionsSummary", () => {
 	it("states a total when the rollup is complete", () => {
 		render(<SessionsSummary rollup={rollup()} />);
-		expect(screen.getByText(/41 sessions/)).toBeTruthy();
+		expect(screen.getByText(/^41 sessions/)).toBeTruthy();
+		expect(screen.queryByText(/most recent/)).toBeNull();
 		expect(screen.getByText(/18h 20m/)).toBeTruthy();
 		expect(screen.getByText(/Sep 3 – Sep 24/)).toBeTruthy();
 	});
@@ -49,5 +51,41 @@ describe("SessionsSummary", () => {
 			/>,
 		);
 		expect(container.firstChild).toBeNull();
+	});
+
+	it("uses singular form when there is one session", () => {
+		render(
+			<SessionsSummary
+				rollup={rollup({
+					sessions: 1,
+					durationMs: 1_800_000,
+					days: [
+						{
+							day: "Wednesday, September 24",
+							sessions: 1,
+							durationMs: 1_800_000,
+						},
+					],
+					longest: {
+						session_id: "s1",
+						machine_id: "m1",
+						started_at: "2026-09-24T10:00:00Z",
+						ended_at: "2026-09-24T10:30:00Z",
+						event_count: 10,
+						counts_by_prefix: { tool: 10 },
+						plugins: [],
+						prompts: 1,
+						compactions: 1,
+					},
+					longestMs: 1_800_000,
+				})}
+			/>,
+		);
+		expect(screen.queryByText(/1 sessions/)).toBeNull();
+		expect(screen.queryAllByText(/1 session/)).not.toHaveLength(0);
+		expect(screen.queryByText(/1 prompts/)).toBeNull();
+		expect(screen.queryAllByText(/1 prompt/)).not.toHaveLength(0);
+		expect(screen.queryByText(/1 compactions/)).toBeNull();
+		expect(screen.queryAllByText(/1 compaction/)).not.toHaveLength(0);
 	});
 });

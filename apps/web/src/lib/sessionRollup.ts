@@ -29,6 +29,8 @@ export interface Rollup {
 	/** "Sep 3 – Sep 24", or "" when there are no sessions. */
 	range: string;
 	longest: SessionSummary | null;
+	/** Duration of the longest ended session, or null if none have ended. */
+	longestMs: number | null;
 	/** False when the API reported more pages than were loaded. */
 	complete: boolean;
 }
@@ -131,6 +133,7 @@ export function rollupSessions(
 		days: sortedDays,
 		range: earliest && latest ? formatRange(earliest, latest) : "",
 		longest,
+		longestMs: longestMs >= 0 ? longestMs : null,
 		complete: !hasMore,
 	};
 }
