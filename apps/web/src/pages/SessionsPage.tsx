@@ -4,9 +4,17 @@ import { listMachines } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
+import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
-import { dayKey, timeOf } from "../lib/dayKey";
+import { timeOf } from "../lib/dayKey";
+import {
+	durationMsOf,
+	formatDurationMs,
+	groupSessionsByDay,
+	plural,
+	rollupSessions,
+} from "../lib/sessionRollup";
 
 // A person's own read of the CLI sessions their machines have reported -
 // every row here already cleared apps/cli's reporting threshold, so unlike
@@ -16,13 +24,8 @@ import { dayKey, timeOf } from "../lib/dayKey";
 /** How long a session ran, or that it is still running. */
 function durationOf(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "Still running";
-	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
-	if (!Number.isFinite(ms) || ms < 0) return "";
-	const minutes = Math.round(ms / 60_000);
-	if (minutes < 1) return "<1m";
-	const hours = Math.floor(minutes / 60);
-	const mins = minutes % 60;
-	return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+	const ms = durationMsOf({ started_at: startedAt, ended_at: endedAt });
+	return ms === null ? "" : formatDurationMs(ms);
 }
 
 /**
@@ -68,6 +71,7 @@ export default function SessionsPage() {
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
 	const [ended, setEnded] = useState(false);
+	const [hasMore, setHasMore] = useState(false);
 
 	// A second, independent read, kept apart from the sessions fetch rather
 	// than folded into one Promise.all: a failure here says nothing about
@@ -122,11 +126,12 @@ export default function SessionsPage() {
 		// filter to mint a second query, so the only thing to guard against is
 		// an unmount mid-flight. Same reasoning as ActivityPage's own effect.
 		let active = true;
-		listSessions()
+		listSessions({ limit: 200 })
 			.then((page) => {
 				if (!active) return;
 				setSessions(page.sessions);
 				setCursor(page.has_more ? page.cursor : null);
+				setHasMore(page.has_more);
 			})
 			.catch((error: unknown) => {
 				if (!active) return;
@@ -143,10 +148,11 @@ export default function SessionsPage() {
 		setLoadingMore(true);
 		setMoreError(null);
 		try {
-			const page = await listSessions({ cursor });
+			const page = await listSessions({ cursor, limit: 200 });
 			setSessions((current) => [...(current ?? []), ...page.sessions]);
 			setCursor(page.has_more ? page.cursor : null);
 			setEnded(!page.has_more);
+			setHasMore(page.has_more);
 		} catch (error) {
 			// The pages already loaded stay. A failed append is a missing tail.
 			setMoreError(describeError(error, "Could not load more sessions."));
@@ -226,25 +232,17 @@ export default function SessionsPage() {
 		);
 	}
 
-	// Grouped the same way ActivityPage groups events: a Map keyed by day
-	// rather than merging same-day sessions that are merely adjacent in
-	// `sessions`, since two sessions from different machines can commit with
-	// the same `started_at` second and arrive in either order.
-	const groups = new Map<string, SessionSummary[]>();
-	for (const session of sessions) {
-		const day = dayKey(session.started_at);
-		const existing = groups.get(day);
-		if (existing) existing.push(session);
-		else groups.set(day, [session]);
-	}
-	const days = [...groups.entries()].map(([day, daySessions]) => ({
-		day,
-		sessions: daySessions,
-	}));
-
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
-			{days.map((group) => (
+			<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
+
+			{/* Same grouping rollupSessions's own day totals use - see
+			    groupSessionsByDay's doc comment in sessionRollup.ts for why a
+			    Map keyed by day is used rather than merging same-day sessions
+			    that are merely adjacent in `sessions`. Sharing the function
+			    keeps the header's day order and this feed's day order
+			    structurally identical rather than independently maintained. */}
+			{groupSessionsByDay(sessions).map((group) => (
 				<Panel key={group.day} title={group.day} icon="Monitor">
 					{group.sessions.map((session) => (
 						<div
@@ -252,6 +250,10 @@ export default function SessionsPage() {
 							// every machine this account has, and two machines can each
 							// mint their own session id independently.
 							key={`${session.machine_id}:${session.session_id}`}
+							// Lets tests count the rows actually rendered rather than
+							// trust a fixture's own length - see sessions-page.test.tsx's
+							// header-totals test.
+							data-testid="session-row"
 							style={{
 								display: "flex",
 								flexWrap: "wrap",
@@ -266,8 +268,13 @@ export default function SessionsPage() {
 								{durationOf(session.started_at, session.ended_at)}
 							</span>
 							<span style={{ flex: "none" }}>
-								{session.event_count.toLocaleString()} events
+								{plural(session.prompts, "prompt")}
 							</span>
+							{session.compactions ? (
+								<span style={{ flex: "none" }}>
+									{plural(session.compactions, "compaction")}
+								</span>
+							) : null}
 							<span style={{ color: PALETTE.muted }}>
 								{shapeOf(session.counts_by_prefix)}
 							</span>

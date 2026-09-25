@@ -62,6 +62,16 @@ export interface SessionsPage {
 
 export interface ListSessionsOptions {
 	cursor?: string | null;
+	/**
+	 * How many summaries to ask for. The route clamps this at
+	 * BROWSE_MAX_LIMIT (200) rather than rejecting an over-large value, so a
+	 * caller asking for more simply gets the ceiling.
+	 *
+	 * SessionsPage asks for 200 so its summary header covers the whole
+	 * history in one request. The header stops claiming a total when
+	 * `has_more` comes back true - see components/SessionsSummary.tsx.
+	 */
+	limit?: number;
 }
 
 /**
@@ -76,6 +86,7 @@ export function listSessions(
 ): Promise<SessionsPage> {
 	const query = new URLSearchParams();
 	if (options.cursor) query.set("cursor", options.cursor);
+	if (options.limit) query.set("limit", String(options.limit));
 
 	const search = query.toString();
 	return apiClient.get<SessionsPage>(
