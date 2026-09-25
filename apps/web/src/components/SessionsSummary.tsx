@@ -45,6 +45,9 @@ export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 	return (
 		<Panel title="What you loaded" icon="Monitor">
 			<div
+				// Per-day rows also render "N sessions", so position-based queries
+				// break if Panel's structure changes. The attribute names what the
+				// test needs, independent of Panel's internal organization.
 				data-testid="sessions-headline"
 				style={{ marginBottom: "var(--space-3)" }}
 			>
