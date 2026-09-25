@@ -21,10 +21,18 @@ export interface DayRollup {
 	durationMs: number;
 }
 
+export interface DayGroup {
+	day: string;
+	sessions: SessionSummary[];
+}
+
 export interface Rollup {
 	sessions: number;
 	durationMs: number;
-	/** Newest day first, matching the order the page renders panels in. */
+	/**
+	 * Newest day first. Sorted here rather than inherited from input order,
+	 * so this does not depend on the API's ordering.
+	 */
 	days: DayRollup[];
 	/** "Sep 3 – Sep 24", or "" when there are no sessions. */
 	range: string;
@@ -36,12 +44,24 @@ export interface Rollup {
 }
 
 /** How long a session ran, in ms, or null while it is still running. */
-function durationMsOf(session: SessionSummary): number | null {
+export function durationMsOf(
+	session: Pick<SessionSummary, "started_at" | "ended_at">,
+): number | null {
 	if (!session.ended_at) return null;
 	const ms =
 		new Date(session.ended_at).getTime() -
 		new Date(session.started_at).getTime();
 	return Number.isFinite(ms) && ms >= 0 ? ms : null;
+}
+
+/**
+ * The count, formatted, with `singular` pluralized by a plain trailing "s" -
+ * every word this app counts (session, prompt, compaction, day) pluralizes
+ * that way, so one helper covers all of them rather than a ternary at each
+ * call site.
+ */
+export function plural(n: number, singular: string): string {
+	return `${n.toLocaleString()} ${n === 1 ? singular : `${singular}s`}`;
 }
 
 /**
@@ -72,15 +92,42 @@ export function formatRange(firstIso: string, lastIso: string): string {
 	return a === b ? a : `${a} – ${b}`;
 }
 
+/**
+ * Groups sessions into one bucket per calendar day, newest day first, with
+ * sessions within each day newest first too.
+ *
+ * A Map keyed by day rather than merging same-day sessions that are merely
+ * adjacent in `sessions`, since two sessions from different machines can
+ * commit with the same `started_at` second and arrive in either order.
+ * Shared by SessionsPage's row grouping and rollupSessions's day totals
+ * below, so the two orderings are the same code rather than two copies that
+ * can drift the way they once did.
+ */
+export function groupSessionsByDay(sessions: SessionSummary[]): DayGroup[] {
+	const groups = new Map<string, SessionSummary[]>();
+	for (const session of sessions) {
+		const day = dayKey(session.started_at);
+		const existing = groups.get(day);
+		if (existing) existing.push(session);
+		else groups.set(day, [session]);
+	}
+
+	const sorted = [...groups.entries()].map(([day, daySessions]) => ({
+		day,
+		sessions: [...daySessions].sort((a, b) =>
+			b.started_at.localeCompare(a.started_at),
+		),
+	}));
+
+	return sorted.sort((a, b) =>
+		b.sessions[0].started_at.localeCompare(a.sessions[0].started_at),
+	);
+}
+
 export function rollupSessions(
 	sessions: SessionSummary[],
 	hasMore: boolean,
 ): Rollup {
-	interface DayRollupInternal extends DayRollup {
-		newestStartedAt: string;
-	}
-
-	const days = new Map<string, DayRollupInternal>();
 	let durationMs = 0;
 	let longest: SessionSummary | null = null;
 	let longestMs = -1;
@@ -88,30 +135,14 @@ export function rollupSessions(
 	let latest: string | null = null;
 
 	for (const session of sessions) {
-		const day = dayKey(session.started_at);
-		const bucket = days.get(day) ?? {
-			day,
-			sessions: 0,
-			durationMs: 0,
-			newestStartedAt: session.started_at,
-		};
-		bucket.sessions += 1;
-
-		// Track the newest timestamp for this day for sorting.
-		if (session.started_at > bucket.newestStartedAt) {
-			bucket.newestStartedAt = session.started_at;
-		}
-
 		const ms = durationMsOf(session);
 		if (ms !== null) {
 			durationMs += ms;
-			bucket.durationMs += ms;
 			if (ms > longestMs) {
 				longestMs = ms;
 				longest = session;
 			}
 		}
-		days.set(day, bucket);
 
 		if (earliest === null || session.started_at < earliest) {
 			earliest = session.started_at;
@@ -121,16 +152,19 @@ export function rollupSessions(
 		}
 	}
 
-	// Sort days newest first by the newest timestamp seen per day,
-	// then strip the internal timestamp field before returning.
-	const sortedDays = [...days.values()]
-		.sort((a, b) => b.newestStartedAt.localeCompare(a.newestStartedAt))
-		.map(({ newestStartedAt, ...rest }) => rest);
+	const days = groupSessionsByDay(sessions).map((group) => ({
+		day: group.day,
+		sessions: group.sessions.length,
+		durationMs: group.sessions.reduce(
+			(sum, s) => sum + (durationMsOf(s) ?? 0),
+			0,
+		),
+	}));
 
 	return {
 		sessions: sessions.length,
 		durationMs,
-		days: sortedDays,
+		days,
 		range: earliest && latest ? formatRange(earliest, latest) : "",
 		longest,
 		longestMs: longestMs >= 0 ? longestMs : null,

@@ -5,6 +5,7 @@ import type { SessionSummary } from "../api/sessionsApi";
 import {
 	formatDurationMs,
 	formatRange,
+	groupSessionsByDay,
 	rollupSessions,
 } from "../lib/sessionRollup";
 
@@ -191,5 +192,56 @@ describe("rollupSessions", () => {
 		expect(result.range).toBe("");
 		expect(result.longest).toBeNull();
 		expect(result.days).toEqual([]);
+	});
+});
+
+describe("groupSessionsByDay", () => {
+	// The bug I3 closed: SessionsPage used to build this same grouping with
+	// its own Map loop, which preserved input order rather than sorting -
+	// correct only because the API happens to return newest-first today.
+	// This pins the guarantee directly, independent of input order.
+	it("returns newest day first from deliberately unsorted input", () => {
+		const groups = groupSessionsByDay([
+			session({
+				session_id: "middle",
+				started_at: "2026-09-22T10:00:00Z",
+				ended_at: "2026-09-22T11:00:00Z",
+			}),
+			session({
+				session_id: "newest",
+				started_at: "2026-09-24T10:00:00Z",
+				ended_at: "2026-09-24T10:30:00Z",
+			}),
+			session({
+				session_id: "oldest",
+				started_at: "2026-09-20T10:00:00Z",
+				ended_at: "2026-09-20T10:30:00Z",
+			}),
+		]);
+		expect(groups.map((g) => g.day)).toEqual([
+			"Thursday, September 24",
+			"Tuesday, September 22",
+			"Sunday, September 20",
+		]);
+	});
+
+	it("orders sessions within a day newest first too", () => {
+		const groups = groupSessionsByDay([
+			session({
+				session_id: "earlier",
+				started_at: "2026-09-24T08:00:00Z",
+				ended_at: "2026-09-24T08:30:00Z",
+			}),
+			session({
+				session_id: "later",
+				started_at: "2026-09-24T14:00:00Z",
+				ended_at: "2026-09-24T14:30:00Z",
+			}),
+		]);
+		expect(groups).toHaveLength(1);
+		expect(groups[0].sessions.map((s) => s.session_id)).toEqual([
+			"later",
+			"earlier",
+		]);
 	});
 });
