@@ -393,6 +393,38 @@ fi
 
 rm -rf "${dash_dir}"
 
+# The funnel used to group by a metric.name column, so every counter the site
+# emitted appeared without anyone listing it. A series names exactly one
+# metric, so the steps are now enumerated - and an enumeration silently goes
+# stale the day someone adds a seventh counter. This is the check that stops
+# the funnel quietly stopping short.
+#
+# Only counters are compared. waitlist.submit is a SPAN name
+# (waitlist-telemetry.ts:82), not a metric, which is why this reads
+# WAITLIST_METRICS rather than grepping every quoted waitlist.* string - the
+# looser version reports a false missing step.
+telemetry="${SCRIPT_DIR}/../../apps/website/src/lib/waitlist-telemetry.ts"
+funnel="${SCRIPT_DIR}/dashboards/waitlist-funnel.json"
+
+if [[ -r "${telemetry}" && -r "${funnel}" ]]; then
+	missing=""
+	while IFS= read -r metric; do
+		[[ -n "${metric}" ]] || continue
+		grep -q "${metric}," "${funnel}" || missing+=" ${metric}"
+	done < <(sed -n '/export const WAITLIST_METRICS/,/} as const/p' "${telemetry}" |
+		grep -oE '"waitlist\.[a-z_]+"' | tr -d '"')
+
+	if [[ -z "${missing}" ]]; then
+		pass "every counter in WAITLIST_METRICS appears in the funnel"
+	else
+		fail "every counter in WAITLIST_METRICS appears in the funnel" \
+			"not plotted:${missing}"
+	fi
+else
+	fail "the funnel can be compared against WAITLIST_METRICS" \
+		"could not read ${telemetry} or ${funnel}"
+fi
+
 for file in "${SCRIPT_DIR}"/dashboards/*.json; do
 	name="$(basename "${file}")"
 	if jq -e . "${file}" >/dev/null 2>&1; then
