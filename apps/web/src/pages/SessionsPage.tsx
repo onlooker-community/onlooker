@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { listMachines } from "../api/machinesApi";
+import { listMachines, type Machine } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
@@ -57,8 +57,37 @@ function shapeOf(counts: Record<string, number>): string {
  */
 type MachinesCheck =
 	| { kind: "pending" }
-	| { kind: "known"; hasMachines: boolean }
+	| { kind: "known"; machines: Machine[] }
 	| { kind: "failed" };
+
+/**
+ * Whether any machine on this account has ever reported.
+ *
+ * Derived rather than stored, so the one read answers both questions it is
+ * needed for - which empty state is true, and what to call the machine a row
+ * came from.
+ *
+ * Revoked machines COUNT. The question is about the past, and revoking a
+ * token stops it reporting anything new rather than un-sending what it
+ * already sent. Excluding them told someone whose only machine had synced,
+ * stayed under the threshold, and was later revoked to go connect a machine -
+ * advice that is both false and useless. See onlooker-kipn.3.
+ */
+function hasSynced(machines: Machine[]): boolean {
+	return machines.some((m) => m.last_used_at !== null);
+}
+
+/**
+ * What to call the machine a session came from.
+ *
+ * Sessions outlive the machines that reported them: revoke or delete a token
+ * and the history it already sent stays in the feed. The id the API returns
+ * is a token id rather than a name, so echoing it would be noise - this says
+ * the name is gone instead of pretending an id is one.
+ */
+function machineName(machines: Machine[], machineId: string): string {
+	return machines.find((m) => m.id === machineId)?.name ?? "unknown machine";
+}
 
 export default function SessionsPage() {
 	const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
@@ -104,12 +133,7 @@ export default function SessionsPage() {
 			try {
 				const { machines } = await listMachines();
 				if (!isActive()) return;
-				setMachinesCheck({
-					kind: "known",
-					hasMachines: machines.some(
-						(m) => m.revoked_at === null && m.last_used_at !== null,
-					),
-				});
+				setMachinesCheck({ kind: "known", machines });
 			} catch (error) {
 				if (!isActive()) return;
 				setMachinesCheck({ kind: "failed" });
@@ -204,7 +228,7 @@ export default function SessionsPage() {
 		// to go connect one would be exactly the lie LessonsPage's own empty
 		// states were built to avoid - see that page's comment on an empty
 		// filter result and an empty pool.
-		if (!machinesCheck.hasMachines) {
+		if (!hasSynced(machinesCheck.machines)) {
 			return (
 				<div style={{ maxWidth: "640px" }}>
 					<EmptyState
@@ -264,6 +288,18 @@ export default function SessionsPage() {
 							<span style={{ color: "var(--ink-dim)", flex: "none" }}>
 								{timeOf(session.started_at)}
 							</span>
+							{/*
+							 * Omitted rather than blank while the machines read is in
+							 * flight or failed. The two reads are independent, so rows can
+							 * render before this one lands; an empty span would still take
+							 * its gap and leave a hole that reads as a missing value
+							 * rather than as one not yet known.
+							 */}
+							{machinesCheck.kind === "known" ? (
+								<span style={{ flex: "none" }}>
+									{machineName(machinesCheck.machines, session.machine_id)}
+								</span>
+							) : null}
 							<span style={{ flex: "none" }}>
 								{durationOf(session.started_at, session.ended_at)}
 							</span>
