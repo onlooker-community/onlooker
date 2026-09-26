@@ -55,17 +55,29 @@ takes away from reading them.
 
 ## Why `prompts` is the field that matters *(measured)*
 
-`event_count` counts plugin telemetry. `~/.onlooker` holds stores for
-archivist, assayer, bursar, cartographer, compass, counsel, curator, echo,
-historian, librarian, lineage, scribe, tribunal and warden. A session that
-opens and closes immediately still fires SessionStart across all of them, so 20
-events is background noise and a threshold on `event_count` is a threshold on
-how many plugins are installed.
+> **Corrected 2026-09-26.** The paragraph that stood here claimed
+> `event_count` counts plugin telemetry, and that "a threshold on
+> `event_count` is a threshold on how many plugins are installed." That is
+> false. A full scan of every event in `~/.onlooker/session-history` returns
+> four prefixes and no others — `session` 63,037, `tool` 42,720, `skill` 933,
+> `task` 31. Not one plugin event enters that store; the plugins write to
+> their own directories. The claim was asserted from the presence of those
+> directories without checking what the file actually contains. See
+> `2026-09-26-what-counts-as-a-session-design.md`.
+
+`event_count` counts session lifecycle events plus real work — `tool` calls
+and `skill` invocations dominate it. So the 20-event threshold at
+`apps/cli/src/sessions.ts:47` is twenty pieces of actual work, and a session
+that starts, does nothing and ends carries two or three events and never
+approaches it. The threshold is sound, for a better reason than this document
+originally gave.
 
 `prompts` increments only on `session.prompt`
-(`apps/cli/src/sessions.ts:128`), one per human turn. No plugin can inflate it.
-That is why the threshold works in practice despite measuring the wrong thing,
-and it is why `prompts` belongs on the row.
+(`apps/cli/src/sessions.ts:128`), one per human turn. It is the one field no
+automation inflates, which is why it separates "I asked once and it ran for an
+hour" from "I drove this for two hours" — the distinction the row exists to
+show — and why it belongs there even though `event_count` is a fair proxy for
+effort.
 
 ## What the page answers *(approved)*
 
