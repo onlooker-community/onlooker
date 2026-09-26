@@ -84,6 +84,24 @@ const NOT_YET_SYNCED = {
 	],
 };
 
+// A machine that DID sync, never cleared the reporting threshold, and was
+// revoked afterwards. Revoking a token stops it reporting anything new; it
+// cannot un-send what it already reported. So this account has synced, and
+// the empty state that asks about the past has to say so.
+const REVOKED_AFTER_SYNC = {
+	machines: [
+		{
+			id: "m3",
+			name: "old laptop",
+			created_at: "2026-08-01T00:00:00Z",
+			last_used_at: "2026-09-01T00:00:00Z",
+			revoked_at: "2026-09-05T00:00:00Z",
+			inventory_at: null,
+			plugin_count: null,
+		},
+	],
+};
+
 // The shape from the brief's step 2: 6,311 tool, 100 session, 81 skill.
 const ONE_SESSION = {
 	sessions: [
@@ -257,9 +275,47 @@ describe("/sessions when nothing has synced", () => {
 		expect(await screen.findByText(/no machine has synced/i)).toBeDefined();
 		expect(mocks.listMachines).toHaveBeenCalledTimes(2);
 	});
+
+	// The question this empty state asks is about the past - has anything
+	// ever reported - and revoking a token does not reach backwards. A
+	// machine that synced, stayed under the threshold, and was revoked later
+	// is an account that HAS synced, so telling its owner to go connect a
+	// machine is false and sends them somewhere that will not help.
+	it("says nothing cleared the threshold when the only synced machine was later revoked", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockResolvedValue(REVOKED_AFTER_SYNC);
+		renderAppAt("/sessions");
+
+		expect(await screen.findByText(/threshold/i)).toBeDefined();
+		expect(screen.queryByText(/no machine has synced/i)).toBeNull();
+	});
 });
 
 describe("/sessions with a session logged", () => {
+	// Two machines reporting on the same day otherwise produce rows that look
+	// identical. The id the API returns is a token id, not a name, so the
+	// name has to come from the machines list the page already reads to tell
+	// its two empty states apart.
+	it("names the machine a session came from", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+
+		expect(await screen.findByText(/work laptop/i)).toBeDefined();
+	});
+
+	// A session outlives the machine that reported it - revoke or delete the
+	// token and the history it already sent stays. The row still has to say
+	// something, and echoing a raw token id would be worse than admitting the
+	// name is gone.
+	it("falls back when a session's machine is no longer listed", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		mocks.listMachines.mockResolvedValue(NO_MACHINES);
+		renderAppAt("/sessions");
+
+		expect(await screen.findByText(/unknown machine/i)).toBeDefined();
+	});
+
 	it("renders a session's shape", async () => {
 		renderAppAt("/sessions");
 
