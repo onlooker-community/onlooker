@@ -342,6 +342,75 @@ else
 fi
 
 echo
+echo "sentry/apply: dashboards"
+
+# A dashboard's environment is an ARRAY where a workflow's is a string, so the
+# workflow guard does not transfer and this has its own. The case that matters
+# is not an unscoped dashboard but a PARTIALLY scoped one: ["production",
+# "staging"] would satisfy any contains-check while quietly mixing somebody's
+# work in progress into the funnel, and the chart would render a plausible
+# wrong number rather than erroring.
+# Pointed at a fixture DIRECTORY, not passed as an argument. Positional args
+# populate RULE_FILES, so a dashboard handed to the script that way is refused
+# by the workflow shape check ("needs a .project, a .detectorType...") long
+# before the dashboard guard runs - a test that passes without ever exercising
+# what its name claims. Caught that way first; this is the corrected form.
+dash_dir="$(mktemp -d -t sentry-dash-XXXXXX)"
+
+jq '.environment = ["staging"]' \
+	"${SCRIPT_DIR}/dashboards/waitlist-funnel.json" >"${dash_dir}/d.json"
+staging_out="$(env -u SENTRY_AUTH_TOKEN SENTRY_DASHBOARDS_DIR="${dash_dir}" \
+	"${APPLY}" --dry-run 2>&1 || true)"
+if [[ "${staging_out}" == *"REFUSED"*'expected ["production"]'* ]]; then
+	pass "refuses a dashboard scoped to staging, by the dashboard guard"
+else
+	fail "refuses a dashboard scoped to staging, by the dashboard guard" \
+		"${staging_out}"
+fi
+
+# The one a contains-check would wave through, and the reason the guard
+# compares the whole array rather than asking whether production is in it.
+jq '.environment = ["production", "staging"]' \
+	"${SCRIPT_DIR}/dashboards/waitlist-funnel.json" >"${dash_dir}/d.json"
+both_out="$(env -u SENTRY_AUTH_TOKEN SENTRY_DASHBOARDS_DIR="${dash_dir}" \
+	"${APPLY}" --dry-run 2>&1 || true)"
+if [[ "${both_out}" == *"REFUSED"* ]]; then
+	pass "refuses a dashboard scoped to production AND staging"
+else
+	fail "refuses a dashboard scoped to production AND staging" "${both_out}"
+fi
+
+# And the positive case, so the two refusals are not passing because the
+# dashboard path is simply broken for everything.
+cp "${SCRIPT_DIR}/dashboards/waitlist-funnel.json" "${dash_dir}/d.json"
+good_out="$(env -u SENTRY_AUTH_TOKEN SENTRY_DASHBOARDS_DIR="${dash_dir}" \
+	"${APPLY}" --dry-run 2>&1 || true)"
+if [[ "${good_out}" == *"would apply  dashboard: Waitlist funnel"* ]]; then
+	pass "accepts the shipped dashboard"
+else
+	fail "accepts the shipped dashboard" "${good_out}"
+fi
+
+rm -rf "${dash_dir}"
+
+for file in "${SCRIPT_DIR}"/dashboards/*.json; do
+	name="$(basename "${file}")"
+	if jq -e . "${file}" >/dev/null 2>&1; then
+		pass "${name} is valid JSON"
+	else
+		fail "${name} is valid JSON" "jq could not parse it"
+		continue
+	fi
+
+	if [[ "$(jq -c '.environment' "${file}")" == '["production"]' ]]; then
+		pass "${name} is scoped to production alone"
+	else
+		fail "${name} is scoped to production alone" \
+			"$(jq -c '.environment' "${file}")"
+	fi
+done
+
+echo
 echo "sentry/apply: every payload directory is applied or explained"
 
 # The bug class this guards, found four times in one evening on 2026-09-25:
@@ -398,6 +467,26 @@ while IFS= read -r entry; do
 			"no such directory - remove the stale entry"
 	fi
 done < <(grep -vE '^[[:space:]]*(#|$)' "${unapplied_file}" 2>/dev/null | awk '{print $1}')
+
+# The contradiction the two checks above cannot see between them. The loop
+# over directories stops at the first match - an applied directory passes and
+# `continue`s before unapplied.txt is ever consulted - and the staleness loop
+# only asks whether an entry's directory still exists, which it does. So a
+# directory that is BOTH applied and quarantined satisfies both and is caught
+# by neither.
+#
+# That is not hypothetical: it is the exact state wiring up a quarantined
+# directory creates. Whoever does it has to remember to delete the entry, and
+# the file whose whole job is noticing forgotten payloads would not notice.
+while IFS= read -r name; do
+	[[ -n "${name}" ]] || continue
+	if grep -qE "^${name}[[:space:]]+" "${unapplied_file}" 2>/dev/null; then
+		fail "'${name}' is applied, so it is not also unapplied" \
+			"apply.sh applies it AND unapplied.txt still excuses it - delete the entry"
+	else
+		pass "'${name}' is applied and carries no stale quarantine entry"
+	fi
+done <<<"${applied}"
 
 echo
 if ((failures > 0)); then

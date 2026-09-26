@@ -76,6 +76,11 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._json(200, DETECTORS)
         if self.path.endswith("/workflows/"):
             return self._json(200, WORKFLOWS)
+        # Empty on purpose: a first apply has nothing to match, so the
+        # dashboard path takes POST. The PUT branch is exercised by asserting
+        # on the verb the script prints, not by seeding a match here.
+        if self.path.endswith("/dashboards/"):
+            return self._json(200, [])
         self._json(404, {"detail": "no such endpoint"})
 
     def do_POST(self):
