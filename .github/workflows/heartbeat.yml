@@ -34,10 +34,10 @@ concurrency:
 jobs:
   heartbeat:
     name: Check all environments
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       # THIS WORKFLOW IS NOT MONITORED, and that is a decision rather than an
       # oversight. It used to check in to a Sentry cron monitor here.
