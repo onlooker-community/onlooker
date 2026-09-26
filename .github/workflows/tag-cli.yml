@@ -32,7 +32,7 @@ concurrency:
 jobs:
   tag:
     name: Tag the release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Read-only on purpose. The tag is pushed with the App token, and this
     # makes that structural rather than a convention: GITHUB_TOKEN cannot push
     # here even if something later reintroduces it as the credential, so the
@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
         with:
           # Existing tags are the state this job reads to decide whether it has
           # already run for this version. The default shallow checkout fetches

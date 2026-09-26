@@ -102,9 +102,9 @@ jobs:
   # workspace-specific. Adding the missing eight would have run them ten times.
   quality:
     name: Lint & TypeCheck
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       # The heartbeat's credential guard decides whether the authenticated
       # checks run at all. It is the one piece of that script that can fail
@@ -200,13 +200,13 @@ jobs:
   # ============================================================================
   contract-version:
     name: Contract version bumped with schema
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Pull requests only: the comparison is against the PR's base, which a push
     # to main does not have.
     if: github.event_name == 'pull_request'
     steps:
       # Full history so the base ref is available to diff against.
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
         with:
           fetch-depth: 0
 
@@ -241,7 +241,7 @@ jobs:
 
   cli-version:
     name: CLI released with its source
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Pull requests only, for contract-version's reason: the comparison is
     # against the PR's base, which a push to main does not have.
     if: github.event_name == 'pull_request'
@@ -252,7 +252,7 @@ jobs:
       pull-requests: read
     steps:
       # Full history so the base ref is available to diff against.
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
         with:
           fetch-depth: 0
 
@@ -280,7 +280,7 @@ jobs:
   # ============================================================================
   publish-contract:
     name: Publish lesson contract
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: test
     # Merges to main only. Never publish from a pull request.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -292,7 +292,7 @@ jobs:
       # naming this repository and this workflow file.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -411,11 +411,11 @@ jobs:
   # ============================================================================
   test:
     name: Build & Test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: quality
     if: success()
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -452,7 +452,7 @@ jobs:
   # ============================================================================
   changes:
     name: Which surfaces changed
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Narrower than the workflow default, and only what the question needs:
     # read the repository, read what has been deployed to it.
     permissions:
@@ -461,7 +461,7 @@ jobs:
     outputs:
       deployable: ${{ steps.filter.outputs.deployable }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
         with:
           # The base of the diff is now whatever commit last reached an
           # environment, which can be many commits back. A shallow fetch does
@@ -533,7 +533,7 @@ jobs:
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [test, changes]
     # Two staging deploys must never run at once - they migrate the same D1
     # database and deploy over the same workers - so they queue.
@@ -577,7 +577,7 @@ jobs:
       name: staging
       url: https://app-staging.onlooker.dev
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -686,7 +686,7 @@ jobs:
   # ============================================================================
   deploy-production:
     name: Deploy to Production
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Production deploys queue, for the same migration reason as staging.
     #
     # THE KNOWN LIMIT, so nobody rediscovers it the way it was found: a run
@@ -721,7 +721,7 @@ jobs:
       name: production
       url: https://app.onlooker.dev
     steps:
-      - uses: actions/checkout@v5
+      - uses: useblacksmith/checkout@v1
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -861,7 +861,7 @@ jobs:
   # worse than not gating it at all.
   required:
     name: All checks passed
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [quality, test, contract-version, cli-version, changes]
     # Without always(), one failed dependency skips the gate rather than
     # failing it, and a skipped required check is pending forever.
