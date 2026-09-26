@@ -51,6 +51,11 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly RULES_DIR="${SCRIPT_DIR}/rules"
+# Overridable for the same reason SENTRY_API_BASE is: positional arguments go
+# to RULE_FILES, so without this there is no way to point the dashboard path at
+# a fixture, and its guard can only be tested through a file that the WORKFLOW
+# path rejects first - which is a test that passes for the wrong reason.
+readonly DASHBOARDS_DIR="${SENTRY_DASHBOARDS_DIR:-${SCRIPT_DIR}/dashboards}"
 readonly ORG="${SENTRY_ORG:-onlooker-vw}"
 readonly API="${SENTRY_API_BASE:-https://sentry.io/api/0}"
 
@@ -71,6 +76,7 @@ while (($# > 0)); do
 		# that ships. alerts/ was exactly that for twelve days.
 		--applied-dirs)
 			basename "${RULES_DIR}"
+			basename "${DASHBOARDS_DIR}"
 			exit 0
 			;;
 		-*)
@@ -285,6 +291,78 @@ apply_workflow() {
 	return 1
 }
 
+# A dashboard's environment is an ARRAY, where a workflow's is a string. The
+# two payloads are not variations on one shape - they go to different
+# endpoints with different vocabularies for the same data, and
+# dashboards/waitlist-funnel.json's own comment records that all three of its
+# spellings (widget_type, the aggregate, the tags[] form) fail by rendering an
+# EMPTY CHART rather than by erroring. That is why this has its own assertion
+# instead of reusing assert_production_scoped: a dashboard scoped
+# ["production","staging"] would pass a contains-check and quietly mix
+# somebody's work in progress into the funnel.
+assert_dashboard_production_scoped() {
+	local file="$1" environments
+	environments="$(jq -c '.environment // empty' "${file}")"
+
+	if [[ "${environments}" != '["production"]' ]]; then
+		echo "  REFUSED  ${file##*/}: environment is ${environments:-unset}, expected [\"production\"]" >&2
+		return 1
+	fi
+}
+
+# Dashboards are matched by title, the way workflows are matched by name: the
+# id is assigned by Sentry and writing it into the file would put a number
+# nobody can review into the diff. The cost is the same one the workflow path
+# already accepts - rename the title here and the next run creates a second
+# dashboard rather than renaming the first.
+apply_dashboard() {
+	local file="$1"
+	local title payload response status existing
+
+	title="$(jq -r '.title' "${file}")"
+
+	if ((DRY_RUN == 1)); then
+		echo "  would apply  dashboard: ${title}"
+		return 0
+	fi
+
+	# _comment is ours, not Sentry's. Everything else in the file is the
+	# payload, so the file stays readable as the thing it actually sends.
+	payload="$(jq -c 'del(._comment)' "${file}")"
+
+	response="$(api GET "/organizations/${ORG}/dashboards/")"
+	status="$(status_of "${response}")"
+	if [[ "${status}" != "200" ]]; then
+		echo "  ERROR    could not list dashboards (HTTP ${status})" >&2
+		deprecation_note
+		return 1
+	fi
+
+	existing="$(body_of "${response}" |
+		jq -r --arg title "${title}" '[.[] | select(.title == $title) | .id] | first // empty')"
+
+	local method path verb
+	if [[ -n "${existing}" ]]; then
+		method=PUT path="/organizations/${ORG}/dashboards/${existing}/" verb=updated
+	else
+		method=POST path="/organizations/${ORG}/dashboards/" verb=created
+	fi
+
+	response="$(api "${method}" "${path}" "${payload}")"
+	status="$(status_of "${response}")"
+
+	if [[ "${status}" == "200" || "${status}" == "201" ]]; then
+		echo "  ok       ${verb}: dashboard ${title}"
+		return 0
+	fi
+
+	echo "  ERROR    dashboard ${title} rejected (HTTP ${status}):" >&2
+	body_of "${response}" | head -c 600 | sed 's/^/             /' >&2
+	echo >&2
+	deprecation_note
+	return 1
+}
+
 # Workflows that exist in Sentry, listen to one of our projects, and are in no
 # file here.
 #
@@ -411,8 +489,39 @@ if ((DRY_RUN == 0)); then
 	report_drift
 fi
 
+# Dashboards, after the workflows. Ordered this way because an alert that does
+# not fire is a worse outage than a chart that does not render, so the thing
+# that pages somebody goes first and a dashboard failure cannot stop it.
+declare -a DASHBOARD_FILES=()
+while IFS= read -r file; do DASHBOARD_FILES+=("${file}"); done \
+	< <(find "${DASHBOARDS_DIR}" -maxdepth 1 -name '*.json' 2>/dev/null | sort)
+
+if ((${#DASHBOARD_FILES[@]} > 0)); then
+	echo
+	if ((DRY_RUN == 1)); then
+		echo "sentry: ${#DASHBOARD_FILES[@]} dashboard(s) for ${ORG} (dry run, no requests made)"
+	else
+		echo "sentry: applying ${#DASHBOARD_FILES[@]} dashboard(s) to ${ORG}"
+	fi
+
+	for file in "${DASHBOARD_FILES[@]}"; do
+		if ! jq -e '.title and .widgets' "${file}" >/dev/null 2>&1; then
+			echo "  ERROR    ${file##*/} needs a .title and .widgets" >&2
+			failures=$((failures + 1))
+			continue
+		fi
+
+		assert_dashboard_production_scoped "${file}" || {
+			failures=$((failures + 1))
+			continue
+		}
+
+		apply_dashboard "${file}" || failures=$((failures + 1))
+	done
+fi
+
 if ((failures > 0)); then
-	echo "sentry: ${failures} workflow(s) did not apply" >&2
+	echo "sentry: ${failures} payload(s) did not apply" >&2
 	exit 1
 fi
 

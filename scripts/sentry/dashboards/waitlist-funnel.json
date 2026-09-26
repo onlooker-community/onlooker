@@ -4,20 +4,57 @@
 		"apps/website has emitted all six counters since PR #147 and nothing has",
 		"ever displayed them.",
 		"",
-		"Three things here were established against the live API on 2026-09-13,",
-		"because each of them fails by rendering an empty chart rather than by",
-		"erroring, and an empty funnel looks exactly like a funnel nobody entered:",
+		"Things here were established against the live API, because each of them",
+		"fails by rendering an empty chart rather than by erroring, and an empty",
+		"funnel looks exactly like a funnel nobody entered:",
 		"",
 		"1. widget_type is 'tracemetrics'. The alert API and the events API use",
 		"   DIFFERENT dataset vocabularies for the same data - alerts want",
 		"   'events_analytics_platform', queries want 'tracemetrics'. Neither",
 		"   accepts the other's spelling.",
-		"2. The aggregate is count(value), not count(). A bare count() is rejected",
-		"   with 'Invalid number of arguments for count'.",
+		"2. THE AGGREGATE NAMES THE METRIC, AND THAT IS THE WHOLE BALLGAME.",
+		"   The form is fn(value, <metric.name>, <type>, <unit>) - for these",
+		"   counters, sum(value,waitlist.submit_failed,counter,none). A bare",
+		"   count(value) with the metric put in `conditions` as",
+		"   'metric.name:waitlist.submit_failed' is ACCEPTED on write and",
+		"   returns nothing forever. Established 2026-09-26 by building one",
+		"   widget by hand and reading back what Sentry generated: the correct",
+		"   form returned 2, the count of events actually in the window.",
+		"   This is why every widget here names its metric and carries no",
+		"   metric.name condition, and it is also why the metric alert in",
+		"   ../alerts/ never fired - same dataset, same mistake.",
 		"3. looks_valid must be written 'tags[looks_valid,boolean]', WITH the type.",
 		"   Both 'looks_valid' and 'tags[looks_valid]' resolve to a string-typed",
 		"   attribute that does not exist and silently return null for every row -",
 		"   which reads as 'the attribute is not being sent' when it is.",
+		"4. THIS FILE IS snake_case; THE API ANSWERS IN camelCase. Sentry accepts",
+		"   widget_type and display_type on write and returns widgetType and",
+		"   displayType on read. So reading the live dashboard back with the keys",
+		"   written here returns null for both, which looks exactly like a",
+		"   dashboard whose widgets have lost their types. Established 2026-09-26",
+		"   while confirming the funnel survived: the widget really holds",
+		"   displayType 'bar' and widgetType 'tracemetrics'. Do not 'fix' this",
+		"   file to camelCase - the accepted form is what created the dashboard,",
+		"   and that is the only form with evidence behind it.",
+		"",
+		"5. THE LEGEND LIES, COSMETICALLY. 'Funnel by step' renders each series",
+		"   name against the widget's FIRST aggregate, so every entry reads",
+		"   '<step> : sum(waitlist.viewed)' and it looks as though six series",
+		"   are all plotting one metric. They are not - read the widget back and",
+		"   each query names its own. Checked 2026-09-26 after the legend raised",
+		"   exactly this alarm. The tell that it is only a label: the plotted",
+		"   series differ in color, height and date, which identical queries",
+		"   could not do.",
+		"",
+		"'Funnel by step' is SIX SERIES rather than one grouped query, and that is",
+		"forced rather than chosen. It used to group by a metric.name column and",
+		"let the rows fill in the steps. Since a series addresses exactly one",
+		"metric by name, there is nothing left to group by - the funnel has to be",
+		"enumerated. The cost is that adding a seventh counter to",
+		"apps/website/src/lib/waitlist-telemetry.ts does NOT appear here until",
+		"someone adds it below too, which is the kind of quiet omission this",
+		"whole directory exists to prevent. WAITLIST_METRICS in that file is the",
+		"list to check against.",
 		"",
 		"period is 30d to match trace metric retention. Measured the same day:",
 		"trace metrics go back ~30 days, logs ~90. Widen this and the funnel",
@@ -36,15 +73,54 @@
 			"display_type": "bar",
 			"widget_type": "tracemetrics",
 			"interval": "1d",
-			"limit": 10,
 			"queries": [
 				{
-					"name": "",
-					"fields": ["metric.name", "count(value)"],
-					"aggregates": ["count(value)"],
-					"columns": ["metric.name"],
-					"conditions": "metric.name:waitlist.*",
-					"orderby": "-count(value)"
+					"name": "viewed",
+					"fields": ["sum(value,waitlist.viewed,counter,none)"],
+					"aggregates": ["sum(value,waitlist.viewed,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
+				},
+				{
+					"name": "email started",
+					"fields": ["sum(value,waitlist.email_started,counter,none)"],
+					"aggregates": ["sum(value,waitlist.email_started,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
+				},
+				{
+					"name": "submitted",
+					"fields": ["sum(value,waitlist.submitted,counter,none)"],
+					"aggregates": ["sum(value,waitlist.submitted,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
+				},
+				{
+					"name": "succeeded",
+					"fields": ["sum(value,waitlist.submit_succeeded,counter,none)"],
+					"aggregates": ["sum(value,waitlist.submit_succeeded,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
+				},
+				{
+					"name": "failed",
+					"fields": ["sum(value,waitlist.submit_failed,counter,none)"],
+					"aggregates": ["sum(value,waitlist.submit_failed,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
+				},
+				{
+					"name": "abandoned",
+					"fields": ["sum(value,waitlist.abandoned,counter,none)"],
+					"aggregates": ["sum(value,waitlist.abandoned,counter,none)"],
+					"columns": [],
+					"conditions": "",
+					"orderby": ""
 				}
 			]
 		},
@@ -56,10 +132,10 @@
 			"queries": [
 				{
 					"name": "viewed",
-					"fields": ["count(value)"],
-					"aggregates": ["count(value)"],
+					"fields": ["sum(value,waitlist.viewed,counter,none)"],
+					"aggregates": ["sum(value,waitlist.viewed,counter,none)"],
 					"columns": [],
-					"conditions": "metric.name:waitlist.viewed",
+					"conditions": "",
 					"orderby": ""
 				}
 			]
@@ -73,11 +149,14 @@
 			"queries": [
 				{
 					"name": "",
-					"fields": ["tags[looks_valid,boolean]", "count(value)"],
-					"aggregates": ["count(value)"],
+					"fields": [
+						"tags[looks_valid,boolean]",
+						"sum(value,waitlist.submitted,counter,none)"
+					],
+					"aggregates": ["sum(value,waitlist.submitted,counter,none)"],
 					"columns": ["tags[looks_valid,boolean]"],
-					"conditions": "metric.name:waitlist.submitted",
-					"orderby": "-count(value)"
+					"conditions": "",
+					"orderby": "-sum(value,waitlist.submitted,counter,none)"
 				}
 			]
 		},
@@ -89,10 +168,10 @@
 			"queries": [
 				{
 					"name": "",
-					"fields": ["count(value)"],
-					"aggregates": ["count(value)"],
+					"fields": ["sum(value,waitlist.submit_failed,counter,none)"],
+					"aggregates": ["sum(value,waitlist.submit_failed,counter,none)"],
 					"columns": [],
-					"conditions": "metric.name:waitlist.submit_failed",
+					"conditions": "",
 					"orderby": ""
 				}
 			]
