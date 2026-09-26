@@ -14,12 +14,11 @@ import type {
 	ExecutionContext,
 	ScheduledController,
 } from "@cloudflare/workers-types";
-import { pruneSessionSummaries } from "./db/session-summaries.js";
 import { timedD1 } from "./db/timing.js";
-import { runHeartbeat } from "./heartbeat";
 import { preflightResponse, withCors } from "./middleware";
-import { monitor, monitored } from "./monitoring";
+import { monitored } from "./monitoring";
 import { dispatch, listRoutes } from "./router";
+import { runScheduled } from "./scheduled";
 import type { WorkerEnv } from "./types";
 
 /**
@@ -114,47 +113,11 @@ export default monitored({
 		env: WorkerEnv,
 		_ctx: ExecutionContext,
 	): Promise<void> {
-		const results = await runHeartbeat(env, {
-			fetch: (url) => fetch(String(url)),
-			monitor,
-		});
-
-		// One structured line, so the run is visible in Workers Logs even when
-		// every check passed - "it ran and found nothing wrong" and "it did not
-		// run" are different, and only this distinguishes them there.
-		console.log(
-			JSON.stringify({
-				event: "heartbeat",
-				environment: env.ENVIRONMENT ?? "unknown",
-				failed: results.filter((result) => !result.ok).length,
-				checks: results.map(({ label, ok }) => ({ label, ok })),
-			}),
-		);
-
-		// Retention cleanup, riding the same cron for the same reason the
-		// heartbeat does: this cron is outside GitHub's throttling (see
-		// runHeartbeat's doc comment on GitHub's scheduled workflows drifting
-		// to a three-hour cadence). Whether Cloudflare keeps its own schedule
-		// has not been measured.
-		//
-		// Caught rather than let through: this handler's other job is the
-		// production health check above, and a failed cleanup is not a reason
-		// for that check to stop running. Reported the same way a failed
-		// heartbeat check is - monitor.captureException, not a throw - so a
-		// broken prune shows up in the same place a broken heartbeat would,
-		// instead of failing this invocation silently the way an uncaught
-		// throw here would (the exact failure mode runHeartbeat itself is
-		// built to avoid).
-		try {
-			const pruned = await pruneSessionSummaries(env.DB);
-			console.log(
-				JSON.stringify({ event: "session_summaries_pruned", pruned }),
-			);
-		} catch (error) {
-			monitor.captureException(
-				error instanceof Error ? error : new Error(String(error)),
-				{ tags: { kind: "session_summaries_prune" } },
-			);
-		}
+		// The body lives in scheduled.ts so it can be tested. This signature
+		// belongs to the runtime, so there is nowhere to pass a fake through -
+		// which is why the heartbeat-before-prune ordering and the prune's
+		// try/catch went unverified by anything but hand inspection until
+		// onlooker-kipn.2. scheduled.test.ts pins both now.
+		await runScheduled(env);
 	},
 });
