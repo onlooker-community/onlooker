@@ -17,6 +17,7 @@
 
 import { TRACE_HEADERS } from "../monitoring";
 import type { WorkerEnv } from "../types";
+import type { RouteCors } from "./principal.js";
 
 const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
 // The trace headers are what let a request traced in apps/web continue into
@@ -64,20 +65,37 @@ function permittedOrigin(request: Request, env: WorkerEnv): string | null {
 /**
  * Apply the origin policy to a response.
  *
+ * `cors` defaults to "app", today's only behavior, so the root handler - which
+ * dispatches through no matched route and therefore has no `RouteCors` to pass
+ * - keeps the allowlist posture without having to name it.
+ *
  * Vary: Origin is not optional now that the answer depends on who asked. Without
  * it a shared cache can hand one site the response computed for another, or
- * cache the no-header refusal and lock out the real front end.
+ * cache the no-header refusal and lock out the real front end. A `"any"`
+ * response answers the same way regardless of Origin, so it has nothing to
+ * vary on.
  *
- * Note what is absent: Access-Control-Allow-Credentials. Echoing an origin and
- * allowing credentials is the pairing that turns a permissive allowlist into
- * session theft, and this API has no use for it - it authenticates with Bearer
- * tokens the browser attaches deliberately, not cookies it attaches on its own.
+ * Note what is absent from either branch: Access-Control-Allow-Credentials.
+ * Echoing an origin and allowing credentials is the pairing that turns a
+ * permissive allowlist into session theft, and this API has no use for it - it
+ * authenticates with Bearer tokens the browser attaches deliberately, not
+ * cookies it attaches on its own. For `"any"` that absence is load-bearing
+ * rather than incidental: a wildcard origin paired with credentials is exactly
+ * what the allowlist below exists to prevent.
  */
 export function withCors(
 	response: Response,
 	request: Request,
 	env: WorkerEnv,
+	cors: RouteCors = "app",
 ): Response {
+	if (cors === "any") {
+		response.headers.set("Access-Control-Allow-Origin", "*");
+		response.headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
+		response.headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
+		return response;
+	}
+
 	response.headers.append("Vary", "Origin");
 
 	const origin = permittedOrigin(request, env);

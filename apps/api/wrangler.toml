@@ -49,6 +49,9 @@ ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "http://localhost:5173"
+# Empty in every environment: nobody is an operator until someone is
+# deliberately granted it. See middleware/principal.ts.
+OPERATOR_USER_IDS = ""
 
 # `wrangler dev` is local-first, so this resolves to a SQLite file under
 # apps/api/.wrangler/ and never touches Cloudflare. database_id is required by
@@ -96,6 +99,9 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+# Empty in every environment: nobody is an operator until someone is
+# deliberately granted it. See middleware/principal.ts.
+OPERATOR_USER_IDS = ""
 # Same project as production; events are told apart by ENVIRONMENT above. A
 # var, not a secret - a DSN is an ingest address. Absent from development on
 # purpose, so local work does not report. See src/monitoring.ts.
@@ -155,6 +161,9 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+# Empty in every environment: nobody is an operator until someone is
+# deliberately granted it. See middleware/principal.ts.
+OPERATOR_USER_IDS = ""
 MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 
 # Move the worker toward the database instead of running it wherever the request

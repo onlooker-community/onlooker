@@ -1,11 +1,79 @@
 import { describe, expect, it } from "vitest";
-import { resolveRoute } from "./router";
+import { ROUTES, resolveRoute } from "./router";
+
+/**
+ * The routes that answer without any credential. This list is the point: an
+ * unauthenticated endpoint becomes an edit somebody reviews, rather than a
+ * function call somebody forgot.
+ */
+const EXPECTED_UNAUTHENTICATED = [
+	"POST /auth/signup",
+	"POST /auth/login",
+	"POST /auth/refresh",
+	"POST /auth/logout",
+	"POST /auth/forgot-password",
+	"GET /auth/reset-password/verify",
+	"POST /auth/reset-password",
+	"POST /auth/verify-email",
+	"POST /api/client-errors",
+	// Task 5 adds "GET /api/public/lessons/:id" here when the route exists.
+	// Listing it before then would commit a red test, and every commit on this
+	// branch is green.
+];
+
+/**
+ * The routes any origin may read. Kept separate from auth deliberately: login
+ * and signup are also unauthenticated and must stay locked to one origin,
+ * because a hostile page reading their responses is what made credential
+ * stuffing from arbitrary origins cheap.
+ *
+ * Empty until Task 5. That is the correct expectation right now: no route today
+ * should answer an arbitrary origin.
+ */
+const EXPECTED_ANY_ORIGIN: string[] = [];
+
+const label = (r: { method: string; path: string }) => `${r.method} ${r.path}`;
+
+describe("route table declarations", () => {
+	it("every route declares an auth mode", () => {
+		expect(ROUTES.filter((r) => !r.auth).map(label)).toEqual([]);
+	});
+
+	it("every route declares a cors posture", () => {
+		expect(ROUTES.filter((r) => !r.cors).map(label)).toEqual([]);
+	});
+
+	it("only the expected routes are unauthenticated", () => {
+		const actual = ROUTES.filter((r) => r.auth === "none")
+			.map(label)
+			.sort();
+		expect(actual).toEqual([...EXPECTED_UNAUTHENTICATED].sort());
+	});
+
+	it("only the expected routes are readable from any origin", () => {
+		const actual = ROUTES.filter((r) => r.cors === "any")
+			.map(label)
+			.sort();
+		expect(actual).toEqual([...EXPECTED_ANY_ORIGIN].sort());
+	});
+
+	it("no credential-taking route is readable from any origin", () => {
+		const both = ROUTES.filter((r) => r.cors === "any" && r.auth !== "none");
+		expect(both.map(label)).toEqual([]);
+	});
+});
 
 describe("resolveRoute", () => {
 	it("reaches the parameterized handler for a concrete id", () => {
 		const paramHandler = async () => new Response(null);
 		const routes = [
-			{ method: "DELETE" as const, path: "/things/:id", handler: paramHandler },
+			{
+				method: "DELETE" as const,
+				path: "/things/:id",
+				auth: "none" as const,
+				cors: "app" as const,
+				handler: paramHandler,
+			},
 		];
 
 		const route = resolveRoute(routes, "DELETE", "/things/abc");
@@ -15,7 +83,13 @@ describe("resolveRoute", () => {
 	it("does not let a parameter swallow an extra segment", () => {
 		const paramHandler = async () => new Response(null);
 		const routes = [
-			{ method: "DELETE" as const, path: "/things/:id", handler: paramHandler },
+			{
+				method: "DELETE" as const,
+				path: "/things/:id",
+				auth: "none" as const,
+				cors: "app" as const,
+				handler: paramHandler,
+			},
 		];
 
 		expect(resolveRoute(routes, "DELETE", "/things/a/b")).toBeUndefined();
@@ -27,8 +101,20 @@ describe("resolveRoute", () => {
 		const exactHandler = async () => new Response("exact");
 		const paramHandler = async () => new Response("param");
 		const routes = [
-			{ method: "GET" as const, path: "/things/:id", handler: paramHandler },
-			{ method: "GET" as const, path: "/things/mine", handler: exactHandler },
+			{
+				method: "GET" as const,
+				path: "/things/:id",
+				auth: "none" as const,
+				cors: "app" as const,
+				handler: paramHandler,
+			},
+			{
+				method: "GET" as const,
+				path: "/things/mine",
+				auth: "none" as const,
+				cors: "app" as const,
+				handler: exactHandler,
+			},
 		];
 
 		const route = resolveRoute(routes, "GET", "/things/mine");
@@ -40,6 +126,8 @@ describe("resolveRoute", () => {
 			{
 				method: "DELETE" as const,
 				path: "/things/:id",
+				auth: "none" as const,
+				cors: "app" as const,
 				handler: async () => new Response(null),
 			},
 		];
@@ -59,6 +147,8 @@ describe("resolveRoute", () => {
 			{
 				method: "POST" as const,
 				path: "/things/:id/status",
+				auth: "none" as const,
+				cors: "app" as const,
 				handler: async () => new Response(null),
 			},
 		];
@@ -73,6 +163,8 @@ describe("resolveRoute", () => {
 			{
 				method: "GET" as const,
 				path: "/users/:userId/things/:id",
+				auth: "none" as const,
+				cors: "app" as const,
 				handler: async () => new Response(null),
 			},
 		];
@@ -89,6 +181,8 @@ describe("resolveRoute", () => {
 			{
 				method: "GET" as const,
 				path: "/things",
+				auth: "none" as const,
+				cors: "app" as const,
 				handler: async () => new Response(null),
 			},
 		];
@@ -101,6 +195,8 @@ describe("resolveRoute", () => {
 			{
 				method: "POST" as const,
 				path: "/things/:id/status",
+				auth: "none" as const,
+				cors: "app" as const,
 				handler: async () => new Response(null),
 			},
 		];

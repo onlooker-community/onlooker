@@ -3,7 +3,10 @@
  * Organizes all endpoints by feature area (auth, account, data).
  */
 
+import type { Principal } from "./db/pool.js";
 import { errorHandler } from "./middleware";
+import type { RouteAuth, RouteCors } from "./middleware/principal.js";
+import { resolvePrincipal } from "./middleware/principal.js";
 import {
 	handleActivity,
 	handleBrowseLessons,
@@ -39,47 +42,76 @@ import {
 import type { RouteParams, WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
-interface Route {
+export interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;
 	/**
+	 * How this route authenticates. Required, so a new route cannot be added
+	 * without the author choosing - which is the whole point of the field.
+	 * Resolved centrally in `dispatch`, before the handler runs, via
+	 * `resolvePrincipal`.
+	 */
+	auth: RouteAuth;
+	/** Which origins may read the response. The default posture is "app". */
+	cors: RouteCors;
+	/**
 	 * `params` is optional so the handlers on fixed paths - which is most of
 	 * them - need no signature change. Only the parameterized routes read it.
+	 *
+	 * `principal` is new: every handler still ignores it today, since
+	 * `resolvePrincipal` runs ahead of the handler but the handler's own
+	 * `requireAuth`/`requireMachineToken` call is still what it acts on. That
+	 * duplication is deliberate here - see `dispatch` - and is removed once
+	 * handlers are updated to read this argument instead.
 	 */
 	handler: (
 		request: Request,
 		env: WorkerEnv,
 		params: RouteParams,
+		principal: Principal | null,
 	) => Promise<Response>;
 }
 
-const ROUTES: Route[] = [
+export const ROUTES: Route[] = [
 	// =========================================================================
 	// Authentication routes (WS1 - login/signup/refresh/logout)
 	// =========================================================================
 	{
 		method: "POST",
 		path: "/auth/login",
+		auth: "none",
+		cors: "app",
 		handler: handleLogin,
 	},
 	{
 		method: "POST",
 		path: "/auth/signup",
+		auth: "none",
+		cors: "app",
 		handler: handleSignup,
 	},
 	{
 		method: "POST",
 		path: "/auth/refresh",
+		auth: "none",
+		cors: "app",
 		handler: handleRefresh,
 	},
 	{
 		method: "GET",
 		path: "/auth/me",
+		auth: "session",
+		cors: "app",
 		handler: handleMe,
 	},
 	{
+		// Unauthenticated: handleLogout calls optionalAuth, which never throws,
+		// because a logout request must not fail on a token that is already bad
+		// - that is the caller it most needs to let through.
 		method: "POST",
 		path: "/auth/logout",
+		auth: "none",
+		cors: "app",
 		handler: handleLogout,
 	},
 
@@ -89,46 +121,68 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/auth/profile",
+		auth: "session",
+		cors: "app",
 		handler: handleGetProfile,
 	},
 	{
 		method: "PATCH",
 		path: "/auth/profile",
+		auth: "session",
+		cors: "app",
 		handler: handleUpdateProfile,
 	},
 	{
 		method: "POST",
 		path: "/auth/change-password",
+		auth: "session",
+		cors: "app",
 		handler: handleChangePassword,
 	},
 	{
 		method: "DELETE",
 		path: "/auth/account",
+		auth: "session",
+		cors: "app",
 		handler: handleDeleteAccount,
 	},
 	{
+		// Unauthenticated: the credential here is the verification token in the
+		// request body, not a session.
 		method: "POST",
 		path: "/auth/verify-email",
+		auth: "none",
+		cors: "app",
 		handler: handleVerifyEmail,
 	},
 	{
 		method: "POST",
 		path: "/auth/resend-verification",
+		auth: "session",
+		cors: "app",
 		handler: handleResendVerification,
 	},
 	{
 		method: "POST",
 		path: "/auth/forgot-password",
+		auth: "none",
+		cors: "app",
 		handler: handleForgotPassword,
 	},
 	{
 		method: "GET",
 		path: "/auth/reset-password/verify",
+		auth: "none",
+		cors: "app",
 		handler: handleVerifyResetToken,
 	},
 	{
+		// Unauthenticated: the credential is the reset token in the body, the
+		// same as verify-email above.
 		method: "POST",
 		path: "/auth/reset-password",
+		auth: "none",
+		cors: "app",
 		handler: handleResetPassword,
 	},
 
@@ -138,6 +192,8 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/api/users/me",
+		auth: "session",
+		cors: "app",
 		handler: handleGetUserProfile,
 	},
 
@@ -147,6 +203,8 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/api/client-errors",
+		auth: "none",
+		cors: "app",
 		handler: handleClientError,
 	},
 
@@ -163,21 +221,29 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/api/machines",
+		auth: "session",
+		cors: "app",
 		handler: handleCreateMachine,
 	},
 	{
 		method: "GET",
 		path: "/api/machines",
+		auth: "session",
+		cors: "app",
 		handler: handleListMachines,
 	},
 	{
 		method: "DELETE",
 		path: "/api/machines/:id",
+		auth: "session",
+		cors: "app",
 		handler: handleRevokeMachine,
 	},
 	{
 		method: "GET",
 		path: "/api/machines/:id/inventory",
+		auth: "session",
+		cors: "app",
 		handler: handleGetInventory,
 	},
 
@@ -191,11 +257,15 @@ const ROUTES: Route[] = [
 	{
 		method: "PUT",
 		path: "/machine/inventory",
+		auth: "machine",
+		cors: "app",
 		handler: handlePutInventory,
 	},
 	{
 		method: "POST",
 		path: "/machine/sessions",
+		auth: "machine",
+		cors: "app",
 		handler: handlePostSessions,
 	},
 
@@ -205,16 +275,22 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/lessons",
+		auth: "machine",
+		cors: "app",
 		handler: handlePushLessons,
 	},
 	{
 		method: "GET",
 		path: "/lessons",
+		auth: "machine",
+		cors: "app",
 		handler: handleReadLessons,
 	},
 	{
 		method: "POST",
 		path: "/lessons/:id/status",
+		auth: "machine",
+		cors: "app",
 		handler: handleTransitionLesson,
 	},
 
@@ -225,26 +301,36 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/api/lessons",
+		auth: "session",
+		cors: "app",
 		handler: handleBrowseLessons,
 	},
 	{
 		method: "GET",
 		path: "/api/lessons/:id",
+		auth: "session",
+		cors: "app",
 		handler: handleGetLesson,
 	},
 	{
 		method: "PATCH",
 		path: "/api/lessons/:id/status",
+		auth: "session",
+		cors: "app",
 		handler: handleBrowserTransition,
 	},
 	{
 		method: "GET",
 		path: "/api/activity",
+		auth: "session",
+		cors: "app",
 		handler: handleActivity,
 	},
 	{
 		method: "GET",
 		path: "/api/sessions",
+		auth: "session",
+		cors: "app",
 		handler: handleGetSessions,
 	},
 ];
@@ -356,7 +442,13 @@ export async function dispatch(
 	}
 
 	try {
-		return await matched.route.handler(request, env, matched.params);
+		// Before the handler, so a handler cannot run unauthenticated even if it
+		// forgets to check. This is what the required `auth` field buys - see
+		// resolvePrincipal. The handler still runs its own requireAuth or
+		// requireMachineToken call today, so this is verified twice for now;
+		// removing the duplicate is Task 4.
+		const principal = await resolvePrincipal(request, env, matched.route.auth);
+		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {
 		return errorHandler(error);
 	}

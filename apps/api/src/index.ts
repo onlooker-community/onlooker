@@ -17,7 +17,7 @@ import type {
 import { timedD1 } from "./db/timing.js";
 import { preflightResponse, withCors } from "./middleware";
 import { monitored } from "./monitoring";
-import { dispatch, listRoutes } from "./router";
+import { dispatch, listRoutes, ROUTES, resolveRoute } from "./router";
 import { runScheduled } from "./scheduled";
 import type { WorkerEnv } from "./types";
 
@@ -45,7 +45,15 @@ async function handleRequest(
 	// not in Workers tracing.
 	const response = await dispatch(request, { ...env, DB: timedD1(env.DB) });
 
-	return withCors(response, request, env);
+	// A second, cheap lookup against the same table dispatch() already matched
+	// against, rather than a return value threaded through it, so dispatch()'s
+	// signature stays "a request in, a response out." An unmatched route (a
+	// 404) leaves this undefined, and withCors's default parameter applies -
+	// the "app" allowlist posture, same as before this route ever existed.
+	const url = new URL(request.url);
+	const matched = resolveRoute(ROUTES, request.method, url.pathname);
+
+	return withCors(response, request, env, matched?.route.cors);
 }
 
 /**
