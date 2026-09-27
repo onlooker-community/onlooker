@@ -1614,14 +1614,39 @@ Run: `pnpm --filter @onlooker/api test`
 Expected: all PASS, including the two route-table contract tests you just
 updated.
 
-Then ablate, at the route this time:
+Then ablate, at the route this time. **An earlier version of this step named a
+value that does not work, and the reason is worth understanding before you
+start.**
 
-1. In `handlePublicLesson`, temporarily change the call to
-   `readPoolLesson(env.DB, { userId: "any-user" }, params.id)`.
-2. Re-run. **Expected: "404s a private lesson" and "404s an org lesson" FAIL** —
-   a non-null principal widens the predicate, which is precisely the bug the
-   separate handler exists to make impossible.
-3. Restore the literal `null`. Re-run. Expected: all PASS.
+The invalid version said to pass `{ userId: "any-user" }` and expect the private
+and org leak tests to fail. They do not fail. The predicate is
+`(visibility = 'public' OR user_id = ?) AND (user_id = ? OR …)`, so a private row
+owned by somebody else has `visibility = 'private'` and `user_id ≠ 'any-user'`:
+the leading clause is false and the row is correctly excluded. That ablation
+exercises nothing. It conflated "pass a non-null principal" with "widen the
+predicate", and only the second is what the hardcoded `null` protects against.
+
+**The valid ablation passes the row's own owner:**
+
+1. In `handlePublicLesson`, temporarily replace the literal `null` with a
+   principal built from the seeded lesson's real owner id — a debug header read
+   from the request is a clean way to inject it without reshaping the handler.
+2. Re-run. **Expected: the private and org cases now return 200 instead of 404**,
+   proving the hardcoded `null` is what keeps them hidden.
+3. Restore Step 3's exact code — the literal `null` — and delete whatever scratch
+   you used to inject the principal. Re-run. Expected: all PASS.
+
+Between this and Task 2's predicate-layer ablation (replacing
+`visibilityPredicate`'s output with `1 = 1`), both the predicate and the handler's
+`null` have been observed failing. That is the complete picture for this read path.
+
+**The general lesson, which cost this plan a defect:** an ablation that does not
+produce the expected failure is *ambiguous* — it means either the test is vacuous
+or the ablation was wrong. Treating a passing ablation as impossible leaves no
+room for the second reading, and the tempting wrong response is to conclude the
+tests are vacuous and go hunting for a bug that does not exist, or to "fix" the
+predicate until the ablation behaves. Diagnose which of the two you are looking at
+before changing anything.
 
 - [ ] **Step 5b: Make the preflight honor `cors: "any"` — it does not today**
 
