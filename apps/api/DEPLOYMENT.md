@@ -278,6 +278,23 @@ Cloudflare edge rule (path prefix `/api/public/lessons/`, keyed on client IP),
 not worker code. Nothing in CI can verify it — if it is ever removed, the route
 keeps working and only the cost signal changes.
 
+A retraction or an author block is not instant at the edge. `GET
+/api/public/lessons/:id` is served with `public, max-age=60`, and nothing purges
+the cache, so a withdrawn lesson can still be served for up to a minute after the
+operator route returns 200. Re-fetch after the window before concluding a takedown
+failed. If a faster pull is ever needed, that is a cache-purge feature, not a
+retry.
+
+`max-age=60` is what the worker *asks* for, not a guarantee — the effective edge
+TTL depends on the zone's cache rules, which live outside this repository. So 60
+seconds is the floor the code establishes, and the real floor could be longer if
+zone configuration says so.
+
+No test can observe any of this: `SELF.fetch` in the test harness never
+populates an edge cache, which is why the retraction and block tests in
+`routes/admin-moderation.test.ts` that assert "stops serving it" pass instantly
+and prove nothing about production timing.
+
 ## Rollback
 
 ### View Deployments

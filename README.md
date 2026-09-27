@@ -18,6 +18,14 @@ one — a plugin shipping a new event type cannot leak through it.
 lesson-sharing yet. The [shared lesson contract](packages/lesson-contract) is
 published to npm and is the furthest along.
 
+## Reporting a public lesson
+
+Public lessons are readable by anyone and are read by other people's agents. To
+report one that carries an injected instruction, a secret, or a claim engineered
+to mislead, email <meagan@meaganwaller.com> with the lesson's id. There is no
+in-product report queue yet — a lesson can be withdrawn within minutes of a
+report, and the id is all that is needed to do it.
+
 ## Layout
 
 This is a pnpm workspace driven by Turborepo. Everything deploys to Cloudflare.
