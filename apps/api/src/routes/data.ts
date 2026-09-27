@@ -22,6 +22,12 @@ export async function handleGetUserProfile(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
+	// Kept rather than reading the router-resolved principal: the stub below
+	// puts `email` into a required `UserProfile` field, and `Principal`
+	// deliberately does not carry it (see db/pool.ts), so only `requireAuth`'s
+	// own return value has it. Not worth a DB lookup either - `requireAuth` is
+	// a local JWT verify with no I/O, cheaper than the round trip a real fetch
+	// would cost, and this is still the `TODO: WS1 will implement` stub below.
 	const auth = await requireAuth(request, env);
 
 	// TODO: WS1 will implement

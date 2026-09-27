@@ -3,7 +3,7 @@ import {
 	listMachineTokens,
 	revokeMachineToken,
 } from "../db/machine-tokens.js";
-import { requireAuth } from "../middleware/auth.js";
+import type { Principal } from "../db/pool.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
@@ -17,8 +17,12 @@ import { ApiError } from "../types";
 export async function handleCreateMachine(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const body = (await request.json()) as { name?: unknown };
 
 	const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -38,19 +42,26 @@ export async function handleCreateMachine(
 }
 
 export async function handleListMachines(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	return Response.json({ machines: await listMachineTokens(env.DB, userId) });
 }
 
 export async function handleRevokeMachine(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
 	params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const id = params.id;
 
 	// 404 rather than 403 when the machine belongs to someone else. A 403 would

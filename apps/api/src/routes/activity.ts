@@ -3,8 +3,8 @@ import {
 	InvalidCursorError,
 	listActivityPage,
 } from "../db/lessons.js";
-import { requireAuth } from "../middleware/auth.js";
-import type { WorkerEnv } from "../types";
+import type { Principal } from "../db/pool.js";
+import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
 /**
@@ -18,8 +18,12 @@ import { ApiError } from "../types";
 export async function handleActivity(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const url = new URL(request.url);
 
 	// Clamped rather than rejected, matching handleBrowseLessons: a client
