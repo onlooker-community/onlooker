@@ -4,8 +4,14 @@ import { createUser } from "./queries.js";
 
 const db = () => env.DB;
 
-const BACKFILL = `UPDATE lessons SET author_key = json_extract(body, '$.author_key')
-	 WHERE author_key = ''`;
+// Sourced from the migration itself rather than hand-transcribed, so a change
+// to the shipped UPDATE is what this test verifies - not a copy of it that
+// could drift out of sync and still pass. The backfill is the last statement
+// in 0008_stiff_swordsman.sql by construction, so `.at(-1)` is stable.
+const BACKFILL =
+	env.TEST_MIGRATIONS.find(
+		(m) => m.name === "0008_stiff_swordsman.sql",
+	)?.queries.at(-1) ?? "";
 
 // The brief's literal fixture used a bare "u1" as user_id, but lessons.user_id
 // is a foreign key onto users.id, and D1 enforces it - unlike bare sqlite,
@@ -24,6 +30,14 @@ describe("author_key backfill", () => {
 			"Ada",
 		);
 		userId = user.id;
+	});
+
+	// Guards the lookup above: if a future migration rename ever makes the
+	// `find` miss, BACKFILL silently falls back to "" and every test below
+	// would pass while asserting nothing. This is what makes that loud.
+	it("resolves an UPDATE statement from the migration file", () => {
+		expect(BACKFILL).not.toBe("");
+		expect(BACKFILL).toContain("json_extract");
 	});
 
 	it("reads author_key back out of the body for a pre-migration row", async () => {
