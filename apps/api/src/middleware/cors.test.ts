@@ -182,6 +182,10 @@ describe("withCors", () => {
 			"any",
 		);
 
+		// Asserted alongside the credentials check, not just near it: a test
+		// that only checked credentials would keep passing even if this branch
+		// stopped emitting an origin at all.
+		expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
 	});
 

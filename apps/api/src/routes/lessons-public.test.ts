@@ -136,4 +136,36 @@ describe("OPTIONS preflight", () => {
 		expect(response.headers.get("Access-Control-Allow-Methods")).toBeNull();
 		expect(response.headers.get("Access-Control-Allow-Headers")).toBeNull();
 	});
+
+	// The fail-closed guarantee rests entirely on `matched` being undefined
+	// whenever the target route can't be identified, and on preflightResponse's
+	// default parameter treating that as "app". These two pin the other paths
+	// into that undefined besides an outright unmatched path: no
+	// Access-Control-Request-Method at all, and one naming no route.
+	it("fails closed to the allowlist when Access-Control-Request-Method is missing", async () => {
+		const response = await SELF.fetch(
+			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
+			{
+				method: "OPTIONS",
+				headers: { Origin: FOREIGN_ORIGIN },
+			},
+		);
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+	});
+
+	it("fails closed to the allowlist when Access-Control-Request-Method is garbage", async () => {
+		const response = await SELF.fetch(
+			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
+			{
+				method: "OPTIONS",
+				headers: {
+					Origin: FOREIGN_ORIGIN,
+					"Access-Control-Request-Method": "FROBNICATE",
+				},
+			},
+		);
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+	});
 });
