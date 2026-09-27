@@ -268,8 +268,15 @@ const hash = await hashPassword(password);
 
 ### Rate Limiting
 
-None. There is no `rateLimit` function in this codebase and no KV namespace for
-one to use — the sample previously here called both.
+None in worker code. There is no `rateLimit` function in this codebase and no
+KV namespace for one to use — the sample previously here called both.
+
+### Public lesson reads
+
+`GET /api/public/lessons/:id` takes no credential, so its rate limit is a
+Cloudflare edge rule (path prefix `/api/public/lessons/`, keyed on client IP),
+not worker code. Nothing in CI can verify it — if it is ever removed, the route
+keeps working and only the cost signal changes.
 
 ## Rollback
 
