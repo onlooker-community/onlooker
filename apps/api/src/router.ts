@@ -65,11 +65,15 @@ export interface Route {
 	 * `params` is optional so the handlers on fixed paths - which is most of
 	 * them - need no signature change. Only the parameterized routes read it.
 	 *
-	 * `principal` is new: every handler still ignores it today, since
-	 * `resolvePrincipal` runs ahead of the handler but the handler's own
-	 * `requireAuth`/`requireMachineToken` call is still what it acts on. That
-	 * duplication is deliberate here - see `dispatch` - and is removed once
-	 * handlers are updated to read this argument instead.
+	 * `principal` is what a handler acts on: `dispatch` resolves it from the
+	 * route's declared `auth` before the handler runs, via `resolvePrincipal`,
+	 * and almost every handler reads `userId` off it rather than verifying its
+	 * own credential. Three handlers still make their own call because each
+	 * needs a field `Principal` deliberately does not carry (see `db/pool.ts`):
+	 * `handlePutInventory` and `handlePostSessions` need `machineId`, and
+	 * `handleGetUserProfile` needs `email`. The two `machineId` ones re-verify
+	 * against D1 and re-write `last_used_at` on every request; the `email` one
+	 * is a local HMAC verify with no I/O.
 	 */
 	handler: (
 		request: Request,
@@ -451,9 +455,12 @@ export async function dispatch(
 	try {
 		// Before the handler, so a handler cannot run unauthenticated even if it
 		// forgets to check. This is what the required `auth` field buys - see
-		// resolvePrincipal. The handler still runs its own requireAuth or
-		// requireMachineToken call today, so this is verified twice for now;
-		// removing the duplicate is Task 4.
+		// resolvePrincipal. Almost every handler acts on this principal instead
+		// of verifying its own credential; the three that still call
+		// requireAuth/requireMachineToken themselves (handlePutInventory,
+		// handlePostSessions, handleGetUserProfile) do so because each needs a
+		// field Principal does not carry - see the `handler` field's doc
+		// comment on `Route`, above.
 		const principal = await resolvePrincipal(request, env, matched.route.auth);
 		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {
