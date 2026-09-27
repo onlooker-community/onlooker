@@ -1001,7 +1001,7 @@ const EXPECTED_UNAUTHENTICATED = [
 	"GET /auth/reset-password/verify",
 	"POST /auth/reset-password",
 	"POST /auth/verify-email",
-	"POST /api/telemetry/error",
+	"POST /api/client-errors",
 	// Task 5 adds "GET /api/public/lessons/:id" here when the route exists.
 	// Listing it before then would commit a red test, and every commit on this
 	// branch is green.
@@ -1171,16 +1171,31 @@ export interface Route {
 Export `ROUTES`, then add `auth` and `cors` to every entry. The mapping, derived
 from what each handler calls today:
 
+**This table is intent, not fact. The route table and the handlers are fact.**
+Where they disagree, follow the code and say so — an earlier run of this plan
+found that `POST /api/telemetry/error` below was a path I invented from the
+filename `telemetry.ts` (the real route is `POST /api/client-errors`), and that
+`/api/account/*`, `/api/profile` and `/api/data/*` were informal groupings, the
+last of which names no route at all. The real paths in that group include
+`/auth/profile`, `/auth/change-password`, `/auth/account`,
+`/auth/resend-verification` and `/api/users/me`.
+
 | Routes | `auth` | `cors` |
 |---|---|---|
 | `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/reset-password/verify`, `/auth/verify-email` | `"none"` | `"app"` |
-| `POST /api/telemetry/error` | `"none"` | `"app"` |
-| `GET /auth/me`, every `/api/account/*`, `/api/profile`, `/api/machines*`, `/api/lessons*`, `/api/activity`, `/api/sessions`, `/api/data/*` | `"session"` | `"app"` |
+| `POST /api/client-errors` | `"none"` | `"app"` |
+| `GET /auth/me`, the `/auth/*` account routes, `/api/users/me`, `/api/machines*`, `/api/lessons*`, `/api/activity`, `/api/sessions` | `"session"` | `"app"` |
 | `GET /lessons`, `POST /lessons`, `POST /lessons/:id/status`, `PUT /machine/inventory`, `POST /machine/sessions` | `"machine"` | `"app"` |
 
 Verify each against its handler before writing it down — the handler's own
 `requireAuth` or `requireMachineToken` call is the source of truth, and a
-handler that calls neither is `"none"`.
+handler that calls neither is `"none"`. `handleClientError` is the one that
+calls neither *for a stated reason*: `routes/telemetry.ts:56` says
+"Unauthenticated by design", because the failures most worth hearing about are
+the ones that stop a client authenticating.
+
+Record the finished list — real paths, assigned `auth` and `cors`, and the
+handler evidence for each — in the task report. That list supersedes this table.
 
 - [ ] **Step 5: Resolve the principal in `dispatch`**
 
