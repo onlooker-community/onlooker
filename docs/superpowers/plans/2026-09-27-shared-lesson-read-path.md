@@ -1321,12 +1321,29 @@ For each of `account.ts`, `activity.ts`, `auth.ts`, `data.ts`, `lessons.ts`,
 auth call with the `principal` argument, then run that file's tests before moving
 on. The `auth.ts` login/signup handlers are `"none"` and ignore the argument.
 
-**Three handlers need more than `Principal` carries, not one.** `Principal` is
-`{ userId: string }` and deliberately nothing else:
+**Three handlers need more than `Principal` carries — and an earlier version of
+this plan named the wrong three.** `Principal` is `{ userId: string }` and
+deliberately nothing else. The list that the code actually requires:
 
-- `handleMe` uses the `email` that `requireAuth` returns.
-- `handlePutInventory` (`machine-inventory.ts:33`) and `handlePostSessions`
-  (`sessions.ts:59`) both consume `machineId` from `requireMachineToken`.
+- `handlePutInventory` (`routes/machine-inventory.ts`) and `handlePostSessions`
+  (`routes/sessions.ts`) both consume `machineId` from `requireMachineToken`.
+- `handleGetUserProfile` (`routes/data.ts`) puts `auth.email` into a required
+  `UserProfile.email` field. It is a stub — `TODO: WS1 will implement`, with a
+  hardcoded name — which is a further reason not to reshape a type for it.
+
+**`handleMe` is NOT an exception, though this plan previously said it was.** It
+reads only `auth.userId`; the `email` in its response comes from `getUserById`'s
+row, and `auth.email` appears nowhere in `routes/auth.ts`. That claim was written
+from inference about what a `/me` endpoint would plausibly do. Had it been
+followed, it would have preserved the exact redundancy this task exists to remove
+*and* attached a comment asserting a false reason for it — which is worse than a
+missing exception, because the comment would assert a need the code does not have
+and no reader could tell.
+
+Do not reach for a DB lookup to avoid an exception. `requireAuth` is a local HMAC
+verify with no I/O, while `getUserById` is a round trip at roughly 43 ms at p50 by
+this repo's own measurement — so keeping a session-auth duplicate is *cheaper*
+than fetching the field.
 
 **Keep the credential call in all three**, each with a comment naming the field
 it needs. Widening `Principal` for them would put a value on every request that
@@ -1634,9 +1651,27 @@ Two tests, in the same file:
    still gets no CORS headers back.
 
 The second is the one that matters — it proves the wildcard did not leak to every
-route. Also add the `withCors` `"any"`-branch case that `cors.test.ts` currently
-lacks: every existing caller passes three arguments, so nothing exercises what
-the wildcard branch actually emits.
+route.
+
+**Two things in `cors.test.ts` need attention, both verified against the file.**
+Every existing test calls `withCors` with three arguments, so `cors` defaults to
+`"app"` and nothing exercises the wildcard branch at all:
+
+1. `cors.test.ts:41` is named **"never answers with a wildcard"**. It is true of
+   the `"app"` posture and will keep passing, but once an `"any"` route exists the
+   name claims a property of the module that the module no longer has. Rename it
+   to scope it to the default posture — the same correction the Task 2 review
+   forced on `lessons-browser.test.ts`, for the same reason: a test whose name
+   outruns its assertion misleads the next reader more than a missing test does.
+2. `cors.test.ts:163` — "does not enable credentials" — also covers only `"app"`.
+   Add the same assertion for the `"any"` branch. **This is the
+   security-critical one:** a wildcard origin together with
+   `Access-Control-Allow-Credentials` is the combination that must never occur,
+   and right now nothing would catch it appearing.
+
+Note that the `"any"` branch deliberately omits `Vary: Origin`, which is correct
+— the response is identical for every origin, so varying on it would only defeat
+caching. Do not "fix" that.
 
 Without this step the route will pass every hand test that does not set a header,
 which is why it is written down rather than left to notice.
