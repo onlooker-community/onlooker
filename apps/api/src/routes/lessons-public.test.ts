@@ -101,3 +101,39 @@ describe("GET /api/public/lessons/:id", () => {
 		expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
 	});
 });
+
+describe("OPTIONS preflight", () => {
+	const FOREIGN_ORIGIN = "https://somebody-elses-site.example";
+
+	it("answers a preflight for the public lesson route with the wildcard", async () => {
+		const response = await SELF.fetch(
+			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
+			{
+				method: "OPTIONS",
+				headers: {
+					Origin: FOREIGN_ORIGIN,
+					"Access-Control-Request-Method": "GET",
+				},
+			},
+		);
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+	});
+
+	// The one that matters: proves the wildcard preflight fix above did not
+	// leak to every route. A `cors: "app"` route, preflighted from the same
+	// foreign origin, must still get nothing back.
+	it("still refuses a cors: app route's preflight from the same foreign origin", async () => {
+		const response = await SELF.fetch(`${BASE}/auth/me`, {
+			method: "OPTIONS",
+			headers: {
+				Origin: FOREIGN_ORIGIN,
+				"Access-Control-Request-Method": "GET",
+			},
+		});
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+		expect(response.headers.get("Access-Control-Allow-Methods")).toBeNull();
+		expect(response.headers.get("Access-Control-Allow-Headers")).toBeNull();
+	});
+});

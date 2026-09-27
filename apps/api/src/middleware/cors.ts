@@ -114,8 +114,37 @@ export function withCors(
  * A refused origin gets a bare 200 and no description of the API. There is
  * nothing secret in the method list, but spelling it out for a caller being
  * turned away is answering a question it is not allowed to ask.
+ *
+ * `cors` defaults to "app" for the same reason `withCors`'s does: an OPTIONS
+ * request cannot be matched against the route table by method (no route
+ * declares OPTIONS), so the caller resolves the target route itself - by
+ * reading Access-Control-Request-Method - and passes down what it found. A
+ * request whose target route could not be identified this way (the header is
+ * missing, unparseable, or names no route) arrives here as `undefined` and
+ * gets the allowlist, never the wildcard. Failing open here would mean any
+ * preflight a caller can make un-attributable answers as if it were the one
+ * route that allows every origin.
  */
-export function preflightResponse(request: Request, env: WorkerEnv): Response {
+export function preflightResponse(
+	request: Request,
+	env: WorkerEnv,
+	cors: RouteCors = "app",
+): Response {
+	if (cors === "any") {
+		// Same posture as withCors's "any" branch: identical for every origin,
+		// so there is nothing to vary on and no origin to check. See that
+		// function's doc comment for why Access-Control-Allow-Credentials must
+		// never appear alongside it.
+		return new Response(null, {
+			headers: {
+				"Access-Control-Allow-Origin": "*",
+				"Access-Control-Allow-Methods": ALLOW_METHODS,
+				"Access-Control-Allow-Headers": ALLOW_HEADERS,
+				"Access-Control-Max-Age": MAX_AGE,
+			},
+		});
+	}
+
 	const response = new Response(null, { headers: { Vary: "Origin" } });
 
 	const origin = permittedOrigin(request, env);

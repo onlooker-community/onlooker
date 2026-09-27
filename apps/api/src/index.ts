@@ -31,7 +31,22 @@ async function handleRequest(
 	_ctx: ExecutionContext,
 ): Promise<Response> {
 	if (request.method === "OPTIONS") {
-		return preflightResponse(request, env);
+		// The route table has no OPTIONS entries - Route.method excludes it - so
+		// resolveRoute cannot find anything by request.method here. What a
+		// preflight actually asks about is named in its own
+		// Access-Control-Request-Method header; look the route up by that
+		// instead. Missing, unparseable, or matching nothing all collapse to
+		// `matched` being undefined, and preflightResponse's default parameter
+		// is what fails that closed to the "app" allowlist rather than the
+		// wildcard.
+		const requestedMethod = request.headers.get(
+			"Access-Control-Request-Method",
+		);
+		const path = new URL(request.url).pathname;
+		const matched = requestedMethod
+			? resolveRoute(ROUTES, requestedMethod, path)
+			: undefined;
+		return preflightResponse(request, env, matched?.route.cors);
 	}
 
 	// Every handler downstream receives a DB binding that reports its own

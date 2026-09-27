@@ -38,7 +38,7 @@ describe("withCors", () => {
 		expect(res.headers.get("Access-Control-Allow-Origin")).toBe(PRODUCTION);
 	});
 
-	it("never answers with a wildcard", () => {
+	it("never answers with a wildcard for the default app posture", () => {
 		const res = withCors(
 			new Response("ok"),
 			request(PRODUCTION),
@@ -165,6 +165,21 @@ describe("withCors", () => {
 			new Response("ok"),
 			request(PRODUCTION),
 			env(PRODUCTION),
+		);
+
+		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+	});
+
+	// Security-critical for the "any" branch specifically: a wildcard origin
+	// together with Access-Control-Allow-Credentials is the exact combination
+	// that turns "readable by anyone" into "readable by anyone, with your
+	// cookies" - and nothing else here would catch it appearing.
+	it("does not enable credentials on the wildcard branch either", () => {
+		const res = withCors(
+			new Response("ok"),
+			request(PRODUCTION),
+			env(PRODUCTION),
+			"any",
 		);
 
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
