@@ -2,7 +2,7 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { ZLesson } from "@onlooker-community/lesson-contract";
 import {
 	createLessonsWithFeed,
-	getLessonsByIds,
+	probeLessonIds,
 	readLessonDelta,
 	SequenceExhaustedError,
 	transitionLesson,
@@ -187,7 +187,7 @@ export async function handlePushLessons(
 	}
 
 	// 2. One read decides idempotency for the whole batch.
-	const stored = await getLessonsByIds(
+	const stored = await probeLessonIds(
 		env.DB,
 		admitted.map((item) => item.lesson.id),
 	);
@@ -255,7 +255,7 @@ export async function handlePushLessons(
 	}
 
 	if (settle.length > 0) {
-		const now = await getLessonsByIds(
+		const now = await probeLessonIds(
 			env.DB,
 			settle.map((item) => item.lesson.id),
 		);
