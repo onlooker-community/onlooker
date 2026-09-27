@@ -2170,6 +2170,40 @@ Export from `routes/index.ts` and register in `ROUTES`:
 Run: `pnpm --filter @onlooker/api test src/routes/admin-moderation.test.ts`
 Expected: all PASS.
 
+- [ ] **Step 4b: Tell the operator that a takedown is not instant**
+
+This is the one place this task and Task 5 meet in production, and right now the
+fact lives only in a comment inside `routes/lessons-public.ts`.
+
+`GET /api/public/lessons/:id` answers with `Cache-Control: public, max-age=60`.
+So a lesson you retract, or an author you block, **keeps being served from cache
+for up to a minute afterward, and nothing purges it.** An operator acting on a
+report will retract a lesson, fetch the URL, still see it, and reasonably conclude
+the control did not work.
+
+Add that to `DEPLOYMENT.md` beside the rate-limit note Task 5 wrote — the same
+section an operator is already reading when they act:
+
+```markdown
+A retraction or an author block is not instant at the edge. `GET
+/api/public/lessons/:id` is served with `public, max-age=60`, and nothing purges
+the cache, so a withdrawn lesson can still be served for up to a minute after the
+operator route returns 200. Re-fetch after the window before concluding a takedown
+failed. If a faster pull is ever needed, that is a cache-purge feature, not a
+retry.
+```
+
+**State it as an upper bound you do not fully control.** `max-age=60` is what the
+worker *asks* for; the effective edge TTL depends on the zone's cache rules, which
+are not in this repository. So 60 seconds is the floor the code establishes, and
+the real floor could be longer if zone configuration says so — worth one clause,
+because an operator who reads "60 seconds" as a guarantee will be wrong in exactly
+the situation where it matters.
+
+No test can observe any of this: `SELF.fetch` in the harness never populates an
+edge cache, which is why Task 6's own "stops serving it anonymously" assertion
+passes immediately and tells you nothing about production timing.
+
 - [ ] **Step 5b: Write down where a report goes**
 
 The spec says reports arrive out of band and are documented rather than built.
