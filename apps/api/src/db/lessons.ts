@@ -515,9 +515,9 @@ export async function listActivityPage(
 	const last = events.at(-1);
 	const cursor = hasMore && last ? encodeSeqCursor(last.seq) : null;
 
-	// Asserted rather than trusted, for the same reason listLessonsPage asserts
-	// it: hasMore, the clamped limit and the cursor are three separate facts,
-	// and a change to any one of them would silently hide the tail of the feed.
+	// Asserted rather than trusted, for the same reason readPool asserts it:
+	// hasMore, the clamped limit and the cursor are three separate facts, and a
+	// change to any one of them would silently hide the tail of the feed.
 	if (hasMore && cursor === null) {
 		throw new Error(
 			"listActivityPage: has_more is true with no cursor; the tail would be unreachable",
