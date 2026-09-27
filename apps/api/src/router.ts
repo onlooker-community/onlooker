@@ -9,6 +9,7 @@ import type { RouteAuth, RouteCors } from "./middleware/principal.js";
 import { resolvePrincipal } from "./middleware/principal.js";
 import {
 	handleActivity,
+	handleBlockAuthor,
 	handleBrowseLessons,
 	handleBrowserTransition,
 	handleChangePassword,
@@ -25,6 +26,7 @@ import {
 	handleLogin,
 	handleLogout,
 	handleMe,
+	handleOperatorRetract,
 	handlePostSessions,
 	handlePublicLesson,
 	handlePushLessons,
@@ -36,6 +38,7 @@ import {
 	handleRevokeMachine,
 	handleSignup,
 	handleTransitionLesson,
+	handleUnblockAuthor,
 	handleUpdateProfile,
 	handleVerifyEmail,
 	handleVerifyResetToken,
@@ -361,6 +364,35 @@ export const ROUTES: Route[] = [
 		auth: "none",
 		cors: "any",
 		handler: handlePublicLesson,
+	},
+
+	// =========================================================================
+	// Operator moderation
+	//
+	// auth: "operator" 404s a signed-in non-operator, so this surface does not
+	// confirm its own existence. OPERATOR_USER_IDS is empty in every
+	// environment until somebody is deliberately granted it.
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/api/admin/lessons/:id/retract",
+		auth: "operator",
+		cors: "app",
+		handler: handleOperatorRetract,
+	},
+	{
+		method: "POST",
+		path: "/api/admin/author-blocks",
+		auth: "operator",
+		cors: "app",
+		handler: handleBlockAuthor,
+	},
+	{
+		method: "DELETE",
+		path: "/api/admin/author-blocks/:authorKey",
+		auth: "operator",
+		cors: "app",
+		handler: handleUnblockAuthor,
 	},
 ];
 

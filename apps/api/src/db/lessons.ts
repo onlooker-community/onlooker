@@ -335,6 +335,27 @@ export async function transitionLesson(
 }
 
 /**
+ * Retract a lesson whoever owns it.
+ *
+ * A SEPARATE FUNCTION from transitionLesson on purpose. That one's
+ * `WHERE id = ? AND user_id = ?` is the user-facing guarantee that a caller
+ * cannot touch somebody else's lesson, and widening it with an optional
+ * "skip the owner check" flag would put a cross-owner write one wrong argument
+ * away from every ordinary transition. Two functions cannot be confused.
+ *
+ * Appends to the owner's feed like any other transition, so their mirror learns
+ * about it on the next delta pull.
+ */
+export async function retractAnyLesson(
+	db: D1Database,
+	id: string,
+): Promise<number | null> {
+	const stored = await probeLessonId(db, id);
+	if (!stored) return null;
+	return transitionLesson(db, stored.user_id, id, "retracted", null);
+}
+
+/**
  * Read one window of a user's feed, joined to current state.
  *
  * user_id is the visibility filter and therefore the security boundary. It

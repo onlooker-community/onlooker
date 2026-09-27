@@ -16,6 +16,11 @@ export {
 } from "./account";
 export { handleActivity } from "./activity";
 export {
+	handleBlockAuthor,
+	handleOperatorRetract,
+	handleUnblockAuthor,
+} from "./admin-moderation";
+export {
 	handleLogin,
 	handleLogout,
 	handleMe,
