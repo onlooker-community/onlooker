@@ -331,10 +331,26 @@ on the one field the contract says blocking acts on.
 - Create: `apps/api/src/db/pool.test.ts`
 - Create: `apps/api/src/db/author-blocks.ts`
 - Modify: `apps/api/src/db/lessons.ts` (`listLessonsPage` ~555,
-  `getLessonForUser` ~628, `getLessonsByIds` ~228)
+  `getLessonForUser` ~628, `getLessonsByIds` ~228, and
+  **`createLessonsWithFeed`'s INSERT ~157-174**)
 - Modify: `apps/api/src/routes/lessons.ts` (imports 5-6, calls ~190, ~258)
 - Modify: `apps/api/src/db/lessons.test.ts` (imports 6-7, use at 141,
-  describe block 231-251)
+  describe block 231-251, and a new `describe("author_key")` beside
+  `describe("promoted_at")` at ~318)
+
+**A gap in the task breakdown, found while implementing this task.** Task 1 gave
+`author_key` a column; nothing gave it a *writer*. `createLessonsWithFeed`'s
+INSERT binds nine columns and `author_key` is not among them, so every lesson
+written after migration 0008 stores `''` — which would make Task 6's blocking
+match nothing in production, and makes `0008_stiff_swordsman.sql:15`'s claim that
+"a lesson ingested after this migration already has the correct value" false
+until it is fixed.
+
+This is a decomposition error, not a defect in either task's brief on its own
+terms: Task 1 was scoped "Consumes: nothing", and no task's file list named
+`createLessonsWithFeed`. The backfill handles pre-migration rows; the INSERT
+handles post-migration rows; both are needed. It is folded into this task because
+this task's own blocked-author leak test is false without it.
 
 **Interfaces:**
 - Consumes: Task 1's `author_key` column and `lesson_author_blocks` table.
@@ -832,6 +848,37 @@ export async function getLessonForUser(
 	return readPoolLesson(db, { userId }, id);
 }
 ```
+
+- [ ] **Step 6b: Give `author_key` a writer**
+
+`createLessonsWithFeed` (`apps/api/src/db/lessons.ts:157-174`) never binds
+`author_key`, so the column Task 1 added is `''` on every row this function
+writes — and it is the only writer. Add `author_key` to the column list and bind
+`lesson.author_key`, beside `promoted_at`, extending that column's existing
+comment to cover both rather than adding a competing one:
+
+> The column and the body carry the same value, written in one statement so they
+> cannot drift.
+
+One difference deserves a clause: `promoted_at` is immutable and
+`transitionLesson` must never touch it, whereas `author_key` is simply never
+rewritten, because a lesson's author does not change.
+
+**Mirror `promoted_at`'s two regression tests.** `apps/api/src/db/lessons.test.ts`
+already has a `describe("promoted_at")` at ~318 whose second case carries the
+comment "this is the assertion that would catch it if the INSERT ever stopped
+binding one of them" — the exact bug this step fixes, on the column that had the
+test. Add `describe("author_key")` beside it:
+
+1. `it("is stored in the column, not only inside the body")` — write via
+   `createLessonsWithFeed` with a known `author_key`, `SELECT author_key`, assert
+   it matches.
+2. `it("agrees with the copy inside the body")` — `SELECT author_key, body`,
+   assert the column equals `JSON.parse(body).author_key`.
+
+Scope is the INSERT's columns and binds plus those two tests. Nothing else in
+`createLessonsWithFeed` — not the feed insert, not the sequence logic, not
+`canonicalize`. Do not change the migration.
 
 - [ ] **Step 7: Rename the probe**
 
