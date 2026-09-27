@@ -26,6 +26,7 @@ import {
 	handleLogout,
 	handleMe,
 	handlePostSessions,
+	handlePublicLesson,
 	handlePushLessons,
 	handlePutInventory,
 	handleReadLessons,
@@ -343,6 +344,23 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleGetSessions,
+	},
+
+	// =========================================================================
+	// Public lessons (anonymous, one by id)
+	//
+	// Inside /api/ despite taking no credential: outside that prefix a route
+	// cannot be mocked by createMockFetch and cannot be reached by an
+	// api-contract case, which is how the machine-token surface spent three PRs
+	// as the only one outside the drift gate. The `public` segment is the marker
+	// for a human; auth: "none" is the marker for a machine.
+	// =========================================================================
+	{
+		method: "GET",
+		path: "/api/public/lessons/:id",
+		auth: "none",
+		cors: "any",
+		handler: handlePublicLesson,
 	},
 ];
 

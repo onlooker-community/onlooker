@@ -16,9 +16,10 @@ const EXPECTED_UNAUTHENTICATED = [
 	"POST /auth/reset-password",
 	"POST /auth/verify-email",
 	"POST /api/client-errors",
-	// Task 5 adds "GET /api/public/lessons/:id" here when the route exists.
-	// Listing it before then would commit a red test, and every commit on this
-	// branch is green.
+	// Deliberately unauthenticated: a public lesson is meant to be readable by
+	// anybody with the link, like a public gist. Adding to this list is meant
+	// to be a reviewed decision, not an oversight.
+	"GET /api/public/lessons/:id",
 ];
 
 /**
@@ -27,10 +28,12 @@ const EXPECTED_UNAUTHENTICATED = [
  * because a hostile page reading their responses is what made credential
  * stuffing from arbitrary origins cheap.
  *
- * Empty until Task 5. That is the correct expectation right now: no route today
- * should answer an arbitrary origin.
+ * The one entry here is deliberately readable from any origin, not just
+ * deliberately unauthenticated: a public lesson is meant to work like a public
+ * gist, so a page on any domain must be able to fetch and render it. Adding to
+ * this list is meant to be a reviewed decision, not an oversight.
  */
-const EXPECTED_ANY_ORIGIN: string[] = [];
+const EXPECTED_ANY_ORIGIN = ["GET /api/public/lessons/:id"];
 
 const label = (r: { method: string; path: string }) => `${r.method} ${r.path}`;
 

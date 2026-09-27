@@ -34,6 +34,7 @@ export {
 	handleBrowserTransition,
 	handleGetLesson,
 } from "./lessons-browser";
+export { handlePublicLesson } from "./lessons-public";
 export {
 	handleGetInventory,
 	handlePutInventory,
