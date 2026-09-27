@@ -38,8 +38,10 @@ Biome.
   `packages/db/src/schema.ts`, then run
   `pnpm --filter @onlooker/db generate:migrations`. Custom SQL (backfills) is
   appended to the generated file by hand afterward.
-- **`expected-schema.ts` is generated too:**
-  `pnpm --filter @onlooker/db generate:expected-schema`. Never hand-edit it.
+- **`expected-schema.ts` is generated too**, and the generator reads
+  `dist/schema.js` rather than `src/schema.ts`, so it must be preceded by
+  `pnpm --filter @onlooker/db build` or it silently regenerates the old shape.
+  Never hand-edit it.
 - **Never open the push tier gate.** `apps/api/src/routes/lessons.ts:104` must
   keep rejecting non-private lessons for the whole of this plan. Tests seed
   non-private lessons with `createLessonsWithFeed`, which writes to the DB
@@ -89,6 +91,9 @@ Biome.
 - Create: `packages/db/migrations/0008_<drizzle-generated-name>.sql`
 - Create: `apps/api/src/db/author-key-backfill.test.ts`
 - Regenerate: `packages/db/src/expected-schema.ts`
+- Modify: `packages/db/src/__tests__/schema.test.ts` — it hand-pins a table count
+  and per-table column lists, so a new table and column mean updating those
+  assertions. Mechanical, and the test working as intended.
 
 **Where the test lives, and why not in `packages/db`.** That package's three
 suites (`src/__tests__/`) are pure drizzle introspection — they compare the
@@ -182,10 +187,33 @@ UPDATE `lessons` SET `author_key` = json_extract(`body`, '$.author_key') WHERE `
 
 - [ ] **Step 4: Regenerate the expected schema**
 
-Run: `pnpm --filter @onlooker/db generate:expected-schema`
-Then: `pnpm --filter @onlooker/db verify:schema`
-Expected: PASS. The `lessons` entry in `expected-schema.ts` now lists
+```bash
+pnpm --filter @onlooker/db build
+pnpm --filter @onlooker/db generate:expected-schema
+```
+
+**The `build` first is not optional.** `generate:expected-schema` reads
+`dist/schema.js`, not `src/schema.ts`, so without it the generator silently
+regenerates the *old* shape and the mismatch surfaces later as a confusing test
+failure in a file you did not touch.
+
+Expected afterward: the `lessons` entry in `expected-schema.ts` lists
 `author_key`, and `lesson_author_blocks` appears as a new table.
+
+**Do NOT run `verify:schema` here.** It takes `<database> <env>` arguments and
+compares `expected-schema.ts` against a *live deployed* D1 over
+`wrangler --remote` — `deploy.yml:608` and `:766` are the only places it runs,
+after a deploy. Locally it either errors on the missing arguments or, given real
+staging arguments, reports false drift for a migration that has not been deployed
+anywhere yet.
+
+The local check is the next step's test run: `packages/db`'s three suites in
+`src/__tests__/` compare the schema object against `expected-schema.ts` directly,
+with no database involved, which is exactly the agreement this step can break.
+
+Note that `src/__tests__/schema.test.ts` hand-pins a table count and per-table
+column lists, so adding a table and a column means updating those assertions.
+That is expected, and it is the test doing its job rather than an obstacle.
 
 - [ ] **Step 5: Write a test that the backfill actually ran**
 
@@ -194,6 +222,7 @@ Create `apps/api/src/db/author-key-backfill.test.ts`:
 ```ts
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createUser } from "./queries.js";
 
 const db = () => env.DB;
 
@@ -203,19 +232,24 @@ const BACKFILL = `UPDATE lessons SET author_key = json_extract(body, '$.author_k
 describe("author_key backfill", () => {
 	beforeEach(async () => {
 		await db().prepare("DELETE FROM lessons").run();
+		await db().prepare("DELETE FROM users").run();
 	});
 
 	it("reads author_key back out of the body for a pre-migration row", async () => {
 		// Simulates a row written before 0008: the column takes its DEFAULT ''
 		// and the real value exists only inside the JSON.
 		const body = JSON.stringify({ author_key: "b".repeat(32) });
+		// A real user, because D1 enforces the foreign key on lessons.user_id -
+		// a literal id fails with SQLITE_CONSTRAINT_FOREIGNKEY. Same shape as
+		// the sibling apps/api/src/db/backfill.test.ts.
+		const user = await createUser(db(), "backfill@example.com", "hash", "Ada");
 		await db()
 			.prepare(
 				`INSERT INTO lessons
 				   (id, user_id, visibility, status, schema_version, body, author_key)
 				 VALUES (?, ?, 'private', 'active', 2, ?, '')`,
 			)
-			.bind("01KZ45MKAM734ZS7JK24D2DK01", "u1", body)
+			.bind("01KZ45MKAM734ZS7JK24D2DK01", user.id, body)
 			.run();
 
 		await db().prepare(BACKFILL).run();
@@ -230,13 +264,14 @@ describe("author_key backfill", () => {
 
 	it("leaves a post-migration row alone", async () => {
 		const body = JSON.stringify({ author_key: "b".repeat(32) });
+		const user = await createUser(db(), "guarded@example.com", "hash", "Ada");
 		await db()
 			.prepare(
 				`INSERT INTO lessons
 				   (id, user_id, visibility, status, schema_version, body, author_key)
 				 VALUES (?, ?, 'private', 'active', 2, ?, ?)`,
 			)
-			.bind("01KZ45MKAM734ZS7JK24D2DK02", "u1", body, "c".repeat(32))
+			.bind("01KZ45MKAM734ZS7JK24D2DK02", user.id, body, "c".repeat(32))
 			.run();
 
 		await db().prepare(BACKFILL).run();
