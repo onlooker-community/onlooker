@@ -147,8 +147,8 @@ export async function createLessonsWithFeed(
 				db
 					.prepare(
 						`INSERT INTO lessons
-							(id, user_id, visibility, status, schema_version, body, promoted_at, created_at, updated_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, created_at, updated_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.bind(
 						lesson.id,
@@ -157,10 +157,13 @@ export async function createLessonsWithFeed(
 						lesson.status,
 						lesson.schema_version,
 						canonicalize(lesson),
-						// The column and the body carry the same value, written in
-						// one statement so they cannot drift. promoted_at is
-						// immutable - transitionLesson must never touch it.
+						// Both promoted_at and author_key carry the same value as their
+						// copy inside body, written in the same statement so they cannot
+						// drift. promoted_at is immutable - transitionLesson must never
+						// touch it. author_key is simply never rewritten, because a
+						// lesson's author does not change.
 						lesson.promoted_at,
+						lesson.author_key,
 						now,
 						now,
 					),

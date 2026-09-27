@@ -345,3 +345,34 @@ describe("promoted_at", () => {
 		);
 	});
 });
+
+describe("author_key", () => {
+	it("is stored in the column, not only inside the body", async () => {
+		const written = lesson({ author_key: "f".repeat(32) });
+
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		const row = await db()
+			.prepare("SELECT author_key FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ author_key: string }>();
+		expect(row?.author_key).toBe("f".repeat(32));
+	});
+
+	// The column and the body are two copies of one fact. They are written in
+	// the same statement so they cannot diverge, and this is the assertion
+	// that would catch it if the INSERT ever stopped binding one of them.
+	it("agrees with the copy inside the body", async () => {
+		const written = lesson({ author_key: "f".repeat(32) });
+
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		const row = await db()
+			.prepare("SELECT author_key, body FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ author_key: string; body: string }>();
+		expect(row?.author_key).toBe(
+			(JSON.parse(row?.body ?? "{}") as { author_key: string }).author_key,
+		);
+	});
+});
