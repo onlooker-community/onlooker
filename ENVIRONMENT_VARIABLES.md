@@ -125,8 +125,8 @@ These are environment variables that can be checked into version control.
 file cannot hold that. `.github/workflows/deploy.yml` appends
 `--var MONITORING_RELEASE:${{ github.sha }}` to the deploy script instead, and
 wrangler merges it with the vars the file declares — confirmed against wrangler
-4.102.0 with `wrangler deploy --env staging --dry-run`, which listed all seven
-declared staging vars alongside it. That merge is load-bearing: were `--var` ever
+4.102.0 with `wrangler deploy --env staging --dry-run`, which listed every
+declared staging var alongside it. That merge is load-bearing: were `--var` ever
 to *replace* the declared vars rather than merge with them, the deployed worker
 would lose its `DB` binding and every authenticated route would 500. Re-run the
 dry run before changing that line. `apps/api/src/monitoring.test.ts` asserts both
