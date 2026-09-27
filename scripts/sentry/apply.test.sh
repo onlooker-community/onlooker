@@ -334,6 +334,73 @@ if command -v python3 >/dev/null 2>&1; then
 			"${named_output}"
 	fi
 
+	echo
+	echo "sentry/apply: a binding this repo did not make"
+
+	# A workflow can serve MANY detectors - Sentry's model says so and its UI
+	# does it by default - but a rule file resolves exactly one. So the payload
+	# carried `detectorIds: [$d]`, an array of length one, and every apply PUT
+	# it over whatever the workflow actually listened to.
+	#
+	# Live on 2026-09-26: workflow 3984756 'Website error (production)' held
+	# ['10456140', '10312310'] because connecting the waitlist metric alert in
+	# the UI attached it here rather than making its own workflow. The next
+	# apply would have PUT ['10312310'] and unbound the metric monitor. Nothing
+	# would have failed: website errors keep alerting, the monitor keeps
+	# detecting, and only the path between it and a human disappears. That is
+	# the fault this epic exists to remove, in the tool built to remove it.
+	bound_output="$(apply_against_fake "${RULES_DIR}/website-errors.json")"
+
+	if [[ "${bound_output}" == *"REFUSED"*"Website error (production)"* ]]; then
+		pass "refuses a workflow bound to a detector its file does not describe"
+	else
+		fail "refuses a workflow bound to a detector its file does not describe" \
+			"${bound_output}"
+	fi
+
+	# The assertion that matters more than the refusal: no PUT was sent. A
+	# refusal printed after the request would read the same and cost the
+	# binding anyway.
+	if [[ "${bound_output}" == *"updated: Website error (production)"* ]]; then
+		fail "sends no PUT for the workflow it refused" \
+			"applied it anyway: ${bound_output}"
+	else
+		pass "sends no PUT for the workflow it refused"
+	fi
+
+	# Naming the id is the difference between a refusal you can act on and one
+	# that sends you to the UI to work out what you nearly broke.
+	if [[ "${bound_output}" == *"10456140"* ]]; then
+		pass "names the detector it would have unbound"
+	else
+		fail "names the detector it would have unbound" "${bound_output}"
+	fi
+
+	# The half that keeps the guard from being a blanket refusal to update
+	# anything. 'API fault (production)' exists in Sentry too, and its single
+	# binding is exactly the one rules/api-faults.json describes, so it must
+	# still apply. Without this, `[[ -n "${existing}" ]] && refuse` passes
+	# every assertion above.
+	described_output="$(apply_against_fake "${RULES_DIR}/api-faults.json")"
+
+	if [[ "${described_output}" == *"updated: API fault (production)"* ]]; then
+		pass "still updates a workflow whose only binding is the one its file names"
+	else
+		fail "still updates a workflow whose only binding is the one its file names" \
+			"${described_output}"
+	fi
+
+	# Drift reported bindings nowhere, which is why this was invisible until
+	# someone read a workflow by hand: report_drift compared NAMES, and a
+	# workflow the repo defines was clean by definition no matter what it
+	# listened to. A rule file that is never applied still has to surface this.
+	if [[ "${described_output}" == *"drift"*"10456140"* ]]; then
+		pass "reports a binding the repo does not describe on a workflow it defines"
+	else
+		fail "reports a binding the repo does not describe on a workflow it defines" \
+			"${described_output}"
+	fi
+
 	kill "${detectors_pid}" 2>/dev/null || true
 	wait "${detectors_pid}" 2>/dev/null || true
 	rm -f "${cron_base}" "${ambiguous_rule}" "${named_rule}" "${absent_rule}"

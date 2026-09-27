@@ -22,6 +22,19 @@ hand-made one is in no file and always must be. A fix that silenced drift
 altogether would satisfy the first on its own, so the second is what stops that
 from passing.
 
+`Website error (production)` is the third kind, and it is not hypothetical: this
+is the live shape of workflow 3984756 as of 2026-09-26. rules/website-errors.json
+defines it and resolves ONE detector, but the workflow listens to TWO, because
+connecting the waitlist metric alert in the Sentry UI attached it to this
+existing workflow rather than creating a new one. A PUT built from the file alone
+would unbind the metric monitor and silently break the only path between it and a
+human (onlooker-txcu.15). Its counterpart is `API fault (production)`, whose
+single binding is exactly the one its file describes - without that, a guard that
+refused every workflow with an `existing` match would pass.
+
+The detector ids here are live. `waitlist.submit_failed` stands in for the metric
+monitor's name, which cannot be read offline; the tests assert on its id.
+
 Used by apply.test.sh. Not shipped and not imported by anything else.
 """
 
@@ -46,6 +59,19 @@ DETECTORS = [
         "projectId": 4512075995283456,
         "type": "issue_stream",
     },
+    # onlooker-marketing, the project rules/website-errors.json binds to.
+    {
+        "id": "10312310",
+        "name": "Error Detector",
+        "projectId": 4512074226401280,
+        "type": "issue_stream",
+    },
+    {
+        "id": "10456140",
+        "name": "waitlist.submit_failed",
+        "projectId": 4512074226401280,
+        "type": "metric_issue",
+    },
 ]
 
 WORKFLOWS = [
@@ -58,6 +84,11 @@ WORKFLOWS = [
         "id": "7777777",
         "name": "Hand-made during an incident",
         "detectorIds": ["10314452"],
+    },
+    {
+        "id": "3984756",
+        "name": "Website error (production)",
+        "detectorIds": ["10456140", "10312310"],
     },
 ]
 
