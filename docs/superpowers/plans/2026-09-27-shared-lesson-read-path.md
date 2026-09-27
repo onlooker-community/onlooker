@@ -1597,6 +1597,17 @@ const EXPECTED_ANY_ORIGIN = ["GET /api/public/lessons/:id"];
 This is the one edit to those lists this plan makes. Adding a route to them is
 meant to feel deliberate.
 
+**Also remove the two plan references those lists carry.** `router.test.ts:19`
+says "Task 5 adds `GET /api/public/lessons/:id` here when the route exists" and
+`:30` says "Empty until Task 5" — both written into this plan's own Task 3
+snippets, and both stale the moment you complete this step. A plan task number in
+permanent code dates itself to a document the repository does not ship, which is
+exactly how a comment becomes misleading; Task 4 had to strip two of these out of
+`router.ts` for the same reason. Replace them with what is true of the code: the
+route is here because it is deliberately unauthenticated and deliberately
+readable from any origin, and adding to either list is meant to be a reviewed
+decision. Say that, without dating it.
+
 - [ ] **Step 5: Run the tests, then PROVE THE LEAK TESTS BY ABLATION**
 
 Run: `pnpm --filter @onlooker/api test`
