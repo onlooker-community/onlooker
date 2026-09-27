@@ -26,11 +26,16 @@ export interface Principal {
  * non-member. NEVER THROW - an org that cannot be resolved returns [], so a
  * membership outage narrows access instead of widening it.
  *
- * Return a BOUNDED set, well under MAX_ORG_MEMBERS_BOUND below. This
- * predicate binds one `?` per id, and D1 has a ceiling on bound parameters per
- * query; visibilityPredicate truncates past that bound rather than trusting
- * every resolver to honor it, but a resolver that routinely returns that many
- * ids is doing needless per-request work even before truncation kicks in.
+ * MUST stay within MAX_ORG_MEMBERS_BOUND below (50 - D1's 100-bound-parameter
+ * cap, halved for headroom the same way lessons.ts's ID_LOOKUP_CHUNK is).
+ * This is not a soft preference: this predicate binds one `?` per id, so an
+ * `IN (...)` list cannot express an org bigger than the bound AT ALL. An org
+ * larger than that is this issue's to solve with a different shape entirely -
+ * a JOIN against a membership table, not a longer id list - not something a
+ * resolver can paper over by returning more ids. Past the bound,
+ * visibilityPredicate truncates rather than throwing, which silently drops
+ * members rather than growing the query; that is a floor against a resolver
+ * that ignores this contract, not a way to run a big org correctly.
  */
 export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
 
@@ -84,14 +89,22 @@ export interface PoolFilters {
 /**
  * The largest org-membership list this predicate will bind into one query.
  *
- * Past this, an `IN (...)` list of one `?` per member risks D1's ceiling on
- * bound parameters for a query shaped like this one - roughly 900 by measured
- * behavior, not the 100 a chunking comment elsewhere in this codebase quotes
- * for a different query shape (getLessonsByIds' own `IN` list). This leaves
- * headroom under that for the predicate's own couple of binds and whatever
- * readPool adds for statuses and the cursor, rather than sitting on the edge.
+ * D1 caps bound parameters per query at 100 - the same fact `lessons.ts`'s
+ * `ID_LOOKUP_CHUNK` derives from, halving that cap for the same reason. This
+ * query carries other binds beside the org list too: both `user_id` binds in
+ * visibilityPredicate itself, up to four `statuses`, two cursor binds, and
+ * the page `LIMIT`. 50 - matching `ID_LOOKUP_CHUNK` rather than disagreeing
+ * with it - leaves real headroom under the cap instead of sitting near it.
+ *
+ * This is a hard ceiling on what an `IN (...)` id list can express, not a
+ * safety valve for an unusually large but ordinary org. Past this count,
+ * ONL-12's resolver cannot be answered with an id list handed to this
+ * predicate at all - an org bigger than the bound needs a JOIN against a
+ * membership table, not a bigger list. See the truncation below for what
+ * happens if such a resolver ships anyway: it is a floor against breakage,
+ * not a supported way to run a big org.
  */
-const MAX_ORG_MEMBERS_BOUND = 800;
+export const MAX_ORG_MEMBERS_BOUND = 50;
 
 /**
  * The only place a visibility predicate is constructed.
@@ -118,9 +131,12 @@ function visibilityPredicate(
 		binds.push(principal.userId);
 
 		// Truncated, not thrown: OrgMembers promises never to throw, and a
-		// resolver that returns more than the codebase asks for should still
-		// only narrow which org members are recognized, not take the whole
-		// read down. See MAX_ORG_MEMBERS_BOUND above.
+		// resolver whose org exceeds the bound should still only narrow which
+		// members are recognized, not take the whole read down - including the
+		// caller's own private lessons, which the same query answers. This is a
+		// floor against a broken or oversized resolver, not a supported way to
+		// serve a big org: see MAX_ORG_MEMBERS_BOUND above for why a bigger org
+		// needs a different predicate entirely, not a bigger list here.
 		const bounded = orgMemberIds.slice(0, MAX_ORG_MEMBERS_BOUND);
 
 		if (bounded.length > 0) {

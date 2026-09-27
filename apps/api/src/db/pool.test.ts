@@ -3,7 +3,7 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import { createLessonsWithFeed } from "./lessons.js";
-import { readPool, readPoolLesson } from "./pool.js";
+import { MAX_ORG_MEMBERS_BOUND, readPool, readPoolLesson } from "./pool.js";
 import { createUser } from "./queries.js";
 
 const db = () => env.DB;
@@ -144,6 +144,28 @@ describe("readPool, authenticated", () => {
 			{ userId: mine },
 			{ limit: 50 },
 			async () => [theirs],
+		);
+
+		expect(idsIn(page)).toEqual([]);
+	});
+
+	it("truncates an oversized org list rather than binding it all", async () => {
+		// MAX_ORG_MEMBERS_BOUND keeps this predicate's `IN (...)` list under
+		// D1's bound-parameter cap - a floor against a broken or oversized
+		// resolver, not a supported way to run a big org (see pool.ts). Naming
+		// `theirs` past the bound proves the excess is dropped rather than the
+		// query itself breaking.
+		await seedFor(theirs, { visibility: "org" });
+		const padding = Array.from(
+			{ length: MAX_ORG_MEMBERS_BOUND },
+			(_, i) => `padding-${i}`,
+		);
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => [...padding, theirs],
 		);
 
 		expect(idsIn(page)).toEqual([]);
