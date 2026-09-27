@@ -35,14 +35,6 @@ const EXPECTED_ANY_ORIGIN: string[] = [];
 const label = (r: { method: string; path: string }) => `${r.method} ${r.path}`;
 
 describe("route table declarations", () => {
-	it("every route declares an auth mode", () => {
-		expect(ROUTES.filter((r) => !r.auth).map(label)).toEqual([]);
-	});
-
-	it("every route declares a cors posture", () => {
-		expect(ROUTES.filter((r) => !r.cors).map(label)).toEqual([]);
-	});
-
 	it("only the expected routes are unauthenticated", () => {
 		const actual = ROUTES.filter((r) => r.auth === "none")
 			.map(label)

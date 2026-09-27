@@ -42,6 +42,13 @@ import {
 import type { RouteParams, WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
+/**
+ * `auth` and `cors` are required, not merely conventional, and that
+ * requiredness is enforced by the compiler: an entry in `ROUTES` missing
+ * either field fails to typecheck. Deliberately not a test - a required
+ * field on an object literal cannot fail to be present at runtime, so a test
+ * asserting it would only ever pass, which is not evidence of anything.
+ */
 export interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;

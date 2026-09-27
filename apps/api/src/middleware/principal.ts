@@ -12,12 +12,7 @@ import { requireMachineToken } from "./machine-auth.js";
  * was discoverable only by reading its handler, so a forgotten call was an open
  * endpoint and nothing said so.
  */
-export type RouteAuth =
-	| "none"
-	| "session"
-	| "machine"
-	| "session-or-machine"
-	| "operator";
+export type RouteAuth = "none" | "session" | "machine" | "operator";
 
 /**
  * Which origins may read a route's response.
@@ -48,14 +43,6 @@ export async function resolvePrincipal(
 
 		case "machine":
 			return { userId: (await requireMachineToken(request, env)).userId };
-
-		case "session-or-machine": {
-			try {
-				return { userId: (await requireAuth(request, env)).userId };
-			} catch {
-				return { userId: (await requireMachineToken(request, env)).userId };
-			}
-		}
 
 		case "operator": {
 			const { userId } = await requireAuth(request, env);
