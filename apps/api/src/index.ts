@@ -17,7 +17,7 @@ import type {
 import { timedD1 } from "./db/timing.js";
 import { preflightResponse, withCors } from "./middleware";
 import { monitored } from "./monitoring";
-import { dispatch, listRoutes, ROUTES, resolveRoute } from "./router";
+import { dispatch, ROUTES, resolveRoute } from "./router";
 import { runScheduled } from "./scheduled";
 import type { WorkerEnv } from "./types";
 
@@ -73,9 +73,28 @@ async function handleRequest(
 
 /**
  * Root endpoint: returns API info and available routes.
+ *
+ * Filters out `auth: "operator"` routes by that property, not by naming their
+ * paths. An operator route is the only kind whose existence is meant to be
+ * secret: it answers 404 to a signed-in non-operator (see
+ * middleware/principal.ts) specifically so a prober cannot tell it apart from
+ * a path that does not exist at all - `router.ts`'s Route.auth doc comment
+ * says the same thing. Every other auth mode already discloses its own
+ * existence to a prober: "session" and "machine" routes answer 401, and
+ * "none" routes are public by definition. So operator routes are exactly the
+ * set a public listing must omit, and filtering on the property means a
+ * future operator route is excluded automatically - there is no path list
+ * here to forget to update.
+ *
+ * Deliberately not `listRoutes()`, which stays a full, unfiltered dump "for
+ * debugging/docs" per its own doc comment - a debugging helper that silently
+ * omits routes is its own trap. The filtering belongs at this point of public
+ * disclosure instead.
  */
 function handleRoot(env: WorkerEnv): Response {
-	const routes = listRoutes();
+	const routes = ROUTES.filter((route) => route.auth !== "operator").map(
+		({ method, path }) => ({ method, path }),
+	);
 	const info = {
 		service: "Onlooker API",
 		version: "0.0.1",

@@ -1,5 +1,7 @@
+import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ROUTES, resolveRoute } from "./router";
+import { BASE } from "./test-support/lessons.js";
 
 /**
  * The routes that answer without any credential. This list is the point: an
@@ -55,6 +57,29 @@ describe("route table declarations", () => {
 	it("no credential-taking route is readable from any origin", () => {
 		const both = ROUTES.filter((r) => r.cors === "any" && r.auth !== "none");
 		expect(both.map(label)).toEqual([]);
+	});
+});
+
+describe("GET / route listing", () => {
+	// An operator route answers 404 to a signed-in non-operator specifically
+	// so a prober cannot tell it apart from a path that does not exist -
+	// middleware/principal.ts calls this out explicitly. GET / used to bypass
+	// that entirely: it lists routes from a point before dispatch() ever runs,
+	// with no credential check of its own, so it could confirm the operator
+	// routes' existence for free. Asserted on the path shape rather than an
+	// exact count or list, so this does not go stale every time a route -
+	// operator or otherwise - is added.
+	it("does not advertise any operator route", async () => {
+		const response = await SELF.fetch(`${BASE}/`);
+		const body = (await response.json()) as {
+			endpoints: Array<{ method: string; path: string }>;
+		};
+
+		const adminPaths = body.endpoints.filter((endpoint) =>
+			endpoint.path.includes("/api/admin/"),
+		);
+
+		expect(adminPaths).toEqual([]);
 	});
 });
 
