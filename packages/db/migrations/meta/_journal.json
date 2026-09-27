@@ -57,6 +57,13 @@
       "when": 1789697252140,
       "tag": "0007_sad_xorn",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790539251907,
+      "tag": "0008_stiff_swordsman",
+      "breakpoints": true
     }
   ]
 }

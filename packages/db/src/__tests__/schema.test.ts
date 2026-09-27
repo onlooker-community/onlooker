@@ -153,6 +153,7 @@ describe("machine_tokens", () => {
 describe("lessons", () => {
 	it("declares exactly the columns the hosted lesson pool needs", () => {
 		expect(columnNames(lessons)).toEqual([
+			"author_key",
 			"body",
 			"created_at",
 			"id",
@@ -289,11 +290,11 @@ describe("session_summaries", () => {
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
 	// arrive with the feature that needs it, not by accident.
-	it("declares only the seven tables in use", async () => {
+	it("declares only the eight tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(7);
+		expect(tables).toHaveLength(8);
 	});
 });
