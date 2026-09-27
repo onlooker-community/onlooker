@@ -968,7 +968,21 @@ deliberate lack of one and gets a name that says so.
 **Interfaces:**
 - Consumes: `Principal` from Task 2's `pool.ts`.
 - Produces:
-  - `type RouteAuth = "none" | "session" | "machine" | "session-or-machine" | "operator"`
+  - `type RouteAuth = "none" | "session" | "machine" | "operator"`
+
+**`"session-or-machine"` appears below in this task's code and was removed during
+it**, as unreachable. No route used it, and it existed nowhere but in
+enumerations — this plan, a brief's interface list, and one spec line naming the
+union without giving that member a rationale or a route. It was a mode written
+down while listing possibilities, not one anything needed, and its bare `catch`
+would have reported an infrastructure fault inside `requireAuth` to the caller as
+"Missing machine token". Treat the snippets below as superseded on that point.
+
+`"operator"` is also unused until Task 6 and **stays**, because it has a consumer
+in the design rather than only in an enumeration: `db/pool.ts` explains that
+operator authority is absent from `Principal` precisely so no read predicate can
+grow a branch that widens what a read returns. Delete the mode and that argument
+is orphaned.
   - `type RouteCors = "app" | "any"`
   - `Route` with required `auth: RouteAuth` and `cors: RouteCors`, exported
   - `ROUTES`, exported
@@ -1307,10 +1321,27 @@ For each of `account.ts`, `activity.ts`, `auth.ts`, `data.ts`, `lessons.ts`,
 auth call with the `principal` argument, then run that file's tests before moving
 on. The `auth.ts` login/signup handlers are `"none"` and ignore the argument.
 
-`handleMe` needs care: it uses the `email` that `requireAuth` returns and
-`Principal` does not carry. **Keep its `requireAuth` call** and add a comment
-saying why — inventing a field on `Principal` for one handler would put an unused
-value on every request.
+**Three handlers need more than `Principal` carries, not one.** `Principal` is
+`{ userId: string }` and deliberately nothing else:
+
+- `handleMe` uses the `email` that `requireAuth` returns.
+- `handlePutInventory` (`machine-inventory.ts:33`) and `handlePostSessions`
+  (`sessions.ts:59`) both consume `machineId` from `requireMachineToken`.
+
+**Keep the credential call in all three**, each with a comment naming the field
+it needs. Widening `Principal` for them would put a value on every request that
+almost no handler reads, and `Principal` is deliberately narrow — `db/pool.ts`
+explains that operator authority is absent from it so no read predicate can grow
+a branch that widens what a read returns. The same reasoning keeps `machineId`
+and `email` out.
+
+**Removing the duplication on the machine routes is worth more than it looks.**
+`verifyMachineToken` **writes** `last_used_at` (`db/machine-tokens.ts:94-97`), so
+while Task 3's transitional state stands, each of the five machine routes does
+two SELECTs *and two UPDATEs* per request — an extra D1 round trip plus a write
+on the `onlooker sync` hot path, at roughly 43 ms per D1 call at p50 by this
+repo's own measurement. So the three handlers above keep their call, and the
+other two machine routes must genuinely lose theirs.
 
 - [ ] **Step 3: Confirm no accidental double verification remains**
 
@@ -1563,6 +1594,52 @@ Then ablate, at the route this time:
    a non-null principal widens the predicate, which is precisely the bug the
    separate handler exists to make impossible.
 3. Restore the literal `null`. Re-run. Expected: all PASS.
+
+- [ ] **Step 5b: Make the preflight honor `cors: "any"` — it does not today**
+
+`preflightResponse` (`middleware/cors.ts:118-130`) takes no `RouteCors` and is
+called at `index.ts:34` *ahead of* dispatch, so OPTIONS is always answered from
+the origin allowlist. Left alone, this route answers `Access-Control-Allow-Origin:
+*` on the response while **refusing the preflight** for any request that triggers
+one.
+
+How narrow that is, precisely, because it decides what to test. A cross-origin
+GET is a *simple* request when its only headers are CORS-safelisted, so no
+preflight fires and the wildcard on the response is sufficient by itself — an
+anonymous `fetch()` from a third-party page works today. The breakage is confined
+to a caller that adds `Authorization`, a JSON `Content-Type`, or a trace header.
+Separately, a caller using `credentials: "include"` fails against a wildcard by
+design, since the browser then demands an echoed origin and
+`Access-Control-Allow-Credentials`. That is the intended posture — a public read
+takes no credential — so "readable from any origin" means precisely "readable
+*anonymously* from any origin."
+
+**Why this lands here and not in Task 3:** an OPTIONS request cannot be matched
+against the route table at all. `Route.method` is
+`"GET" | "POST" | "PATCH" | "DELETE" | "PUT"` and no route declares OPTIONS, so
+`resolveRoute(ROUTES, "OPTIONS", path)` returns undefined for every path. The
+lookup has to read the preflight's own `Access-Control-Request-Method` to find the
+route being asked about — which introduces a failure mode of its own. Doing that
+in Task 3 would have meant writing a branch no route could exercise.
+
+So: give `preflightResponse` the matched route's `RouteCors`, resolved by looking
+the route up via `Access-Control-Request-Method`, and **fail closed to `"app"`**
+when that header is missing, unparseable, or matches no route. A preflight that
+cannot identify its route must get the allowlist, never the wildcard.
+
+Two tests, in the same file:
+1. An OPTIONS preflight from a foreign origin for `GET /api/public/lessons/:id`
+   returns `Access-Control-Allow-Origin: *`.
+2. An OPTIONS preflight from that *same* foreign origin for a `cors: "app"` route
+   still gets no CORS headers back.
+
+The second is the one that matters — it proves the wildcard did not leak to every
+route. Also add the `withCors` `"any"`-branch case that `cors.test.ts` currently
+lacks: every existing caller passes three arguments, so nothing exercises what
+the wildcard branch actually emits.
+
+Without this step the route will pass every hand test that does not set a header,
+which is why it is written down rather than left to notice.
 
 - [ ] **Step 6: Add the edge rate limit, outside the worker**
 
