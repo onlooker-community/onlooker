@@ -1,11 +1,9 @@
+import { ZAuthorKey } from "@onlooker-community/lesson-contract";
 import { blockAuthor, unblockAuthor } from "../db/author-blocks.js";
 import { retractAnyLesson, SequenceExhaustedError } from "../db/lessons.js";
 import type { Principal } from "../db/pool.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
-
-/** The contract's own shape for an author key. See ZAuthorKey. */
-const AUTHOR_KEY = /^[0-9a-f]{32}$/;
 
 /**
  * Operator moderation.
@@ -50,7 +48,7 @@ export async function handleBlockAuthor(
 	const authorKey = typeof body.author_key === "string" ? body.author_key : "";
 	const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
-	if (!AUTHOR_KEY.test(authorKey)) {
+	if (!ZAuthorKey.safeParse(authorKey).success) {
 		throw new ApiError(
 			400,
 			"invalid_author_key",

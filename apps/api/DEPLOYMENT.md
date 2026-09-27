@@ -51,6 +51,17 @@ database_name = "onlooker-db"
 database_id = "YOUR-DATABASE-ID"
 ```
 
+### Operator authority
+
+`OPERATOR_USER_IDS` is a comma-separated list of user ids permitted to act as
+an operator — retracting any lesson, blocking or unblocking an author key.
+It is a var, not a secret, but it is deliberately not something you edit
+casually: it lives in `wrangler.toml` rather than a database row so that
+granting it is a deploy someone reviews, not a runtime change anyone with
+database access can make unilaterally. Empty (`""`, the value in all three
+environments today) means nobody is an operator. See
+`middleware/principal.ts` for the check itself.
+
 ### Secrets
 
 Sensitive values managed via CLI:
@@ -286,9 +297,10 @@ failed. If a faster pull is ever needed, that is a cache-purge feature, not a
 retry.
 
 `max-age=60` is what the worker *asks* for, not a guarantee — the effective edge
-TTL depends on the zone's cache rules, which live outside this repository. So 60
-seconds is the floor the code establishes, and the real floor could be longer if
-zone configuration says so.
+TTL is controlled by the zone's cache rules, which live outside this repository
+and can lengthen it, shorten it, or disable edge caching for the path entirely.
+So 60 seconds is what the code sets, not what a client is guaranteed to see in
+either direction.
 
 No test can observe any of this: `SELF.fetch` in the test harness never
 populates an edge cache, which is why the retraction and block tests in

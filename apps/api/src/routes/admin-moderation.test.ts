@@ -124,6 +124,13 @@ describe("author blocks", () => {
 	it("stops serving every public lesson from a blocked key", async () => {
 		const pub = await seed({ visibility: "public", author_key: KEY });
 
+		// The pre-block fetch is the test's own positive control: without it,
+		// a 404 below could have any cause, and this test would only prove
+		// anything in combination with "serves it again after an unblock".
+		expect(
+			(await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`)).status,
+		).toBe(200);
+
 		const blocked = await blockRequest(
 			{ author_key: KEY, reason: "injection" },
 			operatorToken,
@@ -181,5 +188,51 @@ describe("author blocks", () => {
 
 	it("404s an unblock of a key that was never blocked", async () => {
 		expect((await unblockRequest(KEY, operatorToken)).status).toBe(404);
+	});
+
+	it("404s a block from a signed-in non-operator, confirming nothing", async () => {
+		const response = await blockRequest(
+			{ author_key: KEY, reason: "injection" },
+			ordinaryToken,
+		);
+
+		expect(response.status).toBe(404);
+		expect(
+			await db()
+				.prepare("SELECT 1 FROM lesson_author_blocks WHERE author_key = ?")
+				.bind(KEY)
+				.first(),
+		).toBeNull();
+	});
+
+	it("404s an unblock from a signed-in non-operator, confirming nothing", async () => {
+		await blockRequest({ author_key: KEY, reason: "injection" }, operatorToken);
+
+		expect((await unblockRequest(KEY, ordinaryToken)).status).toBe(404);
+		expect(
+			await db()
+				.prepare("SELECT 1 FROM lesson_author_blocks WHERE author_key = ?")
+				.bind(KEY)
+				.first(),
+		).not.toBeNull();
+	});
+
+	it("does not error when blocking an already-blocked key, and updates the reason", async () => {
+		await blockRequest(
+			{ author_key: KEY, reason: "first report" },
+			operatorToken,
+		);
+
+		const second = await blockRequest(
+			{ author_key: KEY, reason: "second report" },
+			operatorToken,
+		);
+
+		expect(second.status).toBe(200);
+		const row = await db()
+			.prepare("SELECT reason FROM lesson_author_blocks WHERE author_key = ?")
+			.bind(KEY)
+			.first<{ reason: string }>();
+		expect(row?.reason).toBe("second report");
 	});
 });

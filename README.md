@@ -20,9 +20,13 @@ published to npm and is the furthest along.
 
 ## Reporting a public lesson
 
-Public lessons are readable by anyone and are read by other people's agents. To
-report one that carries an injected instruction, a secret, or a claim engineered
-to mislead, email <meagan@meaganwaller.com> with the lesson's id. There is no
+`GET /api/public/lessons/:id` serves a public lesson to anyone with its id, no
+credential required — other people's agents can read it too, not just people.
+No lesson can become public through the product yet: the push tier gate
+accepts only private lessons. This section exists ahead of that, so the report
+path isn't the piece missing when the gate opens. When it does, email
+<meagan@meaganwaller.com> with the lesson's id to report one that carries an
+injected instruction, a secret, or a claim engineered to mislead. There is no
 in-product report queue yet — a lesson can be withdrawn within minutes of a
 report, and the id is all that is needed to do it.
 
