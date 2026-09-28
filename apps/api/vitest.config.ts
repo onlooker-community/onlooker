@@ -55,6 +55,7 @@ export default defineConfig(async () => {
 						// logs instead, and its own tests stub fetch to cover sending.
 						EMAIL_FROM: "Onlooker <noreply@onlooker.dev>",
 						APP_BASE_URL: "http://localhost:5173",
+						OPERATOR_USER_IDS: "",
 					},
 				},
 			}),

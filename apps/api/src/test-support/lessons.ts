@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 
 export const BASE = "https://api.onlooker.dev";
-const PASSWORD = "correct-horse-battery";
+export const TEST_PASSWORD = "correct-horse-battery";
 
 let counter = 0;
 
@@ -66,7 +66,7 @@ export async function mintMachine(email: string): Promise<MintedMachine> {
 	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
+		body: JSON.stringify({ email, password: TEST_PASSWORD, name: "Ada" }),
 	});
 	const { token: accessToken } = (await signup.json()) as { token: string };
 

@@ -3,9 +3,9 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	createLessonsWithFeed,
-	getLessonById,
-	getLessonsByIds,
 	isUniqueViolationOn,
+	probeLessonId,
+	probeLessonIds,
 	readLessonDelta,
 } from "./lessons.js";
 import { createUser } from "./queries.js";
@@ -138,7 +138,7 @@ describe("createLessonsWithFeed", () => {
 		const two = lesson();
 		await seqs(userId, one, two);
 
-		const stored = await getLessonsByIds(db(), [one.id, two.id]);
+		const stored = await probeLessonIds(db(), [one.id, two.id]);
 		expect(stored.get(one.id)?.user_id).toBe(userId);
 		expect(JSON.parse(stored.get(one.id)?.body ?? "{}").claim).toBe(one.claim);
 		expect(JSON.parse(stored.get(two.id)?.body ?? "{}").claim).toBe(two.claim);
@@ -228,9 +228,9 @@ describe("readLessonDelta", () => {
 	});
 });
 
-describe("getLessonsByIds", () => {
+describe("probeLessonIds", () => {
 	it("returns null for a lesson that does not exist", async () => {
-		expect(await getLessonById(db(), "01KZ45MKAM734ZS7JK24D2DK99")).toBeNull();
+		expect(await probeLessonId(db(), "01KZ45MKAM734ZS7JK24D2DK99")).toBeNull();
 	});
 
 	it("answers for many ids at once, omitting the absent ones", async () => {
@@ -238,7 +238,7 @@ describe("getLessonsByIds", () => {
 		const two = lesson();
 		await seqs(userId, one, two);
 
-		const found = await getLessonsByIds(db(), [
+		const found = await probeLessonIds(db(), [
 			one.id,
 			"01KZ45MKAM734ZS7JK24D2DK99",
 			two.id,
@@ -248,7 +248,20 @@ describe("getLessonsByIds", () => {
 	});
 
 	it("returns an empty map for no ids", async () => {
-		expect((await getLessonsByIds(db(), [])).size).toBe(0);
+		expect((await probeLessonIds(db(), [])).size).toBe(0);
+	});
+
+	it("finds a lesson owned by someone else, which push depends on", async () => {
+		// If a user_id filter is ever added here, push stops detecting that an
+		// id is taken by another account and mints a duplicate. This test is the
+		// tripwire for that.
+		const other = await createUser(db(), "other@example.com", "hash", "Bob");
+		const written = lesson() as TLesson;
+		await createLessonsWithFeed(db(), other.id, [written]);
+
+		const found = await probeLessonIds(db(), [written.id]);
+
+		expect(found.get(written.id)?.user_id).toBe(other.id);
 	});
 });
 
@@ -342,6 +355,37 @@ describe("promoted_at", () => {
 			.first<{ promoted_at: string; body: string }>();
 		expect(row?.promoted_at).toBe(
 			(JSON.parse(row?.body ?? "{}") as { promoted_at: string }).promoted_at,
+		);
+	});
+});
+
+describe("author_key", () => {
+	it("is stored in the column, not only inside the body", async () => {
+		const written = lesson({ author_key: "f".repeat(32) });
+
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		const row = await db()
+			.prepare("SELECT author_key FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ author_key: string }>();
+		expect(row?.author_key).toBe("f".repeat(32));
+	});
+
+	// The column and the body are two copies of one fact. They are written in
+	// the same statement so they cannot diverge, and this is the assertion
+	// that would catch it if the INSERT ever stopped binding one of them.
+	it("agrees with the copy inside the body", async () => {
+		const written = lesson({ author_key: "f".repeat(32) });
+
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		const row = await db()
+			.prepare("SELECT author_key, body FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ author_key: string; body: string }>();
+		expect(row?.author_key).toBe(
+			(JSON.parse(row?.body ?? "{}") as { author_key: string }).author_key,
 		);
 	});
 });

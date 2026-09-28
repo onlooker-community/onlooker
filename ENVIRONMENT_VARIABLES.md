@@ -32,6 +32,7 @@ they disagree with this file, they are right and this file is stale.
 | `APP_BASE_URL` | API | Vars | Origin that reset and verification links point at | `https://app.onlooker.dev` |
 | `TOKEN_EXPIRY_MINUTES` | API | Vars | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | API | Vars | Refresh token lifetime | `30` |
+| `OPERATOR_USER_IDS` | API | Vars | Comma-separated user ids allowed to act as an operator. Empty means nobody — see [DEPLOYMENT.md](apps/api/DEPLOYMENT.md#operator-authority) | `` (empty in every environment) |
 | `MONITORING_DSN` | API | Vars | Where error reports and traces go. Unset means monitoring is off | DSN of the API's Sentry project |
 | `MONITORING_RELEASE` | API | Vars (per deploy) | The commit the worker was deployed from. The only var not in `wrangler.toml` — the deploy passes it with `--var` | `${{ github.sha }}` |
 
@@ -115,6 +116,7 @@ These are environment variables that can be checked into version control.
 | `APP_BASE_URL` | Origin that password-reset and verification links point at. Wrong value means the mail sends and the link lands nowhere useful | Origin of the web app |
 | `TOKEN_EXPIRY_MINUTES` | Access token lifetime, and the window a logged-out token stays usable | `15` |
 | `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `30` (30 days) |
+| `OPERATOR_USER_IDS` | Comma-separated user ids permitted to act as an operator, gating the retract-any-lesson and author-block routes. Read by `middleware/principal.ts`. Not a secret — deliberately a var, so granting it is a deploy someone reviews rather than a runtime change. Empty means nobody is an operator; see [DEPLOYMENT.md](apps/api/DEPLOYMENT.md#operator-authority) for the full explanation | Empty in every environment today |
 | `MONITORING_DSN` | Where error reports and traces go, read by `src/monitoring.ts`. A var rather than a secret: a DSN is an ingest address, and the web bundle ships its own in plain sight. Unset means monitoring is off — the right answer for development and the test pool, and a silent gap in a deployed environment | DSN of the API's Sentry project |
 | `MONITORING_RELEASE` | The commit this worker was deployed from. Without it Sentry cannot mark a deploy, call an issue a regression, or name a suspect commit. Unset means events are filed under no release, which costs nothing at runtime and is therefore invisible — see below for why it is not in this file | Full git SHA |
 
@@ -123,8 +125,8 @@ These are environment variables that can be checked into version control.
 file cannot hold that. `.github/workflows/deploy.yml` appends
 `--var MONITORING_RELEASE:${{ github.sha }}` to the deploy script instead, and
 wrangler merges it with the vars the file declares — confirmed against wrangler
-4.102.0 with `wrangler deploy --env staging --dry-run`, which listed all seven
-declared staging vars alongside it. That merge is load-bearing: were `--var` ever
+4.102.0 with `wrangler deploy --env staging --dry-run`, which listed every
+declared staging var alongside it. That merge is load-bearing: were `--var` ever
 to *replace* the declared vars rather than merge with them, the deployed worker
 would lose its `DB` binding and every authenticated route would 500. Re-run the
 dry run before changing that line. `apps/api/src/monitoring.test.ts` asserts both
@@ -160,6 +162,7 @@ ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "http://localhost:5173"
+OPERATOR_USER_IDS = ""
 ```
 
 Development is the one environment with `JWT_SECRET` in the file. The value is
@@ -179,6 +182,7 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+OPERATOR_USER_IDS = ""
 MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 
@@ -194,6 +198,7 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+OPERATOR_USER_IDS = ""
 MONITORING_DSN = "https://…@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 ```
 

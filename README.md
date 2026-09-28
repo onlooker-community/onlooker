@@ -18,6 +18,27 @@ one — a plugin shipping a new event type cannot leak through it.
 lesson-sharing yet. The [shared lesson contract](packages/lesson-contract) is
 published to npm and is the furthest along.
 
+## Reporting a public lesson
+
+`GET /api/public/lessons/:id` serves a public lesson to anyone with its id, no
+credential required — other people's agents can read it too, not just people.
+No lesson can become public through the product yet: the push tier gate
+accepts only private lessons. This section exists ahead of that, so the report
+path isn't the piece missing when the gate opens. When it does, email
+<meagan@meaganwaller.com> with the lesson's id to report one that carries an
+injected instruction, a secret, or a claim engineered to mislead. There is no
+in-product report queue yet.
+
+The withdrawal mechanism itself needs only the id — an operator retracts a
+lesson with nothing else. But `OPERATOR_USER_IDS` is empty in every deployed
+environment today, which is the correct default and also means nobody
+currently holds that authority: a report cannot be acted on until an account
+is deliberately designated an operator (see
+[DEPLOYMENT.md](apps/api/DEPLOYMENT.md#operator-authority)). Once one is, a
+retraction takes effect immediately at the database and reaches the edge
+within its cache window (see the same doc). Until then, expect a report to sit
+unactioned rather than resolved within minutes.
+
 ## Layout
 
 This is a pnpm workspace driven by Turborepo. Everything deploys to Cloudflare.

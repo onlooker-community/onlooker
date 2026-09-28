@@ -1,3 +1,4 @@
+import type { Principal } from "../db/pool.js";
 import {
 	createUser,
 	getRefreshToken,
@@ -8,10 +9,11 @@ import {
 	storeRefreshToken,
 } from "../db/queries";
 import { ApiError } from "../middleware";
-import { optionalAuth, requireAuth } from "../middleware/auth";
+import { optionalAuth } from "../middleware/auth";
 import type {
 	LoginRequest,
 	RefreshTokenRequest,
+	RouteParams,
 	SignupRequest,
 	WorkerEnv,
 } from "../types";
@@ -226,12 +228,16 @@ export async function handleRefresh(
  * Get the current authenticated user profile.
  */
 export async function handleMe(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
-	const user = await getUserById(env.DB, auth.userId);
+	const user = await getUserById(env.DB, userId);
 	if (!user) {
 		throw new ApiError(404, "not_found", "User not found");
 	}

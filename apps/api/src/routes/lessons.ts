@@ -2,13 +2,13 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { ZLesson } from "@onlooker-community/lesson-contract";
 import {
 	createLessonsWithFeed,
-	getLessonsByIds,
+	probeLessonIds,
 	readLessonDelta,
 	SequenceExhaustedError,
 	transitionLesson,
 } from "../db/lessons.js";
+import type { Principal } from "../db/pool.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
-import { requireMachineToken } from "../middleware/machine-auth.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { canonicalize } from "../utils/canonical.js";
@@ -156,8 +156,12 @@ function screen(
 export async function handlePushLessons(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireMachineToken(request, env);
+	// The router resolved this from the route's `auth: "machine"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
 	const payload = (await request.json()) as { lessons?: unknown };
 	if (!Array.isArray(payload.lessons)) {
@@ -187,7 +191,7 @@ export async function handlePushLessons(
 	}
 
 	// 2. One read decides idempotency for the whole batch.
-	const stored = await getLessonsByIds(
+	const stored = await probeLessonIds(
 		env.DB,
 		admitted.map((item) => item.lesson.id),
 	);
@@ -255,7 +259,7 @@ export async function handlePushLessons(
 	}
 
 	if (settle.length > 0) {
-		const now = await getLessonsByIds(
+		const now = await probeLessonIds(
 			env.DB,
 			settle.map((item) => item.lesson.id),
 		);
@@ -348,8 +352,11 @@ export async function handleTransitionLesson(
 	request: Request,
 	env: WorkerEnv,
 	params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireMachineToken(request, env);
+	// The router resolved this from the route's `auth: "machine"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
 	// The router captured this from /lessons/:id/status, so the handler does not
 	// have to know that :id is the second-to-last segment. It used to, and so did
@@ -425,8 +432,12 @@ const MAX_LIMIT = 500;
 export async function handleReadLessons(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireMachineToken(request, env);
+	// The router resolved this from the route's `auth: "machine"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const url = new URL(request.url);
 
 	const since = Number.parseInt(url.searchParams.get("since") ?? "0", 10);

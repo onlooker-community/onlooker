@@ -158,7 +158,14 @@ describe("listLessonsPage", () => {
 		expect(new Set(seen)).toEqual(new Set(retracted.map((l) => l.id)));
 	});
 
-	it("never returns another user's lessons", async () => {
+	// Named for exactly what it pins, not "another user's lessons" generally:
+	// `seed` writes at the test-support default, `private`, and a public or
+	// org lesson IS meant to cross this boundary now that listLessonsPage goes
+	// through readPool. The full visibility matrix (public, org, blocked,
+	// retracted) is pool.test.ts's job, exercising readPool directly - this
+	// test's job is only to confirm listLessonsPage still delegates rather
+	// than quietly regaining a filter of its own.
+	it("never returns another user's private lessons", async () => {
 		await seed(["2026-08-01T00:00:00.000Z"]);
 		const other = await createUser(db(), "other@example.com", "hash", "Bo");
 

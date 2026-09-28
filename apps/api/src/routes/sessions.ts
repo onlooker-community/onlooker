@@ -1,12 +1,12 @@
 import { BROWSE_DEFAULT_LIMIT, InvalidCursorError } from "../db/lessons.js";
+import type { Principal } from "../db/pool.js";
 import type { SessionSummaryInput } from "../db/session-summaries.js";
 import {
 	listSessionSummaries,
 	putSessionSummaries,
 } from "../db/session-summaries.js";
-import { requireAuth } from "../middleware/auth.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
-import type { WorkerEnv } from "../types";
+import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
 /**
@@ -56,6 +56,9 @@ export async function handlePostSessions(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
+	// Kept rather than reading the router-resolved principal: this handler
+	// needs `machineId`, which `Principal` deliberately does not carry (see
+	// db/pool.ts), so only `requireMachineToken`'s own return value has it.
 	const { userId, machineId } = await requireMachineToken(request, env);
 
 	const raw = await request.text();
@@ -114,10 +117,10 @@ export async function handlePostSessions(
  * GET /api/sessions
  *
  * The browser's read of its own session history, across every machine that
- * has reported one. Browser-authenticated behind `requireAuth`, the same way
- * GET /api/activity is - a machine credential names exactly one machine and
- * has no business reading a person's whole feed, so a machine token here
- * fails at requireAuth before this handler's body ever runs.
+ * has reported one. Declared `auth: "session"`, the same way GET /api/activity
+ * is - a machine credential names exactly one machine and has no business
+ * reading a person's whole feed, so a machine token here fails in
+ * `resolvePrincipal` before this handler's body ever runs.
  *
  * Under `/api/` deliberately: this API splits its namespaces by who may call
  * them, browser-authenticated feeds under `/api/` and machine-authenticated
@@ -127,8 +130,12 @@ export async function handlePostSessions(
 export async function handleGetSessions(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const url = new URL(request.url);
 
 	// Clamped rather than rejected, matching handleActivity: a client asking

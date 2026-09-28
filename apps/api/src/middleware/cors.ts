@@ -17,6 +17,7 @@
 
 import { TRACE_HEADERS } from "../monitoring";
 import type { WorkerEnv } from "../types";
+import type { RouteCors } from "./principal.js";
 
 const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
 // The trace headers are what let a request traced in apps/web continue into
@@ -25,6 +26,16 @@ const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
 const ALLOW_HEADERS = ["Content-Type", "Authorization", ...TRACE_HEADERS].join(
 	", ",
 );
+// The "any" branch's own allowlist, deliberately narrower than ALLOW_HEADERS
+// above and NOT shared with it. ALLOW_HEADERS grants Authorization and the
+// trace headers, which is the right posture for the single fixed origin the
+// "app" branch answers - but "any" answers every origin, and sharing the same
+// constant would hand a future cors: "any" route permission to send
+// Authorization automatically, without its author choosing that. Today's one
+// "any" route (public lesson reads) needs only Content-Type; widen this list
+// only for a route that actually needs the header, not by pointing it back at
+// ALLOW_HEADERS.
+const ANY_ALLOW_HEADERS = "Content-Type";
 const MAX_AGE = "86400";
 
 /**
@@ -64,20 +75,37 @@ function permittedOrigin(request: Request, env: WorkerEnv): string | null {
 /**
  * Apply the origin policy to a response.
  *
+ * `cors` defaults to "app", today's only behavior, so the root handler - which
+ * dispatches through no matched route and therefore has no `RouteCors` to pass
+ * - keeps the allowlist posture without having to name it.
+ *
  * Vary: Origin is not optional now that the answer depends on who asked. Without
  * it a shared cache can hand one site the response computed for another, or
- * cache the no-header refusal and lock out the real front end.
+ * cache the no-header refusal and lock out the real front end. A `"any"`
+ * response answers the same way regardless of Origin, so it has nothing to
+ * vary on.
  *
- * Note what is absent: Access-Control-Allow-Credentials. Echoing an origin and
- * allowing credentials is the pairing that turns a permissive allowlist into
- * session theft, and this API has no use for it - it authenticates with Bearer
- * tokens the browser attaches deliberately, not cookies it attaches on its own.
+ * Note what is absent from either branch: Access-Control-Allow-Credentials.
+ * Echoing an origin and allowing credentials is the pairing that turns a
+ * permissive allowlist into session theft, and this API has no use for it - it
+ * authenticates with Bearer tokens the browser attaches deliberately, not
+ * cookies it attaches on its own. For `"any"` that absence is load-bearing
+ * rather than incidental: a wildcard origin paired with credentials is exactly
+ * what the allowlist below exists to prevent.
  */
 export function withCors(
 	response: Response,
 	request: Request,
 	env: WorkerEnv,
+	cors: RouteCors = "app",
 ): Response {
+	if (cors === "any") {
+		response.headers.set("Access-Control-Allow-Origin", "*");
+		response.headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
+		response.headers.set("Access-Control-Allow-Headers", ANY_ALLOW_HEADERS);
+		return response;
+	}
+
 	response.headers.append("Vary", "Origin");
 
 	const origin = permittedOrigin(request, env);
@@ -96,8 +124,37 @@ export function withCors(
  * A refused origin gets a bare 200 and no description of the API. There is
  * nothing secret in the method list, but spelling it out for a caller being
  * turned away is answering a question it is not allowed to ask.
+ *
+ * `cors` defaults to "app" for the same reason `withCors`'s does: an OPTIONS
+ * request cannot be matched against the route table by method (no route
+ * declares OPTIONS), so the caller resolves the target route itself - by
+ * reading Access-Control-Request-Method - and passes down what it found. A
+ * request whose target route could not be identified this way (the header is
+ * missing, unparseable, or names no route) arrives here as `undefined` and
+ * gets the allowlist, never the wildcard. Failing open here would mean any
+ * preflight a caller can make un-attributable answers as if it were the one
+ * route that allows every origin.
  */
-export function preflightResponse(request: Request, env: WorkerEnv): Response {
+export function preflightResponse(
+	request: Request,
+	env: WorkerEnv,
+	cors: RouteCors = "app",
+): Response {
+	if (cors === "any") {
+		// Same posture as withCors's "any" branch: identical for every origin,
+		// so there is nothing to vary on and no origin to check. See that
+		// function's doc comment for why Access-Control-Allow-Credentials must
+		// never appear alongside it.
+		return new Response(null, {
+			headers: {
+				"Access-Control-Allow-Origin": "*",
+				"Access-Control-Allow-Methods": ALLOW_METHODS,
+				"Access-Control-Allow-Headers": ANY_ALLOW_HEADERS,
+				"Access-Control-Max-Age": MAX_AGE,
+			},
+		});
+	}
+
 	const response = new Response(null, { headers: { Vary: "Origin" } });
 
 	const origin = permittedOrigin(request, env);

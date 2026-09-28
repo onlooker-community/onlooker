@@ -51,6 +51,17 @@ database_name = "onlooker-db"
 database_id = "YOUR-DATABASE-ID"
 ```
 
+### Operator authority
+
+`OPERATOR_USER_IDS` is a comma-separated list of user ids permitted to act as
+an operator — retracting any lesson, blocking or unblocking an author key.
+It is a var, not a secret, but it is deliberately not something you edit
+casually: it lives in `wrangler.toml` rather than a database row so that
+granting it is a deploy someone reviews, not a runtime change anyone with
+database access can make unilaterally. Empty (`""`, the value in all three
+environments today) means nobody is an operator. See
+`middleware/principal.ts` for the check itself.
+
 ### Secrets
 
 Sensitive values managed via CLI:
@@ -268,8 +279,33 @@ const hash = await hashPassword(password);
 
 ### Rate Limiting
 
-None. There is no `rateLimit` function in this codebase and no KV namespace for
-one to use — the sample previously here called both.
+None in worker code. There is no `rateLimit` function in this codebase and no
+KV namespace for one to use — the sample previously here called both.
+
+### Public lesson reads
+
+`GET /api/public/lessons/:id` takes no credential, so its rate limit is a
+Cloudflare edge rule (path prefix `/api/public/lessons/`, keyed on client IP),
+not worker code. Nothing in CI can verify it — if it is ever removed, the route
+keeps working and only the cost signal changes.
+
+A retraction or an author block is not instant at the edge. `GET
+/api/public/lessons/:id` is served with `public, max-age=60`, and nothing purges
+the cache, so a withdrawn lesson can still be served for up to a minute after the
+operator route returns 200. Re-fetch after the window before concluding a takedown
+failed. If a faster pull is ever needed, that is a cache-purge feature, not a
+retry.
+
+`max-age=60` is what the worker *asks* for, not a guarantee — the effective edge
+TTL is controlled by the zone's cache rules, which live outside this repository
+and can lengthen it, shorten it, or disable edge caching for the path entirely.
+So 60 seconds is what the code sets, not what a client is guaranteed to see in
+either direction.
+
+No test can observe any of this: `SELF.fetch` in the test harness never
+populates an edge cache, which is why the retraction and block tests in
+`routes/admin-moderation.test.ts` that assert "stops serving it" pass instantly
+and prove nothing about production timing.
 
 ## Rollback
 

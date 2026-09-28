@@ -2,7 +2,7 @@ import {
 	getMachineInventory,
 	putMachineInventory,
 } from "../db/machine-inventory.js";
-import { requireAuth } from "../middleware/auth.js";
+import type { Principal } from "../db/pool.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
@@ -30,6 +30,9 @@ export async function handlePutInventory(
 	request: Request,
 	env: WorkerEnv,
 ): Promise<Response> {
+	// Kept rather than reading the router-resolved principal: this handler
+	// needs `machineId`, which `Principal` deliberately does not carry (see
+	// db/pool.ts), so only `requireMachineToken`'s own return value has it.
 	const { machineId } = await requireMachineToken(request, env);
 
 	const raw = await request.text();
@@ -82,11 +85,14 @@ export async function handlePutInventory(
  * shows one.
  */
 export async function handleGetInventory(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
 	params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const { userId } = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
 	const found = await getMachineInventory(env.DB, userId, params.id);
 	// 404 covers never-reported and not-yours alike. The second is deliberate:

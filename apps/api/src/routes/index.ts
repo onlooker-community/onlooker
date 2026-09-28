@@ -16,6 +16,11 @@ export {
 } from "./account";
 export { handleActivity } from "./activity";
 export {
+	handleBlockAuthor,
+	handleOperatorRetract,
+	handleUnblockAuthor,
+} from "./admin-moderation";
+export {
 	handleLogin,
 	handleLogout,
 	handleMe,
@@ -34,6 +39,7 @@ export {
 	handleBrowserTransition,
 	handleGetLesson,
 } from "./lessons-browser";
+export { handlePublicLesson } from "./lessons-public";
 export {
 	handleGetInventory,
 	handlePutInventory,

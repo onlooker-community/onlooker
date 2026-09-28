@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SequenceExhaustedError } from "../db/lessons.js";
+import type { Principal } from "../db/pool.js";
 import { errorHandler } from "../middleware/error.js";
 import {
 	BASE,
@@ -65,6 +66,14 @@ async function thrownBy(work: Promise<Response>): Promise<unknown> {
 	);
 }
 
+/**
+ * The principal `dispatch` would have resolved for `machineToken`, for tests
+ * that call the handler directly rather than going through `SELF.fetch`.
+ */
+function machinePrincipal(): Principal {
+	return { userId };
+}
+
 beforeEach(async () => {
 	await db().prepare("DELETE FROM lesson_feed").run();
 	await db().prepare("DELETE FROM lessons").run();
@@ -89,6 +98,8 @@ describe("POST /lessons when the write fails", () => {
 				lesson(),
 			]),
 			batchFailsWith(new Error("D1_ERROR: Network connection lost")),
+			{},
+			machinePrincipal(),
 		);
 
 		// A response at all, rather than a 500 with no results array.
@@ -117,6 +128,8 @@ describe("POST /lessons when the write fails", () => {
 		const response = await handlePushLessons(
 			pushRequest(machineToken, [one, two]),
 			batchFailsWith(new Error("D1_ERROR: Network connection lost")),
+			{},
+			machinePrincipal(),
 		);
 
 		const { results } = (await response.json()) as {
@@ -134,6 +147,8 @@ describe("POST /lessons when the write fails", () => {
 			batchFailsWith(
 				new Error(`D1_ERROR: something about user ${userId} went wrong`),
 			),
+			{},
+			machinePrincipal(),
 		);
 
 		expect(await response.text()).not.toContain(userId);
@@ -146,6 +161,8 @@ describe("POST /lessons when the write fails", () => {
 			handlePushLessons(
 				pushRequest(machineToken, [lesson(), lesson()]),
 				batchFailsWith(new Error(SEQ_COLLISION)),
+				{},
+				machinePrincipal(),
 			),
 		);
 
@@ -166,6 +183,8 @@ describe("POST /lessons when the write fails", () => {
 			handlePushLessons(
 				pushRequest(machineToken, [lesson(), lesson()]),
 				batchFailsWith(new Error(SEQ_COLLISION)),
+				{},
+				machinePrincipal(),
 			),
 		);
 
@@ -177,6 +196,8 @@ describe("POST /lessons when the write fails", () => {
 			handlePushLessons(
 				pushRequest(machineToken, [lesson(), lesson()]),
 				batchFailsWith(new Error(SEQ_COLLISION)),
+				{},
+				machinePrincipal(),
 			),
 		);
 
@@ -207,6 +228,7 @@ describe("POST /lessons/:id/status when the write fails", () => {
 				}),
 				against,
 				{ id },
+				machinePrincipal(),
 			),
 		);
 	}
@@ -215,7 +237,12 @@ describe("POST /lessons/:id/status when the write fails", () => {
 	// Error by the same path.
 	it("answers 503 for sustained sequence contention", async () => {
 		const written = lesson();
-		await handlePushLessons(pushRequest(machineToken, [written]), REAL_ENV);
+		await handlePushLessons(
+			pushRequest(machineToken, [written]),
+			REAL_ENV,
+			{},
+			machinePrincipal(),
+		);
 
 		const thrown = await retract(
 			written.id,
@@ -229,7 +256,12 @@ describe("POST /lessons/:id/status when the write fails", () => {
 
 	it("does not name the user in the contention response", async () => {
 		const written = lesson();
-		await handlePushLessons(pushRequest(machineToken, [written]), REAL_ENV);
+		await handlePushLessons(
+			pushRequest(machineToken, [written]),
+			REAL_ENV,
+			{},
+			machinePrincipal(),
+		);
 
 		const thrown = await retract(
 			written.id,

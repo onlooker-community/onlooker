@@ -3,9 +3,13 @@
  * Organizes all endpoints by feature area (auth, account, data).
  */
 
+import type { Principal } from "./db/pool.js";
 import { errorHandler } from "./middleware";
+import type { RouteAuth, RouteCors } from "./middleware/principal.js";
+import { resolvePrincipal } from "./middleware/principal.js";
 import {
 	handleActivity,
+	handleBlockAuthor,
 	handleBrowseLessons,
 	handleBrowserTransition,
 	handleChangePassword,
@@ -22,7 +26,9 @@ import {
 	handleLogin,
 	handleLogout,
 	handleMe,
+	handleOperatorRetract,
 	handlePostSessions,
+	handlePublicLesson,
 	handlePushLessons,
 	handlePutInventory,
 	handleReadLessons,
@@ -32,6 +38,7 @@ import {
 	handleRevokeMachine,
 	handleSignup,
 	handleTransitionLesson,
+	handleUnblockAuthor,
 	handleUpdateProfile,
 	handleVerifyEmail,
 	handleVerifyResetToken,
@@ -39,47 +46,87 @@ import {
 import type { RouteParams, WorkerEnv } from "./types";
 import { ApiError } from "./types";
 
-interface Route {
+/**
+ * `auth` and `cors` are required, not merely conventional, and that
+ * requiredness is enforced by the compiler: an entry in `ROUTES` missing
+ * either field fails to typecheck. Deliberately not a test - a required
+ * field on an object literal cannot fail to be present at runtime, so a test
+ * asserting it would only ever pass, which is not evidence of anything.
+ */
+export interface Route {
 	method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 	path: string;
 	/**
+	 * How this route authenticates. Required, so a new route cannot be added
+	 * without the author choosing - which is the whole point of the field.
+	 * Resolved centrally in `dispatch`, before the handler runs, via
+	 * `resolvePrincipal`.
+	 */
+	auth: RouteAuth;
+	/** Which origins may read the response. The default posture is "app". */
+	cors: RouteCors;
+	/**
 	 * `params` is optional so the handlers on fixed paths - which is most of
 	 * them - need no signature change. Only the parameterized routes read it.
+	 *
+	 * `principal` is what a handler acts on: `dispatch` resolves it from the
+	 * route's declared `auth` before the handler runs, via `resolvePrincipal`,
+	 * and almost every handler reads `userId` off it rather than verifying its
+	 * own credential. Three handlers still make their own call because each
+	 * needs a field `Principal` deliberately does not carry (see `db/pool.ts`):
+	 * `handlePutInventory` and `handlePostSessions` need `machineId`, and
+	 * `handleGetUserProfile` needs `email`. The two `machineId` ones re-verify
+	 * against D1 and re-write `last_used_at` on every request; the `email` one
+	 * is a local HMAC verify with no I/O.
 	 */
 	handler: (
 		request: Request,
 		env: WorkerEnv,
 		params: RouteParams,
+		principal: Principal | null,
 	) => Promise<Response>;
 }
 
-const ROUTES: Route[] = [
+export const ROUTES: Route[] = [
 	// =========================================================================
 	// Authentication routes (WS1 - login/signup/refresh/logout)
 	// =========================================================================
 	{
 		method: "POST",
 		path: "/auth/login",
+		auth: "none",
+		cors: "app",
 		handler: handleLogin,
 	},
 	{
 		method: "POST",
 		path: "/auth/signup",
+		auth: "none",
+		cors: "app",
 		handler: handleSignup,
 	},
 	{
 		method: "POST",
 		path: "/auth/refresh",
+		auth: "none",
+		cors: "app",
 		handler: handleRefresh,
 	},
 	{
 		method: "GET",
 		path: "/auth/me",
+		auth: "session",
+		cors: "app",
 		handler: handleMe,
 	},
 	{
+		// Unauthenticated: handleLogout calls optionalAuth, which never throws,
+		// because a logout request must not fail on a token that is already bad
+		// - that is the caller it most needs to let through.
 		method: "POST",
 		path: "/auth/logout",
+		auth: "none",
+		cors: "app",
 		handler: handleLogout,
 	},
 
@@ -89,46 +136,68 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/auth/profile",
+		auth: "session",
+		cors: "app",
 		handler: handleGetProfile,
 	},
 	{
 		method: "PATCH",
 		path: "/auth/profile",
+		auth: "session",
+		cors: "app",
 		handler: handleUpdateProfile,
 	},
 	{
 		method: "POST",
 		path: "/auth/change-password",
+		auth: "session",
+		cors: "app",
 		handler: handleChangePassword,
 	},
 	{
 		method: "DELETE",
 		path: "/auth/account",
+		auth: "session",
+		cors: "app",
 		handler: handleDeleteAccount,
 	},
 	{
+		// Unauthenticated: the credential here is the verification token in the
+		// request body, not a session.
 		method: "POST",
 		path: "/auth/verify-email",
+		auth: "none",
+		cors: "app",
 		handler: handleVerifyEmail,
 	},
 	{
 		method: "POST",
 		path: "/auth/resend-verification",
+		auth: "session",
+		cors: "app",
 		handler: handleResendVerification,
 	},
 	{
 		method: "POST",
 		path: "/auth/forgot-password",
+		auth: "none",
+		cors: "app",
 		handler: handleForgotPassword,
 	},
 	{
 		method: "GET",
 		path: "/auth/reset-password/verify",
+		auth: "none",
+		cors: "app",
 		handler: handleVerifyResetToken,
 	},
 	{
+		// Unauthenticated: the credential is the reset token in the body, the
+		// same as verify-email above.
 		method: "POST",
 		path: "/auth/reset-password",
+		auth: "none",
+		cors: "app",
 		handler: handleResetPassword,
 	},
 
@@ -138,6 +207,8 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/api/users/me",
+		auth: "session",
+		cors: "app",
 		handler: handleGetUserProfile,
 	},
 
@@ -147,6 +218,8 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/api/client-errors",
+		auth: "none",
+		cors: "app",
 		handler: handleClientError,
 	},
 
@@ -163,21 +236,29 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/api/machines",
+		auth: "session",
+		cors: "app",
 		handler: handleCreateMachine,
 	},
 	{
 		method: "GET",
 		path: "/api/machines",
+		auth: "session",
+		cors: "app",
 		handler: handleListMachines,
 	},
 	{
 		method: "DELETE",
 		path: "/api/machines/:id",
+		auth: "session",
+		cors: "app",
 		handler: handleRevokeMachine,
 	},
 	{
 		method: "GET",
 		path: "/api/machines/:id/inventory",
+		auth: "session",
+		cors: "app",
 		handler: handleGetInventory,
 	},
 
@@ -191,11 +272,15 @@ const ROUTES: Route[] = [
 	{
 		method: "PUT",
 		path: "/machine/inventory",
+		auth: "machine",
+		cors: "app",
 		handler: handlePutInventory,
 	},
 	{
 		method: "POST",
 		path: "/machine/sessions",
+		auth: "machine",
+		cors: "app",
 		handler: handlePostSessions,
 	},
 
@@ -205,16 +290,22 @@ const ROUTES: Route[] = [
 	{
 		method: "POST",
 		path: "/lessons",
+		auth: "machine",
+		cors: "app",
 		handler: handlePushLessons,
 	},
 	{
 		method: "GET",
 		path: "/lessons",
+		auth: "machine",
+		cors: "app",
 		handler: handleReadLessons,
 	},
 	{
 		method: "POST",
 		path: "/lessons/:id/status",
+		auth: "machine",
+		cors: "app",
 		handler: handleTransitionLesson,
 	},
 
@@ -225,27 +316,86 @@ const ROUTES: Route[] = [
 	{
 		method: "GET",
 		path: "/api/lessons",
+		auth: "session",
+		cors: "app",
 		handler: handleBrowseLessons,
 	},
 	{
 		method: "GET",
 		path: "/api/lessons/:id",
+		auth: "session",
+		cors: "app",
 		handler: handleGetLesson,
 	},
 	{
 		method: "PATCH",
 		path: "/api/lessons/:id/status",
+		auth: "session",
+		cors: "app",
 		handler: handleBrowserTransition,
 	},
 	{
 		method: "GET",
 		path: "/api/activity",
+		auth: "session",
+		cors: "app",
 		handler: handleActivity,
 	},
 	{
 		method: "GET",
 		path: "/api/sessions",
+		auth: "session",
+		cors: "app",
 		handler: handleGetSessions,
+	},
+
+	// =========================================================================
+	// Public lessons (anonymous, one by id)
+	//
+	// Inside /api/ despite taking no credential: outside that prefix a route
+	// cannot be mocked by createMockFetch and cannot be reached by an
+	// api-contract case, which is how the machine-token surface spent three PRs
+	// as the only one outside the drift gate. The `public` segment is the marker
+	// for a human; auth: "none" is the marker for a machine.
+	// =========================================================================
+	{
+		method: "GET",
+		path: "/api/public/lessons/:id",
+		auth: "none",
+		cors: "any",
+		handler: handlePublicLesson,
+	},
+
+	// =========================================================================
+	// Operator moderation
+	//
+	// auth: "operator" 404s a signed-in non-operator rather than 403ing, so
+	// this surface does not confirm its existence to them specifically. A
+	// credential-less request still gets 401 first, the same as any other
+	// protected route - resolvePrincipal calls requireAuth before the operator
+	// check runs. OPERATOR_USER_IDS is empty in every environment until
+	// somebody is deliberately granted it.
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/api/admin/lessons/:id/retract",
+		auth: "operator",
+		cors: "app",
+		handler: handleOperatorRetract,
+	},
+	{
+		method: "POST",
+		path: "/api/admin/author-blocks",
+		auth: "operator",
+		cors: "app",
+		handler: handleBlockAuthor,
+	},
+	{
+		method: "DELETE",
+		path: "/api/admin/author-blocks/:authorKey",
+		auth: "operator",
+		cors: "app",
+		handler: handleUnblockAuthor,
 	},
 ];
 
@@ -356,7 +506,16 @@ export async function dispatch(
 	}
 
 	try {
-		return await matched.route.handler(request, env, matched.params);
+		// Before the handler, so a handler cannot run unauthenticated even if it
+		// forgets to check. This is what the required `auth` field buys - see
+		// resolvePrincipal. Almost every handler acts on this principal instead
+		// of verifying its own credential; the three that still call
+		// requireAuth/requireMachineToken themselves (handlePutInventory,
+		// handlePostSessions, handleGetUserProfile) do so because each needs a
+		// field Principal does not carry - see the `handler` field's doc
+		// comment on `Route`, above.
+		const principal = await resolvePrincipal(request, env, matched.route.auth);
+		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {
 		return errorHandler(error);
 	}

@@ -17,7 +17,7 @@ import type {
 import { timedD1 } from "./db/timing.js";
 import { preflightResponse, withCors } from "./middleware";
 import { monitored } from "./monitoring";
-import { dispatch, listRoutes } from "./router";
+import { dispatch, ROUTES, resolveRoute } from "./router";
 import { runScheduled } from "./scheduled";
 import type { WorkerEnv } from "./types";
 
@@ -31,7 +31,22 @@ async function handleRequest(
 	_ctx: ExecutionContext,
 ): Promise<Response> {
 	if (request.method === "OPTIONS") {
-		return preflightResponse(request, env);
+		// The route table has no OPTIONS entries - Route.method excludes it - so
+		// resolveRoute cannot find anything by request.method here. What a
+		// preflight actually asks about is named in its own
+		// Access-Control-Request-Method header; look the route up by that
+		// instead. Missing, unparseable, or matching nothing all collapse to
+		// `matched` being undefined, and preflightResponse's default parameter
+		// is what fails that closed to the "app" allowlist rather than the
+		// wildcard.
+		const requestedMethod = request.headers.get(
+			"Access-Control-Request-Method",
+		);
+		const path = new URL(request.url).pathname;
+		const matched = requestedMethod
+			? resolveRoute(ROUTES, requestedMethod, path)
+			: undefined;
+		return preflightResponse(request, env, matched?.route.cors);
 	}
 
 	// Every handler downstream receives a DB binding that reports its own
@@ -45,14 +60,44 @@ async function handleRequest(
 	// not in Workers tracing.
 	const response = await dispatch(request, { ...env, DB: timedD1(env.DB) });
 
-	return withCors(response, request, env);
+	// A second, cheap lookup against the same table dispatch() already matched
+	// against, rather than a return value threaded through it, so dispatch()'s
+	// signature stays "a request in, a response out." An unmatched route (a
+	// 404) leaves this undefined, and withCors's default parameter applies -
+	// the "app" allowlist posture, same as before this route ever existed.
+	const url = new URL(request.url);
+	const matched = resolveRoute(ROUTES, request.method, url.pathname);
+
+	return withCors(response, request, env, matched?.route.cors);
 }
 
 /**
  * Root endpoint: returns API info and available routes.
+ *
+ * Filters out `auth: "operator"` routes by that property, not by naming their
+ * paths. An operator route is the only kind that hides its existence from a
+ * signed-in caller who lacks operator authority. resolvePrincipal calls
+ * requireAuth before the operator check, so a credential-less request still
+ * gets 401 - the same as any other protected route, confirming nothing extra
+ * - but a signed-in non-operator gets 404 instead of 403 (see
+ * middleware/principal.ts) specifically so they cannot tell the route apart
+ * from one that does not exist at all. Every other auth mode has no
+ * equivalent case to hide: "session" and "machine" grant access to any
+ * signed-in caller with no further permission check, and "none" routes are
+ * public by definition. So operator routes are the one set a public listing
+ * must omit - handing that caller the exact path defeats the entire point of
+ * the 404 - and filtering on the property means a future operator route is
+ * excluded automatically, with no path list here to forget to update.
+ *
+ * Deliberately not `listRoutes()`, which stays a full, unfiltered dump "for
+ * debugging/docs" per its own doc comment - a debugging helper that silently
+ * omits routes is its own trap. The filtering belongs at this point of public
+ * disclosure instead.
  */
 function handleRoot(env: WorkerEnv): Response {
-	const routes = listRoutes();
+	const routes = ROUTES.filter((route) => route.auth !== "operator").map(
+		({ method, path }) => ({ method, path }),
+	);
 	const info = {
 		service: "Onlooker API",
 		version: "0.0.1",

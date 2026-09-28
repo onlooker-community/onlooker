@@ -38,7 +38,7 @@ describe("withCors", () => {
 		expect(res.headers.get("Access-Control-Allow-Origin")).toBe(PRODUCTION);
 	});
 
-	it("never answers with a wildcard", () => {
+	it("never answers with a wildcard for the default app posture", () => {
 		const res = withCors(
 			new Response("ok"),
 			request(PRODUCTION),
@@ -170,6 +170,42 @@ describe("withCors", () => {
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
 	});
 
+	// Security-critical for the "any" branch specifically: a wildcard origin
+	// together with Access-Control-Allow-Credentials is the exact combination
+	// that turns "readable by anyone" into "readable by anyone, with your
+	// cookies" - and nothing else here would catch it appearing.
+	it("does not enable credentials on the wildcard branch either", () => {
+		const res = withCors(
+			new Response("ok"),
+			request(PRODUCTION),
+			env(PRODUCTION),
+			"any",
+		);
+
+		// Asserted alongside the credentials check, not just near it: a test
+		// that only checked credentials would keep passing even if this branch
+		// stopped emitting an origin at all.
+		expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+	});
+
+	// The wildcard branch has its own, narrower header allowlist rather than
+	// sharing ALLOW_HEADERS with the "app" branch. Sharing it would hand a
+	// future cors: "any" route permission to accept Authorization from any
+	// origin automatically, without its author choosing that.
+	it("does not grant a wildcard origin permission to send Authorization", () => {
+		const res = withCors(
+			new Response("ok"),
+			request(PRODUCTION),
+			env(PRODUCTION),
+			"any",
+		);
+
+		expect(res.headers.get("Access-Control-Allow-Headers")).not.toContain(
+			"Authorization",
+		);
+	});
+
 	it("leaves the response status and body alone", async () => {
 		const res = withCors(
 			new Response(JSON.stringify({ id: "u1" }), { status: 201 }),
@@ -241,5 +277,24 @@ describe("preflightResponse", () => {
 		);
 
 		expect(res.headers.get("Vary")).toContain("Origin");
+	});
+
+	// The wildcard branch's own header allowlist, pinned here specifically:
+	// nothing above exercises preflightResponse's "any" branch at all, and
+	// withCors's wildcard tests do not reach this function. This is the
+	// branch that tells a real browser what it may send on a preflight, so
+	// pinning only withCors would leave the half that actually matters
+	// unguarded - a route flipped back to the shared ALLOW_HEADERS here would
+	// pass every other test in this file.
+	it("does not grant a wildcard preflight permission to send Authorization", () => {
+		const res = preflightResponse(
+			request(PRODUCTION, "OPTIONS"),
+			env(PRODUCTION),
+			"any",
+		);
+
+		const allowed = res.headers.get("Access-Control-Allow-Headers");
+		expect(allowed).toContain("Content-Type");
+		expect(allowed).not.toContain("Authorization");
 	});
 });

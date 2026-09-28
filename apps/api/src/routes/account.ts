@@ -9,6 +9,7 @@
  * - Account deletion with cascading deletes
  */
 
+import type { Principal } from "../db/pool.js";
 import {
 	consumeVerificationToken,
 	createVerificationToken,
@@ -31,9 +32,10 @@ import {
 	VERIFY_TOKEN_TTL_MS,
 	verifyEmailEmail,
 } from "../email/templates";
-import { ApiError, jsonResponse, requireAuth } from "../middleware";
+import { ApiError, jsonResponse } from "../middleware";
 import type {
 	ChangePasswordRequest,
+	RouteParams,
 	UpdateProfileRequest,
 	WorkerEnv,
 } from "../types";
@@ -73,12 +75,16 @@ function accountUser(user: {
  * Errors: 401 (unauthorized)
  */
 export async function handleGetProfile(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
-	const user = await getUserById(env.DB, auth.userId);
+	const user = await getUserById(env.DB, userId);
 	if (!user) {
 		// A valid token for a user who no longer exists - deleted from another
 		// device, most likely. The token stays signature-valid until it expires,
@@ -102,8 +108,12 @@ export async function handleGetProfile(
 export async function handleUpdateProfile(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const body = (await request.json()) as UpdateProfileRequest;
 
 	// Validate input
@@ -119,7 +129,7 @@ export async function handleUpdateProfile(
 		throw new ApiError(400, "invalid_email", "Invalid email format");
 	}
 
-	const current = await getUserById(env.DB, auth.userId);
+	const current = await getUserById(env.DB, userId);
 	if (!current) {
 		throw new ApiError(404, "not_found", "User not found");
 	}
@@ -134,12 +144,12 @@ export async function handleUpdateProfile(
 		const holder = await getUserByEmail(env.DB, email as string);
 		// Guarding on id, not on existence: re-submitting your own address in a
 		// form that posts every field is ordinary, and should not be a conflict.
-		if (holder && holder.id !== auth.userId) {
+		if (holder && holder.id !== userId) {
 			throw new ApiError(409, "email_taken", "That email is already in use");
 		}
 	}
 
-	await updateProfile(env.DB, auth.userId, {
+	await updateProfile(env.DB, userId, {
 		...(name ? { name } : {}),
 		...(emailIsChanging ? { email } : {}),
 	});
@@ -148,10 +158,10 @@ export async function handleUpdateProfile(
 		// The new address has proven nothing. Carrying the old verification
 		// across would make the flag a lie, and it is the flag that decides
 		// whether we trust the address enough to send anything to it.
-		await setEmailVerified(env.DB, auth.userId, false);
+		await setEmailVerified(env.DB, userId, false);
 	}
 
-	const updated = await getUserById(env.DB, auth.userId);
+	const updated = await getUserById(env.DB, userId);
 	if (!updated) {
 		throw new ApiError(404, "not_found", "User not found");
 	}
@@ -172,8 +182,12 @@ export async function handleUpdateProfile(
 export async function handleChangePassword(
 	request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 	const body = (await request.json()) as ChangePasswordRequest;
 
 	// Validate input
@@ -193,7 +207,7 @@ export async function handleChangePassword(
 		);
 	}
 
-	const currentHash = await getPasswordHash(env.DB, auth.userId);
+	const currentHash = await getPasswordHash(env.DB, userId);
 	if (!currentHash) {
 		throw new ApiError(404, "not_found", "User not found");
 	}
@@ -206,11 +220,7 @@ export async function handleChangePassword(
 		);
 	}
 
-	await updatePassword(
-		env.DB,
-		auth.userId,
-		await hashPassword(body.new_password),
-	);
+	await updatePassword(env.DB, userId, await hashPassword(body.new_password));
 
 	// Every other session goes. Someone changing a password is usually acting on
 	// the belief that the old one is loose, and leaving the other sessions live
@@ -220,7 +230,7 @@ export async function handleChangePassword(
 	// Their access tokens survive for the rest of their short lifetime, because
 	// nothing can withdraw a stateless JWT; that residual window is why
 	// TOKEN_EXPIRY_MINUTES is 15. See SESSION_LIFECYCLE in packages/api-contract.
-	await revokeAllSessionsForUserExcept(env.DB, auth.userId, body.refreshToken);
+	await revokeAllSessionsForUserExcept(env.DB, userId, body.refreshToken);
 
 	return jsonResponse({ success: true });
 }
@@ -235,10 +245,14 @@ export async function handleChangePassword(
  * Errors: 401 (unauthorized)
  */
 export async function handleDeleteAccount(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
 	// Sessions and verification tokens both cascade from users, so this takes
 	// them with it - queries.test asserts that rather than trusting it, because
@@ -247,7 +261,7 @@ export async function handleDeleteAccount(
 	//
 	// Deliberately unconditional: deleting an already-deleted account is not an
 	// error worth reporting to someone whose intent was "make it gone".
-	await deleteUser(env.DB, auth.userId);
+	await deleteUser(env.DB, userId);
 
 	return jsonResponse({ success: true });
 }
@@ -299,22 +313,26 @@ export async function handleVerifyEmail(
  * Errors: 401 (unauthorized)
  */
 export async function handleResendVerification(
-	request: Request,
+	_request: Request,
 	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
 
-	const user = await getUserById(env.DB, auth.userId);
+	const user = await getUserById(env.DB, userId);
 	if (!user) {
 		throw new ApiError(404, "not_found", "User not found");
 	}
 
 	// Retire any outstanding link first, so asking again does not leave a trail
 	// of live confirmations in an inbox someone else may later read.
-	await deleteVerificationTokens(env.DB, auth.userId, "verify");
+	await deleteVerificationTokens(env.DB, userId, "verify");
 	const token = await createVerificationToken(
 		env.DB,
-		auth.userId,
+		userId,
 		"verify",
 		new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
 	);

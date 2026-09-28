@@ -195,6 +195,15 @@ export const lessons = sqliteTable(
 		// no machine token exists in production and only a machine-
 		// authenticated push writes lessons.
 		promoted_at: text("promoted_at").notNull().default(""),
+		// Lifted out of `body` because the blocklist filters on it. Same
+		// reasoning as promoted_at above, and the same SQLite constraint: a
+		// NOT NULL column added to an existing table needs a default, so the
+		// migration backfills from the JSON it was lifted from.
+		//
+		// This is what public blocking acts on. See ZAuthorKey in
+		// packages/lesson-contract/src/primitives.ts for why it is 128 bits:
+		// a collision would block an innocent author alongside a bad actor.
+		author_key: text("author_key").notNull().default(""),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
@@ -205,6 +214,7 @@ export const lessons = sqliteTable(
 			table.promoted_at,
 			table.id,
 		),
+		authorKeyIdx: index("lessons_author_key_idx").on(table.author_key),
 	}),
 );
 
@@ -251,6 +261,22 @@ export const lesson_feed = sqliteTable(
 		lessonIdIdx: index("lesson_feed_lesson_id_idx").on(table.lesson_id),
 	}),
 );
+
+/**
+ * Author keys whose lessons are served to nobody.
+ *
+ * Keyed on author_key rather than user_id because author_key is what the
+ * contract says blocking acts on, and it is derived per visibility scope - so
+ * blocking a public-scope key does not reach the same person's org-scope
+ * lessons, which is the unlinkability the contract promises.
+ */
+export const lesson_author_blocks = sqliteTable("lesson_author_blocks", {
+	author_key: text("author_key").primaryKey(),
+	reason: text("reason").notNull(),
+	// The operator who acted, so a block is attributable.
+	blocked_by: text("blocked_by").notNull(),
+	blocked_at: text("blocked_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
 
 /**
  * One row per agent session worth showing, per machine.

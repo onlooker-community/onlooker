@@ -1,6 +1,15 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
+import { readPool, readPoolLesson } from "./pool.js";
+import {
+	BROWSE_DEFAULT_LIMIT,
+	BROWSE_MAX_LIMIT,
+	decodeCursor,
+	encodeCursor,
+	InvalidCursorError,
+	type LessonPage,
+} from "./pool-page.js";
 
 /**
  * EVERY query that touches `lessons` or `lesson_feed` belongs in this file.
@@ -147,8 +156,8 @@ export async function createLessonsWithFeed(
 				db
 					.prepare(
 						`INSERT INTO lessons
-							(id, user_id, visibility, status, schema_version, body, promoted_at, created_at, updated_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, created_at, updated_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.bind(
 						lesson.id,
@@ -157,10 +166,13 @@ export async function createLessonsWithFeed(
 						lesson.status,
 						lesson.schema_version,
 						canonicalize(lesson),
-						// The column and the body carry the same value, written in
-						// one statement so they cannot drift. promoted_at is
-						// immutable - transitionLesson must never touch it.
+						// Both promoted_at and author_key carry the same value as their
+						// copy inside body, written in the same statement so they cannot
+						// drift. promoted_at is immutable - transitionLesson must never
+						// touch it. author_key is simply never rewritten, because a
+						// lesson's author does not change.
 						lesson.promoted_at,
+						lesson.author_key,
 						now,
 						now,
 					),
@@ -187,7 +199,7 @@ export async function createLessonsWithFeed(
 			// no number was consumed: drop whichever ids now exist and re-run the
 			// rest. Each pass strictly shrinks `pending`, so this terminates.
 			if (isUniqueViolationOn(error, "lessons.id")) {
-				const taken = await getLessonsByIds(
+				const taken = await probeLessonIds(
 					db,
 					pending.map((index) => lessons[index].id),
 				);
@@ -214,18 +226,21 @@ export async function createLessonsWithFeed(
 }
 
 /**
- * Fetch lessons by id, WITHOUT filtering by owner.
+ * Does this id exist, for any owner?
  *
- * The caller must apply ownership itself. This exists for the idempotency check
- * on push, which has to know that an id is taken even when it belongs to
- * someone else - while being careful never to reveal that fact. See the
- * conflict handling in routes/lessons.ts.
+ * DELIBERATELY UNAUTHORIZED, and named to say so. Push decides idempotency for
+ * a whole batch and has to know that an id is taken even when it belongs to
+ * someone else - while being careful never to reveal that fact.
  *
- * Plural because push decides idempotency for a whole batch at once. Answering
- * one id per round-trip cost up to a hundred sequential D1 calls inside a
- * single Worker request.
+ * ITS RESULTS MUST NEVER BE SERIALIZED INTO A RESPONSE. Adding a user_id filter
+ * here to "fix" the missing authorization would silently break push idempotency
+ * across accounts; returning a row from it would leak another user's lesson.
+ * Reads that answer a caller go through readPool.
+ *
+ * Plural because push decides a whole batch at once. Answering one id per
+ * round-trip cost up to a hundred sequential D1 calls inside one request.
  */
-export async function getLessonsByIds(
+export async function probeLessonIds(
 	db: D1Database,
 	ids: string[],
 ): Promise<Map<string, StoredLesson>> {
@@ -249,12 +264,12 @@ export async function getLessonsByIds(
 	return found;
 }
 
-/** One id's worth of {@link getLessonsByIds}. */
-export async function getLessonById(
+/** One id's worth of {@link probeLessonIds}. */
+export async function probeLessonId(
 	db: D1Database,
 	id: string,
 ): Promise<StoredLesson | null> {
-	return (await getLessonsByIds(db, [id])).get(id) ?? null;
+	return (await probeLessonIds(db, [id])).get(id) ?? null;
 }
 
 /**
@@ -276,7 +291,7 @@ export async function transitionLesson(
 	status: string,
 	supersededBy: string | null,
 ): Promise<number | null> {
-	const existing = await getLessonById(db, id);
+	const existing = await probeLessonId(db, id);
 	if (!existing || existing.user_id !== userId) return null;
 
 	const body = JSON.parse(existing.body) as Record<string, unknown>;
@@ -317,6 +332,27 @@ export async function transitionLesson(
 	}
 
 	throw new SequenceExhaustedError(userId, MAX_SEQ_ATTEMPTS);
+}
+
+/**
+ * Retract a lesson whoever owns it.
+ *
+ * A SEPARATE FUNCTION from transitionLesson on purpose. That one's
+ * `WHERE id = ? AND user_id = ?` is the user-facing guarantee that a caller
+ * cannot touch somebody else's lesson, and widening it with an optional
+ * "skip the owner check" flag would put a cross-owner write one wrong argument
+ * away from every ordinary transition. Two functions cannot be confused.
+ *
+ * Appends to the owner's feed like any other transition, so their mirror learns
+ * about it on the next delta pull.
+ */
+export async function retractAnyLesson(
+	db: D1Database,
+	id: string,
+): Promise<number | null> {
+	const stored = await probeLessonId(db, id);
+	if (!stored) return null;
+	return transitionLesson(db, stored.user_id, id, "retracted", null);
 }
 
 /**
@@ -363,45 +399,20 @@ export async function readLessonDelta(
 	return { entries: hasMore ? found.slice(0, limit) : found, hasMore };
 }
 
-/** Default and ceiling for one browsing page. */
-export const BROWSE_DEFAULT_LIMIT = 50;
-export const BROWSE_MAX_LIMIT = 200;
-
-/**
- * A keyset cursor carries BOTH sort keys, because promoted_at alone is not
- * unique. Two lessons promoted in the same millisecond would make the boundary
- * ambiguous, and a page break landing between them either skips a lesson or
- * shows it twice.
- *
- * Opaque on purpose: the client echoes it back and never constructs one, so
- * the sort keys can change without becoming a breaking API change. `\n` is the
- * join delimiter because neither an ISO timestamp nor a ULID can contain one.
- */
-export function encodeCursor(promotedAt: string, id: string): string {
-	return btoa(`${promotedAt}\n${id}`);
-}
-
-export function decodeCursor(
-	cursor: string,
-): { promotedAt: string; id: string } | null {
-	try {
-		const [promotedAt, id, ...rest] = atob(cursor).split("\n");
-		if (!promotedAt || !id || rest.length > 0) return null;
-		return { promotedAt, id };
-	} catch {
-		// atob throws on anything that is not base64. A client-supplied cursor
-		// is untrusted input, and a malformed one is a 400, not a 500.
-		return null;
-	}
-}
-
-/** Raised when a client sends a cursor this server did not mint. */
-export class InvalidCursorError extends Error {
-	constructor() {
-		super("Invalid cursor");
-		this.name = "InvalidCursorError";
-	}
-}
+// Moved to pool-page.ts, a leaf module with no imports of its own, so it can
+// sit underneath both this file and pool.ts without a cycle: pool.ts needs
+// these five names while this file imports readPool/readPoolLesson from
+// pool.ts. Re-exported here (imported above for this file's own use, since
+// listActivityPage still needs BROWSE_MAX_LIMIT and InvalidCursorError) so
+// every existing importer is unchanged.
+export {
+	BROWSE_DEFAULT_LIMIT,
+	BROWSE_MAX_LIMIT,
+	decodeCursor,
+	encodeCursor,
+	InvalidCursorError,
+	type LessonPage,
+};
 
 /**
  * Activity cursors carry a sequence, not a (timestamp, id) pair.
@@ -525,9 +536,9 @@ export async function listActivityPage(
 	const last = events.at(-1);
 	const cursor = hasMore && last ? encodeSeqCursor(last.seq) : null;
 
-	// Asserted rather than trusted, for the same reason listLessonsPage asserts
-	// it: hasMore, the clamped limit and the cursor are three separate facts,
-	// and a change to any one of them would silently hide the tail of the feed.
+	// Asserted rather than trusted, for the same reason readPool asserts it:
+	// hasMore, the clamped limit and the cursor are three separate facts, and a
+	// change to any one of them would silently hide the tail of the feed.
 	if (hasMore && cursor === null) {
 		throw new Error(
 			"listActivityPage: has_more is true with no cursor; the tail would be unreachable",
@@ -537,100 +548,34 @@ export async function listActivityPage(
 	return { events, cursor, hasMore };
 }
 
-export interface LessonPage {
-	lessons: unknown[];
-	cursor: string | null;
-	hasMore: boolean;
-}
-
 /**
- * One page of the pool, newest first.
+ * One page of this user's pool, newest first.
  *
- * Ordered by (promoted_at, id) rather than promoted_at alone - see
- * encodeCursor. The matching index is lessons_user_promoted_at_idx.
- *
- * Fetches limit + 1 rows to learn whether another page exists without a second
- * COUNT query, then discards the extra.
+ * Kept as a named function rather than inlined at the route because its
+ * signature is what the browse route and apps/web's contract tests already use.
+ * The authorization now lives in readPool, which is the only place that builds
+ * a visibility predicate.
  */
 export async function listLessonsPage(
 	db: D1Database,
 	userId: string,
 	opts: { statuses?: string[]; cursor?: string | null; limit: number },
 ): Promise<LessonPage> {
-	const limit = Math.min(Math.max(1, opts.limit), BROWSE_MAX_LIMIT);
-	const binds: unknown[] = [userId];
-	let where = "user_id = ?";
-
-	if (opts.statuses && opts.statuses.length > 0) {
-		// This filters on the status COLUMN, but the row returned below is the
-		// BODY - a different value on the same row. They only stay in step
-		// because transitionLesson writes both in one batch; a caller that sets
-		// one without the other would make this filter and its own response
-		// disagree.
-		where += ` AND status IN (${opts.statuses.map(() => "?").join(", ")})`;
-		binds.push(...opts.statuses);
-	}
-
-	if (opts.cursor) {
-		const after = decodeCursor(opts.cursor);
-		if (!after) throw new InvalidCursorError();
-		// Row-value comparison, which SQLite supports: strictly "older than the
-		// boundary lesson", with id breaking a promoted_at tie.
-		where += " AND (promoted_at, id) < (?, ?)";
-		binds.push(after.promotedAt, after.id);
-	}
-
-	binds.push(limit + 1);
-
-	const { results } = await db
-		.prepare(
-			`SELECT body FROM lessons
-			 WHERE ${where}
-			 ORDER BY promoted_at DESC, id DESC
-			 LIMIT ?`,
-		)
-		.bind(...binds)
-		.all<{ body: string }>();
-
-	const rows = results ?? [];
-	const hasMore = rows.length > limit;
-	const page = (hasMore ? rows.slice(0, limit) : rows).map(
-		(r) => JSON.parse(r.body) as { id: string; promoted_at: string },
-	);
-	const last = page.at(-1);
-	const cursor =
-		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
-
-	// Assert rather than trust: this holds by construction today, but the
-	// construction is three separate facts (hasMore derives from a row count,
-	// limit clamps to >= 1, the cursor comes from the last row) and a change to
-	// any one of them breaks it silently. The browser would hide the tail of the
-	// pool and say nothing.
-	if (hasMore && cursor === null) {
-		throw new Error(
-			"listLessonsPage: has_more is true with no cursor; the tail would be unreachable",
-		);
-	}
-
-	return {
-		lessons: page,
-		cursor,
-		hasMore,
-	};
+	return readPool(db, { userId }, opts);
 }
 
 /**
- * One lesson, or null when it does not exist OR is not this user's.
+ * One lesson this user may read, or null.
  *
- * The caller cannot tell those apart, and that is the point: a 403 on someone
- * else's lesson would confirm the id exists. Same reasoning as transitionLesson.
+ * Previously fetched unfiltered and compared user_id in TypeScript afterward.
+ * That was a second authorization mechanism alongside listLessonsPage's SQL
+ * filter, and it could not express org or public without duplicating the
+ * predicate. Both now go through readPool's.
  */
 export async function getLessonForUser(
 	db: D1Database,
 	userId: string,
 	id: string,
 ): Promise<unknown | null> {
-	const stored = await getLessonById(db, id);
-	if (!stored || stored.user_id !== userId) return null;
-	return JSON.parse(stored.body) as unknown;
+	return readPoolLesson(db, { userId }, id);
 }

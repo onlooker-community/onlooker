@@ -80,6 +80,14 @@ export interface WorkerEnv {
 
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
+
+	// The accounts that may act as an operator, comma-separated. Read by
+	// resolvePrincipal for `auth: "operator"` routes rather than looked up in
+	// the database, so granting moderation authority is a deploy somebody
+	// reviews, not a row somebody edits. Declared empty in every environment in
+	// wrangler.toml - nobody is an operator until someone is deliberately
+	// granted it. See middleware/principal.ts.
+	OPERATOR_USER_IDS?: string;
 }
 
 /**
