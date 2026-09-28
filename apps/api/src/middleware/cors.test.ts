@@ -189,6 +189,23 @@ describe("withCors", () => {
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
 	});
 
+	// The wildcard branch has its own, narrower header allowlist rather than
+	// sharing ALLOW_HEADERS with the "app" branch. Sharing it would hand a
+	// future cors: "any" route permission to accept Authorization from any
+	// origin automatically, without its author choosing that.
+	it("does not grant a wildcard origin permission to send Authorization", () => {
+		const res = withCors(
+			new Response("ok"),
+			request(PRODUCTION),
+			env(PRODUCTION),
+			"any",
+		);
+
+		expect(res.headers.get("Access-Control-Allow-Headers")).not.toContain(
+			"Authorization",
+		);
+	});
+
 	it("leaves the response status and body alone", async () => {
 		const res = withCors(
 			new Response(JSON.stringify({ id: "u1" }), { status: 201 }),

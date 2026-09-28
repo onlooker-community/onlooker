@@ -26,6 +26,16 @@ const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
 const ALLOW_HEADERS = ["Content-Type", "Authorization", ...TRACE_HEADERS].join(
 	", ",
 );
+// The "any" branch's own allowlist, deliberately narrower than ALLOW_HEADERS
+// above and NOT shared with it. ALLOW_HEADERS grants Authorization and the
+// trace headers, which is the right posture for the single fixed origin the
+// "app" branch answers - but "any" answers every origin, and sharing the same
+// constant would hand a future cors: "any" route permission to send
+// Authorization automatically, without its author choosing that. Today's one
+// "any" route (public lesson reads) needs only Content-Type; widen this list
+// only for a route that actually needs the header, not by pointing it back at
+// ALLOW_HEADERS.
+const ANY_ALLOW_HEADERS = "Content-Type";
 const MAX_AGE = "86400";
 
 /**
@@ -92,7 +102,7 @@ export function withCors(
 	if (cors === "any") {
 		response.headers.set("Access-Control-Allow-Origin", "*");
 		response.headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
-		response.headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
+		response.headers.set("Access-Control-Allow-Headers", ANY_ALLOW_HEADERS);
 		return response;
 	}
 
@@ -139,7 +149,7 @@ export function preflightResponse(
 			headers: {
 				"Access-Control-Allow-Origin": "*",
 				"Access-Control-Allow-Methods": ALLOW_METHODS,
-				"Access-Control-Allow-Headers": ALLOW_HEADERS,
+				"Access-Control-Allow-Headers": ANY_ALLOW_HEADERS,
 				"Access-Control-Max-Age": MAX_AGE,
 			},
 		});
