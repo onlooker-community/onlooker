@@ -278,4 +278,23 @@ describe("preflightResponse", () => {
 
 		expect(res.headers.get("Vary")).toContain("Origin");
 	});
+
+	// The wildcard branch's own header allowlist, pinned here specifically:
+	// nothing above exercises preflightResponse's "any" branch at all, and
+	// withCors's wildcard tests do not reach this function. This is the
+	// branch that tells a real browser what it may send on a preflight, so
+	// pinning only withCors would leave the half that actually matters
+	// unguarded - a route flipped back to the shared ALLOW_HEADERS here would
+	// pass every other test in this file.
+	it("does not grant a wildcard preflight permission to send Authorization", () => {
+		const res = preflightResponse(
+			request(PRODUCTION, "OPTIONS"),
+			env(PRODUCTION),
+			"any",
+		);
+
+		const allowed = res.headers.get("Access-Control-Allow-Headers");
+		expect(allowed).toContain("Content-Type");
+		expect(allowed).not.toContain("Authorization");
+	});
 });

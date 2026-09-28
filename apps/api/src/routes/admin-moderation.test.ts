@@ -16,12 +16,14 @@ let operatorToken: string;
 let ordinaryToken: string;
 
 // Captured before any test mutates the binding, so it can be restored rather
-// than left set. Verified by a throwaway two-file probe that this pool resets
-// bindings between test FILES on its own (a mutation made in one file's test
-// is not visible in the next file's), so the restore below is not closing a
-// cross-file leak - it is leaving this file itself clean, so a test added
-// later in this same file cannot start depending on whatever the previous
-// test happened to set the binding to.
+// than left set. Observed under the installed @cloudflare/vitest-pool-workers
+// 0.20.x, via a throwaway two-file probe: this pool resets bindings between
+// test FILES on its own (a mutation made in one file's test is not visible in
+// the next file's) - undocumented implementation detail, not a guarantee this
+// comment should lean on. So the restore below is not closing a cross-file
+// leak; it is leaving this file itself clean, so a test added later in this
+// same file cannot start depending on whatever the previous test happened to
+// set the binding to.
 const ORIGINAL_OPERATOR_USER_IDS = (env as { OPERATOR_USER_IDS?: string })
 	.OPERATOR_USER_IDS;
 
