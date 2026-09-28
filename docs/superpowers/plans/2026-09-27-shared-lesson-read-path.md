@@ -1363,7 +1363,10 @@ other two machine routes must genuinely lose theirs.
 - [ ] **Step 3: Confirm no accidental double verification remains**
 
 Run: `grep -rn "requireAuth\|requireMachineToken" apps/api/src/routes/`
-Expected: only `handleMe`'s deliberate call, with its explaining comment.
+Expected: only the three deliberate calls this task keeps -
+`handlePutInventory` (`machine-inventory.ts`), `handlePostSessions`
+(`sessions.ts`), and `handleGetUserProfile` (`data.ts`) - each with its own
+explaining comment.
 
 - [ ] **Step 4: Full suite and three gates**
 
@@ -1378,8 +1381,9 @@ Expected: all PASS.
 
 Message shape: `refactor(api): verify a credential once per request`. Body: Task
 3 moved auth into dispatch and left the handler calls in place, so every request
-verified twice; this removes the duplicate and names `handleMe` as the one
-deliberate exception.
+verified twice; this removes the duplicate and names `handlePutInventory`,
+`handlePostSessions`, and `handleGetUserProfile` as the three deliberate
+exceptions.
 
 ---
 
@@ -2246,15 +2250,21 @@ unblock is included because a block with no undo is a trap.
 - [ ] All six tasks committed on `meagan/onl-12-shared-read-path`.
 - [ ] `pnpm --filter @onlooker/api test`, `typecheck`, and `lint` green; same for
       `@onlooker/db`.
-- [ ] Every pre-existing lessons, activity, and lessons-browser test passes
-      **unedited** — the evidence that the seam shipped inert.
+- [ ] No pre-existing lessons, activity, or lessons-browser test had an
+      assertion added, removed, or changed. Four test files were edited, but
+      only for a rename this plan itself mandates
+      (`getLessonsByIds` → `probeLessonIds`), two test names narrowed to match
+      what they actually pin, and a signature accommodation - every removed
+      `expect`/`it` has a matching addition, verified at each task. This, not
+      an unedited diff, is the evidence the seam shipped inert.
 - [ ] Each leak test observed to fail under ablation and then restored, at both
       the DB layer (Task 2 Step 5) and the route (Task 5 Step 4).
 - [ ] `apps/api/src/routes/lessons.ts:104` still rejects non-private lessons, and
       `routes/lessons.test.ts:184` still passes unchanged. The push gate does not
       open in this plan.
 - [ ] `grep -rn "requireAuth\|requireMachineToken" apps/api/src/routes/` returns
-      only `handleMe`'s documented exception.
+      only the three documented exceptions: `handlePutInventory`,
+      `handlePostSessions`, and `handleGetUserProfile`.
 - [ ] `OPERATOR_USER_IDS` present and empty in every environment in
       `wrangler.toml`.
 - [ ] The Cloudflare edge rate-limiting rule for `/api/public/lessons/` exists
