@@ -108,6 +108,27 @@ describe("readPool, authenticated", () => {
 		expect(idsIn(page)).toEqual([]);
 	});
 
+	// The authenticated-non-owner axis: a signed-in caller who is not the
+	// owner. Distinct from both the anonymous leak tests above (principal is
+	// null, so `own` is the literal 0) and the owner tests below (`own` is
+	// true by construction) - only this axis exercises the `own` disjunct's
+	// left side actually evaluating false for a real, authenticated user. A
+	// bug that widened `own` to match any signed-in caller would pass every
+	// other test in this file.
+	it("does not return another user's retracted public lesson", async () => {
+		await seedFor(theirs, { visibility: "public", status: "retracted" });
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+		expect(idsIn(page)).toEqual([]);
+	});
+
+	it("does not return another user's public lesson from a blocked author", async () => {
+		await seedFor(theirs, { visibility: "public", author_key: "f".repeat(32) });
+		await block("f".repeat(32));
+
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+		expect(idsIn(page)).toEqual([]);
+	});
+
 	it("does not return another user's org lesson while OrgMembers is inert", async () => {
 		await seedFor(theirs, { visibility: "org" });
 		const page = await readPool(db(), { userId: mine }, { limit: 50 });

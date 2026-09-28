@@ -50,9 +50,11 @@ export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
  * branch, so emptying the org set (what this stub does) does not narrow that
  * disjunct at all - it is the closed gate, not this stub, that keeps it from
  * matching anything. That gate is enforced in a route; this read lives in
- * db/, and nothing ties the two together with a test. The 385 pre-existing
- * tests passing unedited is evidence the two conditions HOLD, not evidence of
- * why.
+ * db/, and nothing ties the two together with a test. That no pre-existing
+ * test's assertions changed - the only edits were a rename this plan
+ * mandates, two test names narrowed to match what they actually pin, and a
+ * signature accommodation - is evidence the two conditions HOLD, not evidence
+ * of why.
  *
  * When that gate opens, an authenticated readPool begins matching OTHER
  * accounts' non-retracted, unblocked public rows - the spec's intent for the
@@ -118,6 +120,18 @@ export const MAX_ORG_MEMBERS_BOUND = 50;
  * Note that org membership widens `org` only. A member of your org still cannot
  * read your `private` lessons, which is why the org branch tests visibility
  * rather than only ownership.
+ *
+ * A decision, recorded because a reader cannot otherwise tell whether it was
+ * considered: `ZStatus` is `active | refuted | superseded | retracted`, and
+ * only `retracted` is withheld across the ownership boundary. `refuted` and
+ * `superseded` are served with their status attached. `retracted` is the
+ * *moderation* outcome - what a takedown produces - so hiding it is the point.
+ * `refuted` and `superseded` are lifecycle facts the lesson's own body already
+ * carries honestly, and `superseded_by` even names the replacement; hiding
+ * either would break a link someone was given to a lesson that still exists
+ * and still says what happened to it, which is the thing the public-by-link
+ * model exists to provide. Serving them with their status intact is more
+ * honest than 404ing them.
  */
 function visibilityPredicate(
 	principal: Principal | null,

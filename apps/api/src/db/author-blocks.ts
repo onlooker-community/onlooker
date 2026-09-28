@@ -1,21 +1,15 @@
 import type { D1Database } from "@cloudflare/workers-types";
 
 /**
- * The blocklist, read by the pool predicate and written by the operator routes.
+ * The blocklist, written by the operator routes below.
  *
- * A read that cannot resolve the blocklist must fail rather than serve
- * unfiltered, so nothing here catches its own errors.
+ * The read side is not here. `db/pool.ts`'s `visibilityPredicate` builds its
+ * own inline `NOT EXISTS (SELECT 1 FROM lesson_author_blocks ...)` rather than
+ * calling a function from this file, because the subquery has to be atomic
+ * with the read it guards - a separate query-then-check has a window between
+ * the two where the fail-closed guarantee would not hold. That subquery is
+ * what actually enforces the block; nothing here reads it back.
  */
-export async function isAuthorBlocked(
-	db: D1Database,
-	authorKey: string,
-): Promise<boolean> {
-	const row = await db
-		.prepare("SELECT 1 AS hit FROM lesson_author_blocks WHERE author_key = ?")
-		.bind(authorKey)
-		.first<{ hit: number }>();
-	return row !== null;
-}
 
 /**
  * Block an author key. Idempotent: blocking twice is not an error, because an
