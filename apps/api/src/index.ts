@@ -75,16 +75,19 @@ async function handleRequest(
  * Root endpoint: returns API info and available routes.
  *
  * Filters out `auth: "operator"` routes by that property, not by naming their
- * paths. An operator route is the only kind whose existence is meant to be
- * secret: it answers 404 to a signed-in non-operator (see
- * middleware/principal.ts) specifically so a prober cannot tell it apart from
- * a path that does not exist at all - `router.ts`'s Route.auth doc comment
- * says the same thing. Every other auth mode already discloses its own
- * existence to a prober: "session" and "machine" routes answer 401, and
- * "none" routes are public by definition. So operator routes are exactly the
- * set a public listing must omit, and filtering on the property means a
- * future operator route is excluded automatically - there is no path list
- * here to forget to update.
+ * paths. An operator route is the only kind that hides its existence from a
+ * signed-in caller who lacks operator authority. resolvePrincipal calls
+ * requireAuth before the operator check, so a credential-less request still
+ * gets 401 - the same as any other protected route, confirming nothing extra
+ * - but a signed-in non-operator gets 404 instead of 403 (see
+ * middleware/principal.ts) specifically so they cannot tell the route apart
+ * from one that does not exist at all. Every other auth mode has no
+ * equivalent case to hide: "session" and "machine" grant access to any
+ * signed-in caller with no further permission check, and "none" routes are
+ * public by definition. So operator routes are the one set a public listing
+ * must omit - handing that caller the exact path defeats the entire point of
+ * the 404 - and filtering on the property means a future operator route is
+ * excluded automatically, with no path list here to forget to update.
  *
  * Deliberately not `listRoutes()`, which stays a full, unfiltered dump "for
  * debugging/docs" per its own doc comment - a debugging helper that silently
