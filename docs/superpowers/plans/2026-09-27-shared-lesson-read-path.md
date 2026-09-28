@@ -2250,13 +2250,23 @@ unblock is included because a block with no undo is a trap.
 - [ ] All six tasks committed on `meagan/onl-12-shared-read-path`.
 - [ ] `pnpm --filter @onlooker/api test`, `typecheck`, and `lint` green; same for
       `@onlooker/db`.
-- [ ] No pre-existing lessons, activity, or lessons-browser test had an
-      assertion added, removed, or changed. Four test files were edited, but
-      only for a rename this plan itself mandates
-      (`getLessonsByIds` → `probeLessonIds`), two test names narrowed to match
-      what they actually pin, and a signature accommodation - every removed
-      `expect`/`it` has a matching addition, verified at each task. This, not
-      an unedited diff, is the evidence the seam shipped inert.
+- [ ] No pre-existing test's expectation about a read's behavior changed.
+      Enumerated, not asserted: six removed assertions across five
+      pre-existing test files. `db/lessons-browser.test.ts` and
+      `middleware/cors.test.ts` each had one test renamed, scope narrowed to
+      what it actually pins - no assertion content changed. `db/lessons.test.ts`
+      had two assertions changed by function rename only
+      (`getLessonById` → `probeLessonId`, `getLessonsByIds` → `probeLessonIds`),
+      which this plan mandates. `routes/lessons-push-failure.test.ts` had no
+      assertion changed at all - a signature accommodation only. The one
+      exception, named so the next reader can check rather than trust:
+      `packages/db/src/__tests__/schema.test.ts` had one test renamed AND one
+      assertion changed by value, `toHaveLength(7)` → `(8)`, plus `author_key`
+      added to a column-list assertion - because Task 1 adds a table and a
+      column to hand-pinned counts. That test never opens a database and pins
+      schema shape, not read behavior. This enumeration, not an unedited diff
+      or an unscoped "no assertions changed" claim (both tried and both
+      wrong), is the evidence the seam shipped inert.
 - [ ] Each leak test observed to fail under ablation and then restored, at both
       the DB layer (Task 2 Step 5) and the route (Task 5 Step 4).
 - [ ] `apps/api/src/routes/lessons.ts:104` still rejects non-private lessons, and

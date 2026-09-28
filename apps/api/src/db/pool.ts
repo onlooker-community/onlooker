@@ -51,10 +51,10 @@ export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
  * disjunct at all - it is the closed gate, not this stub, that keeps it from
  * matching anything. That gate is enforced in a route; this read lives in
  * db/, and nothing ties the two together with a test. That no pre-existing
- * test's assertions changed - the only edits were a rename this plan
- * mandates, two test names narrowed to match what they actually pin, and a
- * signature accommodation - is evidence the two conditions HOLD, not evidence
- * of why.
+ * test's expectation about a read's behavior changed - the one exception is
+ * packages/db/src/__tests__/schema.test.ts, a hand-pinned table/column count
+ * that never opens a database and moved only because Task 1 added a table
+ * and a column - is evidence the two conditions HOLD, not evidence of why.
  *
  * When that gate opens, an authenticated readPool begins matching OTHER
  * accounts' non-retracted, unblocked public rows - the spec's intent for the
