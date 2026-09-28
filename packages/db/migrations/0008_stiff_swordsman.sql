@@ -14,4 +14,4 @@ CREATE INDEX `lessons_author_key_idx` ON `lessons` (`author_key`);--> statement-
 -- Guarded on author_key = '' so re-running is a no-op: a lesson ingested after
 -- this migration already has the correct value and must not be overwritten by
 -- whatever its body says.
-UPDATE `lessons` SET `author_key` = json_extract(`body`, '$.author_key') WHERE `author_key` = '';
+UPDATE `lessons` SET `author_key` = COALESCE(json_extract(`body`, '$.author_key'), '') WHERE `author_key` = '';
