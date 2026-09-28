@@ -171,10 +171,22 @@ probe ignores "raw SQL INSERT INTO a differently named table" \
 echo
 echo "source-guards: the lesson visibility boundary"
 
+# Two files may query the lesson tables, and the split is the point rather than
+# a concession to one. db/pool.ts owns every read that returns lesson content to
+# a caller, and is the only place a visibility predicate is constructed - which
+# is what makes "a read cannot be written without one" true rather than
+# aspirational. db/lessons.ts owns the rest: the single writer, the id probe that
+# push needs and that is deliberately unauthorized, and the feed reads, which are
+# authorized by lesson_feed's own (user_id, seq) key rather than by visibility.
+#
+# A third file querying these tables is still a defect, and the same one this
+# guard was written for: a read or write that nothing has decided the visibility
+# question for.
 offenders=""
 while IFS= read -r file; do
 	case "${file}" in
 		*/db/lessons.ts) continue ;;
+		*/db/pool.ts) continue ;;
 		*.test.ts) continue ;;
 	esac
 
@@ -184,19 +196,22 @@ while IFS= read -r file; do
 done < <(find "${ROOT}/apps/api/src" -name '*.ts' -type f)
 
 if [[ -n "${offenders}" ]]; then
-	fail "no lesson query outside db/lessons.ts" "found in:${offenders}"
+	fail "no lesson query outside db/lessons.ts and db/pool.ts" "found in:${offenders}"
 else
-	pass "no lesson query outside db/lessons.ts"
+	pass "no lesson query outside db/lessons.ts and db/pool.ts"
 fi
 
-# The second check, and it is not padding. Without it the guard passes
-# trivially once every lesson query is deleted - a check that holds when the
-# thing it guards is gone.
-if has_lesson_query "${ROOT}/apps/api/src/db/lessons.ts"; then
-	pass "db/lessons.ts is where the lesson queries live"
-else
-	fail "db/lessons.ts is where the lesson queries live" "no lesson query found there"
-fi
+# The second check, and it is not padding. Without it the guard passes trivially
+# once every lesson query is deleted - a check that holds when the thing it
+# guards is gone. Both owners are asserted separately, so emptying one is not
+# covered by the other still having queries.
+for owner in db/lessons.ts db/pool.ts; do
+	if has_lesson_query "${ROOT}/apps/api/src/${owner}"; then
+		pass "${owner} is where its lesson queries live"
+	else
+		fail "${owner} is where its lesson queries live" "no lesson query found there"
+	fi
+done
 
 echo
 echo "source-guards: every binding the API reads is documented"
