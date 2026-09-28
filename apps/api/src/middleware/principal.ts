@@ -47,8 +47,12 @@ export async function resolvePrincipal(
 		case "operator": {
 			const { userId } = await requireAuth(request, env);
 			if (!operatorIds(env).includes(userId)) {
-				// 404-shaped on purpose: an operator route should not confirm
-				// its own existence to a signed-in non-operator.
+				// 404-shaped on purpose. Reached only after requireAuth above
+				// already succeeded, so a credential-less caller never gets
+				// here - they got 401, the same as any other protected route.
+				// This 404 is what a SIGNED-IN non-operator gets instead of
+				// 403, specifically so they cannot tell this route apart from
+				// one that does not exist.
 				throw new ApiError(404, "not_found", "Route not found");
 			}
 			return { userId };

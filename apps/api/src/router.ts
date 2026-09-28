@@ -369,9 +369,12 @@ export const ROUTES: Route[] = [
 	// =========================================================================
 	// Operator moderation
 	//
-	// auth: "operator" 404s a signed-in non-operator, so this surface does not
-	// confirm its own existence. OPERATOR_USER_IDS is empty in every
-	// environment until somebody is deliberately granted it.
+	// auth: "operator" 404s a signed-in non-operator rather than 403ing, so
+	// this surface does not confirm its existence to them specifically. A
+	// credential-less request still gets 401 first, the same as any other
+	// protected route - resolvePrincipal calls requireAuth before the operator
+	// check runs. OPERATOR_USER_IDS is empty in every environment until
+	// somebody is deliberately granted it.
 	// =========================================================================
 	{
 		method: "POST",
