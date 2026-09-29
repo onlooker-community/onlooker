@@ -281,13 +281,60 @@ const hash = await hashPassword(password);
 
 None in worker code. There is no `rateLimit` function in this codebase and no
 KV namespace for one to use — the sample previously here called both.
+`apps/web/src/utils/rateLimiting.ts` exists and is **not** this: it throttles the
+browser, so anything calling the API directly ignores it.
+
+What does exist is **one** Cloudflare rate limiting rule on the `onlooker.dev`
+zone, and one is the whole budget — the plan allows a single rule, and it is
+spent. So this is not a rule among several that can be narrowed freely; it is the
+only rate limiting the API has, at the edge or anywhere else.
+
+Its expression, which is what makes one rule cover several surfaces:
+
+```
+(http.host eq "api.onlooker.dev" and (
+  starts_with(http.request.uri.path, "/api/public/lessons/")
+  or http.request.uri.path in {"/auth/login" "/auth/signup" "/auth/forgot-password" "/auth/reset-password"}
+))
+```
+
+60 requests per minute per client IP, action block, one-minute duration.
+
+**Why those paths.** Each takes no credential and costs something real.
+`/auth/forgot-password` reaches `sendEmail` on an unauthenticated request, so
+without a limit anyone can mail-bomb a known address and burn the Resend quota.
+`/auth/login` verifies a password, which is both CPU and the credential-stuffing
+surface. `/auth/signup` creates an account and sends mail. `/auth/reset-password`
+takes a token worth guessing at volume. `/api/public/lessons/:id` runs a D1 read
+per request, and a 404 is not cached — the handler sets `Cache-Control` only on
+the success path — so every miss is a real read.
+
+**Why `/auth/refresh` is deliberately excluded**, despite also being
+unauthenticated: every active browser session calls it periodically, so behind a
+corporate NAT or a mobile carrier a shared per-IP counter would throttle real
+users. Guessing a random refresh token is not a realistic attack; legitimate
+volume is. `/auth/logout`, `/auth/verify-email` and `/auth/reset-password/verify`
+are cheap and low-risk. `/auth/resend-verification` is session-authenticated and
+so already behind a credential.
+
+**Before narrowing this rule, know what it is holding.** Removing a path from the
+expression removes the only limit that path has. The mail-sending one is the
+expensive mistake.
+
+Nothing in CI can verify any of this. If the rule is deleted the API keeps
+working, and the first symptom is a bill or a Resend reputation problem rather
+than a failure. Per-account limits, a login backoff, and mail-send throttling are
+still unimplemented — `src/index.ts` has said "WS5: Rate limiting and security
+(not yet implemented)" throughout.
 
 ### Public lesson reads
 
 `GET /api/public/lessons/:id` takes no credential, so its rate limit is a
-Cloudflare edge rule (path prefix `/api/public/lessons/`, keyed on client IP),
-not worker code. Nothing in CI can verify it — if it is ever removed, the route
-keeps working and only the cost signal changes.
+Cloudflare edge rule rather than worker code. It is not a rule of its own: it
+shares the zone's single rate limiting rule with the unauthenticated `/auth/`
+endpoints, described under **Rate Limiting** above. That section is the one to
+read and the only place the expression is written down — deliberately, so the two
+cannot drift.
 
 A retraction or an author block is not instant at the edge. `GET
 /api/public/lessons/:id` is served with `public, max-age=60`, and nothing purges
