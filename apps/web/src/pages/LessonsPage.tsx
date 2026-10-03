@@ -31,6 +31,15 @@ import "./lessons.css";
 export interface LessonsContext {
 	lessons: Lesson[];
 	/**
+	 * Which of `lessons` the signed-in account owns, by id.
+	 *
+	 * The pool returns other people's public lessons once the push tier opens,
+	 * and the write path stays owner-scoped, so the detail pane needs this to
+	 * decide whether to offer a status control at all. Accumulated across
+	 * pages exactly like `lessons`, so the two never disagree about a row.
+	 */
+	ownedIds: string[];
+	/**
 	 * Whether any load attempt has ever settled - successfully or not. Not
 	 * "the current one has settled": once true it stays true, including
 	 * while a later filter's load is still in flight.
@@ -84,6 +93,10 @@ const row = {
 
 export default function LessonsPage() {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
+	// Moves with `lessons` everywhere - replaced on load, appended on
+	// loadMore, and left alone by patchLesson, which changes a status and
+	// never an owner.
+	const [ownedIds, setOwnedIds] = useState<string[]>([]);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// Whether any load attempt has ever settled - guarded below so a
 	// superseded request cannot flip it early, and never reset back to false
@@ -154,6 +167,12 @@ export default function LessonsPage() {
 			const page = await listLessons(filter ? { statuses: [filter] } : {});
 			if (seq !== requestSeq.current) return;
 			setLessons(page.lessons);
+			// `?? []` is not defensive padding: a page without `owned_ids` -
+			// an older API still rolling out under a newer bundle - would
+			// otherwise throw out of this handler and blank the pool entirely.
+			// Empty is also the safe reading, since it offers no status
+			// control rather than one that cannot succeed.
+			setOwnedIds(page.owned_ids ?? []);
 			// `has_more` and not `cursor !== null`, because those are two facts
 			// and only one of them is the question being asked - even though,
 			// today, they always agree. `listLessonsPage` derives `hasMore` as
@@ -170,6 +189,7 @@ export default function LessonsPage() {
 		} catch (error) {
 			if (seq !== requestSeq.current) return;
 			setLessons(null);
+			setOwnedIds([]);
 			setCursor(null);
 			setLoadError(describeError(error, "Could not load the pool."));
 		} finally {
@@ -216,6 +236,7 @@ export default function LessonsPage() {
 			});
 			if (seq !== requestSeq.current) return;
 			setLessons((current) => [...(current ?? []), ...page.lessons]);
+			setOwnedIds((current) => [...current, ...(page.owned_ids ?? [])]);
 			setCursor(page.has_more ? page.cursor : null);
 			// Behind the same seq guard as the append itself: a page that lands
 			// after the filter has moved on must not report ITS end as the end
@@ -250,6 +271,7 @@ export default function LessonsPage() {
 
 	const context: LessonsContext = {
 		lessons: lessons ?? [],
+		ownedIds,
 		poolSettled,
 		patchLesson,
 	};

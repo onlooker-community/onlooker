@@ -52,4 +52,18 @@ export interface LessonPage {
 	lessons: unknown[];
 	cursor: string | null;
 	hasMore: boolean;
+	/**
+	 * Which of `lessons` belong to the caller, by id.
+	 *
+	 * Carried beside the documents rather than inside them. A lesson body is
+	 * the published contract's shape and nothing server-computed belongs in
+	 * it - and a body holds no user_id by design, since another account's
+	 * owner is not the reader's business. Yet once the pool answers with other
+	 * people's public lessons, a browser has to know which ones it may act on:
+	 * the write path is still owner-scoped, so offering a retract on a lesson
+	 * absent from this list renders a control that can only 404.
+	 *
+	 * Empty for an anonymous caller, who owns nothing by construction.
+	 */
+	ownedIds: string[];
 }

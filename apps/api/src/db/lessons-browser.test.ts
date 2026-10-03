@@ -231,7 +231,18 @@ describe("getLessonForUser", () => {
 
 		const found = await getLessonForUser(db(), userId, written.id);
 
-		expect((found as { id: string }).id).toBe(written.id);
+		expect((found?.lesson as { id: string }).id).toBe(written.id);
+	});
+
+	// The pool answers with other people's public lessons but the write path
+	// is still owner-scoped, so the caller has to be told which it is reading
+	// or it will offer a retract that 404s.
+	it("says the caller owns a lesson of their own", async () => {
+		const [written] = await seed(["2026-08-01T00:00:00.000Z"]);
+
+		const found = await getLessonForUser(db(), userId, written.id);
+
+		expect(found?.own).toBe(true);
 	});
 
 	// 404, not 403 - a 403 would confirm the id exists.

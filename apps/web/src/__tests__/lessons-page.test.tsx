@@ -93,6 +93,12 @@ function withPool(lessons: unknown[], extra: Record<string, unknown> = {}) {
 		lessons,
 		cursor: null,
 		has_more: false,
+		// The viewer owns the whole page unless a test says otherwise, which
+		// is what every test written before the pool could return other
+		// people's lessons assumes. Ownership is the subject of exactly one
+		// describe block; everywhere else it is the uninteresting case, and
+		// spelling it out per call would bury what those tests are about.
+		owned_ids: (lessons as Array<{ id: string }>).map((entry) => entry.id),
 		...extra,
 	});
 }
@@ -121,7 +127,7 @@ const UNEXPECTED_FETCH = {
 beforeEach(() => {
 	mocks.listLessons.mockReset();
 	mocks.getLesson.mockReset();
-	mocks.getLesson.mockResolvedValue(UNEXPECTED_FETCH);
+	mocks.getLesson.mockResolvedValue({ lesson: UNEXPECTED_FETCH, own: true });
 	mocks.setLessonStatus.mockReset();
 });
 
@@ -222,7 +228,7 @@ describe("the detail pane", () => {
 	// memory cannot answer, and the only reason GET /api/lessons/:id exists.
 	it("fetches a lesson the loaded page does not hold", async () => {
 		withPool([VITE]);
-		mocks.getLesson.mockResolvedValue(D1);
+		mocks.getLesson.mockResolvedValue({ lesson: D1, own: true });
 		await at(`/lessons/${D1.id}`);
 		expect(
 			await screen.findByRole("heading", { name: D1.claim }),
@@ -271,7 +277,7 @@ describe("the detail pane", () => {
 	// never arrived.
 	it("still fetches a deep link when the pool itself failed to load", async () => {
 		mocks.listLessons.mockRejectedValue(new Error("network is down"));
-		mocks.getLesson.mockResolvedValue(D1);
+		mocks.getLesson.mockResolvedValue({ lesson: D1, own: true });
 		await at(`/lessons/${D1.id}`);
 		expect(
 			await screen.findByRole("heading", { name: D1.claim }),
@@ -732,6 +738,7 @@ describe("paging past the first page", () => {
 			lessons: [D1],
 			cursor: null,
 			has_more: false,
+			owned_ids: [D1.id],
 		});
 		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
 
@@ -772,6 +779,7 @@ describe("paging past the first page", () => {
 			lessons: [D1],
 			cursor: null,
 			has_more: false,
+			owned_ids: [D1.id],
 		});
 		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
 		await screen.findByText(D1.claim);
@@ -872,6 +880,7 @@ describe("paging past the first page", () => {
 			lessons: [VITE],
 			cursor: null,
 			has_more: false,
+			owned_ids: [VITE.id],
 		});
 		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
 
@@ -1211,7 +1220,78 @@ describe("the visual language", () => {
 		expect(screen.getByRole("status").textContent).toMatch(/loading the pool/i);
 
 		await act(async () => {
-			resolveLoad({ lessons: [VITE], cursor: null, has_more: false });
+			resolveLoad({
+				lessons: [VITE],
+				cursor: null,
+				has_more: false,
+				owned_ids: [VITE.id],
+			});
 		});
+	});
+});
+
+/**
+ * The pool answers with other people's public lessons; the write path does
+ * not. `transitionLesson`'s WHERE is still `id = ? AND user_id = ?`, so a
+ * retract offered on somebody else's lesson can only 404 - and a button that
+ * reliably fails is worse than no button, which this file's own retry logic
+ * already says three screens down.
+ *
+ * Ownership cannot be derived here: a lesson body carries no user_id, by
+ * design. It arrives as `owned_ids` beside the listed documents, and as `own`
+ * on the single-lesson fetch the deep link uses.
+ */
+describe("a lesson the viewer does not own", () => {
+	it("offers no status control", async () => {
+		withPool([VITE], { owned_ids: [] });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(screen.queryByRole("button", { name: /retract/i })).toBeNull();
+		expect(screen.queryByRole("button", { name: /make active/i })).toBeNull();
+	});
+
+	it("says the lesson came from another account", async () => {
+		withPool([VITE], { owned_ids: [] });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// Hiding the control without saying why reads as a missing feature.
+		expect(screen.getByText(/another account/i)).toBeDefined();
+	});
+
+	// The other half of the same rule: hiding too much is its own bug, and
+	// without this the whole feature could be "never render the control".
+	it("still offers the control on a lesson the viewer owns", async () => {
+		withPool([VITE], { owned_ids: [VITE.id] });
+		await at(`/lessons/${VITE.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+		expect(screen.queryByText(/another account/i)).toBeNull();
+	});
+
+	// The deep link cannot consult owned_ids: the lesson is not on any loaded
+	// page, which is the whole reason getLesson is called. The single fetch
+	// has to carry its own answer.
+	it("offers no control on a deep link to somebody else's lesson", async () => {
+		withPool([VITE], { owned_ids: [VITE.id] });
+		mocks.getLesson.mockResolvedValue({ lesson: D1, own: false });
+		await at(`/lessons/${D1.id}`);
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(screen.queryByRole("button", { name: /retract/i })).toBeNull();
+		expect(screen.getByText(/another account/i)).toBeDefined();
+	});
+
+	it("offers the control on a deep link to the viewer's own lesson", async () => {
+		withPool([VITE], { owned_ids: [VITE.id] });
+		mocks.getLesson.mockResolvedValue({ lesson: D1, own: true });
+		await at(`/lessons/${D1.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
 	});
 });

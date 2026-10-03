@@ -70,7 +70,7 @@ function Chips({ values }: { values: string[] }) {
 
 export default function LessonDetail() {
 	const { id } = useParams();
-	const { lessons, poolSettled, patchLesson } =
+	const { lessons, ownedIds, poolSettled, patchLesson } =
 		useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
@@ -78,6 +78,17 @@ export default function LessonDetail() {
 	const listed = lessons.find((lesson) => lesson.id === id) ?? null;
 
 	const [fetched, setFetched] = useState<Lesson | null>(null);
+	/**
+	 * Whether the caller owns whatever `fetched` holds.
+	 *
+	 * Tracked beside `fetched` rather than read from `ownedIds` at render,
+	 * because the two sources do not overlap: a deep-linked lesson is on no
+	 * loaded page, so `ownedIds` cannot answer for it, and a filter refetch
+	 * can empty `ownedIds` while this pane still shows a lesson out of
+	 * `fetched`. Set from the same value that set `fetched`, so they cannot
+	 * describe different lessons.
+	 */
+	const [fetchedOwn, setFetchedOwn] = useState(false);
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const [actionError, setActionError] = useState<{
@@ -122,8 +133,11 @@ export default function LessonDetail() {
 	// user is reading and then re-fetch one it already had. The list query
 	// failing says nothing about the lesson on screen.
 	useEffect(() => {
-		if (listed) setFetched(listed);
-	}, [listed]);
+		if (listed) {
+			setFetched(listed);
+			setFetchedOwn(ownedIds.includes(listed.id));
+		}
+	}, [listed, ownedIds]);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -141,8 +155,11 @@ export default function LessonDetail() {
 		let live = true;
 		setFetchError(null);
 		getLesson(id)
-			.then((lesson) => {
-				if (live) setFetched(lesson);
+			.then(({ lesson, own }) => {
+				if (live) {
+					setFetched(lesson);
+					setFetchedOwn(own);
+				}
 			})
 			.catch((error) => {
 				// A fallback distinct from the EmptyState title below, so a
@@ -161,6 +178,17 @@ export default function LessonDetail() {
 	}, [id, listed, poolSettled]);
 
 	const lesson = listed ?? (fetched?.id === id ? fetched : null);
+
+	/**
+	 * Whether this lesson is the viewer's to act on.
+	 *
+	 * `ownedIds` answers for a listed lesson; `fetchedOwn` answers for one
+	 * only this pane holds. Defaults to false, which is the safe direction:
+	 * an unknown owner renders no control rather than one that 404s.
+	 */
+	const own = listed
+		? ownedIds.includes(listed.id)
+		: fetched?.id === id && fetchedOwn;
 
 	const transition = async (next: BrowserStatus) => {
 		if (!id || pending) return;
@@ -259,8 +287,16 @@ export default function LessonDetail() {
 	// retracted. Those are the only two a human may assert - and apps/api
 	// enforces that with a 400 regardless of what this renders. `null` for the
 	// other two statuses, which get no control at all.
-	const next: BrowserStatus | null =
-		lesson.status === "active"
+	//
+	// Gated on ownership too. The pool shows other people's public lessons,
+	// but transitionLesson is still `WHERE id = ? AND user_id = ?`, so this
+	// control on somebody else's lesson can only 404 - and the same reasoning
+	// already written over the retry button below applies: a button that
+	// reliably fails is worse than no button. apps/api is the enforcement;
+	// this only avoids offering what it will refuse.
+	const next: BrowserStatus | null = !own
+		? null
+		: lesson.status === "active"
 			? "retracted"
 			: lesson.status === "retracted"
 				? "active"
@@ -404,6 +440,11 @@ export default function LessonDetail() {
 						*/}
 						<Chips
 							values={[
+								// Named only when it is someone else's. Hiding the
+								// status control without saying why reads as a
+								// missing feature rather than a boundary, and this
+								// is the one fact that explains it.
+								...(own ? [] : ["from: another account"]),
 								`source: ${lesson.source}`,
 								`visibility: ${lesson.visibility}`,
 								`project: ${evidence.project_key}`,

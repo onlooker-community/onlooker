@@ -48,6 +48,24 @@ export interface LessonPage {
 	lessons: Lesson[];
 	cursor: string | null;
 	has_more: boolean;
+	/**
+	 * Which of `lessons` belong to the signed-in account, by id.
+	 *
+	 * The pool answers with other people's public lessons; the write path is
+	 * still owner-scoped, so a status control offered on a lesson absent from
+	 * this list can only 404. It cannot be derived here - a lesson body holds
+	 * no user_id, deliberately - so the server says it, beside the documents
+	 * rather than inside them.
+	 *
+	 * Always sent, empty when the caller owns none of the page.
+	 */
+	owned_ids: string[];
+}
+
+/** One lesson, with the same ownership answer `owned_ids` gives for a page. */
+export interface OwnedLesson {
+	lesson: Lesson;
+	own: boolean;
 }
 
 export interface ListLessonsOptions {
@@ -85,8 +103,8 @@ export function listLessons(
  * requests at all. This exists for the one case that cannot work that way: an
  * id that is not in any page the browser has loaded.
  */
-export function getLesson(id: string): Promise<Lesson> {
-	return apiClient.get<Lesson>(
+export function getLesson(id: string): Promise<OwnedLesson> {
+	return apiClient.get<OwnedLesson>(
 		`${LESSON_ENDPOINTS.lessons}/${encodeURIComponent(id)}`,
 	);
 }

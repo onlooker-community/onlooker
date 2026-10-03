@@ -438,6 +438,10 @@ export function authenticatedCases(): ContractCase[] {
 				lessons: expectArray,
 				cursor: null,
 				has_more: false,
+				// Pinned for the same reason `cursor` is: the detail pane reads
+				// it to decide whether to offer a status control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				owned_ids: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -455,6 +459,10 @@ export function authenticatedCases(): ContractCase[] {
 				lessons: expectArray,
 				cursor: null,
 				has_more: false,
+				// Pinned for the same reason `cursor` is: the detail pane reads
+				// it to decide whether to offer a status control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				owned_ids: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -522,6 +530,10 @@ export function authenticatedCases(): ContractCase[] {
 				lessons: expectArray,
 				cursor: null,
 				has_more: false,
+				// Pinned for the same reason `cursor` is: the detail pane reads
+				// it to decide whether to offer a status control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				owned_ids: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},

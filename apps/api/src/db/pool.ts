@@ -211,21 +211,33 @@ export async function readPool(
 
 	binds.push(limit + 1);
 
+	// user_id rides along so the caller can be told which of these are its
+	// own. It is never returned - see LessonPage.ownedIds for why ownership
+	// is reported as a list of the caller's ids rather than as a field on
+	// each body.
 	const { results } = await db
 		.prepare(
-			`SELECT body FROM lessons
+			`SELECT body, user_id FROM lessons
 			 WHERE ${where}
 			 ORDER BY promoted_at DESC, id DESC
 			 LIMIT ?`,
 		)
 		.bind(...binds)
-		.all<{ body: string }>();
+		.all<{ body: string; user_id: string }>();
 
 	const rows = results ?? [];
 	const hasMore = rows.length > limit;
-	const page = (hasMore ? rows.slice(0, limit) : rows).map(
-		(r) => JSON.parse(r.body) as { id: string; promoted_at: string },
-	);
+	const kept = (hasMore ? rows.slice(0, limit) : rows).map((r) => ({
+		lesson: JSON.parse(r.body) as { id: string; promoted_at: string },
+		userId: r.user_id,
+	}));
+	const page = kept.map((r) => r.lesson);
+
+	// Derived from the rows actually returned, so the lookahead row that only
+	// decides has_more can never leak an id into it.
+	const ownedIds = principal
+		? kept.filter((r) => r.userId === principal.userId).map((r) => r.lesson.id)
+		: [];
 	const last = page.at(-1);
 	const cursor =
 		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
@@ -245,6 +257,7 @@ export async function readPool(
 		lessons: page,
 		cursor,
 		hasMore,
+		ownedIds,
 	};
 }
 
