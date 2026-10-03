@@ -64,6 +64,13 @@
       "when": 1790539251907,
       "tag": "0008_stiff_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791055947351,
+      "tag": "0009_chilly_living_tribunal",
+      "breakpoints": true
     }
   ]
 }
