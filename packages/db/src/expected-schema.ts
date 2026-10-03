@@ -155,6 +155,11 @@ export const EXPECTED_SCHEMA = {
 				unique: false,
 				columns: ["user_id", "promoted_at", "id"],
 			},
+			{
+				name: "lessons_visibility_promoted_at_idx",
+				unique: false,
+				columns: ["visibility", "promoted_at", "id"],
+			},
 		],
 	},
 	machine_tokens: {

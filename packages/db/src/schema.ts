@@ -215,6 +215,32 @@ export const lessons = sqliteTable(
 			table.id,
 		),
 		authorKeyIdx: index("lessons_author_key_idx").on(table.author_key),
+		/**
+		 * What lets the pool read reach rows instead of scanning for them.
+		 *
+		 * The browse predicate leads with a disjunction - `visibility =
+		 * 'public' OR user_id = ?` - and SQLite will only rewrite an OR into a
+		 * union of index scans when BOTH sides are indexed. `user_id` already
+		 * was; `visibility` was not, so the planner fell back to `SCAN
+		 * lessons`: every row of every account's lessons, read to answer one
+		 * person's first page, plus a sort on top.
+		 *
+		 * Column order is the point. Leading with `visibility` is what makes
+		 * the equality seekable, and carrying `promoted_at, id` after it
+		 * matches the ORDER BY so the anonymous read - whose predicate is a
+		 * bare `visibility = 'public'` with no union to merge - gets its rows
+		 * already ordered. The authenticated read still sorts, because a union
+		 * of two index scans is not ordered by promoted_at and no single index
+		 * can fix that.
+		 *
+		 * apps/api/src/db/pool-query-plan.test.ts explains the real statement
+		 * and fails if this stops being used.
+		 */
+		visibilityPromotedAtIdx: index("lessons_visibility_promoted_at_idx").on(
+			table.visibility,
+			table.promoted_at,
+			table.id,
+		),
 	}),
 );
 

@@ -61,24 +61,33 @@ export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
  * browse surface, not a bug. But it is a behavior change that nothing in this
  * file announces, so whoever opens the gate should read this comment first.
  *
- * It also has a measured performance consequence. EXPLAIN QUERY PLAN against
- * a database built from the real migrations:
+ * It also had a measured performance consequence, now repaired. EXPLAIN QUERY
+ * PLAN against a database built from the real migrations:
  *   - Before this predicate (old listLessonsPage): `SEARCH lessons USING
  *     INDEX lessons_user_promoted_at_idx (user_id=?)` - indexed, no sort,
  *     because the index already supplies promoted_at order.
- *   - This predicate, today: `SCAN lessons` plus `USE TEMP B-TREE FOR ORDER
- *     BY` - a full table scan across every user's rows, plus a sort. Cheap
- *     only because the closed gate means every row is 'private' and the
- *     'public' disjunct never matches anything - the planner still has to
- *     scan to find that out.
- *   - With an index added on (visibility, promoted_at, id) - NOT added in
- *     this task; it is filed to land with whichever change opens the gate,
- *     since the regression cannot bite while no cross-user public row can
- *     exist - it becomes `MULTI-INDEX OR` plus a sort: no more full scan, but
- *     the sort cannot be avoided once the leading clause is a disjunction.
- * No test will ever notice this difference; it is production query-planner
- * behavior over real data volume, not something an in-memory D1 test
- * database reveals.
+ *   - This predicate without an index on visibility: `SCAN lessons` plus
+ *     `USE TEMP B-TREE FOR ORDER BY` - a full table scan across every user's
+ *     rows, plus a sort, on EVERY authenticated browse. Not conditional on
+ *     the gate: the planner cannot know the 'public' disjunct matches
+ *     nothing, so it scans to find that out.
+ *   - Today, with lessons_visibility_promoted_at_idx on (visibility,
+ *     promoted_at, id): `MULTI-INDEX OR` over that index and
+ *     lessons_user_id_idx, plus the sort. No full scan. The sort cannot be
+ *     avoided once the leading clause is a disjunction, because a union of
+ *     two index scans is not ordered by promoted_at.
+ *   - The ANONYMOUS read does better still: its predicate is a bare
+ *     `visibility = 'public'` with no union to merge, so it plans as a single
+ *     `SEARCH lessons USING INDEX lessons_visibility_promoted_at_idx` with no
+ *     sort at all - the index supplies the order.
+ * The correlated NOT EXISTS on the blocklist is cheap throughout
+ * (lesson_author_blocks.author_key is the primary key, so a covering index).
+ *
+ * This IS observed by a test now. pool-query-plan.test.ts hands readPool a
+ * recording stand-in for D1, captures the statement it actually prepares, and
+ * EXPLAINs that - so losing the index, or rewriting the predicate into
+ * something unindexable, fails rather than quietly costing a scan. Only the
+ * plan is checked; the latency it buys still needs real volume to see.
  */
 export const noOrgMembers: OrgMembers = async () => [];
 
