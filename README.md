@@ -30,14 +30,17 @@ injected instruction, a secret, or a claim engineered to mislead. There is no
 in-product report queue yet.
 
 The withdrawal mechanism itself needs only the id — an operator retracts a
-lesson with nothing else. But `OPERATOR_USER_IDS` is empty in every deployed
-environment today, which is the correct default and also means nobody
-currently holds that authority: a report cannot be acted on until an account
-is deliberately designated an operator (see
-[DEPLOYMENT.md](apps/api/DEPLOYMENT.md#operator-authority)). Once one is, a
-retraction takes effect immediately at the database and reaches the edge
-within its cache window (see the same doc). Until then, expect a report to sit
-unactioned rather than resolved within minutes.
+lesson with nothing else. One account is now designated an operator in both
+deployed environments (see
+[DEPLOYMENT.md](apps/api/DEPLOYMENT.md#operator-authority)), so a report can
+be acted on rather than only recorded. A retraction takes effect immediately
+at the database and is visible to the next read; a copy already in a reader's
+browser can persist for up to a minute, which is that response's
+`Cache-Control` and not an edge cache (see the same doc).
+
+What this does not promise is a response time. Reports arrive by email to one
+person, there is no on-call rotation and no in-product queue, so the honest
+expectation is hours-to-days attention, not minutes.
 
 ## Layout
 
