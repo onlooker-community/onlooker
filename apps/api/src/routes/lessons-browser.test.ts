@@ -226,11 +226,12 @@ describe("PATCH /api/lessons/:id/status", () => {
 /**
  * A public lesson belonging to somebody else.
  *
- * It has to be written PAST the push gate rather than through it: while the
- * push tier is closed, routes/lessons.ts rejects every non-private visibility,
- * so the row this read is meant to widen onto cannot be created through the
- * API at all. Pushing it private and promoting the column directly produces
- * exactly the state that opening the gate will produce.
+ * Written PAST the push gate rather than through it. The gate opened for
+ * `public` on 2026-10-03, so this COULD now go through the route - but only
+ * with a unanimous jury, and these tests are about the read path's ownership
+ * boundary rather than the admission bar. Promoting the column directly keeps
+ * the subject under this file's control and keeps these tests from failing
+ * for a reason that has nothing to do with what they assert.
  *
  * The body's own `visibility` is moved with the column. The predicate only
  * reads the column, so the test would pass either way - but the response

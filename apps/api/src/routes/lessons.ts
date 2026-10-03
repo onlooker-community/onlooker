@@ -100,13 +100,27 @@ function screen(
 	const lesson = parsed.data;
 
 	// The tier gate says so explicitly. A generic validation failure here would
-	// read as a client bug once org and public open.
-	if (lesson.visibility !== "private") {
+	// read as a client bug rather than a tier that has not opened.
+	//
+	// public opened 2026-10-03, once its read path, edge rate limit, pool
+	// index and a designated operator were all in place. org did not, and the
+	// reason is specific rather than caution: `OrgMembers` in db/pool.ts is
+	// still an inert stub, so an org lesson pushed today would be readable
+	// only by its owner - and would become org-visible RETROACTIVELY the day
+	// ONL-12 fills that resolver. The author would have consented to
+	// semantics that did not exist, and the disclosure would be triggered by
+	// a deploy rather than by them. A tier stays shut until its read path
+	// exists.
+	//
+	// What a public lesson must additionally clear - a unanimous jury - is in
+	// lessons/rules.ts, with the other cross-field rules, so a client is told
+	// about every problem at once instead of one per round trip.
+	if (lesson.visibility !== "private" && lesson.visibility !== "public") {
 		return {
 			result: {
 				id,
 				outcome: "invalid",
-				error: `The ${lesson.visibility} tier is not open yet; only private lessons are accepted`,
+				error: `The ${lesson.visibility} tier is not open yet; only private and public lessons are accepted`,
 			},
 		};
 	}

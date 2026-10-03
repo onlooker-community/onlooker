@@ -3,7 +3,13 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
 import { createUser } from "../db/queries.js";
-import { BASE, lesson, resetLessonCounter } from "../test-support/lessons.js";
+import {
+	BASE,
+	lesson,
+	mintMachine,
+	push,
+	resetLessonCounter,
+} from "../test-support/lessons.js";
 
 const db = () => env.DB;
 let owner: string;
@@ -17,7 +23,16 @@ beforeEach(async () => {
 	resetLessonCounter();
 });
 
-/** Seeded directly: push still rejects every non-private tier, deliberately. */
+/**
+ * Written straight to the pool, bypassing push.
+ *
+ * Still the right tool for most cases here: `org` and `retracted` cannot be
+ * pushed at all, and a split-jury public lesson is now refused at ingest, so
+ * the leak tests below could not construct their subjects through the route.
+ * The one case that CAN go the whole way - push a unanimous public lesson,
+ * then read it with no credential - has its own test at the bottom of this
+ * file, because that chain is the feature and nothing else here exercises it.
+ */
 async function seed(overrides: Record<string, unknown>): Promise<TLesson> {
 	const written = lesson(overrides) as TLesson;
 	await createLessonsWithFeed(db(), owner, [written]);
@@ -167,5 +182,65 @@ describe("OPTIONS preflight", () => {
 		);
 
 		expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+	});
+});
+
+/**
+ * Push to anonymous read, the whole way, with nothing seeded behind the
+ * route's back.
+ *
+ * Every other test in this file writes its subject straight into the pool,
+ * because until 2026-10-03 the push gate rejected every non-private tier and
+ * there was no way to get a public lesson in through the front door. That
+ * made the read path well covered and the CHAIN entirely unproven: a machine
+ * pushes a lesson it marked public, and a stranger with no account reads it.
+ * That chain is the product - Shared Playbooks is the one capability the
+ * hosted app exists for - so it gets a test that touches only public routes.
+ */
+describe("a pushed public lesson reaches a reader with no account", () => {
+	it("is readable anonymously after a machine pushes it", async () => {
+		const machine = await mintMachine("author@example.com");
+		const written = lesson({
+			visibility: "public",
+			consensus: {
+				judges: 3,
+				agreed: 3,
+				decided_at: "2026-08-22T00:00:00.000Z",
+			},
+		});
+
+		const pushed = await push(machine.token, [written]);
+		expect(
+			((await pushed.json()) as { results: Array<{ outcome: string }> })
+				.results[0].outcome,
+		).toBe("created");
+
+		// No Authorization header anywhere in `get`. This is the stranger.
+		const response = await get(written.id);
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as { claim: string }).claim).toBe(
+			written.claim,
+		);
+	});
+
+	// The same push, one judge short. Nothing reaches the pool, so nothing
+	// reaches a reader - the bar has to hold at ingest, because after a
+	// lesson is public the only remedy left is a retraction with a
+	// browser-cache floor under it.
+	it("never reaches the pool when the jury was split", async () => {
+		const machine = await mintMachine("author2@example.com");
+		const written = lesson({
+			visibility: "public",
+			consensus: {
+				judges: 3,
+				agreed: 2,
+				decided_at: "2026-08-22T00:00:00.000Z",
+			},
+		});
+
+		await push(machine.token, [written]);
+
+		expect((await get(written.id)).status).toBe(404);
 	});
 });

@@ -250,3 +250,85 @@ describe("multiple violations", () => {
 		]);
 	});
 });
+
+/**
+ * The public tier's admission bar.
+ *
+ * A split jury is fine for a lesson only its author reads - they know what
+ * they trust. A public lesson reaches anonymous readers who cannot see the
+ * jury at all, cannot ask the author, and have no way to weigh "two of three
+ * agreed" against their own situation. It also cannot be un-published: the
+ * only control is a retraction, which leaves a browser-cache floor behind it.
+ *
+ * So unanimity is required where it is irreversible and optional where it is
+ * not. Chosen as the conservative direction deliberately - relaxing this
+ * later costs nothing, while tightening it cannot reach lessons that already
+ * went out.
+ */
+describe("a public lesson needs a unanimous jury", () => {
+	it("rejects a public lesson the jury was split on", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				visibility: "public",
+				consensus: {
+					judges: 3,
+					agreed: 2,
+					decided_at: "2026-08-22T00:00:00.000Z",
+				},
+			}),
+		);
+
+		expect(violations.map((v) => v.rule)).toEqual(["public_needs_unanimity"]);
+	});
+
+	it("accepts a public lesson every judge agreed on", () => {
+		expect(
+			checkCrossFieldRules(
+				validLesson({
+					visibility: "public",
+					consensus: {
+						judges: 3,
+						agreed: 3,
+						decided_at: "2026-08-22T00:00:00.000Z",
+					},
+				}),
+			),
+		).toEqual([]);
+	});
+
+	// The bar is the public tier's, not everyone's. A split jury is the
+	// default case for a private lesson and must stay unremarkable.
+	it("leaves a split jury alone on a private lesson", () => {
+		expect(
+			checkCrossFieldRules(
+				validLesson({
+					visibility: "private",
+					consensus: {
+						judges: 3,
+						agreed: 1,
+						decided_at: "2026-08-22T00:00:00.000Z",
+					},
+				}),
+			),
+		).toEqual([]);
+	});
+
+	// agreed > judges is incoherent at any tier, and saying "not unanimous"
+	// about it would describe the wrong defect. The existing rule owns it.
+	it("calls impossible agreement what it is, even on a public lesson", () => {
+		const violations = checkCrossFieldRules(
+			validLesson({
+				visibility: "public",
+				consensus: {
+					judges: 2,
+					agreed: 5,
+					decided_at: "2026-08-22T00:00:00.000Z",
+				},
+			}),
+		);
+
+		expect(violations.map((v) => v.rule)).toEqual([
+			"consensus_agreed_within_judges",
+		]);
+	});
+});

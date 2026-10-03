@@ -181,16 +181,64 @@ describe("POST /lessons", () => {
 		expect(results[0].error).not.toMatch(/pull before you push/i);
 	});
 
-	it("rejects org and public with a message naming the tier", async () => {
-		const response = await push(machineToken, [
-			lesson({ visibility: "public" }),
-		]);
+	// Public opened 2026-10-03; org did not, and the message still names the
+	// tier so a client can tell "not yet" from "never".
+	//
+	// org stays shut for a specific reason, not caution: OrgMembers is an
+	// inert stub, so an org lesson pushed today is readable only by its owner
+	// and would become org-visible RETROACTIVELY the day ONL-12 fills the
+	// resolver - a disclosure the author never asked for.
+	it("rejects org with a message naming the tier", async () => {
+		const response = await push(machineToken, [lesson({ visibility: "org" })]);
 
 		const { results } = (await response.json()) as {
 			results: Array<{ outcome: string; error: string }>;
 		};
 		expect(results[0].outcome).toBe("invalid");
 		expect(results[0].error).toMatch(/not open/i);
+		expect(results[0].error).toMatch(/org/);
+	});
+
+	it("accepts a public lesson whose jury was unanimous", async () => {
+		const response = await push(machineToken, [
+			lesson({
+				visibility: "public",
+				consensus: {
+					judges: 3,
+					agreed: 3,
+					decided_at: "2026-08-22T00:00:00.000Z",
+				},
+			}),
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string }>;
+		};
+		expect(results[0].outcome).toBe("created");
+	});
+
+	// The bar, at the route rather than the rule. Note the error says "not
+	// unanimous" and not "not open" - the tier IS open, this lesson did not
+	// clear it, and telling a client to wait for a tier that already exists
+	// would send them looking in the wrong place.
+	it("rejects a public lesson the jury was split on", async () => {
+		const response = await push(machineToken, [
+			lesson({
+				visibility: "public",
+				consensus: {
+					judges: 3,
+					agreed: 2,
+					decided_at: "2026-08-22T00:00:00.000Z",
+				},
+			}),
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("invalid");
+		expect(results[0].error).toMatch(/unanimous/i);
+		expect(results[0].error).not.toMatch(/not open/i);
 	});
 
 	it("rejects a lesson that breaks a cross-field rule", async () => {
