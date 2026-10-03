@@ -24,9 +24,11 @@ beforeEach(async () => {
 /**
  * Seed one lesson owned by `owner`.
  *
- * Bypasses push, which still rejects every non-private tier - that gate is
- * deliberately untouched by this plan, so the read path has to be testable
- * without it.
+ * Bypasses push. Still necessary even now that the gate admits `public`:
+ * `org` and `retracted` cannot be pushed at all, and a split-jury public
+ * lesson is refused at ingest, so most subjects here are unreachable through
+ * the route. The push-to-read chain has its own test, in
+ * routes/lessons-public.test.ts.
  */
 async function seedFor(
 	owner: string,

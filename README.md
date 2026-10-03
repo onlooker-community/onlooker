@@ -22,12 +22,18 @@ published to npm and is the furthest along.
 
 `GET /api/public/lessons/:id` serves a public lesson to anyone with its id, no
 credential required — other people's agents can read it too, not just people.
-No lesson can become public through the product yet: the push tier gate
-accepts only private lessons. This section exists ahead of that, so the report
-path isn't the piece missing when the gate opens. When it does, email
-<meagan@meaganwaller.com> with the lesson's id to report one that carries an
-injected instruction, a secret, or a claim engineered to mislead. There is no
-in-product report queue yet.
+
+Lessons can become public as of 2026-10-03. A machine pushes one marked
+`public`, and it must carry a unanimous jury — every judge agreeing — which
+private lessons do not have to. The bar is higher there because a public
+lesson reaches readers who cannot see the jury or ask the author, and because
+it cannot be un-published: the only remedy is a retraction, and a copy already
+in someone's browser can outlive it by up to a minute. The `org` tier is still
+closed.
+
+To report a public lesson that carries an injected instruction, a secret, or a
+claim engineered to mislead, email <meagan@meaganwaller.com> with the lesson's
+id. There is no in-product report queue yet.
 
 The withdrawal mechanism itself needs only the id — an operator retracts a
 lesson with nothing else. One account is now designated an operator in both

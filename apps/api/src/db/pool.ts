@@ -40,26 +40,26 @@ export interface Principal {
 export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
 
 /**
- * The inert stub - but inertness rests on TWO conditions, and this is only
- * one of them.
+ * The inert stub - and as of 2026-10-03 its inertness is the ONLY thing
+ * holding the org disjunct shut, where it used to be the lesser of two.
  *
- * The load-bearing one is the closed push tier gate at routes/lessons.ts:104:
- * no non-private lesson can enter the pool, and transitionLesson never
- * rewrites `visibility`, so the column can only ever hold 'private' today.
- * `visibility = 'public'` sits outside visibilityPredicate's `if (principal)`
- * branch, so emptying the org set (what this stub does) does not narrow that
- * disjunct at all - it is the closed gate, not this stub, that keeps it from
- * matching anything. That gate is enforced in a route; this read lives in
- * db/, and nothing ties the two together with a test. That no pre-existing
- * test's expectation about a read's behavior changed - the one exception is
- * packages/db/src/__tests__/schema.test.ts, a hand-pinned table/column count
- * that never opens a database and moved only because Task 1 added a table
- * and a column - is evidence the two conditions HOLD, not evidence of why.
+ * The condition that used to carry the weight was the closed push tier gate
+ * at routes/lessons.ts. That gate opened for `public` on 2026-10-03, so the
+ * `visibility` column now holds real public rows and an authenticated
+ * readPool matches OTHER accounts' non-retracted, unblocked public lessons.
+ * That is the spec's intent for the browse surface rather than a bug, and the
+ * route-level tests in routes/lessons-browser.test.ts now observe it.
  *
- * When that gate opens, an authenticated readPool begins matching OTHER
- * accounts' non-retracted, unblocked public rows - the spec's intent for the
- * browse surface, not a bug. But it is a behavior change that nothing in this
- * file announces, so whoever opens the gate should read this comment first.
+ * `org` is a different matter and stays shut at that same gate, precisely
+ * BECAUSE this resolver is still a stub. An org lesson admitted today would
+ * be readable only by its owner, and would become org-visible retroactively
+ * the moment this function starts returning members - a disclosure its author
+ * never asked for. So the two are coupled: whoever implements OrgMembers
+ * (ONL-12) opens the org tier in the same change, or neither.
+ *
+ * Note what that means for the reading below. Emptying the org set does not
+ * narrow `visibility = 'public'`, which sits outside the `if (principal)`
+ * branch - that disjunct is live now and this stub never governed it.
  *
  * It also had a measured performance consequence, now repaired. EXPLAIN QUERY
  * PLAN against a database built from the real migrations:

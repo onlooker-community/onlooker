@@ -317,6 +317,20 @@ Three gates, per this repo's CI: `vitest`, `tsc --noEmit`, and the per-package
   both tiers have landed — nothing should enter the pool at a tier whose read
   path is still being built. Opening it is the last step.
 
+  > **Status, 2026-10-03.** Half done, and deliberately so. The gate now
+  > admits `public`; `org` still does not. The rule above said to wait for
+  > *both* tiers, and the reason it gave — nothing should enter the pool at a
+  > tier whose read path is still being built — turns out to split cleanly by
+  > tier rather than binding them together. Public's read path is built,
+  > shipped and verified in production. Org's is still the inert `OrgMembers`
+  > stub, and admitting org lessons against it would be worse than merely
+  > early: they would read as private now and become org-visible
+  > *retroactively* when the resolver lands, which is a disclosure their
+  > authors never consented to. So org waits on ONL-12 and ships in the same
+  > change as its resolver. Public additionally requires a unanimous jury at
+  > ingest, which is ONL-13's open unanimity question settled conservatively;
+  > see `onlooker-7x1khc.1`.
+
 ## Deferred, each to its own issue
 
 - **Foreign lessons entering the CLI's local mirror.** Until this lands, local

@@ -82,6 +82,37 @@ export function checkCrossFieldRules(lesson: TLesson): RuleViolation[] {
 		});
 	}
 
+	// The public tier's admission bar, and the only rule here that reads
+	// `visibility`.
+	//
+	// A split jury is unremarkable for a lesson only its author reads: they
+	// know what they trust. A public lesson reaches anonymous readers who
+	// cannot see the jury, cannot ask the author, and cannot weigh "two of
+	// three agreed" against their own situation - and it cannot be
+	// un-published, only retracted, which leaves a browser-cache floor behind
+	// it. Unanimity where the mistake is irreversible, nowhere else.
+	//
+	// Deliberately the conservative direction: relaxing this later costs
+	// nothing, while tightening it cannot reach lessons already served.
+	// ADR-004 and ecosystem #387 moved the PIPELINE's rubric toward score
+	// floors rather than unanimity; this governs what the POOL admits, which
+	// is a different question and the cheaper one to revisit.
+	//
+	// `<` and not `!==`, so impossible agreement is reported as impossible by
+	// the rule above rather than described here as merely not unanimous.
+	if (
+		lesson.visibility === "public" &&
+		lesson.consensus.agreed < lesson.consensus.judges
+	) {
+		violations.push({
+			rule: "public_needs_unanimity",
+			message:
+				`a public lesson needs a unanimous jury: ${lesson.consensus.agreed}` +
+				` of ${lesson.consensus.judges} judges agreed. Push it as private,` +
+				` or re-run the jury`,
+		});
+	}
+
 	const { scope, stack } = lesson.applies_to;
 	if (scope.kind === "versioned") {
 		const declared = new Set(stack);
