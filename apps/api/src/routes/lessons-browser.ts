@@ -74,6 +74,10 @@ export async function handleBrowseLessons(
 			lessons: page.lessons,
 			cursor: page.cursor,
 			has_more: page.hasMore,
+			// Always present, even when empty: a client deciding what to render
+			// must not have to tell "you own none of these" apart from "this
+			// server does not say".
+			owned_ids: page.ownedIds,
 		});
 	} catch (error) {
 		if (error instanceof InvalidCursorError) {
@@ -98,7 +102,14 @@ export async function handleGetLesson(
 	const { userId } = principal as Principal;
 	const found = await getLessonForUser(env.DB, userId, params.id);
 	if (!found) throw new ApiError(404, "not_found", "No such lesson");
-	return Response.json(found);
+
+	// Enveloped rather than bare, for the reason LessonPage.ownedIds records:
+	// the pool now answers with other people's public lessons, the write path
+	// is still owner-scoped, and the browser reaches this route for any lesson
+	// it did not already hold from the list - a deep link, or one past the
+	// loaded page. Without `own` here that caller cannot tell whether to offer
+	// a retract, and would offer one that 404s.
+	return Response.json({ lesson: found.lesson, own: found.own });
 }
 
 export async function handleBrowserTransition(

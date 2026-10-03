@@ -56,6 +56,7 @@ describe("GET /api/lessons", () => {
 			lessons: [],
 			cursor: null,
 			has_more: false,
+			owned_ids: [],
 		});
 	});
 
@@ -111,9 +112,11 @@ describe("GET /api/lessons/:id", () => {
 		const response = await browse(`/api/lessons/${written.id}`);
 
 		expect(response.status).toBe(200);
-		expect((await response.json()) as { id: string }).toMatchObject({
-			id: written.id,
-		});
+		// Enveloped: the document under `lesson`, with `own` beside it. See
+		// "ownership, so the browser knows what it may act on" below.
+		expect((await response.json()) as { lesson: { id: string } }).toMatchObject(
+			{ lesson: { id: written.id } },
+		);
 	});
 
 	it("404s an id nobody holds", async () => {
@@ -217,5 +220,144 @@ describe("PATCH /api/lessons/:id/status", () => {
 		// The delta route wraps each entry as { seq, lesson }, so the status
 		// lives one level down from what a flat shape would suggest.
 		expect(delta.lessons.at(-1)?.lesson.status).toBe("retracted");
+	});
+});
+
+/**
+ * A public lesson belonging to somebody else.
+ *
+ * It has to be written PAST the push gate rather than through it: while the
+ * push tier is closed, routes/lessons.ts rejects every non-private visibility,
+ * so the row this read is meant to widen onto cannot be created through the
+ * API at all. Pushing it private and promoting the column directly produces
+ * exactly the state that opening the gate will produce.
+ *
+ * The body's own `visibility` is moved with the column. The predicate only
+ * reads the column, so the test would pass either way - but the response
+ * returns `body`, and a document that calls itself private while the pool
+ * serves it to strangers is a confusing thing to hand an assertion.
+ */
+async function seedForeignPublicLesson(email = "stranger@example.com") {
+	const stranger = await mintMachine(email);
+	const written = lesson();
+	await push(stranger.token, [written]);
+	await db()
+		.prepare(
+			"UPDATE lessons SET visibility = 'public'," +
+				" body = json_set(body, '$.visibility', 'public') WHERE id = ?",
+		)
+		.bind(written.id)
+		.run();
+	return { stranger, written };
+}
+
+/**
+ * The read widening that landed with the shared lesson tiers, observed at the
+ * route rather than at the db layer.
+ *
+ * db/pool.test.ts already proves the predicate itself. What none of it proves
+ * is that the widening survives the trip through the route - and the routes
+ * were never opened by the six tasks that built this, so until now nothing
+ * above db/ observed the change at all. These are guard tests: they pass
+ * today, and each was confirmed to fail by ablating the behavior it guards
+ * (re-narrowing the pool predicate to the owner, and dropping owned_ids).
+ */
+describe("the public tier widening, at the route", () => {
+	it("lists another account's public lesson", async () => {
+		const { written } = await seedForeignPublicLesson();
+
+		const body = (await (await browse("/api/lessons")).json()) as {
+			lessons: Array<{ id: string }>;
+		};
+
+		expect(body.lessons.map((entry) => entry.id)).toEqual([written.id]);
+	});
+
+	it("returns another account's public lesson by id", async () => {
+		const { written } = await seedForeignPublicLesson();
+
+		const response = await browse(`/api/lessons/${written.id}`);
+
+		expect(response.status).toBe(200);
+	});
+
+	// The asymmetry this bead exists for. The READ widened and the WRITE did
+	// not: transitionLesson's WHERE is still `id = ? AND user_id = ?`, so the
+	// pool hands a stranger's lesson to a browser that cannot act on it. The
+	// 404 is correct - a stranger may not retract what is not theirs - which
+	// is precisely why the UI must not offer the control.
+	it("refuses to retract another account's public lesson", async () => {
+		const { written } = await seedForeignPublicLesson();
+
+		const response = await browse(`/api/lessons/${written.id}/status`, {
+			method: "PATCH",
+			body: JSON.stringify({ status: "retracted" }),
+		});
+
+		expect(response.status).toBe(404);
+	});
+});
+
+/**
+ * What the browser needs in order not to offer that losing control.
+ *
+ * The read returns `SELECT body`, and a lesson body carries no user_id - by
+ * design, since it is the published document and another account's owner is
+ * not the reader's business. So ownership cannot be derived client-side at
+ * all, and the server has to say it. It is carried BESIDE the documents
+ * rather than inside them: a body is @onlooker-community/lesson-contract's
+ * shape and nothing server-computed belongs in it.
+ */
+describe("ownership, so the browser knows what it may act on", () => {
+	it("names the listed lessons the caller owns", async () => {
+		const mine = lesson();
+		await push(machineToken, [mine]);
+		const { written: theirs } = await seedForeignPublicLesson();
+
+		const body = (await (await browse("/api/lessons")).json()) as {
+			lessons: Array<{ id: string }>;
+			owned_ids: string[];
+		};
+
+		// Both are listed; only one is the caller's.
+		expect(body.lessons.map((entry) => entry.id).sort()).toEqual(
+			[mine.id, theirs.id].sort(),
+		);
+		expect(body.owned_ids).toEqual([mine.id]);
+	});
+
+	it("names no owner when the page holds only other people's lessons", async () => {
+		await seedForeignPublicLesson();
+
+		const body = (await (await browse("/api/lessons")).json()) as {
+			owned_ids: string[];
+		};
+
+		// Present and empty, not absent: a client that reads `owned_ids` to
+		// decide what to render must not have to distinguish "none" from
+		// "this server does not say".
+		expect(body.owned_ids).toEqual([]);
+	});
+
+	it("says the caller owns the lesson it fetched by id", async () => {
+		const mine = lesson();
+		await push(machineToken, [mine]);
+
+		const body = (await (await browse(`/api/lessons/${mine.id}`)).json()) as {
+			lesson: { id: string };
+			own: boolean;
+		};
+
+		expect(body).toMatchObject({ lesson: { id: mine.id }, own: true });
+	});
+
+	it("says the caller does not own another account's public lesson", async () => {
+		const { written } = await seedForeignPublicLesson();
+
+		const body = (await (
+			await browse(`/api/lessons/${written.id}`)
+		).json()) as { lesson: { id: string }; own: boolean };
+
+		expect(body).toMatchObject({ lesson: { id: written.id }, own: false });
 	});
 });

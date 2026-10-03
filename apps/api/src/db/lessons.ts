@@ -576,6 +576,19 @@ export async function getLessonForUser(
 	db: D1Database,
 	userId: string,
 	id: string,
-): Promise<unknown | null> {
-	return readPoolLesson(db, { userId }, id);
+): Promise<{ lesson: unknown; own: boolean } | null> {
+	const lesson = await readPoolLesson(db, { userId }, id);
+	if (!lesson) return null;
+
+	// A second statement rather than widening readPoolLesson's SELECT, because
+	// the anonymous public route calls that same function and its contract -
+	// no code path may widen what it sees - is worth more than saving a
+	// primary-key lookup here. The row is already known to be readable; this
+	// only asks whose it is.
+	const owned = await db
+		.prepare("SELECT 1 AS own FROM lessons WHERE id = ? AND user_id = ?")
+		.bind(id, userId)
+		.first<{ own: number }>();
+
+	return { lesson, own: owned !== null };
 }
