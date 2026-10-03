@@ -58,9 +58,37 @@ an operator — retracting any lesson, blocking or unblocking an author key.
 It is a var, not a secret, but it is deliberately not something you edit
 casually: it lives in `wrangler.toml` rather than a database row so that
 granting it is a deploy someone reviews, not a runtime change anyone with
-database access can make unilaterally. Empty (`""`, the value in all three
-environments today) means nobody is an operator. See
-`middleware/principal.ts` for the check itself.
+database access can make unilaterally. Empty (`""`) means nobody is an
+operator. See `middleware/principal.ts` for the check itself.
+
+**Staging and production each name one operator** as of 2026-10-03; local
+development is empty.
+
+**Their ids are not in this repository.** This repo is public, and a user id
+in `wrangler.toml` would publish which account to compromise for moderation
+authority. The deploy injects the value instead, with `--var`, from a
+repository secret — `OPERATOR_USER_IDS_STAGING` and
+`OPERATOR_USER_IDS_PRODUCTION`. It remains a deploy-time value and not a
+runtime one, so granting it is still a deploy rather than something database
+access alone can do; what is given up is the id being visible in a reviewed
+diff. Only development declares the var in `wrangler.toml`, empty, because a
+local database is whatever you last seeded.
+
+**There are two secrets, not one, and that is deliberate.** Each
+environment's database issues its own user ids, so the production id names
+nobody in staging and vice versa. A wrong id fails silently in the worst way:
+the moderation routes answer 404 to a non-operator by design, so "this id
+does not exist here" and "you may not use this route" are indistinguishable
+from outside. If moderation appears not to work, check that the id belongs to
+the database that environment is bound to before looking anywhere else.
+
+Find an id with `SELECT id, email FROM users` against that environment's D1.
+
+**To grant:** set the environment's secret and deploy. **To revoke:** delete
+the secret and remove the guard and the `--var` from that deploy step in the
+same diff — the deploy fails on an empty secret precisely so a revocation is
+deliberate rather than a silent gap nobody notices until a lesson needs
+pulling.
 
 ### Secrets
 

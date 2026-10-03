@@ -373,8 +373,10 @@ export const ROUTES: Route[] = [
 	// this surface does not confirm its existence to them specifically. A
 	// credential-less request still gets 401 first, the same as any other
 	// protected route - resolvePrincipal calls requireAuth before the operator
-	// check runs. OPERATOR_USER_IDS is empty in every environment until
-	// somebody is deliberately granted it.
+	// check runs. OPERATOR_USER_IDS now names one account in staging and in
+	// production, so these routes are live rather than inert; development is
+	// still empty. The 404-not-403 behavior matters more now than it did when
+	// nobody held the authority at all.
 	// =========================================================================
 	{
 		method: "POST",

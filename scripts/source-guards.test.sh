@@ -361,6 +361,71 @@ else
 fi
 
 echo
+echo "source-guards: the operator ids stay out of a public repository"
+
+# OPERATOR_USER_IDS names a real account that may retract anybody's lesson.
+# This repository is public, so writing the value into wrangler.toml would
+# publish which account to compromise for moderation authority - and the first
+# attempt at onlooker-wi9ftq.1.11 did exactly that before it was caught. The
+# deploy injects it from a repository secret instead.
+#
+# Only development may declare the var in the file, and only empty: a local
+# database is whatever you last seeded, so there is no stable id to commit.
+readonly WRANGLER="${ROOT}/apps/api/wrangler.toml"
+readonly DEPLOY_WORKFLOW="${ROOT}/.github/workflows/deploy.yml"
+
+# Any assignment with something between the quotes, in any environment block.
+populated_operator_ids="$(grep -nE '^OPERATOR_USER_IDS[[:space:]]*=[[:space:]]*"[^"]+"' "${WRANGLER}" || true)"
+if [[ -n "${populated_operator_ids}" ]]; then
+	fail "no operator id is committed to wrangler.toml" \
+		"found ${populated_operator_ids//$'\n'/; } - inject it from a secret instead"
+else
+	pass "no operator id is committed to wrangler.toml"
+fi
+
+# The paired positive check. The grep above passes trivially if the var stops
+# being mentioned in wrangler.toml at all, or if the file moves - so assert the
+# development declaration is still there and still empty.
+if grep -qE '^OPERATOR_USER_IDS[[:space:]]*=[[:space:]]*""' "${WRANGLER}"; then
+	pass "development still declares OPERATOR_USER_IDS, empty"
+else
+	fail "development still declares OPERATOR_USER_IDS, empty" \
+		"the empty declaration is gone from ${WRANGLER}, so the check above guards nothing"
+fi
+
+# Both deploys must actually pass the var, or the designation silently does not
+# reach the worker. These routes answer 404 to a non-operator by design, so an
+# operator who was never granted and an operator who is denied look identical
+# from outside - the gap would surface the day somebody needed to pull a lesson.
+operator_var_misses=""
+for script in "deploy:api:staging" "deploy:api:prod"; do
+	grep -qF "pnpm ${script} --var MONITORING_RELEASE:\${{ github.sha }} --var OPERATOR_USER_IDS:" "${DEPLOY_WORKFLOW}" ||
+		operator_var_misses="${operator_var_misses} ${script}"
+done
+
+if [[ -n "${operator_var_misses}" ]]; then
+	fail "both API deploys pass OPERATOR_USER_IDS" \
+		"missing from:${operator_var_misses}"
+else
+	pass "both API deploys pass OPERATOR_USER_IDS"
+fi
+
+# And both must refuse an empty one. Without this the deploy succeeds, the
+# worker comes up with no operator, and every downstream signal is green.
+empty_guard_misses=""
+for secret in "OPERATOR_USER_IDS_STAGING" "OPERATOR_USER_IDS_PRODUCTION"; do
+	grep -qF "${secret} is unset" "${DEPLOY_WORKFLOW}" ||
+		empty_guard_misses="${empty_guard_misses} ${secret}"
+done
+
+if [[ -n "${empty_guard_misses}" ]]; then
+	fail "both API deploys fail closed on an unset operator secret" \
+		"no emptiness check naming:${empty_guard_misses}"
+else
+	pass "both API deploys fail closed on an unset operator secret"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

@@ -617,9 +617,29 @@ jobs:
       # staging vars plus this one. If that ever stops being true, the worker
       # loses its DB binding and every authenticated route 500s, so re-check
       # the dry run before changing this line.
+      # OPERATOR_USER_IDS arrives the same way, but for a different reason:
+      # not that it varies per deploy, but that this repository is public and
+      # the value is a real account id. Writing it into wrangler.toml would
+      # publish which account to compromise for moderation authority. It stays
+      # a deploy-time value rather than a runtime one, so granting it is still
+      # a deploy and not something database access alone can do.
+      #
+      # The emptiness check is not ceremony. An absent secret deploys a worker
+      # with no operator, and these routes answer 404 to a non-operator BY
+      # DESIGN - so "nobody was granted" and "you may not use this" look
+      # identical from outside, and the gap would be found the day somebody
+      # needed to retract a lesson. To revoke deliberately, delete the secret
+      # AND remove this guard and the --var in the same diff: that way the
+      # revocation is reviewed too.
       - name: Deploy API to Staging
-        run: pnpm deploy:api:staging --var MONITORING_RELEASE:${{ github.sha }}
+        run: |
+          if [ -z "${OPERATOR_IDS}" ]; then
+            echo "::error title=OPERATOR_USER_IDS_STAGING is unset::Staging would deploy with no operator, and nothing downstream would say so. Set the repository secret, or remove this guard and the --var together if no operator is intended."
+            exit 1
+          fi
+          pnpm deploy:api:staging --var MONITORING_RELEASE:${{ github.sha }} --var OPERATOR_USER_IDS:"${OPERATOR_IDS}"
         env:
+          OPERATOR_IDS: ${{ secrets.OPERATOR_USER_IDS_STAGING }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
@@ -768,10 +788,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # See the staging deploy for why --var is appended rather than declared.
+      # See the staging deploy for why both --vars are appended rather than
+      # declared, and why an unset operator secret stops the deploy. Note the
+      # SEPARATE secret: each environment's database issues its own user ids,
+      # so staging's id names nobody in production. One shared secret would be
+      # wrong in whichever environment it was not minted for, and wrong here
+      # is silent.
       - name: Deploy API to Production
-        run: pnpm deploy:api:prod --var MONITORING_RELEASE:${{ github.sha }}
+        run: |
+          if [ -z "${OPERATOR_IDS}" ]; then
+            echo "::error title=OPERATOR_USER_IDS_PRODUCTION is unset::Production would deploy with no operator, and nothing downstream would say so. Set the repository secret, or remove this guard and the --var together if no operator is intended."
+            exit 1
+          fi
+          pnpm deploy:api:prod --var MONITORING_RELEASE:${{ github.sha }} --var OPERATOR_USER_IDS:"${OPERATOR_IDS}"
         env:
+          OPERATOR_IDS: ${{ secrets.OPERATOR_USER_IDS_PRODUCTION }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

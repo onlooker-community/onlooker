@@ -84,9 +84,10 @@ export interface WorkerEnv {
 	// The accounts that may act as an operator, comma-separated. Read by
 	// resolvePrincipal for `auth: "operator"` routes rather than looked up in
 	// the database, so granting moderation authority is a deploy somebody
-	// reviews, not a row somebody edits. Declared empty in every environment in
-	// wrangler.toml - nobody is an operator until someone is deliberately
-	// granted it. See middleware/principal.ts.
+	// reviews, not a row somebody edits. Staging and production each name one
+	// account in wrangler.toml, by that environment's own user id; development
+	// is empty. Still optional, and an empty or absent value means nobody.
+	// See middleware/principal.ts.
 	OPERATOR_USER_IDS?: string;
 }
 

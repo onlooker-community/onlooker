@@ -49,8 +49,11 @@ ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "http://localhost:5173"
-# Empty in every environment: nobody is an operator until someone is
-# deliberately granted it. See middleware/principal.ts.
+# The only environment that declares this in the file, and empty: a local
+# database is whatever you last seeded, so there is no stable id to commit.
+# Set it to your own when you need to exercise the moderation routes locally.
+# Staging and production inject theirs at deploy time from a secret instead,
+# because this repo is public - see those blocks below.
 OPERATOR_USER_IDS = ""
 
 # `wrangler dev` is local-first, so this resolves to a SQLite file under
@@ -99,9 +102,12 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
-# Empty in every environment: nobody is an operator until someone is
-# deliberately granted it. See middleware/principal.ts.
-OPERATOR_USER_IDS = ""
+# OPERATOR_USER_IDS is deliberately ABSENT here and injected at deploy time
+# from a repository secret - see .github/workflows/deploy.yml. This repo is
+# public, and the value is a real account id; naming it here would publish
+# which account to compromise for moderation authority. Granting it is still
+# a deploy and not a runtime change, which is the property that mattered.
+# Absent means nobody, so a missing secret fails closed.
 # Same project as production; events are told apart by ENVIRONMENT above. A
 # var, not a secret - a DSN is an ingest address. Absent from development on
 # purpose, so local work does not report. See src/monitoring.ts.
@@ -161,9 +167,11 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
-# Empty in every environment: nobody is an operator until someone is
-# deliberately granted it. See middleware/principal.ts.
-OPERATOR_USER_IDS = ""
+# OPERATOR_USER_IDS is deliberately ABSENT here too, for the same reason as
+# staging above: injected at deploy time from a repository secret. The ids
+# differ per environment because each database issues its own, so there are
+# two secrets, not one. See .github/workflows/deploy.yml and
+# DEPLOYMENT.md#operator-authority.
 MONITORING_DSN = "https://4ae17b2b535e1bbed1df91ac1fcce47f@o4512074220371968.ingest.us.sentry.io/4512075995283456"
 
 # Move the worker toward the database instead of running it wherever the request
