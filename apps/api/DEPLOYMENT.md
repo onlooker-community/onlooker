@@ -306,8 +306,9 @@ without a limit anyone can mail-bomb a known address and burn the Resend quota.
 `/auth/login` verifies a password, which is both CPU and the credential-stuffing
 surface. `/auth/signup` creates an account and sends mail. `/auth/reset-password`
 takes a token worth guessing at volume. `/api/public/lessons/:id` runs a D1 read
-per request, and a 404 is not cached — the handler sets `Cache-Control` only on
-the success path — so every miss is a real read.
+per request, and nothing caches it — not the hit and not the miss, so every
+request is a real read. See **Public lesson reads** below for why, and for the
+one change that would alter it.
 
 **Why `/auth/refresh` is deliberately excluded**, despite also being
 unauthenticated: every active browser session calls it periodically, so behind a
@@ -336,18 +337,41 @@ endpoints, described under **Rate Limiting** above. That section is the one to
 read and the only place the expression is written down — deliberately, so the two
 cannot drift.
 
-A retraction or an author block is not instant at the edge. `GET
-/api/public/lessons/:id` is served with `public, max-age=60`, and nothing purges
-the cache, so a withdrawn lesson can still be served for up to a minute after the
-operator route returns 200. Re-fetch after the window before concluding a takedown
-failed. If a faster pull is ever needed, that is a cache-purge feature, not a
-retry.
+A retraction or an author block is not instant, but the delay is in the reader's
+browser rather than at the edge. `GET /api/public/lessons/:id` is served with
+`public, max-age=60`, so a client that already fetched a lesson can keep showing
+it for up to a minute after the operator route returns 200. Re-fetch after the
+window before concluding a takedown failed.
 
-`max-age=60` is what the worker *asks* for, not a guarantee — the effective edge
-TTL is controlled by the zone's cache rules, which live outside this repository
-and can lengthen it, shorten it, or disable edge caching for the path entirely.
-So 60 seconds is what the code sets, not what a client is guaranteed to see in
-either direction.
+**Nothing caches it at the edge.** Verified 2026-10-03 against the live zone and
+the Cloudflare documentation:
+
+- Workers Caching — the feature that lets Cloudflare serve a worker's response
+  without running the worker — is **off**. It is turned on by a `[cache]` block
+  in `wrangler.toml`, and this worker has none. From outside, that looks like
+  the absence of a `Cf-Cache-Status` header on every response from
+  `api.onlooker.dev`, which is what live requests show.
+- Zone cache configuration cannot reach it either. Cache Rules, Cache Response
+  Rules, Page Rules and the zone cache level apply to what a worker `fetch()`es
+  from an origin, not to the response a worker returns. `handlePublicLesson`
+  reads D1 and returns `Response.json`; it never calls `fetch()`, so there is no
+  subrequest for a zone rule to act on.
+
+So `max-age=60` is an instruction to the client and nothing else, the takedown
+floor is one minute of browser cache, and there is no edge copy to purge. It
+also means **every request is a worker invocation and a real D1 read** — nothing
+absorbs repeats, which is why the rate limiting rule above is the only thing
+standing in front of this route.
+
+**If you ever add `[cache] enabled = true`, read this section first.** Workers
+Caching applies RFC 9111 heuristic freshness to responses that set no
+`Cache-Control` at all: a `200` is cached for two hours and a `404` for three
+minutes. The reasoning "the handler sets `Cache-Control` only on the success
+path, so a miss is never cached" holds *only* while caching is off — under
+Workers Caching it is exactly backwards, and 404s for lesson ids that do not
+exist would start being served from cache. Turning it on would also put a real
+edge copy behind the takedown story, which `ctx.cache.purge()` exists to
+invalidate.
 
 No test can observe any of this: `SELF.fetch` in the test harness never
 populates an edge cache, which is why the retraction and block tests in

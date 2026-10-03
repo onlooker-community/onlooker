@@ -9,6 +9,12 @@ import { ApiError } from "../types";
  * lesson keeps being served until every cached copy expires, and a fast pull is
  * the control the whole moderation story rests on. Raising it lengthens the
  * window in which a lesson nobody can withdraw is still reaching readers.
+ *
+ * Today those copies live in readers' browsers and nowhere else: Workers
+ * Caching is off (no `[cache]` block in wrangler.toml) and zone cache rules
+ * cannot touch a response a worker returns, so there is no edge copy and
+ * nothing to purge. Verified 2026-10-03; apps/api/DEPLOYMENT.md, "Public lesson
+ * reads", carries the evidence and the trap that enabling caching would spring.
  */
 const MAX_AGE_SECONDS = 60;
 
