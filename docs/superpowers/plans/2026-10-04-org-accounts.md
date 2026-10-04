@@ -3242,12 +3242,23 @@ export function listInvites(
 	);
 }
 
+/**
+ * Create an invitation.
+ *
+ * The response is deliberately NOT a full `PendingInvite`. The create route
+ * echoes only what it knows at that moment and does **not** send `created_at`
+ * (`apps/api/src/routes/orgs-invites.ts` returns `id`, `email`, `role`,
+ * `expires_at`). Typing this as `PendingInvite` would promise a field
+ * production never sends, and a mock that fabricated one to satisfy the type
+ * would hide exactly the drift this client exists to surface. `PendingInvite`
+ * stays correct for the LIST response, which does select `created_at`.
+ */
 export function createInvite(
 	orgId: string,
 	email: string,
 	role: OrgRole = "member",
-): Promise<{ invite: PendingInvite }> {
-	return apiClient.post<{ invite: PendingInvite }>(
+): Promise<{ invite: Omit<PendingInvite, "created_at"> }> {
+	return apiClient.post<{ invite: Omit<PendingInvite, "created_at"> }>(
 		`${ORG_ENDPOINTS.orgs}/${encodeURIComponent(orgId)}/invites`,
 		{ email, role },
 	);
@@ -3345,6 +3356,38 @@ async function mockOrgsApi(
 	}
 
 	if (method === "POST" && path === "/api/orgs/invites/accept") {
+		const { token: supplied } = readBody<{ token?: string }>(options);
+
+		// The real handler has three outcomes and Task 11 has to render all
+		// three, so the mock models all three rather than only the happy one.
+		// A mock that always succeeds leaves the 403 state - the one the design
+		// calls out by name - impossible to build or test against.
+		//
+		// Driven by sentinel tokens, the same convention the verify branch
+		// above uses for "stale". Note "wrong-account" verifies as VALID there,
+		// so the page renders the accept button and only then learns the
+		// address does not match, which is the sequence that state exists for.
+		//
+		// Thrown rather than returned: every other error in this file raises
+		// AuthApiError, and matching the file's idiom matters more than the
+		// shape being hand-rolled here.
+		if (!supplied) {
+			throw new AuthApiError(400, "token_required", "No invitation token");
+		}
+		if (supplied === "stale") {
+			throw new AuthApiError(
+				400,
+				"invalid_invitation",
+				"That invitation cannot be used",
+			);
+		}
+		if (supplied === "wrong-account") {
+			throw new AuthApiError(
+				403,
+				"wrong_account",
+				"That invitation was sent to carol@example.com. Sign in as that address to accept it.",
+			);
+		}
 		return json({ org_id: MOCK_ORG.id, role: "member" });
 	}
 
@@ -3371,13 +3414,16 @@ async function mockOrgsApi(
 	if (path.endsWith("/invites") && method === "POST") {
 		const { email, role } = readBody<{ email: string; role: OrgRole }>(options);
 		return new Response(
+			// No created_at: the real create route does not send one, and
+			// inventing one here would make the mock satisfy a type the API
+			// cannot. The list branch above does send it, because the list
+			// query selects it.
 			JSON.stringify({
 				invite: {
 					id: "invite-new",
 					email,
 					role,
 					expires_at: "2026-10-11T00:00:00.000Z",
-					created_at: "2026-10-04T00:00:00.000Z",
 				},
 			}),
 			{ status: 201, headers: { "Content-Type": "application/json" } },
