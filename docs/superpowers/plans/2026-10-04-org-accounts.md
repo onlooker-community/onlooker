@@ -2677,22 +2677,24 @@ describe("POST /api/orgs/invites/accept", () => {
 	});
 
 	it("refuses the stored token_hash as a credential", async () => {
-		// This is the test that proves the table stores a hash rather than the
-		// raw token, and it has to live here rather than in Task 7.
+		// What this guards, precisely: accept hashes whatever it is given
+		// before looking it up, so a value read straight out of `token_hash` is
+		// not presentable. Change the lookup to stop hashing its input and this
+		// test fails - which matters, because the stored hash would then BE a
+		// working credential and a read of this table would hand one out.
 		//
-		// A 32-byte token hex-encodes to 64 characters and so does its SHA-256,
-		// so NO shape assertion can tell them apart - Task 7's "stores only a
-		// hash" test was shown by mutation to stay green when the raw token was
-		// stored instead. Task 7 has no observation point either: the raw value
-		// is consumed server-side, and sendEmail appends the body only in
-		// development, deliberately, because a live link in Workers Logs is a
-		// credential readable by anyone with log access (onlooker-9dqr).
+		// What it does NOT prove - an earlier version of this comment claimed
+		// it did, wrongly - is that the column holds a hash rather than the raw
+		// token. Both implementations 400 here: if the raw token were stored,
+		// presenting it would still be hashed on the way in and still miss. A
+		// 32-byte token and its SHA-256 are both 64 hex characters, so nothing
+		// at this layer separates them by inspection either.
 		//
-		// The accept route supplies the missing observation. If the stored
-		// value were the token, presenting it here would succeed. The property
-		// asserted is the one that matters - a read of org_invites yields
-		// nothing that works - rather than the mechanism that provides it, so
-		// this survives a change to the token's length or encoding.
+		// The test that does catch a stored raw token is the happy-path accept
+		// above. It passes only when the stored value equals the hash of the
+		// token the email carried, so storing the raw token breaks it. That is
+		// exactly why Task 7's mutation survived - Task 7 never exercises
+		// accept - and why it cannot survive here.
 		await seedInvite("bob@example.com");
 		const row = await db()
 			.prepare("SELECT token_hash FROM org_invites")
