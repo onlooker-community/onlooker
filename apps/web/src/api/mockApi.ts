@@ -916,6 +916,17 @@ export async function mockDataApi(
 		return json({ success: true });
 	}
 
+	// Org routes all take `auth: "session"`. The mock does not serve their
+	// bodies yet - Task 10 does - but it must still refuse an unauthenticated
+	// caller, because the shared contract's anonymous cases assert 401 for
+	// them and an unhandled path would otherwise fall through to the 404
+	// below instead. An authenticated org request still falls through to that
+	// same 404, which is honest: the mock genuinely implements nothing past
+	// the credential check yet.
+	if (poolPath.startsWith("/api/orgs")) {
+		requireAuth(options);
+	}
+
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
 }
 
