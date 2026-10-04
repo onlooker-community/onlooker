@@ -26,6 +26,8 @@ Bead: `onlooker-wi9ftq` ([ONL-12](https://linear.app/onlooker/issue/ONL-12))
 - **Shared org test helpers live in `apps/api/src/test-support/orgs.ts`** — `signup()`, `call()`, `resetOrgTables()`. Import them; do not redefine them per test file. Task 1 creates the module.
 - **`pnpm build` before the first test run in a fresh checkout.** `packages/db`'s tests import `../dist/schema.js`, and `dist/` is gitignored, so a fresh worktree fails 34 api files and 1 db file with `Cannot find module` until `pnpm build` runs at the repo root. Measured 2026-10-04 on this branch's worktree.
 - **Never judge a suite by a piped command's exit code.** `pnpm test | tail` exits with `tail`'s status, so a failing suite reads as success and an `&&` chain walks straight past it. Read the `Tests` line, or run the command unpiped.
+- **Touching `@onlooker/api-contract` means running BOTH suites, not just the api one.** `anonymousCases()` and `authenticatedCases()` are consumed by `apps/api/src/contract.test.ts` *and* `apps/web/src/api/api-contract.test.ts`. Adding a case to a shared aggregate fails whichever side has not caught up — which is the package's stated purpose, so the failure is the gate working. Any task that edits that package runs `pnpm --filter @onlooker/web test` as a fifth gate. Learned the hard way in Task 4, which left the web suite at 459 passed / 2 failed.
+- **The web mock refuses unauthenticated requests through `requireAuth(options)`** (`apps/web/src/api/mockApi.ts:218`), which throws `AuthApiError(401, "unauthorized", "Invalid token")`. A contract case asserting 401 needs the mock to call it; without that, an unknown path answers the mock's 404 instead and the case fails on `expected 404 to be 401`.
 - **`pnpm --filter @onlooker/db build` before `generate:expected-schema`.** That script reads `packages/db/dist/`, not `src/`, so regenerating against an unbuilt package silently writes a snapshot of the *previous* schema — and the deployed-schema drift check then passes against stale truth, which is worse than failing. Measured 2026-10-04 during Task 1.
 - `env` and `SELF` from `cloudflare:test` are marked `@deprecated` by the installed `@cloudflare/vitest-pool-workers` types. 27 files in `apps/api/src` already import them that way; follow that pattern. Migrating off it is a repo-wide change and explicitly not this plan's work.
 
@@ -3264,7 +3266,19 @@ async function mockOrgsApi(
 	path: string,
 	options: RequestInit,
 ): Promise<Response | null> {
+	if (!path.startsWith("/api/orgs")) return null;
+
 	const method = options.method ?? "GET";
+
+	// Every org route takes `auth: "session"` except the invite verify below,
+	// so refuse an unauthenticated caller here rather than in each branch.
+	// Without this the contract's anonymous cases fail on `expected 404 to be
+	// 401`: an unhandled path falls through to the mock's unknown-endpoint 404.
+	// Task 4 added a narrower version of this guard for exactly that reason;
+	// this replaces it.
+	if (!path.startsWith("/api/orgs/invites/verify")) {
+		requireAuth(options);
+	}
 
 	// GET /api/orgs/invites/verify?token=... - matched before the parameterized
 	// paths below, because this file matches on prefixes rather than on the
