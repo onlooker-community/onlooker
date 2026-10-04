@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { addMembership, createOrgWithOwner } from "../db/orgs.js";
 import { createUser } from "../db/queries.js";
 import { resetOrgTables } from "../test-support/orgs.js";
-import { ApiError } from "../types";
+import type { ApiError } from "../types";
 import { requireOrgRole } from "./authorize.js";
 
 const db = () => env.DB;
@@ -45,7 +45,7 @@ describe("requireOrgRole", () => {
 	it("404s an org that does not exist", async () => {
 		await expect(
 			requireOrgRole(db(), { userId: ada }, crypto.randomUUID(), "member"),
-		).rejects.toBeInstanceOf(ApiError);
+		).rejects.toMatchObject({ status: 404 });
 	});
 
 	it("404s a null principal", async () => {
@@ -56,23 +56,32 @@ describe("requireOrgRole", () => {
 	});
 
 	it("is byte-identical across every refusal", async () => {
-		// A non-member must not be able to tell an org they cannot see from one
-		// that does not exist. Comparing the messages is the only way to notice
-		// a later edit that makes one of them more specific.
+		// A caller must not be able to tell any of these apart: an org they
+		// cannot see, an org that does not exist, an org where they lack the
+		// required role, or having no principal at all. Comparing the messages
+		// is the only way to notice a later edit that makes one of them more
+		// specific.
 		const acme = await createOrgWithOwner(db(), "Acme", ada);
+		const widgets = await createOrgWithOwner(db(), "Widgets", ada);
+		await addMembership(db(), widgets.id, bob, "member");
+		const text = (error: ApiError) =>
+			`${error.status} ${error.code} ${error.message}`;
+
 		const refusals = await Promise.all([
-			requireOrgRole(db(), { userId: bob }, acme.id, "member").catch(
-				(error: ApiError) => `${error.status} ${error.code} ${error.message}`,
-			),
+			// Non-member: bob belongs to widgets, not acme.
+			requireOrgRole(db(), { userId: bob }, acme.id, "member").catch(text),
+			// Nonexistent org.
 			requireOrgRole(
 				db(),
 				{ userId: bob },
 				crypto.randomUUID(),
 				"member",
-			).catch(
-				(error: ApiError) => `${error.status} ${error.code} ${error.message}`,
-			),
+			).catch(text),
+			// Insufficient role: bob is a plain member of widgets, not its owner.
+			requireOrgRole(db(), { userId: bob }, widgets.id, "owner").catch(text),
+			// Null principal.
+			requireOrgRole(db(), null, acme.id, "member").catch(text),
 		]);
-		expect(refusals[0]).toBe(refusals[1]);
+		for (const refusal of refusals) expect(refusal).toBe(refusals[0]);
 	});
 });
