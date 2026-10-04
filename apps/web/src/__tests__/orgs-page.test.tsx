@@ -14,6 +14,28 @@ vi.mock("../api/orgsApi", () => ({
 	removeMember: vi.fn(),
 }));
 
+// OrgsPage reads the signed-in caller's own id from auth.useAuth() for the
+// Leave button - /orgs sits behind RequireAuth in App.tsx, so a user is
+// always present by the time this page renders. The other fields match
+// ReactAuthState's real shape (packages/auth-react/src/index.tsx) even
+// though OrgsPage reads only `user`, so a future read of another field
+// here fails on a missing property rather than on `undefined` silently.
+vi.mock("../auth", () => ({
+	auth: {
+		useAuth: () => ({
+			user: { id: "u1", email: "ada@example.com", name: "Ada" },
+			loading: false,
+			error: null,
+			sessionExpiresAt: null,
+			sessionExpiringSoon: false,
+			login: vi.fn(),
+			signup: vi.fn(),
+			logout: vi.fn(),
+			refresh: vi.fn(),
+		}),
+	},
+}));
+
 const api = await import("../api/orgsApi");
 
 const OWNED = { id: "org-1", name: "Acme", role: "owner" as const };
@@ -81,5 +103,24 @@ describe("OrgsPage", () => {
 		render(<OrgsPage />);
 		expect(await screen.findByRole("alert")).toBeInTheDocument();
 		expect(screen.queryByText(/not in any org/i)).not.toBeInTheDocument();
+	});
+
+	it("leaves an org as the signed-in caller, not any other member", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [JOINED] });
+		vi.mocked(api.removeMember).mockResolvedValue({ removed: "u1" });
+		render(<OrgsPage />);
+
+		await userEvent.click(
+			await screen.findByRole("button", { name: /^leave$/i }),
+		);
+		await userEvent.click(screen.getByRole("button", { name: /yes, leave/i }));
+
+		// "u1" is the mocked auth.useAuth()'s own id (see the ../auth mock
+		// above), not any id drawn from the member list - removeMember is also
+		// how an owner removes someone else, and the one thing this control
+		// must never do is remove the wrong person.
+		await waitFor(() =>
+			expect(api.removeMember).toHaveBeenCalledWith("org-2", "u1"),
+		);
 	});
 });

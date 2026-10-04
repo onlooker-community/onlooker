@@ -19,6 +19,7 @@ import {
 	revokeInvite,
 	setMemberRole,
 } from "../api/orgsApi";
+import { auth } from "../auth";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { FormMessage, SubmitButton, TextField } from "../components/form";
 import { PALETTE } from "../components/palette";
@@ -41,6 +42,11 @@ const row: CSSProperties = {
 };
 
 export default function OrgsPage() {
+	// /orgs sits behind RequireAuth (App.tsx), so `user` is always present by
+	// the time this renders - but still read with `?.`, the same caution
+	// MonitorIdentity takes, rather than asserting a guarantee this component
+	// does not itself enforce.
+	const { user } = auth.useAuth();
 	const [orgs, setOrgs] = useState<Org[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [name, setName] = useState("");
@@ -128,7 +134,12 @@ export default function OrgsPage() {
 					</EmptyState>
 				) : (
 					orgs.map((org) => (
-						<OrgSection key={org.id} org={org} onChanged={() => void load()} />
+						<OrgSection
+							key={org.id}
+							org={org}
+							myUserId={user?.id ?? null}
+							onChanged={() => void load()}
+						/>
 					))
 				)}
 			</div>
@@ -150,9 +161,12 @@ export default function OrgsPage() {
  */
 function OrgSection({
 	org,
+	myUserId,
 	onChanged,
 }: {
 	org: Org;
+	/** The signed-in caller's own id, for the Leave button below. */
+	myUserId: string | null;
 	/** Call after anything that could change the caller's own membership or
 	 * role - a self-removal (leaving) or a role change needs the top-level
 	 * list refreshed, not just this section. */
@@ -199,16 +213,16 @@ function OrgSection({
 		void loadInvites();
 	}, [isOwner, loadInvites]);
 
-	// Resolved at the moment of leaving rather than kept in state: this page
-	// has no auth context available to it (see AcceptInvitePage for the same
-	// constraint), and the id is only ever needed for this one call.
 	const leave = async () => {
+		// Unreachable in practice - RequireAuth guarantees a user before this
+		// page ever mounts - but the Leave button below is otherwise armed on
+		// a value this function cannot act on, so it declines rather than
+		// calling removeMember with a path segment that isn't an id.
+		if (!myUserId) return;
 		setLeaving(true);
 		setLeaveError(null);
 		try {
-			const { getProfile } = await import("../api/accountApi");
-			const { user } = await getProfile();
-			await removeMember(org.id, user.id);
+			await removeMember(org.id, myUserId);
 			onChanged();
 		} catch (error) {
 			setLeaveError(describeError(error, "Could not leave that org."));
