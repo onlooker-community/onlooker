@@ -20,6 +20,20 @@ export function isOrgRole(value: unknown): value is OrgRole {
 	return value === "owner" || value === "member";
 }
 
+/**
+ * Narrow and validate a role read from the database.
+ *
+ * The `role` column is stored as plain text, not a SQL enum. A corrupted,
+ * unexpected, or future value currently passes through as a typed OrgRole
+ * with no error. This narrowing helper catches the problem at the read
+ * boundary and fails loud and early rather than handing corrupt data to
+ * routes or the web app.
+ */
+export function toOrgRole(value: unknown): OrgRole {
+	if (isOrgRole(value)) return value;
+	throw new Error(`Invalid org role: ${String(value)}`);
+}
+
 export interface OrgSummary {
 	id: string;
 	name: string;
@@ -90,7 +104,7 @@ export async function listOrgsForUser(
 	return rows.map((row) => ({
 		id: row.id,
 		name: row.name,
-		role: row.role as OrgRole,
+		role: toOrgRole(row.role),
 	}));
 }
 
@@ -117,7 +131,7 @@ export async function getMembership(
 		.limit(1);
 
 	const row = rows[0];
-	return row ? { role: row.role as OrgRole } : null;
+	return row ? { role: toOrgRole(row.role) } : null;
 }
 
 /** Everyone in this org, named. */
@@ -142,7 +156,7 @@ export async function listMembers(
 		user_id: row.user_id,
 		name: row.name ?? null,
 		email: row.email,
-		role: row.role as OrgRole,
+		role: toOrgRole(row.role),
 		created_at: row.created_at,
 	}));
 }

@@ -31,17 +31,24 @@ describe("createOrgWithOwner", () => {
 	});
 
 	it("writes the org and its owner atomically", async () => {
-		// A bare pair of inserts can leave an org with no owner, which nobody can
-		// administer and no route can repair. The batch is the guard, so this
-		// asserts the invariant rather than the implementation: every org that
-		// exists has at least one owner.
-		await createOrgWithOwner(db(), "Acme", ada);
-		const orphans = await db()
-			.prepare(
-				"SELECT COUNT(*) AS n FROM orgs o WHERE NOT EXISTS (SELECT 1 FROM org_memberships m WHERE m.org_id = o.id AND m.role = 'owner')",
-			)
+		// A bare pair of inserts can leave an org with no owner if the second
+		// fails - and an ownerless org is unadministerable. The batch must roll
+		// back both on either failure. To prove this, trigger a FK violation on
+		// the membership insert and assert the org insert was rolled back too.
+		const fakeUserId = crypto.randomUUID();
+
+		try {
+			await createOrgWithOwner(db(), "Acme", fakeUserId);
+		} catch {
+			// FK violation expected when userId doesn't exist
+		}
+
+		const result = await db()
+			.prepare("SELECT COUNT(*) AS n FROM orgs WHERE name = 'Acme'")
 			.first<{ n: number }>();
-		expect(orphans?.n).toBe(0);
+		// If batch works, org is rolled back (n = 0). If the inserts are
+		// separate, org row remains (n = 1) and the test fails.
+		expect(result?.n).toBe(0);
 	});
 });
 
