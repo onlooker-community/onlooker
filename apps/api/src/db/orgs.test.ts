@@ -112,16 +112,16 @@ describe("setMemberRole and countOwners", () => {
 		await addMembership(db(), acme.id, bob, "member");
 		expect(await countOwners(db(), acme.id)).toBe(1);
 
-		expect(await setMemberRole(db(), acme.id, bob, "owner")).toBe(true);
+		expect(await setMemberRole(db(), acme.id, bob, "owner")).toBe("ok");
 		expect(await countOwners(db(), acme.id)).toBe(2);
 
-		expect(await setMemberRole(db(), acme.id, bob, "member")).toBe(true);
+		expect(await setMemberRole(db(), acme.id, bob, "member")).toBe("ok");
 		expect(await countOwners(db(), acme.id)).toBe(1);
 	});
 
 	it("reports a non-member", async () => {
 		const acme = await createOrgWithOwner(db(), "Acme", ada);
-		expect(await setMemberRole(db(), acme.id, bob, "owner")).toBe(false);
+		expect(await setMemberRole(db(), acme.id, bob, "owner")).toBe("not_member");
 	});
 });
 
@@ -130,9 +130,33 @@ describe("removeMembership", () => {
 		const acme = await createOrgWithOwner(db(), "Acme", ada);
 		await addMembership(db(), acme.id, bob, "member");
 
-		expect(await removeMembership(db(), acme.id, bob)).toBe(true);
+		expect(await removeMembership(db(), acme.id, bob)).toBe("ok");
 		expect(await getMembership(db(), acme.id, bob)).toBeNull();
-		expect(await removeMembership(db(), acme.id, bob)).toBe(false);
+		expect(await removeMembership(db(), acme.id, bob)).toBe("not_member");
+	});
+});
+
+describe("the last-owner guard", () => {
+	// Calls the primitives directly, bypassing the route handlers entirely.
+	// The guard lives in the statement's own WHERE clause now (see db/orgs.ts),
+	// so it has to hold here even with no handler-level check in front of it -
+	// that is the whole point of moving it.
+	it("setMemberRole refuses to demote a sole owner", async () => {
+		const acme = await createOrgWithOwner(db(), "Acme", ada);
+		expect(await setMemberRole(db(), acme.id, ada, "member")).toBe(
+			"last_owner",
+		);
+		expect(await getMembership(db(), acme.id, ada)).toEqual({
+			role: "owner",
+		});
+	});
+
+	it("removeMembership refuses to remove a sole owner", async () => {
+		const acme = await createOrgWithOwner(db(), "Acme", ada);
+		expect(await removeMembership(db(), acme.id, ada)).toBe("last_owner");
+		expect(await getMembership(db(), acme.id, ada)).toEqual({
+			role: "owner",
+		});
 	});
 });
 

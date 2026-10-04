@@ -1,6 +1,4 @@
 import {
-	countOwners,
-	getMembership,
 	isOrgRole,
 	listMembers,
 	removeMembership,
@@ -46,28 +44,24 @@ export async function handleSetMemberRole(
 		throw new ApiError(400, "invalid_role", "role must be 'owner' or 'member'");
 	}
 
-	const target = await getMembership(env.DB, params.id, params.userId);
-	if (!target) {
+	// The last-owner check lives inside setMemberRole's own WHERE clause now,
+	// not in a read-then-write here: see db/orgs.ts for why a pre-check and a
+	// separate write cannot be trusted to stay atomic.
+	const result = await setMemberRole(
+		env.DB,
+		params.id,
+		params.userId,
+		body.role,
+	);
+	if (result === "not_member") {
 		throw new ApiError(404, "not_found", "No such member");
 	}
-
-	// Checked before the write, and only when the change would actually remove
-	// an owner: demoting the last one leaves an org nobody can administer, and
-	// no route could repair it afterward.
-	if (
-		target.role === "owner" &&
-		body.role === "member" &&
-		(await countOwners(env.DB, params.id)) <= 1
-	) {
+	if (result === "last_owner") {
 		throw new ApiError(
 			409,
 			"last_owner",
 			"An org needs an owner; promote somebody else first",
 		);
-	}
-
-	if (!(await setMemberRole(env.DB, params.id, params.userId, body.role))) {
-		throw new ApiError(404, "not_found", "No such member");
 	}
 
 	return Response.json({
@@ -94,21 +88,19 @@ export async function handleRemoveMember(
 		removingSelf ? "member" : "owner",
 	);
 
-	const target = await getMembership(env.DB, params.id, params.userId);
-	if (!target) {
+	// Same reasoning as handleSetMemberRole above: the last-owner check lives
+	// inside removeMembership's own WHERE clause, not in a read-then-write
+	// here.
+	const result = await removeMembership(env.DB, params.id, params.userId);
+	if (result === "not_member") {
 		throw new ApiError(404, "not_found", "No such member");
 	}
-
-	if (target.role === "owner" && (await countOwners(env.DB, params.id)) <= 1) {
+	if (result === "last_owner") {
 		throw new ApiError(
 			409,
 			"last_owner",
 			"An org needs an owner; promote somebody else first",
 		);
-	}
-
-	if (!(await removeMembership(env.DB, params.id, params.userId))) {
-		throw new ApiError(404, "not_found", "No such member");
 	}
 
 	return Response.json({ removed: params.userId });

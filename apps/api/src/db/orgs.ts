@@ -190,40 +190,92 @@ export async function addMembership(
 	});
 }
 
-/** Remove a member. False means they were not one. */
+/**
+ * Outcome of a write that must not leave an org without an owner.
+ *
+ * A write that is refused to protect the last owner is a normal result, not
+ * an exceptional one - the same way `false` meant "not a member" before
+ * these had a third outcome to report.
+ */
+export type MembershipWriteResult = "ok" | "not_member" | "last_owner";
+
+/**
+ * Remove a member.
+ *
+ * The last-owner check lives in the DELETE's own WHERE clause rather than in
+ * a `countOwners` read before an unconditional delete. Two round-trips give
+ * two concurrent removals on a two-owner org a window to both read "2"
+ * before either write lands, leaving zero - the one state no route can
+ * repair. Folding the condition into the statement makes the check and the
+ * write atomic, since D1 runs one statement as one transaction.
+ *
+ * A zero-row result is then ambiguous - not a member, or refused to protect
+ * the last owner - so it is resolved with one more read. That read is not
+ * itself racy: the write has already safely failed one way or the other,
+ * and the read only chooses which answer the caller gets.
+ */
 export async function removeMembership(
 	db: D1Database,
 	orgId: string,
 	userId: string,
-): Promise<boolean> {
+): Promise<MembershipWriteResult> {
 	const result = await db
-		.prepare("DELETE FROM org_memberships WHERE org_id = ? AND user_id = ?")
-		.bind(orgId, userId)
+		.prepare(
+			`DELETE FROM org_memberships
+			 WHERE org_id = ? AND user_id = ?
+			   AND (role = 'member'
+			        OR (SELECT COUNT(*) FROM org_memberships
+			            WHERE org_id = ? AND role = 'owner') > 1)`,
+		)
+		.bind(orgId, userId, orgId)
 		.run();
-	return (result.meta.changes ?? 0) > 0;
+
+	if ((result.meta.changes ?? 0) > 0) return "ok";
+
+	const membership = await getMembership(db, orgId, userId);
+	return membership ? "last_owner" : "not_member";
 }
 
-/** Change a member's role. False means they are not a member. */
+/**
+ * Change a member's role.
+ *
+ * Same atomicity reasoning as removeMembership just above: the last-owner
+ * condition is part of the UPDATE's WHERE clause, not a separate read before
+ * an unconditional write, so the two cannot interleave across concurrent
+ * requests. The write is allowed when it is a promotion, when the target is
+ * not currently an owner, or when another owner remains.
+ */
 export async function setMemberRole(
 	db: D1Database,
 	orgId: string,
 	userId: string,
 	role: OrgRole,
-): Promise<boolean> {
+): Promise<MembershipWriteResult> {
 	const result = await db
 		.prepare(
-			"UPDATE org_memberships SET role = ? WHERE org_id = ? AND user_id = ?",
+			`UPDATE org_memberships SET role = ?
+			 WHERE org_id = ? AND user_id = ?
+			   AND (? = 'owner'
+			        OR role = 'member'
+			        OR (SELECT COUNT(*) FROM org_memberships
+			            WHERE org_id = ? AND role = 'owner') > 1)`,
 		)
-		.bind(role, orgId, userId)
+		.bind(role, orgId, userId, role, orgId)
 		.run();
-	return (result.meta.changes ?? 0) > 0;
+
+	if ((result.meta.changes ?? 0) > 0) return "ok";
+
+	const membership = await getMembership(db, orgId, userId);
+	return membership ? "last_owner" : "not_member";
 }
 
 /**
  * How many owners this org has.
  *
- * Read before a removal or a demotion, so the last owner cannot be taken away
- * and leave the org unadministerable.
+ * No longer the last-owner guard itself - that moved into the WHERE clause
+ * of setMemberRole and removeMembership above, so the check and the write
+ * cannot interleave. Kept as a plain read for callers that just want the
+ * count, such as a test.
  */
 export async function countOwners(
 	db: D1Database,
