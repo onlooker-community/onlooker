@@ -380,11 +380,16 @@ export const ROUTES: Route[] = [
 	// =========================================================================
 	// Orgs
 	//
-	// Every route here carries `auth: "session"`, and the org role it needs is
-	// checked by requireOrgRole inside the handler - RouteAuth cannot express
-	// "owner of the org named in this path", since that needs a path parameter
-	// and a D1 read. routes/orgs-authorization.test.ts enumerates every route
-	// below with its required role and fails if one is added without an entry.
+	// Every route here carries `auth: "session"` except
+	// GET /api/orgs/invites/verify, whose credential is the invitation token
+	// in the query string rather than a session. The org role a session route
+	// needs is checked by requireOrgRole inside the handler - RouteAuth cannot
+	// express "owner of the org named in this path", since that needs a path
+	// parameter and a D1 read. The full set of unauthenticated routes is
+	// enumerated in EXPECTED_UNAUTHENTICATED in router.test.ts; this comment is
+	// a signpost, not a second source of truth. routes/orgs-authorization.test.ts
+	// enumerates every route below with its required role and fails if one is
+	// added without an entry.
 	// =========================================================================
 	{
 		method: "POST",
