@@ -612,14 +612,54 @@ export const ORG_LIFECYCLE: ContractCase[] = [
 		status: 401,
 	},
 	{
-		name: "POST /api/orgs with no name",
+		name: "POST /api/orgs with no credential",
 		path: "/api/orgs",
 		init: {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: "{}",
+			body: JSON.stringify({ name: "Acme" }),
 		},
 		status: 401,
+	},
+	{
+		name: "GET /api/orgs/:id/members with no credential",
+		path: "/api/orgs/any/members",
+		init: { method: "GET" },
+		status: 401,
+	},
+	{
+		name: "POST /api/orgs/:id/invites with no credential",
+		path: "/api/orgs/any/invites",
+		init: {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "new@example.com", role: "member" }),
+		},
+		status: 401,
+	},
+	{
+		// The value is irrelevant - 401 lands before the body is read - so this
+		// is deliberately a single character rather than anything resembling a
+		// credential.
+		name: "POST /api/orgs/invites/accept with no credential",
+		path: "/api/orgs/invites/accept",
+		init: {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ token: "x" }),
+		},
+		status: 401,
+	},
+	{
+		// The one org route that takes no credential by design. An absent token
+		// is 400, which is a different claim from an invalid one answering
+		// { valid: false } - worth pinning, because a handler that 400s both
+		// would make the web app show an error page where it should show
+		// "this invitation is no longer valid".
+		name: "GET /api/orgs/invites/verify with nothing to check",
+		path: "/api/orgs/invites/verify",
+		init: { method: "GET" },
+		status: 400,
 	},
 ];
 
