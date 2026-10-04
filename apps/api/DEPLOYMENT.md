@@ -406,6 +406,44 @@ populates an edge cache, which is why the retraction and block tests in
 `routes/admin-moderation.test.ts` that assert "stops serving it" pass instantly
 and prove nothing about production timing.
 
+### Org invite verification
+
+`GET /api/orgs/invites/verify` takes no credential, like
+`GET /api/public/lessons/:id` above — the invitation token in the query
+string is the credential, not a session.
+
+**It is not covered by the zone's single rate limiting rule.** That rule's
+expression, quoted in full under **Rate Limiting**, is:
+
+```
+(http.host eq "api.onlooker.dev" and (
+  starts_with(http.request.uri.path, "/api/public/lessons/")
+  or http.request.uri.path in {"/auth/login" "/auth/signup" "/auth/forgot-password" "/auth/reset-password"}
+))
+```
+
+`/api/orgs/invites/verify` matches neither clause: it does not start with
+`/api/public/lessons/`, and it is not one of the four literal `/auth/`
+paths. This route currently has no rate limit at all, at the edge or
+anywhere else.
+
+**The fix is widening that one rule's expression, not adding a second
+rule.** The plan allows a single Cloudflare rate limiting rule on this
+zone, and as **Rate Limiting** above says, it is already spent.
+
+**What a request actually costs:** a SHA-256 of the supplied token
+(`hashToken` in `src/utils/crypto.ts`) plus one indexed D1 lookup on
+`org_invites.token_hash` (`findInviteByTokenHash` in
+`src/db/org-invites.ts`). Brute-forcing the token itself is not the
+realistic risk — it is 32 bytes from `crypto.getRandomValues`, the same
+construction as `generateRefreshToken` — the unmetered D1 read on every
+guess is.
+
+Nothing in CI or in this repository can verify that the zone's rule covers
+this path. That is the same reason **Rate Limiting** above gives for
+writing itself down: if the gap is never closed, the first symptom is a
+bill, not a failing test.
+
 ## Rollback
 
 ### View Deployments

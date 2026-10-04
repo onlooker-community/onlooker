@@ -8,13 +8,16 @@ import { errorHandler } from "./middleware";
 import type { RouteAuth, RouteCors } from "./middleware/principal.js";
 import { resolvePrincipal } from "./middleware/principal.js";
 import {
+	handleAcceptInvite,
 	handleActivity,
 	handleBlockAuthor,
 	handleBrowseLessons,
 	handleBrowserTransition,
 	handleChangePassword,
 	handleClientError,
+	handleCreateInvite,
 	handleCreateMachine,
+	handleCreateOrg,
 	handleDeleteAccount,
 	handleForgotPassword,
 	handleGetInventory,
@@ -22,7 +25,10 @@ import {
 	handleGetProfile,
 	handleGetSessions,
 	handleGetUserProfile,
+	handleListInvites,
 	handleListMachines,
+	handleListMembers,
+	handleListOrgs,
 	handleLogin,
 	handleLogout,
 	handleMe,
@@ -33,14 +39,19 @@ import {
 	handlePutInventory,
 	handleReadLessons,
 	handleRefresh,
+	handleRemoveMember,
+	handleRenameOrg,
 	handleResendVerification,
 	handleResetPassword,
+	handleRevokeInvite,
 	handleRevokeMachine,
+	handleSetMemberRole,
 	handleSignup,
 	handleTransitionLesson,
 	handleUnblockAuthor,
 	handleUpdateProfile,
 	handleVerifyEmail,
+	handleVerifyInvite,
 	handleVerifyResetToken,
 } from "./routes";
 import type { RouteParams, WorkerEnv } from "./types";
@@ -364,6 +375,108 @@ export const ROUTES: Route[] = [
 		auth: "none",
 		cors: "any",
 		handler: handlePublicLesson,
+	},
+
+	// =========================================================================
+	// Orgs
+	//
+	// Every route here carries `auth: "session"` except
+	// GET /api/orgs/invites/verify, whose credential is the invitation token
+	// in the query string rather than a session. The org role a session route
+	// needs is checked by requireOrgRole inside the handler - RouteAuth cannot
+	// express "owner of the org named in this path", since that needs a path
+	// parameter and a D1 read. The full set of unauthenticated routes is
+	// enumerated in EXPECTED_UNAUTHENTICATED in router.test.ts; this comment is
+	// a signpost, not a second source of truth. routes/orgs-authorization.test.ts
+	// enumerates every route below with its required role and fails if one is
+	// added without an entry.
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/api/orgs",
+		auth: "session",
+		cors: "app",
+		handler: handleCreateOrg,
+	},
+	{
+		method: "GET",
+		path: "/api/orgs",
+		auth: "session",
+		cors: "app",
+		handler: handleListOrgs,
+	},
+	{
+		method: "PATCH",
+		path: "/api/orgs/:id",
+		auth: "session",
+		cors: "app",
+		handler: handleRenameOrg,
+	},
+	{
+		method: "GET",
+		path: "/api/orgs/:id/members",
+		auth: "session",
+		cors: "app",
+		handler: handleListMembers,
+	},
+	{
+		method: "PATCH",
+		path: "/api/orgs/:id/members/:userId",
+		auth: "session",
+		cors: "app",
+		handler: handleSetMemberRole,
+	},
+	{
+		// Owner for anyone; any member for their own id, which is "leave". The
+		// only route in this surface whose required role depends on its
+		// arguments - see orgs-members.ts.
+		method: "DELETE",
+		path: "/api/orgs/:id/members/:userId",
+		auth: "session",
+		cors: "app",
+		handler: handleRemoveMember,
+	},
+	{
+		method: "POST",
+		path: "/api/orgs/:id/invites",
+		auth: "session",
+		cors: "app",
+		handler: handleCreateInvite,
+	},
+	{
+		method: "GET",
+		path: "/api/orgs/:id/invites",
+		auth: "session",
+		cors: "app",
+		handler: handleListInvites,
+	},
+	{
+		method: "DELETE",
+		path: "/api/orgs/:id/invites/:inviteId",
+		auth: "session",
+		cors: "app",
+		handler: handleRevokeInvite,
+	},
+	{
+		// Unauthenticated: the credential is the token in the query string, the
+		// same as /auth/reset-password/verify. Its literal `invites` segment
+		// cannot be swallowed by /api/orgs/:id/invites - matchPath requires every
+		// non-parameter segment to match, so that pattern fails at `verify`, and
+		// resolve prefers exact routes over parameterized ones regardless.
+		method: "GET",
+		path: "/api/orgs/invites/verify",
+		auth: "none",
+		cors: "app",
+		handler: handleVerifyInvite,
+	},
+	{
+		// Session required ON TOP of the token: accepting checks that the
+		// invited address is this account's, so a forwarded link is inert.
+		method: "POST",
+		path: "/api/orgs/invites/accept",
+		auth: "session",
+		cors: "app",
+		handler: handleAcceptInvite,
 	},
 
 	// =========================================================================

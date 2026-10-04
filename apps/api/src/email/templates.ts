@@ -76,3 +76,45 @@ export function verifyEmailEmail(to: string, link: string): EmailMessage {
 		].join("\n"),
 	};
 }
+
+/**
+ * The invitation to join an org.
+ *
+ * `days` is a parameter, not a literal in the prose. The other templates here
+ * can say "expires in a day" because their TTL is a constant on line 18 and
+ * line 24 of this same file; this window is environment configuration, so a
+ * hardcoded sentence would disagree with the enforced value the first time
+ * anybody changed it.
+ *
+ * The link alone is not enough to join: accepting requires signing in as the
+ * invited address. The copy says so, because somebody forwarding this to a
+ * colleague should understand why it does not work for them.
+ */
+export function orgInviteEmail(
+	to: string,
+	orgName: string,
+	inviterName: string,
+	link: string,
+	days: number,
+): EmailMessage {
+	const window = `${days} ${days === 1 ? "day" : "days"}`;
+	const lead = `${inviterName} invited you to join ${orgName} on Onlooker.`;
+
+	return {
+		to,
+		subject: `Join ${orgName} on Onlooker`,
+		text: [
+			lead,
+			"",
+			`Accept here: ${link}`,
+			"",
+			`The invitation expires in ${window}, and works only when you are signed in as ${to}.`,
+			"If you weren't expecting this, ignore this email.",
+		].join("\n"),
+		html: [
+			`<p style="font-family:system-ui,sans-serif">${lead}</p>`,
+			button(link, `Join ${orgName}`),
+			`<p style="font-family:system-ui,sans-serif;font-size:13px">The invitation expires in ${window}, and works only when you are signed in as ${to}. If you weren't expecting this, ignore this email.</p>`,
+		].join("\n"),
+	};
+}

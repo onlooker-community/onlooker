@@ -5,6 +5,7 @@ import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Loading } from "./components/ui";
 import { monitor } from "./monitoring";
+import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import LessonDetail from "./pages/LessonDetail";
@@ -12,6 +13,7 @@ import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
 import MachinesPage from "./pages/MachinesPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import OrgsPage from "./pages/OrgsPage";
 import ProfilePage from "./pages/ProfilePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SessionsPage from "./pages/SessionsPage";
@@ -125,11 +127,25 @@ export default function App() {
 							element={<ResetPasswordPage />}
 						/>
 						<Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+						{/*
+						  Deliberately outside Protected: an invitee may arrive with no
+						  session at all and needs to see which org invited them before
+						  signing up. See AcceptInvitePage's own doc comment.
+						*/}
+						<Route path="/orgs/invites/:token" element={<AcceptInvitePage />} />
 						<Route
 							path="/settings"
 							element={
 								<Protected>
 									<SettingsPage />
+								</Protected>
+							}
+						/>
+						<Route
+							path="/orgs"
+							element={
+								<Protected>
+									<OrgsPage />
 								</Protected>
 							}
 						/>

@@ -289,12 +289,13 @@ describe("session_summaries", () => {
 
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
-	// arrive with the feature that needs it, not by accident.
-	it("declares only the eight tables in use", async () => {
+	// arrive with the feature that needs it, not by accident. Eleven, as of
+	// orgs/org_memberships/org_invites landing with org accounts (ONL-12).
+	it("declares only the eleven tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(8);
+		expect(tables).toHaveLength(11);
 	});
 });

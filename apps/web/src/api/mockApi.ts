@@ -1,6 +1,7 @@
 import { AuthApiError, decodeJwtPayload } from "@onlooker/auth-react";
 import type { User } from "../auth";
 import type { UserProfile } from "../types/api";
+import type { OrgRole } from "./orgsApi";
 import {
 	AUTH_ENDPOINTS,
 	type AuthTokenResponse,
@@ -435,6 +436,177 @@ async function mockAccountApi(
 	}
 
 	return null; // not an account endpoint — let the auth mock handle it
+}
+
+// ---------------------------------------------------------------------------
+// Org management. Mirrors apps/api/src/routes/orgs*.ts and shares the account
+// mock's token/auth plumbing above; the real routes live behind
+// `apps/web/src/api/orgsApi.ts`.
+// ---------------------------------------------------------------------------
+
+/** One org, two members, one pending invitation - enough for the page to render. */
+const MOCK_ORG = { id: "org-acme", name: "Acme", role: "owner" as const };
+const MOCK_ORG_MEMBERS = [
+	{
+		user_id: "user-ada",
+		name: "Ada",
+		email: "ada@example.com",
+		role: "owner" as const,
+		created_at: "2026-10-01T00:00:00.000Z",
+	},
+	{
+		user_id: "user-bob",
+		name: "Bob",
+		email: "bob@example.com",
+		role: "member" as const,
+		created_at: "2026-10-02T00:00:00.000Z",
+	},
+];
+const MOCK_ORG_INVITES = [
+	{
+		id: "invite-1",
+		email: "carol@example.com",
+		role: "member" as const,
+		expires_at: "2026-10-11T00:00:00.000Z",
+		created_at: "2026-10-04T00:00:00.000Z",
+	},
+];
+
+async function mockOrgsApi(
+	path: string,
+	options: RequestInit,
+): Promise<Response | null> {
+	if (!path.startsWith("/api/orgs")) return null;
+
+	const method = options.method ?? "GET";
+
+	// Every org route takes `auth: "session"` except the invite verify below,
+	// so refuse an unauthenticated caller here rather than in each branch.
+	// Without this the contract's anonymous cases fail on `expected 404 to be
+	// 401`: an unhandled path falls through to the mock's unknown-endpoint 404.
+	// Task 4 added a narrower version of this guard for exactly that reason;
+	// this replaces it.
+	if (!path.startsWith("/api/orgs/invites/verify")) {
+		requireAuth(options);
+	}
+
+	// GET /api/orgs/invites/verify?token=... - matched before the parameterized
+	// paths below, because this file matches on prefixes rather than on the
+	// router's segment rules.
+	if (method === "GET" && path.startsWith("/api/orgs/invites/verify")) {
+		const query = path.includes("?") ? path.slice(path.indexOf("?") + 1) : "";
+		const supplied = new URLSearchParams(query).get("token") ?? "";
+		// No token at all is 400 ("token_required"), not { valid: false } - that
+		// answer is reserved for a token that was actually presented and turned
+		// out unusable. handleVerifyInvite draws the same line: `!token` throws
+		// before any lookup runs.
+		if (supplied === "") {
+			throw new AuthApiError(400, "token_required", "No invitation token");
+		}
+		if (supplied === "stale") return json({ valid: false });
+		return json({
+			valid: true,
+			org: { id: MOCK_ORG.id, name: MOCK_ORG.name },
+			email: "carol@example.com",
+			role: "member",
+		});
+	}
+
+	// Three sentinel tokens, the same convention the verify branch above uses
+	// for "stale" - this is the only way a mock with no real invite store can
+	// model handleAcceptInvite's three outcomes. "wrong-account" verifies as
+	// valid (see the verify branch above) and only fails here, deliberately:
+	// the page renders the accept button and learns the mismatch when it is
+	// pressed, which is the actual sequence the 403 state exists to cover.
+	if (method === "POST" && path === "/api/orgs/invites/accept") {
+		const { token: supplied } = readBody<{ token?: string }>(options);
+
+		if (!supplied) {
+			throw new AuthApiError(400, "token_required", "No invitation token");
+		}
+		if (supplied === "stale") {
+			throw new AuthApiError(
+				400,
+				"invalid_invitation",
+				"That invitation cannot be used",
+			);
+		}
+		if (supplied === "wrong-account") {
+			throw new AuthApiError(
+				403,
+				"wrong_account",
+				"That invitation was sent to carol@example.com. Sign in as that address to accept it.",
+			);
+		}
+		return json({ org_id: MOCK_ORG.id, role: "member" });
+	}
+
+	if (path === "/api/orgs" && method === "GET") {
+		return json({ orgs: [MOCK_ORG] });
+	}
+
+	if (path === "/api/orgs" && method === "POST") {
+		const { name } = readBody<{ name: string }>(options);
+		return new Response(
+			JSON.stringify({ org: { id: "org-new", name, role: "owner" } }),
+			{ status: 201, headers: { "Content-Type": "application/json" } },
+		);
+	}
+
+	// Every branch below matches on a path SUBSTRING (`.endsWith`, `.includes`)
+	// rather than the router's segment rules, so an org, member or invite id
+	// containing the literal text "members" or "invites" would mis-route.
+	// Never true of a real id - every id here is a `crypto.randomUUID()` -
+	// but that is a fact about the real system, not about this string match,
+	// so it is worth writing down rather than assumed.
+	if (path.endsWith("/members") && method === "GET") {
+		return json({ members: MOCK_ORG_MEMBERS });
+	}
+
+	if (path.endsWith("/invites") && method === "GET") {
+		return json({ invites: MOCK_ORG_INVITES });
+	}
+
+	// No `created_at` here, deliberately: handleCreateInvite returns `id`,
+	// `email`, `role`, `expires_at` and nothing else (it echoes what it just
+	// generated, not a row it read back). The list branch above sends
+	// `created_at` because listPendingInvites selects it from a real row. A
+	// fabricated value here would hide the exact drift orgsApi.ts's
+	// `createInvite` return type exists to surface - see the comment there.
+	if (path.endsWith("/invites") && method === "POST") {
+		const { email, role } = readBody<{ email: string; role: OrgRole }>(options);
+		return new Response(
+			JSON.stringify({
+				invite: {
+					id: "invite-new",
+					email,
+					role,
+					expires_at: "2026-10-11T00:00:00.000Z",
+				},
+			}),
+			{ status: 201, headers: { "Content-Type": "application/json" } },
+		);
+	}
+
+	if (path.includes("/members/") && method === "PATCH") {
+		const { role } = readBody<{ role: OrgRole }>(options);
+		return json({ member: { user_id: path.split("/members/")[1], role } });
+	}
+
+	if (path.includes("/members/") && method === "DELETE") {
+		return json({ removed: path.split("/members/")[1] });
+	}
+
+	if (path.includes("/invites/") && method === "DELETE") {
+		return json({ revoked: path.split("/invites/")[1] });
+	}
+
+	if (method === "PATCH" && /^\/api\/orgs\/[^/]+$/.test(path)) {
+		const { name } = readBody<{ name: string }>(options);
+		return json({ org: { id: path.split("/").pop(), name } });
+	}
+
+	return null;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -915,6 +1087,11 @@ export async function mockDataApi(
 		machine.revoked_at = new Date().toISOString();
 		return json({ success: true });
 	}
+
+	// `path`, not `poolPath`: the invite-verify branch reads its token straight
+	// out of the query string, which `poolPath` has already stripped.
+	const orgResponse = await mockOrgsApi(path, options);
+	if (orgResponse) return orgResponse;
 
 	throw new AuthApiError(404, "not_found", `Mock endpoint not found: ${path}`);
 }

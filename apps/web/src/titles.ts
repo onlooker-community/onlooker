@@ -22,6 +22,14 @@ const TITLES: readonly (readonly [string, string])[] = [
 	["/forgot-password", "Reset your password"],
 	["/reset-password", "Choose a new password"],
 	["/verify-email", "Verify your email"],
+	// No /orgs entry here: /orgs is in SECTIONS now, and titleFor below checks
+	// SECTIONS first - a TITLES entry for it would be dead code. That also
+	// means /orgs/invites/:token inherits "Orgs · Onlooker" by the same
+	// prefix match SECTIONS itself uses, rather than naming the invite flow
+	// specifically ("Accept invitation", say) - noticed, not missed, and left
+	// alone because fixing it would mean letting a more specific TITLES entry
+	// win over a SECTIONS prefix match, which is a title-resolution-order
+	// change out of scope here.
 ] as const;
 
 const NOT_FOUND = "Page not found";

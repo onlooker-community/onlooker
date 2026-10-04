@@ -22,6 +22,11 @@ const EXPECTED_UNAUTHENTICATED = [
 	// anybody with the link, like a public gist. Adding to this list is meant
 	// to be a reviewed decision, not an oversight.
 	"GET /api/public/lessons/:id",
+	// Deliberately unauthenticated, the same as /auth/reset-password/verify
+	// above: the credential is the invitation token in the query string, not a
+	// session. It only ever confirms or denies a token the caller already
+	// holds.
+	"GET /api/orgs/invites/verify",
 ];
 
 /**

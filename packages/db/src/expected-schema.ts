@@ -232,6 +232,157 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	org_invites: {
+		columns: [
+			{
+				name: "id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "org_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "email",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "role",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "token_hash",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "expires_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "invited_by",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "accepted_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
+				name: "created_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "org_invites_org_email_idx",
+				unique: false,
+				columns: ["org_id", "email"],
+			},
+			{
+				name: "org_invites_token_hash_idx",
+				unique: true,
+				columns: ["token_hash"],
+			},
+		],
+	},
+	org_memberships: {
+		columns: [
+			{
+				name: "id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "org_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "user_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "role",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "created_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "org_memberships_org_user_idx",
+				unique: true,
+				columns: ["org_id", "user_id"],
+			},
+			{
+				name: "org_memberships_user_id_idx",
+				unique: false,
+				columns: ["user_id"],
+			},
+		],
+	},
+	orgs: {
+		columns: [
+			{
+				name: "id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "name",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "created_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "updated_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "orgs_created_at_idx",
+				unique: false,
+				columns: ["created_at"],
+			},
+		],
+	},
 	session_summaries: {
 		columns: [
 			{

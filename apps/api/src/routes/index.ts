@@ -49,5 +49,25 @@ export {
 	handleListMachines,
 	handleRevokeMachine,
 } from "./machines";
+export {
+	handleCreateOrg,
+	handleListOrgs,
+	handleRenameOrg,
+	ORG_NAME_MAX_LENGTH,
+} from "./orgs";
+export {
+	handleAcceptInvite,
+	handleVerifyInvite,
+} from "./orgs-invite-accept";
+export {
+	handleCreateInvite,
+	handleListInvites,
+	handleRevokeInvite,
+} from "./orgs-invites";
+export {
+	handleListMembers,
+	handleRemoveMember,
+	handleSetMemberRole,
+} from "./orgs-members";
 export { handleGetSessions, handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";
