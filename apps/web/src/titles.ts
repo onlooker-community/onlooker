@@ -22,6 +22,10 @@ const TITLES: readonly (readonly [string, string])[] = [
 	["/forgot-password", "Reset your password"],
 	["/reset-password", "Choose a new password"],
 	["/verify-email", "Verify your email"],
+	// Covers /orgs/invites/:token too, by the same prefix match /verify-email
+	// relies on above - /orgs is not in SECTIONS (see OrgsPage's own task
+	// notes), so it has no section label to fall back on.
+	["/orgs", "Organizations"],
 ] as const;
 
 const NOT_FOUND = "Page not found";

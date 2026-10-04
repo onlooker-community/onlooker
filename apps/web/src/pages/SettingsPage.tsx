@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
 	type AccountUser,
 	changePassword,
@@ -15,6 +15,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
+import { PALETTE } from "../components/palette";
 import { Button, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import {
@@ -66,6 +67,8 @@ export default function SettingsPage() {
 			/>
 
 			<ChangePasswordSection />
+
+			<OrgsSection />
 
 			<DeleteAccountSection
 				email={display?.email ?? ""}
@@ -309,6 +312,20 @@ function ChangePasswordSection() {
 					Change password
 				</SubmitButton>
 			</form>
+		</Panel>
+	);
+}
+
+function OrgsSection() {
+	return (
+		<Panel title="Organizations" icon="Team">
+			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
+				Manage who belongs to your orgs, invite new members, or leave an org you
+				have joined.
+			</p>
+			<Link to="/orgs" style={{ color: PALETTE.accent }}>
+				Manage your orgs
+			</Link>
 		</Panel>
 	);
 }
