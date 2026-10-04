@@ -1898,8 +1898,10 @@ INVITE_EXPIRY_DAYS = "7"    # in [env.production.vars]
 In `apps/api/vitest.config.ts`, add to `miniflare.bindings`, mirroring `[env.development]` as that block's comment says it does:
 
 ```ts
-						INVITE_EXPIRY_DAYS: "7",
+						INVITE_EXPIRY_DAYS: "1",
 ```
+
+**`"1"`, not `"7"`, and the reason is not merely the mirroring convention.** `DEFAULT_INVITE_EXPIRY_DAYS` is 7, so a test binding of `"7"` makes the configured path and the fallback path produce the same window — and any later test asserting a seven-day expiry would pass whether the binding was read or the fallback silently fired on a missing var. A non-default value is what makes those two outcomes distinguishable, which is the same reason a test has to be able to fail for the behavior it names.
 
 In `ENVIRONMENT_VARIABLES.md`, add a row documenting `INVITE_EXPIRY_DAYS`. The guard at `scripts/source-guards.test.sh:217` greps for the name wrapped in backticks, so it must appear as `` `INVITE_EXPIRY_DAYS` ``. Follow the formatting of the rows already there.
 
