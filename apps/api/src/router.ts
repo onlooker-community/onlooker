@@ -8,6 +8,7 @@ import { errorHandler } from "./middleware";
 import type { RouteAuth, RouteCors } from "./middleware/principal.js";
 import { resolvePrincipal } from "./middleware/principal.js";
 import {
+	handleAcceptInvite,
 	handleActivity,
 	handleBlockAuthor,
 	handleBrowseLessons,
@@ -50,6 +51,7 @@ import {
 	handleUnblockAuthor,
 	handleUpdateProfile,
 	handleVerifyEmail,
+	handleVerifyInvite,
 	handleVerifyResetToken,
 } from "./routes";
 import type { RouteParams, WorkerEnv } from "./types";
@@ -449,6 +451,27 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleRevokeInvite,
+	},
+	{
+		// Unauthenticated: the credential is the token in the query string, the
+		// same as /auth/reset-password/verify. Its literal `invites` segment
+		// cannot be swallowed by /api/orgs/:id/invites - matchPath requires every
+		// non-parameter segment to match, so that pattern fails at `verify`, and
+		// resolve prefers exact routes over parameterized ones regardless.
+		method: "GET",
+		path: "/api/orgs/invites/verify",
+		auth: "none",
+		cors: "app",
+		handler: handleVerifyInvite,
+	},
+	{
+		// Session required ON TOP of the token: accepting checks that the
+		// invited address is this account's, so a forwarded link is inert.
+		method: "POST",
+		path: "/api/orgs/invites/accept",
+		auth: "session",
+		cors: "app",
+		handler: handleAcceptInvite,
 	},
 
 	// =========================================================================
