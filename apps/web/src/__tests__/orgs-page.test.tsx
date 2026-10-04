@@ -16,23 +16,21 @@ vi.mock("../api/orgsApi", () => ({
 
 // OrgsPage reads the signed-in caller's own id from auth.useAuth() for the
 // Leave button - /orgs sits behind RequireAuth in App.tsx, so a user is
-// always present by the time this page renders. The other fields match
-// ReactAuthState's real shape (packages/auth-react/src/index.tsx) even
-// though OrgsPage reads only `user`, so a future read of another field
-// here fails on a missing property rather than on `undefined` silently.
+// always present by the time this page renders. Same shape
+// shell-headings.test.tsx and account-routes-in-shell.test.tsx already mock,
+// down to the field set - not the fuller ReactAuthState shape, which also
+// carries error/login/signup that nothing here reads.
 vi.mock("../auth", () => ({
 	auth: {
 		useAuth: () => ({
 			user: { id: "u1", email: "ada@example.com", name: "Ada" },
 			loading: false,
-			error: null,
-			sessionExpiresAt: null,
-			sessionExpiringSoon: false,
-			login: vi.fn(),
-			signup: vi.fn(),
 			logout: vi.fn(),
 			refresh: vi.fn(),
+			sessionExpiresAt: null,
+			sessionExpiringSoon: false,
 		}),
+		RequireAuth: ({ children }: { children: React.ReactNode }) => children,
 	},
 }));
 
