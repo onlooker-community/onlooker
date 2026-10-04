@@ -56,6 +56,11 @@ export {
 	ORG_NAME_MAX_LENGTH,
 } from "./orgs";
 export {
+	handleCreateInvite,
+	handleListInvites,
+	handleRevokeInvite,
+} from "./orgs-invites";
+export {
 	handleListMembers,
 	handleRemoveMember,
 	handleSetMemberRole,
