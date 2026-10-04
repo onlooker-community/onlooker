@@ -79,6 +79,15 @@ export async function handleCreateInvite(
 	});
 
 	const inviter = members.find((member) => member.user_id === userId);
+	// Awaited after the row is written, with no catch: a mail failure 500s
+	// this caller and leaves a pending-invite row nobody holds the token for.
+	// Deliberate rather than missed - that row is harmless, not stranded. It
+	// cannot be accepted (the token was never delivered), it expires on its
+	// own schedule, and the very next invite attempt to this address self-
+	// heals it: deletePendingInvitesFor above runs before every create,
+	// including a retry of this one. Writing the row first and emailing
+	// second is also the safer order of the two failure modes - the reverse
+	// would risk a delivered email whose invite was never recorded.
 	await sendEmail(
 		env,
 		orgInviteEmail(
