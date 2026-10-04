@@ -55,5 +55,10 @@ export {
 	handleRenameOrg,
 	ORG_NAME_MAX_LENGTH,
 } from "./orgs";
+export {
+	handleListMembers,
+	handleRemoveMember,
+	handleSetMemberRole,
+} from "./orgs-members";
 export { handleGetSessions, handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";

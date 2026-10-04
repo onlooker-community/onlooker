@@ -24,6 +24,7 @@ import {
 	handleGetSessions,
 	handleGetUserProfile,
 	handleListMachines,
+	handleListMembers,
 	handleListOrgs,
 	handleLogin,
 	handleLogout,
@@ -35,10 +36,12 @@ import {
 	handlePutInventory,
 	handleReadLessons,
 	handleRefresh,
+	handleRemoveMember,
 	handleRenameOrg,
 	handleResendVerification,
 	handleResetPassword,
 	handleRevokeMachine,
+	handleSetMemberRole,
 	handleSignup,
 	handleTransitionLesson,
 	handleUnblockAuthor,
@@ -398,6 +401,30 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleRenameOrg,
+	},
+	{
+		method: "GET",
+		path: "/api/orgs/:id/members",
+		auth: "session",
+		cors: "app",
+		handler: handleListMembers,
+	},
+	{
+		method: "PATCH",
+		path: "/api/orgs/:id/members/:userId",
+		auth: "session",
+		cors: "app",
+		handler: handleSetMemberRole,
+	},
+	{
+		// Owner for anyone; any member for their own id, which is "leave". The
+		// only route in this surface whose required role depends on its
+		// arguments - see orgs-members.ts.
+		method: "DELETE",
+		path: "/api/orgs/:id/members/:userId",
+		auth: "session",
+		cors: "app",
+		handler: handleRemoveMember,
 	},
 
 	// =========================================================================

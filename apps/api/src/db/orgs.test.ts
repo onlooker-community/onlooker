@@ -11,6 +11,7 @@ import {
 	removeMembership,
 	renameOrg,
 	setMemberRole,
+	toOrgRole,
 } from "./orgs.js";
 import { createUser } from "./queries.js";
 
@@ -132,5 +133,21 @@ describe("removeMembership", () => {
 		expect(await removeMembership(db(), acme.id, bob)).toBe(true);
 		expect(await getMembership(db(), acme.id, bob)).toBeNull();
 		expect(await removeMembership(db(), acme.id, bob)).toBe(false);
+	});
+});
+
+describe("toOrgRole", () => {
+	it("returns a recognized role unchanged", () => {
+		expect(toOrgRole("owner")).toBe("owner");
+		expect(toOrgRole("member")).toBe("member");
+	});
+
+	it("throws on anything else, naming the offending value", () => {
+		// The column is plain text, so a bad migration or a manual edit can put
+		// anything here. Throwing names the data problem instead of handing a
+		// caller a value typed as OrgRole that is not one.
+		for (const bad of ["admin", "", "Owner", null, undefined, 7]) {
+			expect(() => toOrgRole(bad)).toThrow(/Invalid org role/);
+		}
 	});
 });
