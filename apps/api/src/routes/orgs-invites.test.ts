@@ -50,7 +50,16 @@ describe("POST /api/orgs/:id/invites", () => {
 		expect(text).not.toMatch(/[0-9a-f]{64}/);
 	});
 
-	it("stores only a hash", async () => {
+	it("stores a 64-hex value in token_hash, never the email or a blank", async () => {
+		// Deliberately weaker than its old name ("stores only a hash") implied.
+		// A 32-byte token and its SHA-256 are both 64 hex characters, so this
+		// assertion cannot tell a hash from the raw token - mutating
+		// `hashToken(token)` to `token` keeps it green. It still rules out an
+		// empty string, the address, or a truncated write.
+		//
+		// The test that does distinguish them needs an observation point this
+		// layer does not have, and lives in routes/orgs-invite-accept.test.ts:
+		// present the stored token_hash as a credential and watch it refused.
 		await invite(ada.token, "new@example.com");
 		const row = await db()
 			.prepare("SELECT token_hash FROM org_invites")
