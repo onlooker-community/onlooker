@@ -1631,7 +1631,7 @@ Add the three handlers to `router.ts`'s import from `./routes`, then add to `ROU
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm --filter @onlooker/api test src/routes/orgs-members.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests. (Count the `it(` calls in Step 1 rather than trusting this number — an earlier version of this line said 10, and the index count in Task 1 was wrong the same way.)
 
 - [ ] **Step 6: Run the gates and commit**
 
