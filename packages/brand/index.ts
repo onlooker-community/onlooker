@@ -120,6 +120,7 @@ export const UNPLATED_ICONS = [
 	"CatHead",
 	"Eye",
 	"Monitor",
+	"Home",
 	// Panel titles, through `Panel`'s own h2.
 	"Letter",
 	"Locked",

@@ -20,6 +20,13 @@ export const SECTIONS = [
 	// floor in packages/brand/assets.test.ts), and is not already used by
 	// another section.
 	{ to: "/sessions", label: "Sessions", icon: "Monitor" },
+	// Home over Letter: Letter already passes the contrast floor with no
+	// brand change needed, but it reads as mail - and this page is more than
+	// its invitation flow, so a mail icon would mislabel it. Home costs one
+	// line in packages/brand's UNPLATED_ICONS and does not carry that
+	// reading. Placed after Sessions and before Settings - account-shaped
+	// rather than data-shaped, the same half of the nav as Settings/Profile.
+	{ to: "/orgs", label: "Orgs", icon: "Home" },
 	{ to: "/settings", label: "Settings", icon: "Gear" },
 	// CatHead is an extension of the brand doc's mapping, not one of its
 	// entries - the set has no person icon, and it is the most person-like

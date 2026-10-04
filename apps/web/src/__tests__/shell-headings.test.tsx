@@ -62,6 +62,18 @@ vi.mock("../api/sessionsApi", () => ({
 	listSessions: () =>
 		Promise.resolve({ sessions: [], cursor: null, has_more: false }),
 }));
+// Same reason as listActivity above: the it.each renders /orgs once it is in
+// SECTIONS, so every function OrgsPage imports needs a stub here.
+vi.mock("../api/orgsApi", () => ({
+	listOrgs: () => Promise.resolve({ orgs: [] }),
+	createOrg: vi.fn(),
+	listMembers: vi.fn(),
+	listInvites: vi.fn(),
+	createInvite: vi.fn(),
+	revokeInvite: vi.fn(),
+	setMemberRole: vi.fn(),
+	removeMember: vi.fn(),
+}));
 
 const { default: App } = await import("../App");
 const { SECTIONS } = await import("../components/AppShell");

@@ -318,7 +318,13 @@ function ChangePasswordSection() {
 
 function OrgsSection() {
 	return (
-		<Panel title="Organizations" icon="Team">
+		// Home, not Team: Panel's title icon renders unplated through its own
+		// h2, the same enforcement surface AppShell's nav sits on (see
+		// packages/brand/index.ts's UNPLATED_ICONS), and Team fails the
+		// contrast floor there too (15.3% on the night panel, same icon file).
+		// Home is already in that list for the /orgs nav entry, so reusing it
+		// here costs nothing further and matches the icon this page links to.
+		<Panel title="Organizations" icon="Home">
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
 				Manage who belongs to your orgs, invite new members, or leave an org you
 				have joined.
