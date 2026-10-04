@@ -927,6 +927,24 @@ Stage `apps/api/src/orgs/authorize.ts` and its test, then run `/git-workflow:com
 - Consumes: `createOrgWithOwner`, `listOrgsForUser`, `renameOrg` from `../db/orgs.js`; `requireOrgRole` from `../orgs/authorize.js`.
 - Produces: `handleCreateOrg`, `handleListOrgs`, `handleRenameOrg`; exported `ORG_NAME_MAX_LENGTH = 100`; the contract case group `ORG_LIFECYCLE`.
 
+- [ ] **Step 0: Harden the shared `signup()` helper**
+
+Carried from Task 1's review as a Minor finding, actioned here because this is the first task that depends on the helper and four more follow.
+
+`signup()` in `apps/api/src/test-support/orgs.ts` parses `response.json()` unconditionally and destructures `{ token, user: { id } }`. When a signup fails — a duplicate address because a suite did not isolate, a 400 from a changed contract — the failure surfaces much later as `Cannot read properties of undefined`, in a different test, pointing nowhere near the cause.
+
+Add a status check that fails at the point of failure:
+
+```ts
+	if (!response.ok) {
+		throw new Error(
+			`signup(${email}) failed: ${response.status} ${await response.text()}`,
+		);
+	}
+```
+
+Place it immediately after the `SELF.fetch` call, before the `response.json()`. Nothing else about the helper changes, and no existing test should change behavior — if one does, it was depending on a silently failed signup and that is worth knowing.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `apps/api/src/routes/orgs.test.ts`:
