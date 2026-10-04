@@ -26,6 +26,8 @@ Bead: `onlooker-wi9ftq` ([ONL-12](https://linear.app/onlooker/issue/ONL-12))
 - **Shared org test helpers live in `apps/api/src/test-support/orgs.ts`** — `signup()`, `call()`, `resetOrgTables()`. Import them; do not redefine them per test file. Task 1 creates the module.
 - **`pnpm build` before the first test run in a fresh checkout.** `packages/db`'s tests import `../dist/schema.js`, and `dist/` is gitignored, so a fresh worktree fails 34 api files and 1 db file with `Cannot find module` until `pnpm build` runs at the repo root. Measured 2026-10-04 on this branch's worktree.
 - **Never judge a suite by a piped command's exit code.** `pnpm test | tail` exits with `tail`'s status, so a failing suite reads as success and an `&&` chain walks straight past it. Read the `Tests` line, or run the command unpiped.
+- **`pnpm --filter @onlooker/db build` before `generate:expected-schema`.** That script reads `packages/db/dist/`, not `src/`, so regenerating against an unbuilt package silently writes a snapshot of the *previous* schema — and the deployed-schema drift check then passes against stale truth, which is worse than failing. Measured 2026-10-04 during Task 1.
+- `env` and `SELF` from `cloudflare:test` are marked `@deprecated` by the installed `@cloudflare/vitest-pool-workers` types. 27 files in `apps/api/src` already import them that way; follow that pattern. Migrating off it is a repo-wide change and explicitly not this plan's work.
 
 ---
 
@@ -316,7 +318,11 @@ Run:
 pnpm --filter @onlooker/db generate:migrations
 pnpm --filter @onlooker/db generate:expected-schema
 ```
-Expected: a new `packages/db/migrations/0010_*.sql` creating three tables and four indexes, and a modified `expected-schema.ts`. Read the generated SQL before continuing — confirm it creates `orgs`, `org_memberships`, `org_invites` and does **not** alter `lessons`.
+Expected: a new `packages/db/migrations/0010_*.sql` creating three tables and five indexes (one on `orgs`, two on `org_memberships`, two on `org_invites`), and a modified `expected-schema.ts`. Read the generated SQL before continuing — confirm it creates `orgs`, `org_memberships`, `org_invites` and does **not** alter `lessons`.
+
+`generate:expected-schema` reads `packages/db/dist/`, **not** `src/` — so build the package first (`pnpm --filter @onlooker/db build`) or it silently writes a snapshot of the previous schema and the drift check passes against stale truth. Measured 2026-10-04 during Task 1.
+
+`packages/db/src/__tests__/schema.test.ts` carries a whole-schema table count ("declares only the N tables in use"), deliberately, so a deferred table cannot reappear by accident. Three new tables means that number moves from 8 to 11, with the reason in its comment. It is not in this task's Files list above because the count is a consequence of the schema edit rather than a separate decision — but the db gate fails until it is updated.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
