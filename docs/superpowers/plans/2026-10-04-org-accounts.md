@@ -2673,6 +2673,37 @@ describe("POST /api/orgs/invites/accept", () => {
 		});
 		expect(response.status).toBe(400);
 	});
+
+	it("refuses the stored token_hash as a credential", async () => {
+		// This is the test that proves the table stores a hash rather than the
+		// raw token, and it has to live here rather than in Task 7.
+		//
+		// A 32-byte token hex-encodes to 64 characters and so does its SHA-256,
+		// so NO shape assertion can tell them apart - Task 7's "stores only a
+		// hash" test was shown by mutation to stay green when the raw token was
+		// stored instead. Task 7 has no observation point either: the raw value
+		// is consumed server-side, and sendEmail appends the body only in
+		// development, deliberately, because a live link in Workers Logs is a
+		// credential readable by anyone with log access (onlooker-9dqr).
+		//
+		// The accept route supplies the missing observation. If the stored
+		// value were the token, presenting it here would succeed. The property
+		// asserted is the one that matters - a read of org_invites yields
+		// nothing that works - rather than the mechanism that provides it, so
+		// this survives a change to the token's length or encoding.
+		await seedInvite("bob@example.com");
+		const row = await db()
+			.prepare("SELECT token_hash FROM org_invites")
+			.first<{ token_hash: string }>();
+		expect(row?.token_hash).toBeTruthy();
+
+		const response = await call("/api/orgs/invites/accept", bob.token, {
+			method: "POST",
+			body: JSON.stringify({ token: row?.token_hash }),
+		});
+		expect(response.status).toBe(400);
+		expect(await getMembership(db(), orgId, bob.id)).toBeNull();
+	});
 });
 ```
 
