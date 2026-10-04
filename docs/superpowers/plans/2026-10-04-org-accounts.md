@@ -3768,8 +3768,17 @@ Stage the two pages, the two tests, `App.tsx` and `SettingsPage.tsx`. Run `/git-
 ### Task 12: The full sweep, and the handoff
 
 **Files:**
+- Modify: `apps/api/src/router.ts` — the Orgs block comment (see Step 0)
 - Modify: `apps/api/DEPLOYMENT.md` or `ENVIRONMENT_VARIABLES.md` if either misstates anything after this stage
 - No new code.
+
+- [ ] **Step 0: Correct the Orgs block comment, which this stage made false**
+
+The `// Orgs` block comment in `apps/api/src/router.ts` opens with "Every route here carries `auth: "session"`". That was true when Task 4 wrote it and stopped being true when Task 8 added `GET /api/orgs/invites/verify` with `auth: "none"` into the same block. A reader trusting it would conclude no org route is unauthenticated, which is exactly the thing worth being right about.
+
+Fix the first sentence to say that every route here carries `auth: "session"` **except** `GET /api/orgs/invites/verify`, whose credential is the invitation token in the query string rather than a session — and note that the full set of unauthenticated routes is enumerated in `EXPECTED_UNAUTHENTICATED` in `router.test.ts`, so this comment is a signpost rather than a second source of truth.
+
+Leave the rest of the comment alone. Its claim about `routes/orgs-authorization.test.ts` enumerating every route and failing on a missing entry is now true — the file exists, its six tests pass, and Task 9's first ablation proved it names an undeclared route.
 
 - [ ] **Step 1: Run all four gates across every touched package**
 
