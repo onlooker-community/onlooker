@@ -130,6 +130,60 @@ describe("the mock serves the contract", () => {
 				}
 			});
 		}
+
+		// The two org-mock shapes nothing else guards. packages/api-contract
+		// compares bodies as a subset - its own docstring says adding a field is
+		// allowed - so no contract case can ever pin a field's ABSENCE, and the
+		// mock's create branch is a raw JSON.stringify literal that is never
+		// typechecked against orgsApi's Omit<PendingInvite, "created_at">. A
+		// direct assertion on the mock's body is the only achievable guard here,
+		// not merely the convenient one.
+		it("create-invite omits created_at, as the real route does", async () => {
+			const response = await createMockFetch()("/api/orgs/org-acme/invites", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+				body: JSON.stringify({ email: "new@example.com", role: "member" }),
+			});
+			expect(response.status).toBe(201);
+
+			// The exact key set, not a subset: this has to fail both when a field
+			// is added back and when one is dropped.
+			const body = (await response.json()) as {
+				invite: Record<string, unknown>;
+			};
+			expect(Object.keys(body.invite).sort()).toEqual([
+				"email",
+				"expires_at",
+				"id",
+				"role",
+			]);
+		});
+
+		it.each([
+			["", 400],
+			["stale", 400],
+			["wrong-account", 403],
+			["anything-else", 200],
+		])("accept with token %j answers %i, mirroring the real route", async (token, expected) => {
+			// The real worker's outcomes are already pinned in
+			// apps/api/src/routes/orgs-invite-accept.test.ts. This pins the
+			// mock's mirror of them, which nothing else reaches: Task 11 mocks
+			// the orgsApi module directly, so a mock that regressed to always
+			// answering 200 would be invisible until somebody clicked through
+			// by hand.
+			const response = await createMockFetch()("/api/orgs/invites/accept", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+				body: JSON.stringify({ token }),
+			});
+			expect(response.status).toBe(expected);
+		});
 	});
 });
 
