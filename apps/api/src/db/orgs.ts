@@ -161,6 +161,24 @@ export async function listMembers(
 	}));
 }
 
+/**
+ * An org's name, for a message that has to say which org.
+ *
+ * Returns null rather than a placeholder - the caller decides what a missing
+ * org means for its own purpose (an invite email still has to say something;
+ * a 404 should not).
+ */
+export async function getOrgName(
+	db: D1Database,
+	orgId: string,
+): Promise<string | null> {
+	const row = await db
+		.prepare("SELECT name FROM orgs WHERE id = ?")
+		.bind(orgId)
+		.first<{ name: string }>();
+	return row?.name ?? null;
+}
+
 /** Rename an org. False means no such org. */
 export async function renameOrg(
 	db: D1Database,

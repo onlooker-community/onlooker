@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { org_invites } from "@onlooker/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { client } from "./client.js";
-import type { OrgRole } from "./orgs.js";
+import { type OrgRole, toOrgRole } from "./orgs.js";
 
 /**
  * Pending invitations.
@@ -85,7 +85,7 @@ export async function listPendingInvites(
 	return rows.map((row) => ({
 		id: row.id,
 		email: row.email,
-		role: row.role as OrgRole,
+		role: toOrgRole(row.role),
 		expires_at: row.expires_at,
 		created_at: row.created_at,
 	}));
@@ -155,7 +155,7 @@ export async function findInviteByTokenHash(
 		id: row.id,
 		org_id: row.org_id,
 		email: row.email,
-		role: row.role as OrgRole,
+		role: toOrgRole(row.role),
 		expires_at: row.expires_at,
 		accepted_at: row.accepted_at ?? null,
 	};

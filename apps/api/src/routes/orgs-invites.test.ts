@@ -108,6 +108,26 @@ describe("POST /api/orgs/:id/invites", () => {
 			.first<{ email: string }>();
 		expect(row?.email).toBe("new@example.com");
 	});
+
+	it("replaces a differently-cased invite to the same address", async () => {
+		// Normalization and replace-on-reinvite are each tested alone above.
+		// Neither proves the other still holds when a re-invite arrives in a
+		// different case than the first one - that is the actual duplicate-
+		// invitation hole normalization exists to close, so it needs its own
+		// end-to-end case.
+		await invite(ada.token, "New@Example.com");
+		await invite(ada.token, "new@example.com");
+
+		// Counts every invite in the org, not rows matching one exact casing -
+		// SQL `=` on TEXT is case-sensitive, so a count filtered by
+		// "new@example.com" would miss a surviving "New@Example.com" row and
+		// pass even with two live invitations.
+		const count = await db()
+			.prepare("SELECT COUNT(*) AS n FROM org_invites WHERE org_id = ?")
+			.bind(orgId)
+			.first<{ n: number }>();
+		expect(count?.n).toBe(1);
+	});
 });
 
 describe("GET /api/orgs/:id/invites", () => {

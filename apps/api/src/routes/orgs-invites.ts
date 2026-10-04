@@ -5,7 +5,7 @@ import {
 	listPendingInvites,
 	normalizeEmail,
 } from "../db/org-invites.js";
-import { isOrgRole, listMembers } from "../db/orgs.js";
+import { getOrgName, isOrgRole, listMembers } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import { sendEmail } from "../email";
 import { orgInviteEmail } from "../email/templates.js";
@@ -66,13 +66,15 @@ export async function handleCreateInvite(
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("");
 
+	const expiresAt = new Date(Date.now() + window.ms).toISOString();
+
 	await deletePendingInvitesFor(env.DB, params.id, email);
 	const invite = await createInvite(env.DB, {
 		orgId: params.id,
 		email,
 		role,
 		tokenHash: await hashToken(token),
-		expiresAt: new Date(Date.now() + window.ms).toISOString(),
+		expiresAt,
 		invitedBy: userId,
 	});
 
@@ -83,7 +85,7 @@ export async function handleCreateInvite(
 			email,
 			// Owners can rename an org, so the name is read at send time rather
 			// than cached anywhere.
-			await orgName(env, params.id),
+			(await getOrgName(env.DB, params.id)) ?? "an Onlooker org",
 			inviter?.name ?? inviter?.email ?? "Somebody",
 			`${env.APP_BASE_URL}/orgs/invites/${token}`,
 			window.days,
@@ -99,19 +101,11 @@ export async function handleCreateInvite(
 				id: invite.id,
 				email,
 				role,
-				expires_at: new Date(Date.now() + window.ms).toISOString(),
+				expires_at: expiresAt,
 			},
 		},
 		{ status: 201 },
 	);
-}
-
-/** The org's name, for a message that has to say which org. */
-async function orgName(env: WorkerEnv, orgId: string): Promise<string> {
-	const row = await env.DB.prepare("SELECT name FROM orgs WHERE id = ?")
-		.bind(orgId)
-		.first<{ name: string }>();
-	return row?.name ?? "an Onlooker org";
 }
 
 export async function handleListInvites(
