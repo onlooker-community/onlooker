@@ -104,9 +104,21 @@ describe("the org route table", () => {
 		expect(stale).toEqual([]);
 	});
 
-	it("declares auth and cors on every org route", () => {
-		for (const route of orgRoutes()) {
-			expect(route.auth, `${route.method} ${route.path}`).toBeDefined();
+	it('declares cors: "app" on every org route', () => {
+		// `auth`'s PRESENCE is deliberately not asserted. router.ts:60-66 says
+		// why: it is a required field on the Route interface, so an entry
+		// missing it fails to typecheck, and "a test asserting it would only
+		// ever pass, which is not evidence of anything." Its VALUE is already
+		// enumerated repo-wide by EXPECTED_UNAUTHENTICATED in router.test.ts -
+		// Task 8 added the invite-verify route there - so an accidentally
+		// unauthenticated org route fails in that test, not this one.
+		//
+		// `cors` is different: "app" is one of several valid values, so this
+		// assertion can fail, and an org route served to any origin would be a
+		// real mistake.
+		const routes = orgRoutes();
+		expect(routes.length).toBeGreaterThan(0);
+		for (const route of routes) {
 			expect(route.cors, `${route.method} ${route.path}`).toBe("app");
 		}
 	});
@@ -114,10 +126,17 @@ describe("the org route table", () => {
 
 describe("a non-member", () => {
 	it("gets 404 from every org-scoped route", async () => {
-		for (const route of orgRoutes()) {
-			const required = REQUIRED_ROLE[`${route.method} ${route.path}`];
-			if (required === "none") continue;
+		const scoped = orgRoutes().filter(
+			(route) => REQUIRED_ROLE[`${route.method} ${route.path}`] !== "none",
+		);
+		// A filter that ever matched nothing would make this loop a no-op that
+		// still passes - the exact failure mode this file exists to prevent.
+		expect(
+			scoped.length,
+			"expected at least one org-scoped route",
+		).toBeGreaterThan(0);
 
+		for (const route of scoped) {
 			const status = await callRoute(
 				route.method,
 				concrete(route.path, ada),
@@ -130,10 +149,16 @@ describe("a non-member", () => {
 
 describe("a plain member", () => {
 	it("gets 404 from every owner route", async () => {
-		for (const route of orgRoutes()) {
-			const key = `${route.method} ${route.path}`;
-			if (REQUIRED_ROLE[key] !== "owner") continue;
+		const ownerRoutes = orgRoutes().filter(
+			(route) => REQUIRED_ROLE[`${route.method} ${route.path}`] === "owner",
+		);
+		expect(
+			ownerRoutes.length,
+			"expected at least one owner route",
+		).toBeGreaterThan(0);
 
+		for (const route of ownerRoutes) {
+			const key = `${route.method} ${route.path}`;
 			const status = await callRoute(
 				route.method,
 				concrete(route.path, ada),
@@ -144,10 +169,16 @@ describe("a plain member", () => {
 	});
 
 	it("reaches every member route", async () => {
-		for (const route of orgRoutes()) {
-			const key = `${route.method} ${route.path}`;
-			if (REQUIRED_ROLE[key] !== "member") continue;
+		const memberRoutes = orgRoutes().filter(
+			(route) => REQUIRED_ROLE[`${route.method} ${route.path}`] === "member",
+		);
+		expect(
+			memberRoutes.length,
+			"expected at least one member route",
+		).toBeGreaterThan(0);
 
+		for (const route of memberRoutes) {
+			const key = `${route.method} ${route.path}`;
 			const status = await callRoute(
 				route.method,
 				concrete(route.path, member.id),
