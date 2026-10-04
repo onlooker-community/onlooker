@@ -63,6 +63,15 @@ export interface WorkerEnv {
 	// hostnames, so this cannot be derived from the request.
 	APP_BASE_URL: string;
 
+	// How many days an org invitation stays usable, as a decimal string. A var
+	// beside TOKEN_EXPIRY_MINUTES rather than a constant, so the window is
+	// visible in environment config and can differ per environment.
+	//
+	// Optional because a missing value is survivable: orgs/invite-window.ts
+	// falls back to DEFAULT_INVITE_EXPIRY_DAYS and warns, rather than taking
+	// invitations down over a typo.
+	INVITE_EXPIRY_DAYS?: string;
+
 	// Where error reports and traces go. A var, not a secret: a DSN is an ingest
 	// address, and the browser bundle carries its own in plain sight. Optional
 	// because unset means monitoring is off, which is right for local

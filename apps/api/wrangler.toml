@@ -49,6 +49,10 @@ ENVIRONMENT = "development"
 CORS_ORIGIN = "http://localhost:5173"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "http://localhost:5173"
+# A short window, deliberately: development is the one environment where
+# invite expiry should be cheap to exercise by hand. See
+# apps/api/src/orgs/invite-window.ts.
+INVITE_EXPIRY_DAYS = "1"
 # The only environment that declares this in the file, and empty: a local
 # database is whatever you last seeded, so there is no stable id to commit.
 # Set it to your own when you need to exercise the moderation routes locally.
@@ -102,6 +106,7 @@ ENVIRONMENT = "staging"
 CORS_ORIGIN = "https://app-staging.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app-staging.onlooker.dev"
+INVITE_EXPIRY_DAYS = "7"
 # OPERATOR_USER_IDS is deliberately ABSENT here and injected at deploy time
 # from a repository secret - see .github/workflows/deploy.yml. This repo is
 # public, and the value is a real account id; naming it here would publish
@@ -167,6 +172,7 @@ ENVIRONMENT = "production"
 CORS_ORIGIN = "https://app.onlooker.dev"
 EMAIL_FROM = "Onlooker <noreply@onlooker.dev>"
 APP_BASE_URL = "https://app.onlooker.dev"
+INVITE_EXPIRY_DAYS = "7"
 # OPERATOR_USER_IDS is deliberately ABSENT here too, for the same reason as
 # staging above: injected at deploy time from a repository secret. The ids
 # differ per environment because each database issues its own, so there are
