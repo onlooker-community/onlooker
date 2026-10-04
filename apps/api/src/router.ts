@@ -15,6 +15,7 @@ import {
 	handleChangePassword,
 	handleClientError,
 	handleCreateMachine,
+	handleCreateOrg,
 	handleDeleteAccount,
 	handleForgotPassword,
 	handleGetInventory,
@@ -23,6 +24,7 @@ import {
 	handleGetSessions,
 	handleGetUserProfile,
 	handleListMachines,
+	handleListOrgs,
 	handleLogin,
 	handleLogout,
 	handleMe,
@@ -33,6 +35,7 @@ import {
 	handlePutInventory,
 	handleReadLessons,
 	handleRefresh,
+	handleRenameOrg,
 	handleResendVerification,
 	handleResetPassword,
 	handleRevokeMachine,
@@ -364,6 +367,37 @@ export const ROUTES: Route[] = [
 		auth: "none",
 		cors: "any",
 		handler: handlePublicLesson,
+	},
+
+	// =========================================================================
+	// Orgs
+	//
+	// Every route here carries `auth: "session"`, and the org role it needs is
+	// checked by requireOrgRole inside the handler - RouteAuth cannot express
+	// "owner of the org named in this path", since that needs a path parameter
+	// and a D1 read. routes/orgs-authorization.test.ts enumerates every route
+	// below with its required role and fails if one is added without an entry.
+	// =========================================================================
+	{
+		method: "POST",
+		path: "/api/orgs",
+		auth: "session",
+		cors: "app",
+		handler: handleCreateOrg,
+	},
+	{
+		method: "GET",
+		path: "/api/orgs",
+		auth: "session",
+		cors: "app",
+		handler: handleListOrgs,
+	},
+	{
+		method: "PATCH",
+		path: "/api/orgs/:id",
+		auth: "session",
+		cors: "app",
+		handler: handleRenameOrg,
 	},
 
 	// =========================================================================

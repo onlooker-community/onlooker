@@ -23,6 +23,13 @@ export async function signup(
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: TEST_PASSWORD, name }),
 	});
+
+	if (!response.ok) {
+		throw new Error(
+			`signup(${email}) failed: ${response.status} ${await response.text()}`,
+		);
+	}
+
 	const body = (await response.json()) as {
 		token: string;
 		user: { id: string };

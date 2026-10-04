@@ -49,5 +49,11 @@ export {
 	handleListMachines,
 	handleRevokeMachine,
 } from "./machines";
+export {
+	handleCreateOrg,
+	handleListOrgs,
+	handleRenameOrg,
+	ORG_NAME_MAX_LENGTH,
+} from "./orgs";
 export { handleGetSessions, handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";

@@ -169,6 +169,7 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			init: { method: "GET" },
 			status: 401,
 		},
+		...ORG_LIFECYCLE,
 	];
 }
 
@@ -594,6 +595,33 @@ export function authenticatedCases(): ContractCase[] {
 		},
 	];
 }
+
+/**
+ * Orgs. Authenticated cases run with the fixture's own access token; the
+ * runner supplies it, because the two implementations cannot share one.
+ *
+ * Only the cases whose shape apps/web reads are pinned here. The role matrix
+ * lives in apps/api's own orgs-authorization.test.ts, which can seed two
+ * accounts in one org - something a contract case cannot express.
+ */
+export const ORG_LIFECYCLE: ContractCase[] = [
+	{
+		name: "GET /api/orgs with no credential",
+		path: "/api/orgs",
+		init: { method: "GET" },
+		status: 401,
+	},
+	{
+		name: "POST /api/orgs with no name",
+		path: "/api/orgs",
+		init: {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "{}",
+		},
+		status: 401,
+	},
+];
 
 /**
  * Every way `actual` fails to satisfy `expected`, as readable strings. Empty
