@@ -353,6 +353,109 @@ export const session_summaries = sqliteTable(
 	}),
 );
 
+/**
+ * An organization - the unit a lesson can be shared with.
+ *
+ * Deliberately thin. `name` is all a member ever sees: there is no slug,
+ * because nothing addresses an org by URL, and no settings column, because the
+ * only tunable - the invite window - is environment configuration. See
+ * docs/superpowers/specs/2026-10-04-org-visibility-tier-design.md.
+ */
+export const orgs = sqliteTable(
+	"orgs",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		createdAtIdx: index("orgs_created_at_idx").on(table.created_at),
+	}),
+);
+
+/**
+ * Who belongs to an org, and with what authority.
+ *
+ * UNIQUE(org_id, user_id) is what makes membership a fact rather than a count:
+ * two rows for the same pair would let one removal leave somebody still a
+ * member, and the role read would depend on which row came back first.
+ *
+ * INDEX(user_id) is the read the visibility predicate will depend on in stage
+ * 2 - resolving "which orgs is this caller in" happens on every authenticated
+ * pool read, so it must not scan.
+ *
+ * `role` holds 'owner' or 'member'. Not an enum, because SQLite has none; the
+ * values are validated at every boundary that writes them.
+ */
+export const org_memberships = sqliteTable(
+	"org_memberships",
+	{
+		id: text("id").primaryKey(),
+		org_id: text("org_id")
+			.notNull()
+			.references(() => orgs.id, { onDelete: "cascade" }),
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		role: text("role").notNull(),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		orgUserIdx: uniqueIndex("org_memberships_org_user_idx").on(
+			table.org_id,
+			table.user_id,
+		),
+		userIdIdx: index("org_memberships_user_id_idx").on(table.user_id),
+	}),
+);
+
+/**
+ * A pending invitation to join an org.
+ *
+ * Its own table rather than a `verification_tokens` row, because that table is
+ * keyed to a `user_id` and an invitee may have no account yet.
+ *
+ * `token_hash`, never the token: whoever holds the raw value can join an org,
+ * so a read of this table must not produce working invitations. Same
+ * discipline as `sessions` and `verification_tokens`.
+ *
+ * The token is NOT the whole credential. Accepting also requires a session
+ * whose email matches `email`, so a forwarded or leaked link does nothing for
+ * anyone but the addressee. See routes/orgs-invites.ts.
+ *
+ * `expires_at` is an ISO string, so expiry is compared in TypeScript rather
+ * than SQL - the same reason db/queries.ts:180 gives, since a SQL comparison
+ * here would be lexicographic.
+ */
+export const org_invites = sqliteTable(
+	"org_invites",
+	{
+		id: text("id").primaryKey(),
+		org_id: text("org_id")
+			.notNull()
+			.references(() => orgs.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		role: text("role").notNull(),
+		token_hash: text("token_hash").notNull(),
+		expires_at: text("expires_at").notNull(),
+		invited_by: text("invited_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		accepted_at: text("accepted_at"),
+		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		tokenHashIdx: uniqueIndex("org_invites_token_hash_idx").on(
+			table.token_hash,
+		),
+		orgEmailIdx: index("org_invites_org_email_idx").on(
+			table.org_id,
+			table.email,
+		),
+	}),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
