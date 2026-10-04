@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
 	type AccountUser,
 	changePassword,
@@ -15,7 +15,6 @@ import {
 	SubmitButton,
 	TextField,
 } from "../components/form";
-import { PALETTE } from "../components/palette";
 import { Button, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import {
@@ -67,8 +66,6 @@ export default function SettingsPage() {
 			/>
 
 			<ChangePasswordSection />
-
-			<OrgsSection />
 
 			<DeleteAccountSection
 				email={display?.email ?? ""}
@@ -312,26 +309,6 @@ function ChangePasswordSection() {
 					Change password
 				</SubmitButton>
 			</form>
-		</Panel>
-	);
-}
-
-function OrgsSection() {
-	return (
-		// Home, not Team: Panel's title icon renders unplated through its own
-		// h2, the same enforcement surface AppShell's nav sits on (see
-		// packages/brand/index.ts's UNPLATED_ICONS), and Team fails the
-		// contrast floor there too (15.3% on the night panel, same icon file).
-		// Home is already in that list for the /orgs nav entry, so reusing it
-		// here costs nothing further and matches the icon this page links to.
-		<Panel title="Organizations" icon="Home">
-			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
-				Manage who belongs to your orgs, invite new members, or leave an org you
-				have joined.
-			</p>
-			<Link to="/orgs" style={{ color: PALETTE.accent }}>
-				Manage your orgs
-			</Link>
 		</Panel>
 	);
 }
