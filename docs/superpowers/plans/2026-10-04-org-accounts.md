@@ -3529,6 +3529,74 @@ export const ORG_LIFECYCLE: ContractCase[] = [
 
 Add `ORG_LIFECYCLE` to the `anonymousCases` aggregate, and import and run it in `apps/api/src/contract.test.ts` alongside the existing groups.
 
+- [ ] **Step 3b: Guard the two shapes nothing else can**
+
+Add these to `apps/web/src/api/api-contract.test.ts`, reusing its existing `createMockFetch()` and `accessToken` idiom. They go here rather than in a `mockApi.test.ts` because `mockOrgsApi` is not exported — only `mockAuthApi`, `mockDataApi` and `createMockFetch` are.
+
+**Why these cannot be contract cases.** `packages/api-contract` compares response bodies as a **subset** — its own docstring says "adding a field to a response is allowed and renaming or dropping one is not." So no contract case, ever, can pin the *absence* of a field. And the mock's create branch is a raw `JSON.stringify` literal that is never typechecked against `orgsApi`'s `Omit<PendingInvite, "created_at">`. A direct assertion on the mock's body is the only achievable guard, not merely the convenient one.
+
+```ts
+	it("create-invite omits created_at, as the real route does", async () => {
+		const response = await createMockFetch()(
+			"/api/orgs/org-acme/invites",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+				body: JSON.stringify({ email: "new@example.com", role: "member" }),
+			},
+		);
+		expect(response.status).toBe(201);
+
+		// The exact key set, not a subset: this has to fail both when a field
+		// is added back and when one is dropped.
+		const body = (await response.json()) as {
+			invite: Record<string, unknown>;
+		};
+		expect(Object.keys(body.invite).sort()).toEqual([
+			"email",
+			"expires_at",
+			"id",
+			"role",
+		]);
+	});
+
+	it.each([
+		["", 400],
+		["stale", 400],
+		["wrong-account", 403],
+		["anything-else", 200],
+	])(
+		"accept with token %j answers %i, mirroring the real route",
+		async (token, expected) => {
+			// The real worker's outcomes are already pinned in
+			// apps/api/src/routes/orgs-invite-accept.test.ts. This pins the
+			// mock's mirror of them, which nothing else reaches: Task 11 mocks
+			// the orgsApi module directly, so a mock that regressed to always
+			// answering 200 would be invisible until somebody clicked through
+			// by hand.
+			const response = await createMockFetch()(
+				"/api/orgs/invites/accept",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${accessToken}`,
+					},
+					body: JSON.stringify({ token }),
+				},
+			);
+			expect(response.status).toBe(expected);
+		},
+	);
+```
+
+`createMockFetch` turns a thrown `AuthApiError` into a `Response`, which is how the existing anonymous 401 cases already work — so reading `response.status` is right here rather than expecting a rejected promise. Confirm that holds rather than assuming it.
+
+**Prove both by ablation.** Re-add `created_at` to the mock's create branch and confirm the first test fails; restore. Change the `"wrong-account"` branch to fall through to the 200 and confirm the parameterized test fails on that case only; restore. Report both with real output.
+
 - [ ] **Step 4: Run both sides of the contract**
 
 Run:
