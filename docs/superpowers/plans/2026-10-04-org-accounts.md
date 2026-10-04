@@ -3861,9 +3861,25 @@ In `apps/web/src/App.tsx`, add beside the existing entries. `/orgs` is protected
 
 and `/orgs` inside the protected group, mirroring how `/settings` is wrapped.
 
-- [ ] **Step 7: Link it from settings**
+- [ ] **Step 7: Put Orgs in the nav**
 
-Add a link to `/orgs` from `SettingsPage.tsx`, following that page's existing navigation.
+**Amended 2026-10-04, after this step originally said to link `/orgs` from `SettingsPage.tsx`.** That link shipped, then came out again. The reason is worth recording, because the original step was wrong in a way that was invisible until the page existed.
+
+`AppShell` renders every page's `<h1>` from `SECTIONS` rather than from the page, deliberately — the fix for `onlooker-eqb`, where pages drifted from their nav labels and `/settings` announced "Settings, current page" above a heading reading "Account settings". A consequence, stated at `AppShell.tsx:44-46`: "A shell route with no SECTIONS entry renders no h1. Every shell route today is a nav destination; one deliberately absent from the nav would be a larger question than this." Routing discovery through Settings made `/orgs` exactly that route — functional, reachable, and headingless.
+
+So: add `{ to: "/orgs", label: "Orgs", icon: "Home" }` to `apps/web/src/components/sections.ts`, after Sessions and before Settings. Then **remove** the Organizations panel from `SettingsPage.tsx` — no other nav destination carries a matching Settings cross-link, and the link's original justification was that nav was not a discovery path.
+
+Three things that are easy to miss, in this order:
+
+1. **`"Home"` must go into `UNPLATED_ICONS` in `packages/brand/index.ts` first.** That list is labeled "THE ENFORCEMENT SURFACE": an icon rendered unplated and absent from it "simply goes unchecked" for contrast, and the nav renders unplated. `assets.test.ts` then asserts the floor on all four theme/ground combinations.
+2. **Then the `vi.mock("../api/orgsApi", …)` factory in `shell-headings.test.tsx`**, stubbing every function `OrgsPage` imports. That file's comment states the rule: its `it.each` renders every SECTIONS route, so any api function a shell page imports needs a stub whether or not its route is named in the file.
+3. **Then `sections.ts`.** This order matters: landing `sections.ts` first makes `shell-headings`'s `it.each` try to render `/orgs` with `orgsApi` unmocked.
+
+`shell-headings.test.tsx` needs no new *case* — its cases come from `SECTIONS.map(...)`, deliberately, so a route added to SECTIONS is covered automatically. But `app-shell.test.tsx` does need hand edits: it hard-codes an icon count and carries a missing-href assertion that is not SECTIONS-driven.
+
+**On the icon.** `Team` is the obvious choice semantically and fails the contrast floor at 15.3% against the night panel, against a 25% floor. `Briefcase` fails twice. `Home` clears all four at 42.1% or better. Measured 2026-10-04 by replicating the test's algorithm, because the real test throws on its first failing ground and so reports only one.
+
+**And one bug this uncovered:** `SettingsPage`'s Organizations panel had been using `icon="Team"` while that icon was not in `UNPLATED_ICONS`. `Panel` renders its title icon unplated through its own `<h2>` — the same enforcement surface as the nav — so a failing icon was shipping with nothing checking it. Every other Panel icon on that page is in the list. If you add a Panel with a title icon anywhere, check that list.
 
 - [ ] **Step 8: Look at it in the real app**
 
