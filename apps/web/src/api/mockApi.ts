@@ -512,7 +512,32 @@ async function mockOrgsApi(
 		});
 	}
 
+	// Three sentinel tokens, the same convention the verify branch above uses
+	// for "stale" - this is the only way a mock with no real invite store can
+	// model handleAcceptInvite's three outcomes. "wrong-account" verifies as
+	// valid (see the verify branch above) and only fails here, deliberately:
+	// the page renders the accept button and learns the mismatch when it is
+	// pressed, which is the actual sequence the 403 state exists to cover.
 	if (method === "POST" && path === "/api/orgs/invites/accept") {
+		const { token: supplied } = readBody<{ token?: string }>(options);
+
+		if (!supplied) {
+			throw new AuthApiError(400, "token_required", "No invitation token");
+		}
+		if (supplied === "stale") {
+			throw new AuthApiError(
+				400,
+				"invalid_invitation",
+				"That invitation cannot be used",
+			);
+		}
+		if (supplied === "wrong-account") {
+			throw new AuthApiError(
+				403,
+				"wrong_account",
+				"That invitation was sent to carol@example.com. Sign in as that address to accept it.",
+			);
+		}
 		return json({ org_id: MOCK_ORG.id, role: "member" });
 	}
 
@@ -528,6 +553,12 @@ async function mockOrgsApi(
 		);
 	}
 
+	// Every branch below matches on a path SUBSTRING (`.endsWith`, `.includes`)
+	// rather than the router's segment rules, so an org, member or invite id
+	// containing the literal text "members" or "invites" would mis-route.
+	// Never true of a real id - every id here is a `crypto.randomUUID()` -
+	// but that is a fact about the real system, not about this string match,
+	// so it is worth writing down rather than assumed.
 	if (path.endsWith("/members") && method === "GET") {
 		return json({ members: MOCK_ORG_MEMBERS });
 	}
@@ -536,6 +567,12 @@ async function mockOrgsApi(
 		return json({ invites: MOCK_ORG_INVITES });
 	}
 
+	// No `created_at` here, deliberately: handleCreateInvite returns `id`,
+	// `email`, `role`, `expires_at` and nothing else (it echoes what it just
+	// generated, not a row it read back). The list branch above sends
+	// `created_at` because listPendingInvites selects it from a real row. A
+	// fabricated value here would hide the exact drift orgsApi.ts's
+	// `createInvite` return type exists to surface - see the comment there.
 	if (path.endsWith("/invites") && method === "POST") {
 		const { email, role } = readBody<{ email: string; role: OrgRole }>(options);
 		return new Response(
@@ -545,7 +582,6 @@ async function mockOrgsApi(
 					email,
 					role,
 					expires_at: "2026-10-11T00:00:00.000Z",
-					created_at: "2026-10-04T00:00:00.000Z",
 				},
 			}),
 			{ status: 201, headers: { "Content-Type": "application/json" } },

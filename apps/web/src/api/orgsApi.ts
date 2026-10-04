@@ -104,12 +104,23 @@ export function listInvites(
 	);
 }
 
+/**
+ * Create an invitation.
+ *
+ * The response is deliberately NOT a full `PendingInvite`. The create route
+ * echoes only what it knows at that moment and does **not** send `created_at`
+ * (`apps/api/src/routes/orgs-invites.ts` returns `id`, `email`, `role`,
+ * `expires_at`). Typing this as `PendingInvite` would promise a field
+ * production never sends, and a mock that fabricated one to satisfy the type
+ * would hide exactly the drift this client exists to surface. `PendingInvite`
+ * stays correct for the LIST response, which does select `created_at`.
+ */
 export function createInvite(
 	orgId: string,
 	email: string,
 	role: OrgRole = "member",
-): Promise<{ invite: PendingInvite }> {
-	return apiClient.post<{ invite: PendingInvite }>(
+): Promise<{ invite: Omit<PendingInvite, "created_at"> }> {
+	return apiClient.post<{ invite: Omit<PendingInvite, "created_at"> }>(
 		`${ORG_ENDPOINTS.orgs}/${encodeURIComponent(orgId)}/invites`,
 		{ email, role },
 	);
