@@ -1274,6 +1274,34 @@ Stage `apps/api/src/routes/orgs.ts`, its test, `apps/api/src/routes/index.ts`, `
 - Consumes: `listMembers`, `setMemberRole`, `removeMembership`, `countOwners`, `isOrgRole`, `getMembership` from `../db/orgs.js`; `requireOrgRole`.
 - Produces: `handleListMembers`, `handleSetMemberRole`, `handleRemoveMember`.
 
+- [ ] **Step 0: Cover `toOrgRole`'s throw path**
+
+Carried from Task 2's fix round as a Minor finding, actioned here because this is the task that validates `role` at a request boundary, so role validation is already its subject.
+
+`toOrgRole` in `apps/api/src/db/orgs.ts` was added to satisfy the plan's "validated at every boundary" constraint, and it throws on an unrecognized value — but nothing exercises that branch. The validation the constraint asked for is the one piece of behavior with no direct test.
+
+Add to `apps/api/src/db/orgs.test.ts`:
+
+```ts
+describe("toOrgRole", () => {
+	it("returns a recognized role unchanged", () => {
+		expect(toOrgRole("owner")).toBe("owner");
+		expect(toOrgRole("member")).toBe("member");
+	});
+
+	it("throws on anything else, naming the offending value", () => {
+		// The column is plain text, so a bad migration or a manual edit can put
+		// anything here. Throwing names the data problem instead of handing a
+		// caller a value typed as OrgRole that is not one.
+		for (const bad of ["admin", "", "Owner", null, undefined, 7]) {
+			expect(() => toOrgRole(bad)).toThrow(/Invalid org role/);
+		}
+	});
+});
+```
+
+Add `toOrgRole` to that file's existing import from `./orgs.js`. Note `"Owner"` in the list: the check is case-sensitive, and a test that only tried `"admin"` would not catch a loosening to a case-insensitive comparison.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `apps/api/src/routes/orgs-members.test.ts`:
