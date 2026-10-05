@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
+import { orgIdsForUser } from "./orgs.js";
 import { readPool, readPoolLesson } from "./pool.js";
 import {
 	BROWSE_DEFAULT_LIMIT,
@@ -129,6 +130,7 @@ export async function createLessonsWithFeed(
 	db: D1Database,
 	userId: string,
 	lessons: TLesson[],
+	orgId: string | null = null,
 ): Promise<BatchWrite[]> {
 	const results: BatchWrite[] = lessons.map(() => ({ outcome: "taken" }));
 	if (lessons.length === 0) return results;
@@ -156,8 +158,8 @@ export async function createLessonsWithFeed(
 				db
 					.prepare(
 						`INSERT INTO lessons
-							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, created_at, updated_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, org_id, created_at, updated_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.bind(
 						lesson.id,
@@ -173,6 +175,12 @@ export async function createLessonsWithFeed(
 						// lesson's author does not change.
 						lesson.promoted_at,
 						lesson.author_key,
+						// Minimal for this stage: a non-'org' row never stamps org_id,
+						// even when a caller passes one. The full write-time treatment -
+						// deciding org_id from the pusher's own membership, independent
+						// of what a caller claims - is a later task's; this is only
+						// enough for this stage's tests to seed an org-scoped row.
+						lesson.visibility === "org" ? orgId : null,
 						now,
 						now,
 					),
@@ -561,7 +569,7 @@ export async function listLessonsPage(
 	userId: string,
 	opts: { statuses?: string[]; cursor?: string | null; limit: number },
 ): Promise<LessonPage> {
-	return readPool(db, { userId }, opts);
+	return readPool(db, { userId }, opts, orgIdsForUser);
 }
 
 /**
@@ -577,7 +585,7 @@ export async function getLessonForUser(
 	userId: string,
 	id: string,
 ): Promise<{ lesson: unknown; own: boolean } | null> {
-	const lesson = await readPoolLesson(db, { userId }, id);
+	const lesson = await readPoolLesson(db, { userId }, id, orgIdsForUser);
 	if (!lesson) return null;
 
 	// A second statement rather than widening readPoolLesson's SELECT, because

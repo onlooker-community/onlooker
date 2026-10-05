@@ -103,14 +103,13 @@ function screen(
 	// read as a client bug rather than a tier that has not opened.
 	//
 	// public opened 2026-10-03, once its read path, edge rate limit, pool
-	// index and a designated operator were all in place. org did not, and the
-	// reason is specific rather than caution: `OrgMembers` in db/pool.ts is
-	// still an inert stub, so an org lesson pushed today would be readable
-	// only by its owner - and would become org-visible RETROACTIVELY the day
-	// ONL-12 fills that resolver. The author would have consented to
-	// semantics that did not exist, and the disclosure would be triggered by
-	// a deploy rather than by them. A tier stays shut until its read path
-	// exists.
+	// index and a designated operator were all in place. org still does not,
+	// and the reason has moved rather than disappeared: `OrgIds` in
+	// db/pool.ts now resolves real membership, so the read side is ready, but
+	// nothing yet stamps org_id on a write and this gate still refuses the
+	// tier outright. Task 9 opens it, alongside whatever else that stage
+	// requires. A tier stays shut until its own task opens it, not the
+	// moment its read path merely exists.
 	//
 	// What a public lesson must additionally clear - a unanimous jury - is in
 	// lessons/rules.ts, with the other cross-field rules, so a client is told

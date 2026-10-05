@@ -184,10 +184,10 @@ describe("POST /lessons", () => {
 	// Public opened 2026-10-03; org did not, and the message still names the
 	// tier so a client can tell "not yet" from "never".
 	//
-	// org stays shut for a specific reason, not caution: OrgMembers is an
-	// inert stub, so an org lesson pushed today is readable only by its owner
-	// and would become org-visible RETROACTIVELY the day ONL-12 fills the
-	// resolver - a disclosure the author never asked for.
+	// org stays shut for a specific reason, not caution: `OrgIds` in
+	// db/pool.ts now resolves real membership, but nothing yet stamps org_id
+	// on a write and this gate still refuses the tier outright. Task 9 opens
+	// it, alongside whatever else that stage requires.
 	it("rejects org with a message naming the tier", async () => {
 		const response = await push(machineToken, [lesson({ visibility: "org" })]);
 
