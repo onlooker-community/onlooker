@@ -315,8 +315,10 @@ export async function countOwners(
  * `org_memberships` by `user_id`, which `org_memberships_user_id_idx` exists
  * for.
  *
- * Ordered by id so the statement a given reader produces is stable, which is
- * what lets pool-query-plan.test.ts compare plans across runs.
+ * Ordered by id so a given reader's bound org list is deterministic between
+ * calls - worth having on its own, independent of any query-plan test, since
+ * a resolver whose output order varies would make the predicate's bind list
+ * vary with it for no reason.
  *
  * Membership only. A pending invite is not membership, and if it were counted
  * here an invitation would read the org's lessons before anybody accepted it.
