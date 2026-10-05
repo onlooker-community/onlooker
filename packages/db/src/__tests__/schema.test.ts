@@ -118,6 +118,8 @@ describe("machine_tokens", () => {
 			"inventory_at",
 			"last_used_at",
 			"name",
+			// The org this token pushes to, or null for a private-only token.
+			"org_id",
 			"revoked_at",
 			"token_hash",
 			"user_id",
@@ -157,6 +159,8 @@ describe("lessons", () => {
 			"body",
 			"created_at",
 			"id",
+			// The org this lesson was shared with, or null.
+			"org_id",
 			"promoted_at",
 			"schema_version",
 			"status",
@@ -297,5 +301,30 @@ describe("the schema as a whole", () => {
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
 		expect(tables).toHaveLength(11);
+	});
+});
+
+describe("the org lesson tier's columns", () => {
+	it("gives lessons a nullable org_id", () => {
+		const column = getTableConfig(lessons).columns.find(
+			(c) => c.name === "org_id",
+		);
+		expect(column).toBeDefined();
+		expect(column?.getSQLType().toUpperCase()).toBe("TEXT");
+		// Nullable is the point, not an oversight: a private or public lesson
+		// has no org, and SQLite cannot add a NOT NULL column without a
+		// default to a table that already exists.
+		expect(column?.notNull).toBe(false);
+	});
+
+	it("gives machine_tokens a nullable org_id", () => {
+		const column = getTableConfig(machine_tokens).columns.find(
+			(c) => c.name === "org_id",
+		);
+		expect(column).toBeDefined();
+		expect(column?.getSQLType().toUpperCase()).toBe("TEXT");
+		// Null means a private-only token, which is what every token minted
+		// before this change is.
+		expect(column?.notNull).toBe(false);
 	});
 });
