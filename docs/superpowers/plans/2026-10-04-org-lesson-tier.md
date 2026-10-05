@@ -66,7 +66,17 @@ paid for, most of them during Stage 1.
     `<type>(<scope>): <subject> :emoji:`, American English, why-focused body,
     subject ≤72 chars including the emoji.
 13. **American English** in code, comments, docs and commit messages.
-14. **drizzle-kit v0.22.8 silently drops `ON DELETE` from an `ALTER TABLE ADD
+14. **Foreign keys are ENFORCED in the test D1** — measured in Task 2,
+    2026-10-04. A test that writes a literal `org_id` such as `"org-a"` into
+    `lessons` or `machine_tokens` fails the constraint, because `orgs` has no
+    such row. Every test in Tasks 3 through 6 that stamps an org must create a
+    real org first — `createOrgWithOwner(db(), "Acme", someUserId)` in a
+    `beforeEach`, then use the id it returns — or insert the `orgs` row
+    directly. Where a later task's code block in this plan still shows a bare
+    `"org-a"`, that literal stands for a real org id obtained this way, not for
+    itself. This also means Task 1's `ON DELETE SET NULL` is live behavior in
+    the suite rather than a declaration nothing exercises.
+15. **drizzle-kit v0.22.8 silently drops `ON DELETE` from an `ALTER TABLE ADD
     COLUMN`** — measured during Task 1, 2026-10-04. Its
     `SQLiteAlterTableAddColumnConvertor` builds the inline reference from
     `tableTo`/`columnsTo` alone and never reads `onDelete`, unlike the
@@ -89,7 +99,7 @@ paid for, most of them during Stage 1.
 both nullable, both `onDelete: "set null"`.
 **`packages/db/migrations/0011_*.sql`** — generated, then hand-completed with the
 `ON DELETE SET NULL` drizzle-kit drops on an `ALTER TABLE ADD COLUMN`. See
-Global Constraint 14; that omission is the only edit a generated migration in
+Global Constraint 15; that omission is the only edit a generated migration in
 this plan may carry.
 **`apps/api/src/db/schema-foreign-keys.test.ts`** *(new)* — `PRAGMA
 foreign_key_list` against a database built from the real migrations, because no
@@ -269,7 +279,7 @@ do not proceed.
 complete it by hand if it is missing.** drizzle-kit v0.22.8 drops the delete
 action on an `ALTER TABLE ADD COLUMN` and says in its own emitted comment that
 this case must be handled manually — the full measurement is Global Constraint
-14. Add a short comment above the statements recording what was completed and
+15. Add a short comment above the statements recording what was completed and
 why, so a later reader does not revert it to the generator's output. This is the
 only hand edit a generated migration in this plan may carry: a table rebuild
 still stops the task.
