@@ -8,6 +8,7 @@ import {
 	probeLessonIds,
 	readLessonDelta,
 } from "./lessons.js";
+import { createOrgWithOwner } from "./orgs.js";
 import { createUser } from "./queries.js";
 
 const db = () => env.DB;
@@ -195,6 +196,59 @@ describe("createLessonsWithFeed", () => {
 			.prepare("SELECT COUNT(*) AS n FROM lesson_feed")
 			.first<{ n: number }>();
 		expect(feed?.n).toBe(0);
+	});
+});
+
+describe("createLessonsWithFeed and the lesson's org", () => {
+	const orgIdOf = async (id: string) =>
+		(
+			await db()
+				.prepare("SELECT org_id FROM lessons WHERE id = ?")
+				.bind(id)
+				.first<{ org_id: string | null }>()
+		)?.org_id ?? null;
+
+	it("stamps the org on an org-visible lesson", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+
+		expect(await orgIdOf(written.id)).toBe(org.id);
+	});
+
+	it("leaves org_id NULL when the token names no org", async () => {
+		const written = lesson({ visibility: "org" }) as TLesson;
+
+		await createLessonsWithFeed(db(), userId, [written], null);
+
+		expect(await orgIdOf(written.id)).toBeNull();
+	});
+
+	it("does not stamp the org onto a private lesson in the same batch", async () => {
+		// The org is the TOKEN's, and a batch may mix tiers. A private row
+		// carrying an org_id is invisible to the org - the predicate also
+		// requires visibility = 'org' - but it would be reachable by the
+		// org-retract path, which authorizes on this column. An owner must not
+		// be able to retract a member's private lesson.
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const priv = lesson({ visibility: "private" }) as TLesson;
+		const shared = lesson({ visibility: "org" }) as TLesson;
+
+		await createLessonsWithFeed(db(), userId, [priv, shared], org.id);
+
+		expect(await orgIdOf(priv.id)).toBeNull();
+		expect(await orgIdOf(shared.id)).toBe(org.id);
+	});
+
+	it("reports the org through probeLessonIds", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+
+		const found = await probeLessonIds(db(), [written.id]);
+
+		expect(found.get(written.id)?.org_id).toBe(org.id);
 	});
 });
 

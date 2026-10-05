@@ -29,6 +29,8 @@ export interface StoredLesson {
 	visibility: string;
 	status: string;
 	body: string;
+	/** The org this lesson was shared with, or null. Null for every tier but 'org'. */
+	org_id: string | null;
 }
 
 /**
@@ -130,6 +132,12 @@ export async function createLessonsWithFeed(
 	db: D1Database,
 	userId: string,
 	lessons: TLesson[],
+	/**
+	 * The org the pushing MACHINE TOKEN is bound to, or null for a
+	 * private-only token. Not a per-lesson value and not a contract field:
+	 * the server reads it from the credential so a client cannot name an org
+	 * its holder does not belong to.
+	 */
 	orgId: string | null = null,
 ): Promise<BatchWrite[]> {
 	const results: BatchWrite[] = lessons.map(() => ({ outcome: "taken" }));
@@ -175,11 +183,9 @@ export async function createLessonsWithFeed(
 						// lesson's author does not change.
 						lesson.promoted_at,
 						lesson.author_key,
-						// Minimal for this stage: a non-'org' row never stamps org_id,
-						// even when a caller passes one. The full write-time treatment -
-						// deciding org_id from the pusher's own membership, independent
-						// of what a caller claims - is a later task's; this is only
-						// enough for this stage's tests to seed an org-scoped row.
+						// Only an org-visible row carries the token's org. A
+						// private row with an org_id would be reachable by the
+						// org-retract path, which authorizes on this column.
 						lesson.visibility === "org" ? orgId : null,
 						now,
 						now,
@@ -259,7 +265,7 @@ export async function probeLessonIds(
 		const chunk = unique.slice(at, at + ID_LOOKUP_CHUNK);
 		const rows = await db
 			.prepare(
-				`SELECT id, user_id, visibility, status, body
+				`SELECT id, user_id, visibility, status, body, org_id
 				 FROM lessons
 				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
 			)
