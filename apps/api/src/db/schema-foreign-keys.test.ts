@@ -37,6 +37,10 @@ interface ForeignKeyRow {
 async function orgForeignKey(
 	table: string,
 ): Promise<ForeignKeyRow | undefined> {
+	// Interpolated, not bound: PRAGMA statements take no bound parameters at
+	// all in SQLite, so .bind() isn't an option here. Safe only because both
+	// callers below pass a hardcoded table name - never do this with input
+	// that didn't originate in this file.
 	const { results } = await env.DB.prepare(
 		`PRAGMA foreign_key_list(${table})`,
 	).all<ForeignKeyRow>();
@@ -44,12 +48,18 @@ async function orgForeignKey(
 }
 
 describe("the org_id foreign keys", () => {
-	it("sets lessons.org_id null when its org goes", async () => {
+	// Declares, not observes: this reads PRAGMA foreign_key_list, which
+	// reports what the schema says will happen, not a row actually going
+	// null. orgs-schema.test.ts's "cascades memberships when the org goes"
+	// is the test that inserts, deletes and watches a row change; this one
+	// is the layer below that would have caught the generator dropping the
+	// action in the first place.
+	it("declares ON DELETE SET NULL for lessons.org_id", async () => {
 		const fk = await orgForeignKey("lessons");
 		expect(fk?.on_delete).toBe("SET NULL");
 	});
 
-	it("sets machine_tokens.org_id null when its org goes", async () => {
+	it("declares ON DELETE SET NULL for machine_tokens.org_id", async () => {
 		const fk = await orgForeignKey("machine_tokens");
 		expect(fk?.on_delete).toBe("SET NULL");
 	});
