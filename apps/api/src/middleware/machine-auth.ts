@@ -16,7 +16,7 @@ import { extractToken } from "./auth.js";
 export async function requireMachineToken(
 	request: Request,
 	env: WorkerEnv,
-): Promise<{ userId: string; machineId: string }> {
+): Promise<{ userId: string; machineId: string; orgId: string | null }> {
 	const token = extractToken(request);
 	if (!token) {
 		throw new ApiError(401, "unauthorized", "Missing machine token");

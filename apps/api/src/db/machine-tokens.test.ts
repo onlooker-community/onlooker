@@ -6,6 +6,7 @@ import {
 	revokeMachineToken,
 	verifyMachineToken,
 } from "./machine-tokens.js";
+import { createOrgWithOwner } from "./orgs.js";
 import { createUser } from "./queries.js";
 
 const db = () => env.DB;
@@ -64,6 +65,7 @@ describe("verifyMachineToken", () => {
 		expect(await verifyMachineToken(db(), token)).toEqual({
 			userId,
 			machineId: id,
+			orgId: null,
 		});
 	});
 
@@ -138,5 +140,39 @@ describe("listMachineTokens", () => {
 		expect(machine.name).toBe("work laptop");
 		expect(JSON.stringify(machine)).not.toContain("onlk_");
 		expect(JSON.stringify(machine)).not.toContain("token_hash");
+	});
+});
+
+describe("a token bound to an org", () => {
+	let orgId: string;
+
+	beforeEach(async () => {
+		orgId = (await createOrgWithOwner(db(), "Acme", userId)).id;
+	});
+
+	it("carries the org through verification", async () => {
+		const created = await createMachineToken(db(), userId, "laptop", orgId);
+
+		const verified = await verifyMachineToken(db(), created.token);
+
+		expect(verified).toMatchObject({ userId, orgId });
+	});
+
+	it("verifies a token minted without an org as private-only", async () => {
+		// Every token in production today is this one. Null here is what keeps
+		// a deploy from changing what an existing machine may push.
+		const created = await createMachineToken(db(), userId, "laptop");
+
+		const verified = await verifyMachineToken(db(), created.token);
+
+		expect(verified?.orgId).toBeNull();
+	});
+
+	it("reports the org in the list", async () => {
+		await createMachineToken(db(), userId, "laptop", orgId);
+
+		const [summary] = await listMachineTokens(db(), userId);
+
+		expect(summary.org_id).toBe(orgId);
 	});
 });

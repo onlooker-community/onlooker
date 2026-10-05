@@ -1015,6 +1015,10 @@ export async function mockDataApi(
 				...machine,
 				inventory_at: machine.inventory_at ?? null,
 				plugin_count: mockPluginCount(inventory),
+				// Every mock machine is private-only - nothing here can yet mint one
+				// bound to an org - so this is always null, matching what a real
+				// token minted without one returns.
+				org_id: null,
 			})),
 		});
 	}
@@ -1042,7 +1046,10 @@ export async function mockDataApi(
 
 		// The raw token appears here and nowhere else, ever - the same promise
 		// handleCreateMachine makes. Nothing above stored it.
-		return json({ id, name, token: mintMockMachineToken() }, 201);
+		//
+		// org_id is always null: nothing in the mock yet mints a token bound to
+		// an org, matching a real mint that names none.
+		return json({ id, name, token: mintMockMachineToken(), org_id: null }, 201);
 	}
 
 	// Before the DELETE branch below, which matches on the same prefix. A
