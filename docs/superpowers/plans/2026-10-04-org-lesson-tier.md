@@ -423,8 +423,11 @@ Append to `apps/api/src/db/orgs.ts`:
  * `org_memberships` by `user_id`, which `org_memberships_user_id_idx` exists
  * for.
  *
- * Ordered by id so the statement a given reader produces is stable, which is
- * what lets pool-query-plan.test.ts compare plans across runs.
+ * Ordered by id so one reader's statement is byte-identical between runs, which
+ * is worth having on its own: an unordered IN list makes two otherwise
+ * identical reads produce two different prepared statements. Do not justify it
+ * by pool-query-plan.test.ts - that test uses the default noOrgIds and binds no
+ * org id at all, so the dependency would be fictitious.
  *
  * Membership only. A pending invite is not membership, and if it were counted
  * here an invitation would read the org's lessons before anybody accepted it.
@@ -675,25 +678,40 @@ observed, because the old ones named a resolver that no longer exists:
 		expect(idsIn(page)).toEqual([]);
 	});
 
-	// THE REGRESSION TEST for the bug this stage fixes. Alice belongs to orgs A
-	// and B; the lesson was shared with A; Carol is in B only. Under the
-	// shipped predicate - `visibility = 'org' AND user_id IN (<org-mates>)` -
-	// Carol shares an org with Alice, so she read it. Under this one she does
-	// not, because the lesson names the org rather than the author.
+	// THE REGRESSION TEST for the bug this stage fixes, and the one test here
+	// that must go through the PRODUCTION entry point rather than injecting a
+	// resolver.
 	//
-	// Step 10 proves this test can fail. Do not mark this task done until it
-	// has been watched failing against the old disjunct.
-	it("does not leak an org lesson through an author the reader shares a DIFFERENT org with", async () => {
-		await seedFor(theirs, { visibility: "org" }, "org-a");
+	// Corrected 2026-10-04 after the Task 2 review: the first version of this
+	// test injected `async () => ["org-b"]` into readPool, which made it
+	// operationally identical to the "different org" case above and unable to
+	// fail. The resolver's semantics are half of the bug. Reverting the
+	// predicate alone, with an injected resolver, binds org ids against
+	// `user_id`, matches nobody, and fails closed - so the ablation passed
+	// while proving nothing. See Step 10, which now restores both halves.
+	it("does not leak an org lesson to a reader who shares only a DIFFERENT org with its author", async () => {
+		// Alice belongs to orgs A and B; the lesson is shared with A; Carol
+		// belongs to B only. Carol and Alice share an org, which is exactly
+		// what the old predicate keyed on - it bound the reader's org-MATES
+		// against lessons.user_id, so sharing ANY org with the author was
+		// enough to read the lesson.
+		const alice = (await createUser(db(), "alice@example.com", "hash", "Alice")).id;
+		const carol = (await createUser(db(), "carol@example.com", "hash", "Carol")).id;
+		const bob = (await createUser(db(), "bob@example.com", "hash", "Bob")).id;
+		const orgA = await createOrgWithOwner(db(), "Org A", alice);
+		const orgB = await createOrgWithOwner(db(), "Org B", alice);
+		await addMembership(db(), orgA.id, bob, "member");
+		await addMembership(db(), orgB.id, carol, "member");
 
-		const carol = await readPool(
-			db(),
-			{ userId: mine },
-			{ limit: 50 },
-			async () => ["org-b"],
-		);
+		const sharedWithA = await seedFor(alice, { visibility: "org" }, orgA.id);
 
-		expect(idsIn(carol)).toEqual([]);
+		expect(idsIn(await listLessonsPage(db(), carol, { limit: 50 }))).toEqual([]);
+
+		// The positive half, so this cannot pass by the fixture being empty or
+		// the lesson being unreadable to everyone: Bob, in org A, does see it.
+		expect(idsIn(await listLessonsPage(db(), bob, { limit: 50 }))).toEqual([
+			sharedWithA.id,
+		]);
 	});
 
 	it("matches nothing for an org lesson with a NULL org_id", async () => {
@@ -710,13 +728,29 @@ observed, because the old ones named a resolver that no longer exists:
 		expect(idsIn(page)).toEqual([]);
 	});
 
-	it("still hides a private lesson from a reader in the same org", async () => {
+	it("still hides a private lesson that carries an org_id", async () => {
 		// Org membership widens `org`, never `private`.
-		await seedFor(theirs, { visibility: "private" }, "org-a");
+		//
+		// The column is written directly because the writer refuses this state
+		// on purpose: createLessonsWithFeed stamps org_id only onto rows whose
+		// visibility is 'org'. Seeding it through the writer - as the first
+		// version of this test did - produces a NULL org_id and a test that
+		// passes for the wrong reason, proving only that NULL matches nothing.
+		// Building the row by hand is what makes this prove the real claim:
+		// the predicate requires `visibility = 'org'` AND the org match, so a
+		// private row that somehow acquired an org is still private.
+		const priv = await seedFor(theirs, { visibility: "private" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(orgRow.id, priv.id)
+			.run();
 
-		const page = await readPool(db(), { userId: mine }, { limit: 50 }, async () => [
-			"org-a",
-		]);
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => [orgRow.id],
+		);
 
 		expect(idsIn(page)).toEqual([]);
 	});
@@ -783,6 +817,56 @@ the suite's `beforeEach` — add
 `await db().prepare("DELETE FROM orgs").run();` before the existing
 `DELETE FROM users`.
 
+**The single-lesson read needs the same three cases.** Added 2026-10-04 after
+the Task 2 review found this path untested: `readPoolLesson` shares the
+predicate with `readPool`, so a divergence between them means a lesson hidden
+from the list is reachable by id, or the reverse, and a dropped resolver
+argument at `getLessonForUser` fails nothing at all.
+
+```ts
+	it("returns an org lesson to a reader in that org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, orgRow.id);
+
+		const found = await readPoolLesson(db(), { userId: mine }, shared.id, async () => [
+			orgRow.id,
+		]);
+
+		expect((found as { id: string } | null)?.id).toBe(shared.id);
+	});
+
+	it("returns null for an org lesson to a reader in a different org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, orgRow.id);
+
+		expect(
+			await readPoolLesson(db(), { userId: mine }, shared.id, async () => [
+				"some-other-org",
+			]),
+		).toBeNull();
+	});
+```
+
+```ts
+describe("getLessonForUser", () => {
+	it("resolves the reader's orgs", async () => {
+		// The by-id twin of the listLessonsPage wiring test, and the one that
+		// catches a missing fourth argument on the readPoolLesson call.
+		const ada = (await createUser(db(), "ada3@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme Two", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		const found = await getLessonForUser(db(), mine, shared.id);
+
+		expect(found).not.toBeNull();
+	});
+});
+```
+
+`orgRow` is whatever real org the suite's fixture creates — foreign keys are
+enforced, so a literal id will not do (Global Constraint 14). `"some-other-org"`
+is a non-existent org id, which is fine: it is bound into the predicate, never
+written to a column.
+
 - [ ] **Step 9: Run every suite the rekey touches**
 
 ```bash
@@ -802,7 +886,24 @@ the surrounding lines rather than trusting a single-line match.
 
 - [ ] **Step 10: Prove the regression test can fail (REQUIRED)**
 
-Temporarily restore the author-keyed disjunct in `visibilityPredicate`:
+**Restore BOTH halves of the old design, not just the predicate.** This is the
+correction the Task 2 review forced, and the reasoning is the point: the bug was
+a predicate and a resolver agreeing on the wrong key. Reverting the predicate
+alone leaves the new resolver handing it org ids, which it then binds against
+`user_id`, which matches nobody — it fails closed, the test passes, and the
+ablation proves nothing. Nor is hand-editing the test's injected resolver a
+substitute: that measures a variant nobody ships.
+
+First, temporarily give `orgIdsForUser` the old org-mates semantics:
+
+```sql
+SELECT DISTINCT m2.user_id AS id
+FROM org_memberships m1
+JOIN org_memberships m2 ON m2.org_id = m1.org_id
+WHERE m1.user_id = ?
+```
+
+Second, temporarily restore the author-keyed disjunct in `visibilityPredicate`:
 
 ```ts
 			visible.push(
@@ -812,17 +913,18 @@ Temporarily restore the author-keyed disjunct in `visibilityPredicate`:
 			);
 ```
 
-and in the regression test only, pass `async () => [theirs]` as the resolver, so
-the old predicate is given the input it used to receive.
-
 ```bash
 pnpm --filter @onlooker/api test -- pool
 ```
 
-Expected: "does not leak an org lesson through an author the reader shares a
-DIFFERENT org with" FAILS, returning the lesson id. Restore both edits, re-run,
-confirm green. Report both runs with their output. A test for a bug nobody has
-watched fail is not evidence the bug is fixed.
+Expected: "does not leak an org lesson to a reader who shares only a DIFFERENT
+org with its author" FAILS on its first assertion, with Carol seeing the lesson
+shared with an org she does not belong to. That failure is the bug, reproduced.
+Restore both edits, re-run, confirm green. Report both runs with their output.
+
+If it does NOT leak under that pair, stop and escalate rather than adjusting the
+test until it fails: that result would mean the bug's shape is misunderstood, and
+every test built on that understanding needs rechecking.
 
 - [ ] **Step 11: Commit**
 
