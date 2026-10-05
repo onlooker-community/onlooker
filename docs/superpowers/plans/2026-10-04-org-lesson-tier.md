@@ -66,12 +66,34 @@ paid for, most of them during Stage 1.
     `<type>(<scope>): <subject> :emoji:`, American English, why-focused body,
     subject ≤72 chars including the emoji.
 13. **American English** in code, comments, docs and commit messages.
+14. **drizzle-kit v0.22.8 silently drops `ON DELETE` from an `ALTER TABLE ADD
+    COLUMN`** — measured during Task 1, 2026-10-04. Its
+    `SQLiteAlterTableAddColumnConvertor` builds the inline reference from
+    `tableTo`/`columnsTo` alone and never reads `onDelete`, unlike the
+    CREATE-TABLE path that produced `0010`'s correct `ON DELETE cascade`. So
+    `schema.ts` and `meta/*_snapshot.json` recorded `set null` while the only
+    artifact that executes said nothing, and **nothing in this repo would have
+    caught it**: `generate-expected-schema.mjs` records columns and indexes but
+    no foreign-key actions, so the deployed-schema drift check is blind to the
+    whole class. The generated file carries drizzle's own instruction that this
+    case "has to be done manually". Ruled by the repo owner on 2026-10-04:
+    **hand-complete the delete action and comment why.** This is the single
+    exception to "generated, never hand-written" below — a future generate
+    diffs against the snapshot rather than against the SQL, so the edit
+    introduces no drift. Any later migration in this plan that adds a column
+    with a foreign key must check the emitted SQL for the same omission.
 
 ## File Structure
 
 **`packages/db/src/schema.ts`** — `lessons.org_id` and `machine_tokens.org_id`,
 both nullable, both `onDelete: "set null"`.
-**`packages/db/migrations/0011_*.sql`** — generated, never hand-written.
+**`packages/db/migrations/0011_*.sql`** — generated, then hand-completed with the
+`ON DELETE SET NULL` drizzle-kit drops on an `ALTER TABLE ADD COLUMN`. See
+Global Constraint 14; that omission is the only edit a generated migration in
+this plan may carry.
+**`apps/api/src/db/schema-foreign-keys.test.ts`** *(new)* — `PRAGMA
+foreign_key_list` against a database built from the real migrations, because no
+drift check covers foreign-key actions.
 **`packages/db/src/expected-schema.ts`** — regenerated; the deployed-schema
 drift check reads it.
 
@@ -240,8 +262,27 @@ version, and drizzle-kit sometimes answers that by recreating the table. A
 recreate is not acceptable here: `lessons` holds production rows.
 
 Paste the file's actual contents into your task report. If it rebuilds a table
-rather than altering it, STOP and report that — do not hand-edit the generated
-SQL and do not proceed.
+rather than altering it, STOP and report that — do not hand-edit a rebuild and
+do not proceed.
+
+**Then check the `REFERENCES` clause for a missing `ON DELETE SET NULL`, and
+complete it by hand if it is missing.** drizzle-kit v0.22.8 drops the delete
+action on an `ALTER TABLE ADD COLUMN` and says in its own emitted comment that
+this case must be handled manually — the full measurement is Global Constraint
+14. Add a short comment above the statements recording what was completed and
+why, so a later reader does not revert it to the generator's output. This is the
+only hand edit a generated migration in this plan may carry: a table rebuild
+still stops the task.
+
+Then prove the action reached the database rather than asserting it, because
+`generate-expected-schema.mjs` tracks no foreign-key actions and would not
+notice. Create `apps/api/src/db/schema-foreign-keys.test.ts` asserting that
+`PRAGMA foreign_key_list` reports `SET NULL` for `lessons.org_id` and
+`machine_tokens.org_id` against `env.DB`, which has the real migrations applied
+— `apps/api/src/db/pool-query-plan.test.ts` is the nearest precedent for using a
+migrated database directly. Read the PRAGMA's real output first and match its
+actual column names and casing. Ablate it: drop the action from the `lessons`
+statement, watch the test fail naming the wrong action, restore, re-run.
 
 - [ ] **Step 5: Regenerate the expected schema**
 
@@ -260,19 +301,31 @@ The build is not optional — the generator imports `../dist/schema.js`. Confirm
 pnpm --filter @onlooker/db test
 pnpm --filter @onlooker/db typecheck
 pnpm --filter @onlooker/db lint
+pnpm --filter @onlooker/api test
+pnpm --filter @onlooker/api typecheck
+pnpm --filter @onlooker/api lint
 bash scripts/source-guards.test.sh
 ```
 
 Expected: the two new cases pass, every existing case still passes, 42 source
-guards pass.
+guards pass. `apps/api` is in scope because the foreign-key test lives there,
+and because adding a column to `lessons` can break an existing test that
+enumerates the table's columns exactly — if one does, update it in place rather
+than working around it.
 
 - [ ] **Step 7: Commit**
 
 Route through `/git-workflow:commit`. Stage exactly:
 `packages/db/src/schema.ts`, `packages/db/src/__tests__/schema.test.ts`,
 `packages/db/src/expected-schema.ts`, the new `packages/db/migrations/0011_*.sql`,
-`packages/db/migrations/meta/_journal.json`, and the `meta/0011_snapshot.json`
-drizzle wrote beside it.
+`packages/db/migrations/meta/_journal.json`, the `meta/0011_snapshot.json`
+drizzle wrote beside it, and
+`apps/api/src/db/schema-foreign-keys.test.ts`.
+
+Two commits rather than one: the generator's honest output first, then the
+documented hand completion of the delete action with its test. That history
+tells a later reader what the tool produced and what a human added, which one
+squashed commit cannot.
 
 ---
 
