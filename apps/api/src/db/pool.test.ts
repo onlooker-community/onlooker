@@ -413,6 +413,37 @@ describe("org attribution", () => {
 		expect(page.authors).toEqual({});
 	});
 
+	it("does not name the author of a public lesson that carries an org_id", async () => {
+		// Unreachable through the writer - createLessonsWithFeed stamps org_id
+		// only onto 'org' rows and nothing mutates visibility afterward - so
+		// the row is built by hand, as "still hides a private lesson from a
+		// reader in the same org" is.
+		//
+		// This is what makes the filter's `visibility === "org"` clause
+		// load-bearing rather than merely redundant. Without a test that can
+		// tell the clause's presence from its absence, a later reader deletes
+		// it as dead weight with every test still green - and then a write
+		// path that ever puts an org on a public row spills a name onto the
+		// one tier whose disclosure guarantee is an unlinkable author_key and
+		// nothing else.
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind("org-a", pub.id)
+			.run();
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// The row is still returned - it is public - and still unattributed.
+		expect(idsIn(page)).toContain(pub.id);
+		expect(page.authors).toEqual({});
+	});
+
 	it("does not name the author of an org lesson the reader reaches as its owner", async () => {
 		// Reached through `user_id = ?` rather than through the org disjunct:
 		// the reader left the org, and their own lesson is still theirs to see.
