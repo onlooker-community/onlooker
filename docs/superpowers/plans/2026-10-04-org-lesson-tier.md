@@ -1416,6 +1416,37 @@ describe("org attribution", () => {
 		expect(page.authors).toEqual({});
 	});
 
+	it("does not name the author of a public lesson that carries an org_id", async () => {
+		// Added 2026-10-05, after Task 5's implementer found that the case
+		// above cannot distinguish the filter's `visibility === "org"` clause
+		// from its absence. createLessonsWithFeed stamps org_id only onto
+		// 'org' rows and nothing mutates visibility afterward, so a public
+		// row's org_id is always NULL and the filter's `orgId !== null` clause
+		// excludes it unaided.
+		//
+		// The state is therefore built by hand, as "still hides a private
+		// lesson that carries an org_id" is. That is what makes the clause
+		// load-bearing rather than merely redundant: without a test that can
+		// tell its presence from its absence, a later reader deletes it as
+		// dead weight with every test still green - and then any write path
+		// that ever puts an org on a public row spills a real name onto the
+		// one tier whose disclosure guarantee is an unlinkable author_key and
+		// nothing else.
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(orgRow.id, pub.id)
+			.run();
+
+		const page = await readPool(db(), { userId: mine }, { limit: 50 }, async () => [
+			orgRow.id,
+		]);
+
+		// Still returned - it is public - and still unattributed.
+		expect(idsIn(page)).toContain(pub.id);
+		expect(page.authors).toEqual({});
+	});
+
 	it("does not name the author of an org lesson the reader reaches as its owner", async () => {
 		// Reached through `user_id = ?` rather than through the org disjunct:
 		// the reader left the org, and their own lesson is still theirs to see.
@@ -1726,9 +1757,19 @@ bash scripts/source-guards.test.sh
 - [ ] **Step 10: Prove the public-row test can fail (REQUIRED)**
 
 Temporarily drop `r.visibility === "org" &&` from the `orgReached` filter.
-Confirm "does not name the author of a public lesson" FAILS. Restore, re-run,
-report both. This is the assertion that keeps attribution from reaching the
-public tier.
+Confirm **"does not name the author of a public lesson that carries an
+org_id"** FAILS, with `authors` carrying the public lesson's id. Restore,
+re-run, report both. This is the assertion that keeps attribution from reaching
+the public tier.
+
+Corrected 2026-10-05: this step originally named the plain "does not name the
+author of a public lesson" case, which stays green under the ablation. A public
+row written through `createLessonsWithFeed` always has a NULL `org_id`, so the
+filter's `orgId !== null` clause excludes it whether or not the visibility clause
+is there. The hand-built row is the only fixture that can tell the two apart —
+which is the general lesson, not a detail: an ablation that passes has either
+found a redundant guard or an inadequate fixture, and the two are
+indistinguishable until you construct the state the writer refuses to produce.
 
 - [ ] **Step 11: Commit**
 
