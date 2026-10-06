@@ -254,11 +254,19 @@ export async function readPool(
 	// org-reached when it is an 'org' row whose org is one of the reader's: a
 	// public row is not, and neither is the reader's own 'org' row once they
 	// have left that org.
+	//
+	// Bounded the same way visibilityPredicate bounds its own IN list, even
+	// though this filter cannot misbehave on an unbounded list - it runs
+	// in-memory over rows the predicate already admitted, so a row whose org
+	// was truncated away by the predicate never reaches here at all. The
+	// bound is applied anyway so this, the predicate, and orgAuthorName all
+	// agree on one reader-org list rather than each truncating it separately.
+	const boundedReaderOrgIds = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
 	const orgReached = kept.filter(
 		(r) =>
 			r.visibility === "org" &&
 			r.orgId !== null &&
-			readerOrgIds.includes(r.orgId),
+			boundedReaderOrgIds.includes(r.orgId),
 	);
 	const authors = await authorNames(db, orgReached);
 
@@ -369,8 +377,17 @@ export async function readPoolLesson(
  * code path may widen what it sees; leaving its shape and its single caller
  * list alone is worth more than saving a primary-key lookup here.
  *
- * Returns null for every row this reader did not reach through the org
- * disjunct, so it cannot be used to ask who owns an arbitrary lesson id.
+ * This is a name lookup, not an authorization check: its WHERE tests
+ * `visibility`/`org_id` but omits the retracted-and-blocked-author boundary
+ * `visibilityPredicate` applies, because duplicating that logic into a
+ * second query would be a worse defect than this function existing at all -
+ * `visibilityPredicate` stays the only place a visibility predicate is
+ * constructed. That means this must never be called for a lesson id that
+ * has not already been established as readable. Its one caller,
+ * `getLessonForUser` in lessons.ts, satisfies that by construction: it
+ * already returned null (lessons.ts, `if (!lesson) return null`) for any
+ * row `readPoolLesson` - which DOES apply the full predicate - would not
+ * admit, before this ever runs.
  */
 export async function orgAuthorName(
 	db: D1Database,
@@ -379,15 +396,20 @@ export async function orgAuthorName(
 ): Promise<string | null> {
 	if (readerOrgIds.length === 0) return null;
 
+	// Bounded the same way visibilityPredicate bounds its own IN list - a
+	// reader in more orgs than the cap must not blow D1's bound-parameter
+	// limit and turn a readable deep link into a 500. See MAX_READER_ORGS_BOUND.
+	const bounded = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+
 	const row = await db
 		.prepare(
 			`SELECT u.name AS name FROM lessons l
 			 JOIN users u ON u.id = l.user_id
 			 WHERE l.id = ?
 			   AND l.visibility = 'org'
-			   AND l.org_id IN (${readerOrgIds.map(() => "?").join(", ")})`,
+			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
 		)
-		.bind(lessonId, ...readerOrgIds)
+		.bind(lessonId, ...bounded)
 		.first<{ name: string | null }>();
 
 	return row?.name ?? null;

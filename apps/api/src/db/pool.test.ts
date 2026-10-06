@@ -460,6 +460,23 @@ describe("org attribution", () => {
 		expect(page.authors).toEqual({});
 	});
 
+	it("names the reader's own org lesson in an org they still belong to", async () => {
+		const own = await seedFor(mine, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// Their own name, which is harmless and is what the filter produces:
+		// the org match decides attribution, not which disjunct admitted the
+		// row. `mine` was created with the name "Ada" in this suite's
+		// beforeEach.
+		expect(page.authors[own.id]).toBe("Ada");
+	});
+
 	it("omits the key for an author who has no name", async () => {
 		// createUser's fourth parameter is `name?: string`, which does not
 		// accept `null` under this repo's strict compiler settings - so the
@@ -490,5 +507,51 @@ describe("org attribution", () => {
 		const page = await readPool(db(), { userId: mine }, { limit: 50 });
 
 		expect(page.authors).toEqual({});
+	});
+});
+
+describe("getLessonForUser's author_name", () => {
+	it("names the author of an org lesson the reader reaches through their org", async () => {
+		const ada = (await createUser(db(), "ada4@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme Three", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		expect((await getLessonForUser(db(), mine, shared.id))?.author_name).toBe(
+			"Ada",
+		);
+	});
+
+	it("names nobody for a public lesson", async () => {
+		const pub = await seedFor(theirs, { visibility: "public" });
+
+		expect(
+			(await getLessonForUser(db(), mine, pub.id))?.author_name,
+		).toBeNull();
+	});
+
+	it("names nobody for a public lesson that carries an org_id", async () => {
+		// The ablation target. Built by hand for the reason the sidecar's
+		// equivalent test gives: through the writer a public row's org_id is
+		// always NULL, so the org_id clause alone would exclude it and the
+		// visibility clause would be untestable.
+		await addMembership(db(), "org-a", mine, "member");
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind("org-a", pub.id)
+			.run();
+
+		expect(
+			(await getLessonForUser(db(), mine, pub.id))?.author_name,
+		).toBeNull();
+	});
+
+	it("names nobody for the reader's own private lesson", async () => {
+		const own = await seedFor(mine, { visibility: "private" });
+
+		expect(
+			(await getLessonForUser(db(), mine, own.id))?.author_name,
+		).toBeNull();
 	});
 });
