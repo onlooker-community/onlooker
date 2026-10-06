@@ -896,8 +896,15 @@ export async function mockDataApi(
 		// `owned_ids` is empty for the same reason `lessons` is - the mock pool
 		// holds nothing - but it is sent rather than omitted, because the real
 		// API always sends it and the detail pane reads it to decide whether
-		// to offer a status control at all.
-		return json({ lessons: [], cursor: null, has_more: false, owned_ids: [] });
+		// to offer a status control at all. `authors` is empty for the same
+		// reason: the mock pool has no org rows to attribute.
+		return json({
+			lessons: [],
+			cursor: null,
+			has_more: false,
+			owned_ids: [],
+			authors: {},
+		});
 	}
 
 	if (poolPath === "/api/activity" && (options.method ?? "GET") === "GET") {

@@ -452,6 +452,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -473,6 +477,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -544,6 +552,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
