@@ -41,6 +41,7 @@ const REQUIRED_ROLE: Record<
 	"POST /api/orgs/:id/invites": "owner",
 	"GET /api/orgs/:id/invites": "owner",
 	"DELETE /api/orgs/:id/invites/:inviteId": "owner",
+	"POST /api/orgs/:id/lessons/:lessonId/retract": "owner",
 	"GET /api/orgs/invites/verify": "none",
 	"POST /api/orgs/invites/accept": "none",
 };
@@ -61,6 +62,7 @@ beforeEach(async () => {
 function concrete(path: string, targetUserId: string): string {
 	return path
 		.replace(":inviteId", crypto.randomUUID())
+		.replace(":lessonId", "01NOPE00000000000000000000")
 		.replace(":userId", targetUserId)
 		.replace(":id", orgId);
 }

@@ -50,20 +50,25 @@ export function call(
 }
 
 /**
- * Clear the org tables, the lesson tables, and users, in foreign-key order.
+ * Clear the org tables and users, in foreign-key order.
  *
  * Table state persists between tests within a file, so every org suite calls
  * this in beforeEach.
+ *
+ * Deliberately does NOT touch `lessons` or `lesson_feed`. The source guard in
+ * scripts/source-guards.test.sh forbids a query against those tables anywhere
+ * under apps/api/src except db/lessons.ts, db/pool.ts, and files ending in
+ * `.test.ts` - this file does not, so a DELETE here would be the one query
+ * outside an allowed location, caught by the guard's own text match (`DELETE
+ * FROM` satisfies its `FROM` pattern). Every sibling suite that seeds a lesson
+ * (db/lessons.test.ts, db/pool.test.ts, routes/lessons-browser.test.ts) clears
+ * these two tables itself, in its own beforeEach, for the same reason -
+ * orgs-lessons.test.ts does the same.
  */
 export async function resetOrgTables(): Promise<void> {
 	const db = env.DB;
 	await db.prepare("DELETE FROM org_invites").run();
 	await db.prepare("DELETE FROM org_memberships").run();
 	await db.prepare("DELETE FROM orgs").run();
-	// Lessons first, explicitly. They cascade from users, but a suite that
-	// seeds an org lesson should not depend on whether the test D1 enforces
-	// foreign keys to get a clean table.
-	await db.prepare("DELETE FROM lesson_feed").run();
-	await db.prepare("DELETE FROM lessons").run();
 	await db.prepare("DELETE FROM users").run();
 }

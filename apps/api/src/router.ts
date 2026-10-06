@@ -43,6 +43,7 @@ import {
 	handleRenameOrg,
 	handleResendVerification,
 	handleResetPassword,
+	handleRetractOrgLesson,
 	handleRevokeInvite,
 	handleRevokeMachine,
 	handleSetMemberRole,
@@ -456,6 +457,13 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleRevokeInvite,
+	},
+	{
+		method: "POST",
+		path: "/api/orgs/:id/lessons/:lessonId/retract",
+		auth: "session",
+		cors: "app",
+		handler: handleRetractOrgLesson,
 	},
 	{
 		// Unauthenticated: the credential is the token in the query string, the

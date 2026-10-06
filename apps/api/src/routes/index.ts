@@ -64,6 +64,7 @@ export {
 	handleListInvites,
 	handleRevokeInvite,
 } from "./orgs-invites";
+export { handleRetractOrgLesson } from "./orgs-lessons";
 export {
 	handleListMembers,
 	handleRemoveMember,
