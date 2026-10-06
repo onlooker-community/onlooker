@@ -382,3 +382,82 @@ describe("getLessonForUser", () => {
 		expect(found?.own).toBe(false);
 	});
 });
+
+describe("org attribution", () => {
+	it("names the author of an org lesson the reader reaches through their org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// `theirs` was created with the name "Bob" in this suite's beforeEach.
+		expect(page.authors).toEqual({ [shared.id]: "Bob" });
+	});
+
+	it("does not name the author of a public lesson", async () => {
+		// A public row carries author_key alone, so the anonymous surface's
+		// disclosure is unchanged and nothing links an author across tiers.
+		await seedFor(theirs, { visibility: "public" });
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(page.authors).toEqual({});
+	});
+
+	it("does not name the author of an org lesson the reader reaches as its owner", async () => {
+		// Reached through `user_id = ?` rather than through the org disjunct:
+		// the reader left the org, and their own lesson is still theirs to see.
+		const own = await seedFor(mine, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => [],
+		);
+
+		expect(idsIn(page)).toEqual([own.id]);
+		expect(page.authors).toEqual({});
+	});
+
+	it("omits the key for an author who has no name", async () => {
+		// createUser's fourth parameter is `name?: string`, which does not
+		// accept `null` under this repo's strict compiler settings - so the
+		// nameless user is inserted directly rather than through createUser.
+		const nameless = crypto.randomUUID();
+		await db()
+			.prepare(
+				"INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, NULL)",
+			)
+			.bind(nameless, "no@example.com", "hash")
+			.run();
+		const shared = await seedFor(nameless, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(idsIn(page)).toEqual([shared.id]);
+		expect(page.authors).toEqual({});
+	});
+
+	it("is always present, even with nothing to attribute", async () => {
+		// Same rule as owned_ids: a client must not have to tell "nobody is
+		// named" apart from "this server does not say".
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+
+		expect(page.authors).toEqual({});
+	});
+});

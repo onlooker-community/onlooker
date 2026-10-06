@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 import { orgIdsForUser } from "./orgs.js";
-import { readPool, readPoolLesson } from "./pool.js";
+import { orgAuthorName, readPool, readPoolLesson } from "./pool.js";
 import {
 	BROWSE_DEFAULT_LIMIT,
 	BROWSE_MAX_LIMIT,
@@ -590,8 +590,22 @@ export async function getLessonForUser(
 	db: D1Database,
 	userId: string,
 	id: string,
-): Promise<{ lesson: unknown; own: boolean } | null> {
-	const lesson = await readPoolLesson(db, { userId }, id, orgIdsForUser);
+): Promise<{
+	lesson: unknown;
+	own: boolean;
+	author_name: string | null;
+} | null> {
+	// Resolved once into a local rather than passed as orgIdsForUser twice:
+	// one membership read per request instead of two, and the name this
+	// resolves and the predicate readPoolLesson applies cannot disagree about
+	// which orgs the reader is in.
+	const readerOrgIds = await orgIdsForUser(db, userId);
+	const lesson = await readPoolLesson(
+		db,
+		{ userId },
+		id,
+		async () => readerOrgIds,
+	);
 	if (!lesson) return null;
 
 	// A second statement rather than widening readPoolLesson's SELECT, because
@@ -604,5 +618,9 @@ export async function getLessonForUser(
 		.bind(id, userId)
 		.first<{ own: number }>();
 
-	return { lesson, own: owned !== null };
+	// Resolved from the same org list the predicate used, so the name can only
+	// appear for a row the org disjunct is what admitted.
+	const author_name = await orgAuthorName(db, readerOrgIds, id);
+
+	return { lesson, own: owned !== null, author_name };
 }

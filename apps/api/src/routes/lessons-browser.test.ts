@@ -1,5 +1,9 @@
 import { env, SELF } from "cloudflare:test";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createLessonsWithFeed } from "../db/lessons.js";
+import { createOrgWithOwner } from "../db/orgs.js";
+import { createUser, getUserByEmail } from "../db/queries.js";
 import {
 	BASE,
 	lesson,
@@ -17,6 +21,8 @@ beforeEach(async () => {
 	await db().prepare("DELETE FROM lessons").run();
 	await db().prepare("DELETE FROM machine_tokens").run();
 	await db().prepare("DELETE FROM sessions").run();
+	await db().prepare("DELETE FROM org_memberships").run();
+	await db().prepare("DELETE FROM orgs").run();
 	await db().prepare("DELETE FROM users").run();
 	const minted = await mintMachine("browser@example.com");
 	accessToken = minted.accessToken;
@@ -57,6 +63,7 @@ describe("GET /api/lessons", () => {
 			cursor: null,
 			has_more: false,
 			owned_ids: [],
+			authors: {},
 		});
 	});
 
@@ -360,5 +367,34 @@ describe("ownership, so the browser knows what it may act on", () => {
 		).json()) as { lesson: { id: string }; own: boolean };
 
 		expect(body).toMatchObject({ lesson: { id: written.id }, own: false });
+	});
+});
+
+/**
+ * db/pool.test.ts already proves readPool computes the sidecar. What it
+ * cannot prove is that the sidecar survives the trip through the route - the
+ * same gap the ownership tests above close for owned_ids.
+ */
+describe("org attribution, at the route", () => {
+	it("names org authors in the browse response", async () => {
+		// Two accounts in one org: the milestone's done-when, at the route.
+		const reader = await getUserByEmail(db(), "browser@example.com");
+		const org = await createOrgWithOwner(
+			db(),
+			"Acme",
+			(reader as { id: string }).id,
+		);
+		const author = (await createUser(db(), "author@example.com", "hash", "Bob"))
+			.id;
+
+		const shared = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), author, [shared], org.id);
+
+		const body = (await (await browse("/api/lessons")).json()) as {
+			lessons: Array<{ id: string }>;
+			authors: Record<string, string>;
+		};
+
+		expect(body.authors[shared.id]).toBe("Bob");
 	});
 });

@@ -78,6 +78,16 @@ export interface PoolFilters {
 export const MAX_READER_ORGS_BOUND = 50;
 
 /**
+ * How many author ids the name lookup binds per statement.
+ *
+ * Matches `lessons.ts`'s ID_LOOKUP_CHUNK rather than disagreeing with it: D1
+ * caps bound parameters at 100, and a page can carry up to BROWSE_MAX_LIMIT
+ * rows, so a page of 200 distinct org authors would exceed the cap in one
+ * statement.
+ */
+const AUTHOR_LOOKUP_CHUNK = 50;
+
+/**
  * The only place a visibility predicate is constructed.
  *
  * Two parts, ANDed. First, what this principal may see at all. Second, the
@@ -211,19 +221,26 @@ export async function readPool(
 	// each body.
 	const { results } = await db
 		.prepare(
-			`SELECT body, user_id FROM lessons
+			`SELECT body, user_id, visibility, org_id FROM lessons
 			 WHERE ${where}
 			 ORDER BY promoted_at DESC, id DESC
 			 LIMIT ?`,
 		)
 		.bind(...binds)
-		.all<{ body: string; user_id: string }>();
+		.all<{
+			body: string;
+			user_id: string;
+			visibility: string;
+			org_id: string | null;
+		}>();
 
 	const rows = results ?? [];
 	const hasMore = rows.length > limit;
 	const kept = (hasMore ? rows.slice(0, limit) : rows).map((r) => ({
 		lesson: JSON.parse(r.body) as { id: string; promoted_at: string },
 		userId: r.user_id,
+		visibility: r.visibility,
+		orgId: r.org_id,
 	}));
 	const page = kept.map((r) => r.lesson);
 
@@ -232,6 +249,19 @@ export async function readPool(
 	const ownedIds = principal
 		? kept.filter((r) => r.userId === principal.userId).map((r) => r.lesson.id)
 		: [];
+
+	// Attributed only where the org disjunct is what matched. A row is
+	// org-reached when it is an 'org' row whose org is one of the reader's: a
+	// public row is not, and neither is the reader's own 'org' row once they
+	// have left that org.
+	const orgReached = kept.filter(
+		(r) =>
+			r.visibility === "org" &&
+			r.orgId !== null &&
+			readerOrgIds.includes(r.orgId),
+	);
+	const authors = await authorNames(db, orgReached);
+
 	const last = page.at(-1);
 	const cursor =
 		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
@@ -252,7 +282,54 @@ export async function readPool(
 		cursor,
 		hasMore,
 		ownedIds,
+		authors,
 	};
+}
+
+/**
+ * Author names for the org rows on one page, by lesson id.
+ *
+ * A second statement rather than a join in the pool read, for two reasons. The
+ * repo's own precedent is this shape - see getLessonForUser's note on not
+ * widening readPoolLesson's SELECT - and a LEFT JOIN in the main statement
+ * would change the plan that pool-query-plan.test.ts pins, for a lookup that
+ * most pages do not need at all.
+ *
+ * Runs no statement when a page carries no org rows, which is every anonymous
+ * read and most authenticated ones.
+ */
+async function authorNames(
+	db: D1Database,
+	orgReached: Array<{ lesson: { id: string }; userId: string }>,
+): Promise<Record<string, string>> {
+	if (orgReached.length === 0) return {};
+
+	const ids = [...new Set(orgReached.map((r) => r.userId))];
+	const names = new Map<string, string>();
+
+	for (let at = 0; at < ids.length; at += AUTHOR_LOOKUP_CHUNK) {
+		const chunk = ids.slice(at, at + AUTHOR_LOOKUP_CHUNK);
+		const { results } = await db
+			.prepare(
+				`SELECT id, name FROM users
+				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+			)
+			.bind(...chunk)
+			.all<{ id: string; name: string | null }>();
+
+		for (const row of results ?? []) {
+			// A null or empty name produces no key at all. The server does not
+			// invent a label for a member who never set one.
+			if (row.name) names.set(row.id, row.name);
+		}
+	}
+
+	const authors: Record<string, string> = {};
+	for (const row of orgReached) {
+		const name = names.get(row.userId);
+		if (name) authors[row.lesson.id] = name;
+	}
+	return authors;
 }
 
 /**
@@ -281,4 +358,37 @@ export async function readPoolLesson(
 		.first<{ body: string }>();
 
 	return row ? (JSON.parse(row.body) as unknown) : null;
+}
+
+/**
+ * The name of an org lesson's author, for a reader who reaches it through the
+ * org disjunct - or null.
+ *
+ * A separate function from readPoolLesson rather than a widening of it. That
+ * one is also the anonymous public route's read, and its contract is that no
+ * code path may widen what it sees; leaving its shape and its single caller
+ * list alone is worth more than saving a primary-key lookup here.
+ *
+ * Returns null for every row this reader did not reach through the org
+ * disjunct, so it cannot be used to ask who owns an arbitrary lesson id.
+ */
+export async function orgAuthorName(
+	db: D1Database,
+	readerOrgIds: string[],
+	lessonId: string,
+): Promise<string | null> {
+	if (readerOrgIds.length === 0) return null;
+
+	const row = await db
+		.prepare(
+			`SELECT u.name AS name FROM lessons l
+			 JOIN users u ON u.id = l.user_id
+			 WHERE l.id = ?
+			   AND l.visibility = 'org'
+			   AND l.org_id IN (${readerOrgIds.map(() => "?").join(", ")})`,
+		)
+		.bind(lessonId, ...readerOrgIds)
+		.first<{ name: string | null }>();
+
+	return row?.name ?? null;
 }

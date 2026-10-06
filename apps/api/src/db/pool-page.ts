@@ -66,4 +66,24 @@ export interface LessonPage {
 	 * Empty for an anonymous caller, who owns nothing by construction.
 	 */
 	ownedIds: string[];
+	/**
+	 * The names of the authors of the org lessons on this page, by lesson id.
+	 *
+	 * Carried beside the documents for the reason `ownedIds` is: a lesson body
+	 * is the published contract's shape and nothing server-computed belongs in
+	 * it.
+	 *
+	 * Only rows that reached the reader through the ORG disjunct appear here. A
+	 * public row carries `author_key` alone, so the anonymous surface's
+	 * disclosure is unchanged and nothing links an author across tiers; a row
+	 * the reader reached as its owner needs no attribution.
+	 *
+	 * A key is absent when the author has no name set. The server does not
+	 * substitute an email - a different disclosure class - and does not invent
+	 * a label.
+	 *
+	 * Always present, empty for an anonymous caller and for a page with no org
+	 * rows on it.
+	 */
+	authors: Record<string, string>;
 }

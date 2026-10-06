@@ -78,6 +78,8 @@ export async function handleBrowseLessons(
 			// must not have to tell "you own none of these" apart from "this
 			// server does not say".
 			owned_ids: page.ownedIds,
+			// Always present, even when empty, for the reason owned_ids is.
+			authors: page.authors,
 		});
 	} catch (error) {
 		if (error instanceof InvalidCursorError) {
@@ -109,7 +111,11 @@ export async function handleGetLesson(
 	// it did not already hold from the list - a deep link, or one past the
 	// loaded page. Without `own` here that caller cannot tell whether to offer
 	// a retract, and would offer one that 404s.
-	return Response.json({ lesson: found.lesson, own: found.own });
+	return Response.json({
+		lesson: found.lesson,
+		own: found.own,
+		author_name: found.author_name,
+	});
 }
 
 export async function handleBrowserTransition(
