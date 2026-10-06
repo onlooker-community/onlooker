@@ -1887,18 +1887,28 @@ ordinary one, so this is a third named function — the rule
 
 - [ ] **Step 1: Teach the test reset about lessons**
 
-In `apps/api/src/test-support/orgs.ts`, inside `resetOrgTables`, before the
-`users` delete:
+**Corrected 2026-10-05.** This step originally said to add the lesson deletes to
+`resetOrgTables` in `apps/api/src/test-support/orgs.ts`. That **fails
+`scripts/source-guards.test.sh`**: the guard allows a `lessons`/`lesson_feed`
+query only in `db/lessons.ts`, `db/pool.ts`, and `*.test.ts`, and
+`test-support/orgs.ts` is none of those. It is a support module, not a test file,
+and the guard is right to catch it.
+
+Put the deletes in the new suite's own `beforeEach` instead, which is what
+`db/lessons.test.ts`, `db/pool.test.ts` and `routes/lessons-browser.test.ts`
+already do:
 
 ```ts
 	// Lessons first, explicitly. They cascade from users, but a suite that
-	// seeds an org lesson should not depend on whether the test D1 enforces
-	// foreign keys to get a clean table.
-	await db.prepare("DELETE FROM lesson_feed").run();
-	await db.prepare("DELETE FROM lessons").run();
+	// seeds an org lesson should not depend on cascade behavior to get a clean
+	// table. Here rather than in test-support/orgs.ts because that file is not
+	// a *.test.ts and the source guard forbids a lesson query there.
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
 ```
 
-Update the function's doc comment to say it clears the lesson tables too.
+then call `resetOrgTables()` as the sibling org suites do. Leave
+`test-support/orgs.ts` unchanged.
 
 - [ ] **Step 2: Write the failing db test**
 
@@ -2185,10 +2195,32 @@ function concrete(path: string, targetUserId: string): string {
 }
 ```
 
-A non-existent lesson id is the right value here: this guard asserts the ROLE
-refusal, which must happen before the lesson is looked up at all. If the role
-check runs second, the member case returns 404 for the wrong reason — which is
-exactly what Step 9 checks.
+**Use a REAL lesson id, and this is the correction that matters most in this
+task.** The step originally specified a non-existent id, reasoning that the role
+refusal must happen before the lesson is looked up. Task 6's implementer proved
+that reasoning backwards: with a nonexistent id, `retractOrgLesson` returns null
+whatever the caller's role is, so the handler's 404-on-missing-lesson is
+**indistinguishable** from the 404 the role check produces — and removing
+`requireOrgRole` from the handler entirely leaves this guard green. For a
+parameterized sub-resource route, the guard was proving only that the table has
+an entry, not that a role check runs.
+
+So create a real org lesson in that suite's `beforeEach` and substitute its id.
+`:lessonId` appears on exactly one route, so this changes nothing else in the
+table. Then confirm the guard FAILS when `requireOrgRole` is removed — that is
+what makes it a guard rather than a table-completeness check.
+
+Note while editing that fixture: the enumeration suite calls **every**
+`/api/orgs` route against whatever ids `concrete()` supplies, destructive ones
+included. A real lesson in the fixture means another route may now act on a real
+row where it previously hit nothing. Check the suite passes for the right
+reasons, not merely that it passes.
+
+**`:inviteId` has the same blind spot and is deliberately left alone.**
+`DELETE /api/orgs/:id/invites/:inviteId` is a shipped route whose enumeration
+case also uses a nonexistent id, so it too cannot currently distinguish a role
+refusal from a not-found. Widening a shared guard over shipped behavior is the
+repo owner's call, and it is recorded for them rather than fixed here.
 
 - [ ] **Step 8: Run the gates**
 
