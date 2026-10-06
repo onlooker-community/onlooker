@@ -370,6 +370,44 @@ export async function retractAnyLesson(
 }
 
 /**
+ * Retract a lesson shared with one org, on that org's authority.
+ *
+ * THE THIRD retract function, and separate from both others on purpose.
+ * `transitionLesson`'s `WHERE id = ? AND user_id = ?` is the user-facing
+ * guarantee that a caller cannot touch somebody else's lesson, and
+ * `retractAnyLesson` is the operator path. Widening either with an "and also
+ * org owners" argument would put a cross-owner write one wrong argument away
+ * from an ordinary transition. Three functions cannot be confused.
+ *
+ * Authorizes on the lesson's own `org_id` AND on `visibility = 'org'`. The
+ * visibility check is defense in depth against the write side: createLessons-
+ * WithFeed stamps the org only onto org-visible rows precisely so this path
+ * cannot reach a member's private lesson, and checking here too means one
+ * mistake is not enough.
+ *
+ * Returns the new seq, or null when the lesson does not exist, is not shared
+ * with this org, or is not an org lesson at all - the caller cannot tell those
+ * apart, which keeps the route from confirming another org's lesson ids.
+ *
+ * Appends to the AUTHOR's feed, like any other transition, so their mirror
+ * learns about it on the next delta pull. D6 is deliberate here: the lesson
+ * survives its author leaving the org, and this is the control that keeps that
+ * from making the operator the moderation queue for every customer.
+ */
+export async function retractOrgLesson(
+	db: D1Database,
+	orgId: string,
+	lessonId: string,
+): Promise<number | null> {
+	const stored = await probeLessonId(db, lessonId);
+	if (!stored) return null;
+	if (stored.visibility !== "org") return null;
+	if (stored.org_id !== orgId) return null;
+
+	return transitionLesson(db, stored.user_id, lessonId, "retracted", null);
+}
+
+/**
  * Read one window of a user's feed, joined to current state.
  *
  * user_id is the visibility filter and therefore the security boundary. It

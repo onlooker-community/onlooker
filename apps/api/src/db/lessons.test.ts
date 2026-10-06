@@ -7,6 +7,7 @@ import {
 	probeLessonId,
 	probeLessonIds,
 	readLessonDelta,
+	retractOrgLesson,
 } from "./lessons.js";
 import { createOrgWithOwner } from "./orgs.js";
 import { createUser } from "./queries.js";
@@ -441,5 +442,68 @@ describe("author_key", () => {
 		expect(row?.author_key).toBe(
 			(JSON.parse(row?.body ?? "{}") as { author_key: string }).author_key,
 		);
+	});
+});
+
+describe("retractOrgLesson", () => {
+	it("retracts a lesson shared with that org", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+
+		const seq = await retractOrgLesson(db(), org.id, written.id);
+
+		expect(seq).not.toBeNull();
+		expect((await probeLessonId(db(), written.id))?.status).toBe("retracted");
+	});
+
+	it("refuses a lesson shared with a different org", async () => {
+		// An owner of org B must not reach inside org A.
+		const orgA = await createOrgWithOwner(db(), "Acme", userId);
+		const orgB = await createOrgWithOwner(db(), "Beta", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], orgA.id);
+
+		expect(await retractOrgLesson(db(), orgB.id, written.id)).toBeNull();
+		expect((await probeLessonId(db(), written.id))?.status).toBe("active");
+	});
+
+	it("refuses a private lesson, even one carrying an org_id", async () => {
+		// Defense in depth with the write-side rule in createLessonsWithFeed:
+		// if a private row ever acquires an org_id, this path still refuses it.
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "private" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(org.id, written.id)
+			.run();
+
+		expect(await retractOrgLesson(db(), org.id, written.id)).toBeNull();
+		expect((await probeLessonId(db(), written.id))?.status).toBe("active");
+	});
+
+	it("appends to the AUTHOR's feed, not the retracting owner's", async () => {
+		// The author's mirror is what needs to learn the lesson is gone.
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+
+		await retractOrgLesson(db(), org.id, written.id);
+
+		const row = await db()
+			.prepare(
+				"SELECT user_id FROM lesson_feed WHERE lesson_id = ? AND kind = 'status'",
+			)
+			.bind(written.id)
+			.first<{ user_id: string }>();
+		expect(row?.user_id).toBe(userId);
+	});
+
+	it("returns null for an id that does not exist", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		expect(
+			await retractOrgLesson(db(), org.id, "01NOPE00000000000000000000"),
+		).toBeNull();
 	});
 });

@@ -50,7 +50,7 @@ export function call(
 }
 
 /**
- * Clear the org tables and users, in foreign-key order.
+ * Clear the org tables, the lesson tables, and users, in foreign-key order.
  *
  * Table state persists between tests within a file, so every org suite calls
  * this in beforeEach.
@@ -60,5 +60,10 @@ export async function resetOrgTables(): Promise<void> {
 	await db.prepare("DELETE FROM org_invites").run();
 	await db.prepare("DELETE FROM org_memberships").run();
 	await db.prepare("DELETE FROM orgs").run();
+	// Lessons first, explicitly. They cascade from users, but a suite that
+	// seeds an org lesson should not depend on whether the test D1 enforces
+	// foreign keys to get a clean table.
+	await db.prepare("DELETE FROM lesson_feed").run();
+	await db.prepare("DELETE FROM lessons").run();
 	await db.prepare("DELETE FROM users").run();
 }
