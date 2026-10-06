@@ -1477,11 +1477,75 @@ describe("org attribution", () => {
 
 		expect(page.authors).toEqual({});
 	});
+
+	it("names the reader's own org lesson in an org they still belong to", async () => {
+		// Added 2026-10-05: the sidecar's doc comment used to claim a row the
+		// reader reached as its owner "needs no attribution", which is false
+		// when BOTH disjuncts match. Attribution follows the org match, not the
+		// route the row arrived by, so a reader's own org lesson carries their
+		// own name - harmless, intended, and previously uncovered: the only
+		// own-row case tested the reader who had LEFT the org.
+		const own = await seedFor(mine, { visibility: "org" }, orgRow.id);
+
+		const page = await readPool(db(), { userId: mine }, { limit: 50 }, async () => [
+			orgRow.id,
+		]);
+
+		expect(page.authors[own.id]).toBe(nameOf(mine));
+	});
 });
 ```
 
 If `createUser`'s fourth parameter will not take `null`, insert the user with a
 raw `INSERT INTO users` in that test instead, and say so in your report.
+`nameOf(mine)` stands for whatever name the suite's `beforeEach` gives that
+account — read it rather than assuming.
+
+**The single-lesson path needs its own tests.** Added 2026-10-05 after the Task 5
+review found that nothing anywhere referenced `author_name` or `orgAuthorName`,
+and that deleting `l.visibility = 'org'` from `orgAuthorName` left every test
+green. Step 5 produced an entire output with no coverage.
+
+```ts
+describe("getLessonForUser's author_name", () => {
+	it("names the author of an org lesson the reader reaches through their org", async () => {
+		const ada = (await createUser(db(), "ada4@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme Three", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		expect((await getLessonForUser(db(), mine, shared.id))?.author_name).toBe("Ada");
+	});
+
+	it("names nobody for a public lesson", async () => {
+		const pub = await seedFor(theirs, { visibility: "public" });
+
+		expect((await getLessonForUser(db(), mine, pub.id))?.author_name).toBeNull();
+	});
+
+	it("names nobody for a public lesson that carries an org_id", async () => {
+		// The ablation target, hand-built for the same reason the sidecar's
+		// equivalent is: through the writer a public row's org_id is always
+		// NULL, so the org_id clause alone excludes it and the visibility
+		// clause stays untestable. getLessonForUser resolves REAL memberships,
+		// so the reader has to actually be in this org.
+		await addMembership(db(), orgRow.id, mine, "member");
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(orgRow.id, pub.id)
+			.run();
+
+		expect((await getLessonForUser(db(), mine, pub.id))?.author_name).toBeNull();
+	});
+
+	it("names nobody for the reader's own private lesson", async () => {
+		const own = await seedFor(mine, { visibility: "private" });
+
+		expect((await getLessonForUser(db(), mine, own.id))?.author_name).toBeNull();
+	});
+});
+```
 
 - [ ] **Step 2: Run them and watch them fail**
 
@@ -1503,10 +1567,15 @@ In `apps/api/src/db/pool-page.ts`, inside `LessonPage`:
 	 * is the published contract's shape and nothing server-computed belongs in
 	 * it.
 	 *
-	 * Only rows that reached the reader through the ORG disjunct appear here. A
-	 * public row carries `author_key` alone, so the anonymous surface's
-	 * disclosure is unchanged and nothing links an author across tiers; a row
-	 * the reader reached as its owner needs no attribution.
+	 * Attribution follows the ORG MATCH rather than the route a row arrived by,
+	 * and the distinction matters where both apply. A public row carries
+	 * `author_key` alone, so the anonymous surface's disclosure is unchanged and
+	 * nothing links an author across tiers. A reader's OWN org lesson, in an org
+	 * they still belong to, does appear here under their own name - harmless,
+	 * and corrected 2026-10-05 from a comment claiming such a row "needs no
+	 * attribution", which was false whenever both disjuncts matched. A row the
+	 * reader kept only by authoring it, in an org they have since left, carries
+	 * no name.
 	 *
 	 * A key is absent when the author has no name set. The server does not
 	 * substitute an email - a different disclosure class - and does not invent
@@ -1631,15 +1700,31 @@ Add to `pool.ts`, below `readPoolLesson`:
  * code path may widen what it sees; leaving its shape and its single caller
  * list alone is worth more than saving a primary-key lookup here.
  *
- * Returns null for every row this reader did not reach through the org
- * disjunct, so it cannot be used to ask who owns an arbitrary lesson id.
+ * NOT an authorization check, and corrected 2026-10-05 to stop implying it is.
+ * This WHERE omits the retracted-and-blocked-author boundary that
+ * visibilityPredicate applies, so the only reason it cannot be used to ask who
+ * owns an arbitrary lesson id is that its single caller - getLessonForUser -
+ * has already returned null for a row the reader may not read. Do not call it
+ * anywhere that has not established readability first.
+ *
+ * The boundary is deliberately NOT duplicated here: visibilityPredicate is the
+ * only place a visibility predicate is constructed, and a second copy of the
+ * retracted/blocked logic would be a worse defect than this comment was.
  */
 export async function orgAuthorName(
 	db: D1Database,
 	readerOrgIds: string[],
 	lessonId: string,
 ): Promise<string | null> {
-	if (readerOrgIds.length === 0) return null;
+	// Bounded the same way visibilityPredicate bounds its own list, and for the
+	// same reason: D1 caps bound parameters at 100. Added 2026-10-05 after the
+	// Task 5 review found this binding the unbounded list while the predicate
+	// truncated - a reader in 100+ orgs would have turned a readable deep link
+	// into a 500. The three places that consume this list now agree on one
+	// bounded form rather than leaving a later reader to work out why they
+	// differed.
+	const bounded = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+	if (bounded.length === 0) return null;
 
 	const row = await db
 		.prepare(
@@ -1647,9 +1732,9 @@ export async function orgAuthorName(
 			 JOIN users u ON u.id = l.user_id
 			 WHERE l.id = ?
 			   AND l.visibility = 'org'
-			   AND l.org_id IN (${readerOrgIds.map(() => "?").join(", ")})`,
+			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
 		)
-		.bind(lessonId, ...readerOrgIds)
+		.bind(lessonId, ...bounded)
 		.first<{ name: string | null }>();
 
 	return row?.name ?? null;
