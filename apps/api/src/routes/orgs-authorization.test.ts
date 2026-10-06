@@ -1,8 +1,11 @@
 import { env } from "cloudflare:test";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createLessonsWithFeed } from "../db/lessons.js";
 import { addMembership, createOrgWithOwner } from "../db/orgs.js";
 import { createUser } from "../db/queries.js";
 import { ROUTES } from "../router.js";
+import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
 	resetOrgTables,
@@ -15,6 +18,7 @@ let ada: string;
 let member: SignedUpUser;
 let outsider: SignedUpUser;
 let orgId: string;
+let lessonId: string;
 
 /**
  * Every /api/orgs route, with the role it requires.
@@ -51,18 +55,36 @@ const orgRoutes = () =>
 
 beforeEach(async () => {
 	await resetOrgTables();
+	// resetOrgTables deliberately does not touch these two - see its doc
+	// comment - so this suite, which now seeds a real org lesson below,
+	// clears them itself, the same way orgs-lessons.test.ts does.
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
+	resetLessonCounter();
+
 	ada = (await createUser(db(), "ada@example.com", "hash", "Ada")).id;
 	member = await signup("member@example.com");
 	outsider = await signup("outsider@example.com");
 	orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
 	await addMembership(db(), orgId, member.id, "member");
+
+	// A REAL lesson, not the placeholder ":lessonId" once was. With a
+	// nonexistent id, retractOrgLesson returns null for an owner and a
+	// non-owner alike, so the 404 a member gets back is indistinguishable
+	// from "no such lesson" - the enumeration guard would pass whether or
+	// not the route checked a role at all. A real, actually-shared lesson
+	// is what makes "a plain member gets 404 from every owner route" prove
+	// the role gate fired rather than the lookup failing.
+	const written = lesson({ visibility: "org" }) as TLesson;
+	await createLessonsWithFeed(db(), ada, [written], orgId);
+	lessonId = written.id;
 });
 
 /** Fill a route pattern with concrete ids for this fixture. */
 function concrete(path: string, targetUserId: string): string {
 	return path
 		.replace(":inviteId", crypto.randomUUID())
-		.replace(":lessonId", "01NOPE00000000000000000000")
+		.replace(":lessonId", lessonId)
 		.replace(":userId", targetUserId)
 		.replace(":id", orgId);
 }
