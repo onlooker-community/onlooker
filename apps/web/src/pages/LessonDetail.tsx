@@ -70,7 +70,7 @@ function Chips({ values }: { values: string[] }) {
 
 export default function LessonDetail() {
 	const { id } = useParams();
-	const { lessons, ownedIds, poolSettled, patchLesson } =
+	const { lessons, ownedIds, authors, poolSettled, patchLesson } =
 		useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
@@ -89,6 +89,15 @@ export default function LessonDetail() {
 	 * describe different lessons.
 	 */
 	const [fetchedOwn, setFetchedOwn] = useState(false);
+	/**
+	 * The author name for whatever `fetched` holds, the same way `fetchedOwn`
+	 * answers for ownership - `authors` cannot answer for a deep-linked
+	 * lesson that is on no loaded page, which is the one case `fetched` is
+	 * for.
+	 */
+	const [fetchedAuthorName, setFetchedAuthorName] = useState<string | null>(
+		null,
+	);
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const [actionError, setActionError] = useState<{
@@ -136,8 +145,9 @@ export default function LessonDetail() {
 		if (listed) {
 			setFetched(listed);
 			setFetchedOwn(ownedIds.includes(listed.id));
+			setFetchedAuthorName(authors[listed.id] ?? null);
 		}
-	}, [listed, ownedIds]);
+	}, [listed, ownedIds, authors]);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -155,10 +165,11 @@ export default function LessonDetail() {
 		let live = true;
 		setFetchError(null);
 		getLesson(id)
-			.then(({ lesson, own }) => {
+			.then(({ lesson, own, author_name }) => {
 				if (live) {
 					setFetched(lesson);
 					setFetchedOwn(own);
+					setFetchedAuthorName(author_name);
 				}
 			})
 			.catch((error) => {
@@ -189,6 +200,16 @@ export default function LessonDetail() {
 	const own = listed
 		? ownedIds.includes(listed.id)
 		: fetched?.id === id && fetchedOwn;
+
+	/**
+	 * Same split as `own`: `authors` answers for a listed lesson, and
+	 * `fetchedAuthorName` answers for one only this pane holds.
+	 */
+	const authorName = listed
+		? (authors[listed.id] ?? null)
+		: fetched?.id === id
+			? fetchedAuthorName
+			: null;
 
 	const transition = async (next: BrowserStatus) => {
 		if (!id || pending) return;
@@ -429,6 +450,12 @@ export default function LessonDetail() {
 							{evidence.artifact_ids.length === 1 ? "" : "s"}
 						</p>
 					</Field>
+
+					{authorName ? (
+						<Field label="Author">
+							<p style={{ margin: 0 }}>{authorName}</p>
+						</Field>
+					) : null}
 
 					<Field label="Provenance">
 						{/*

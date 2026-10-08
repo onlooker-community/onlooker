@@ -195,6 +195,23 @@ describe("the list pane", () => {
 	});
 });
 
+describe("org authorship", () => {
+	it("names the author of an org lesson", async () => {
+		withPool([VITE], { authors: { [VITE.id]: "Bob" } });
+		await at("/lessons");
+		expect(await screen.findByText("Bob")).toBeDefined();
+	});
+
+	// The server omits the key rather than inventing a label when a member
+	// has no name set, and the row must not invent one either.
+	it("renders no author line when the server names nobody", async () => {
+		withPool([VITE], { authors: {} });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(screen.queryByTestId("lesson-author")).not.toBeInTheDocument();
+	});
+});
+
 describe("the detail pane", () => {
 	// The whole reason the list returns full bodies. If this ever issues a
 	// request, the in-memory read has quietly stopped working and every click
