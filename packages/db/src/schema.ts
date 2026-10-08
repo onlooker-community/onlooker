@@ -273,6 +273,9 @@ export const lessons = sqliteTable(
 			table.promoted_at,
 			table.id,
 		),
+		visibilityOrgPromotedAtIdx: index(
+			"lessons_visibility_org_promoted_at_idx",
+		).on(table.visibility, table.org_id, table.promoted_at, table.id),
 	}),
 );
 

@@ -405,20 +405,99 @@ they used, and an error about the lesson would send them to the wrong place.
 The token-minting surface gains an org picker. Existing tokens keep `org_id`
 NULL and stay private-only, so nothing in production changes behavior on deploy.
 
-### The index, and a plan this document will not predict *(proposed)*
+### The index, measured *(measured)*
 
-The org disjunct wants an index on `(visibility, org_id, promoted_at, id)`. But
-`apps/api/src/db/pool-query-plan.test.ts` hands `readPool` a recording stand-in
-for D1, captures the statement actually prepared and EXPLAINs it — and
-`pool.ts:64-80` documents that a disjunction already forces a `MULTI-INDEX OR`
-plus `USE TEMP B-TREE FOR ORDER BY`, because a union of index scans is not
-ordered by `promoted_at`.
+The org disjunct wanted an index on `(visibility, org_id, promoted_at, id)`.
+But `apps/api/src/db/pool-query-plan.test.ts` hands `readPool` a recording
+stand-in for D1, captures the statement actually prepared and EXPLAINs it —
+and `pool.ts:64-82` documents that a disjunction already forces a
+`MULTI-INDEX OR` plus `USE TEMP B-TREE FOR ORDER BY`, because a union of index
+scans is not ordered by `promoted_at`. A third disjunct changes that plan in
+ways a spec should not guess, so the plan was **re-measured** against a
+database built from the real migrations rather than predicted here. Stating a
+predicted plan would have been the same error the repo's own notes keep
+catching — the measured output below is what settled it, on 2026-10-08.
 
-A third disjunct changes that plan in ways a spec should not guess. So the plan
-is **re-measured** against a database built from the real migrations, and the
-measured output is written into this document before the index is considered
-settled. Stating a predicted plan here would be the same error the repo's own
-notes keep catching.
+**Before any new index.** `readPool` for a member of two orgs (`org-a`,
+`org-b`), captured and EXPLAINed against the real migrations:
+
+```
+MULTI-INDEX OR
+INDEX 1
+SEARCH lessons USING INDEX lessons_visibility_promoted_at_idx (visibility=?)
+INDEX 2
+SEARCH lessons USING INDEX lessons_user_id_idx (user_id=?)
+INDEX 3
+SEARCH lessons USING INDEX lessons_visibility_promoted_at_idx (visibility=?)
+CORRELATED SCALAR SUBQUERY 1
+SEARCH b USING COVERING INDEX sqlite_autoindex_lesson_author_blocks_1 (author_key=?)
+USE TEMP B-TREE FOR ORDER BY
+```
+
+Already no `SCAN lessons` — the existing `lessons_visibility_promoted_at_idx`
+already lets the planner fold the org branch (INDEX 3) into the same
+`MULTI-INDEX OR` as the public and own-rows branches. But INDEX 3's seek
+matches `visibility=?` only. `org_id IN (?, ?)` is checked afterward, as an
+in-memory filter over every `'org'`-visibility row in the whole table,
+regardless of which org it belongs to — the thing the spec worried a third
+disjunct might cost, just not the worst case it imagined.
+
+**Candidate 1: `(org_id, promoted_at, id)`**, the org-leading ordering this
+document reserved judgment on. Measured plan: byte-for-byte identical to the
+"before" plan above. SQLite never chose it — INDEX 3 kept using
+`lessons_visibility_promoted_at_idx (visibility=?)`. An org-leading index asks
+the planner to drive the OR-term from an `IN (?, ?)` seek rather than a bare
+equality, and here it did not prefer that trade over the equality it already
+had on `visibility`. Deleted without being kept; see below for what that
+involved.
+
+**Candidate 2: `(visibility, org_id, promoted_at, id)`**, the ordering this
+document's "proposed" section named. Added as
+`lessons_visibility_org_promoted_at_idx` (migration
+`0012_classy_dreaming_celestial.sql`). Measured plan:
+
+```
+MULTI-INDEX OR
+INDEX 1
+SEARCH lessons USING INDEX lessons_visibility_org_promoted_at_idx (visibility=?)
+INDEX 2
+SEARCH lessons USING INDEX lessons_user_id_idx (user_id=?)
+INDEX 3
+SEARCH lessons USING INDEX lessons_visibility_org_promoted_at_idx (visibility=? AND org_id=?)
+CORRELATED SCALAR SUBQUERY 1
+SEARCH b USING COVERING INDEX sqlite_autoindex_lesson_author_blocks_1 (author_key=?)
+USE TEMP B-TREE FOR ORDER BY
+```
+
+INDEX 3 now seeks on `visibility=? AND org_id=?` — both equalities the org
+branch actually carries (`visibility = 'org' AND org_id IN (?, ?)`), matched
+directly by the b-tree rather than filtered in memory after the fact. A reader
+in an org now costs the lesson rows belonging to *their* orgs, not every
+`'org'`-visibility row any org has ever produced.
+
+**Decision: keep candidate 2.** The measured plan improves exactly as Step 4
+asked it to: the org branch's `SEARCH` gained a second matched column, meaning
+the seek is now bounded by the reader's own orgs instead of by every org's
+`'org'`-visibility rows. Candidate 1 is deleted — its migration, journal
+entry and snapshot never survived past the measurement that showed it changed
+nothing, and `expected-schema.ts` was regenerated without it before candidate
+2 was ever added, so nothing from it is in the tree.
+
+One side effect, recorded because a reader of the plan above might otherwise
+wonder: adding `lessons_visibility_org_promoted_at_idx` also changed which
+index answers the ordinary two-way disjunction's **public** branch (INDEX 1,
+both plans above) — from `lessons_visibility_promoted_at_idx` to the new
+index. Both lead with `visibility`, so the rewrite is still available either
+way and the plan shape is unchanged (still `MULTI-INDEX OR`, still sorted by
+a temp B-tree); this is the planner's tie-break between two equally-qualifying
+indexes, not a regression. It broke one assertion's exact index-name match in
+`pool-query-plan.test.ts`, which was loosened to accept either visibility-led
+index for that branch — see the comment on
+`uses a visibility-leading index for the public disjunct` in that file. The
+purely anonymous read (no OR, no org branch) keeps using the older, narrower
+index, because that one orders by `promoted_at` directly and the new one does
+not; losing that would have cost the one query path that gets a free sort
+today.
 
 ### Attribution *(proposed)*
 

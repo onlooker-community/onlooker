@@ -73,6 +73,17 @@ async function planForAuthenticatedBrowse(): Promise<string[]> {
 	return planFor(captured[0]);
 }
 
+/** What `readPool` prepares for a signed-in browse by a member of two orgs. */
+async function planForOrgBrowse(): Promise<string[]> {
+	const { captured, db } = recorder();
+	await readPool(db, { userId: "u1" }, { limit: 50 }, async () => [
+		"org-a",
+		"org-b",
+	]);
+	expect(captured).toHaveLength(1);
+	return planFor(captured[0]);
+}
+
 describe("the pool read's query plan", () => {
 	// The regression itself. `SCAN lessons` means every row of every user's
 	// lessons is read to answer one person's first page.
@@ -100,10 +111,20 @@ describe("the pool read's query plan", () => {
 	// Named, because which index answers this is the whole point: the
 	// disjunction needs one on `visibility` before SQLite will consider the
 	// union rewrite at all.
-	it("uses the visibility index for the public disjunct", async () => {
+	//
+	// Matches either visibility-leading index by name. Once
+	// lessons_visibility_org_promoted_at_idx existed (added for the org
+	// browse - see "the pool read's query plan" measurement in the design
+	// spec), SQLite started answering THIS branch from it instead of
+	// lessons_visibility_promoted_at_idx: both carry `visibility` as their
+	// first column, so either resolves the union rewrite, and the planner's
+	// tie-break between them is not this test's business to pin.
+	it("uses a visibility-leading index for the public disjunct", async () => {
 		const plan = await planForAuthenticatedBrowse();
 
-		expect(plan.join("\n")).toMatch(/lessons_visibility_promoted_at_idx/);
+		expect(plan.join("\n")).toMatch(
+			/lessons_visibility_(?:org_)?promoted_at_idx/,
+		);
 	});
 
 	/**
@@ -118,5 +139,36 @@ describe("the pool read's query plan", () => {
 		const plan = (await planFor(captured[0])).join("\n");
 		expect(plan).not.toMatch(/\bSCAN lessons\b/);
 		expect(plan).toMatch(/lessons_visibility_promoted_at_idx/);
+	});
+
+	it("does not scan the whole lessons table for an org member", async () => {
+		const plan = await planForOrgBrowse();
+
+		expect(plan.join("\n")).not.toMatch(/\bSCAN lessons\b/);
+	});
+
+	it("reaches the lesson rows through an index for an org member", async () => {
+		// The positive half, so the guard cannot pass by the table ceasing to
+		// be read at all. Matched against `lessons` specifically: the
+		// blocklist's NOT EXISTS contributes its own "USING COVERING INDEX"
+		// line, so a bare /USING INDEX/ passes while the table is scanned end
+		// to end.
+		const plan = await planForOrgBrowse();
+
+		expect(plan.join("\n")).toMatch(/SEARCH lessons USING (COVERING )?INDEX/);
+	});
+
+	// Named, because which index answers the org branch is the whole point of
+	// 0012_classy_dreaming_celestial.sql: measured without it, the org branch
+	// seeks on `visibility=?` alone and relies on an in-memory filter for
+	// `org_id`; measured with it, the seek matches `visibility=? AND
+	// org_id=?` directly - see "The index, measured" in
+	// docs/superpowers/specs/2026-10-04-org-visibility-tier-design.md.
+	it("seeks the org branch on both visibility and org_id", async () => {
+		const plan = await planForOrgBrowse();
+
+		expect(plan.join("\n")).toMatch(
+			/lessons_visibility_org_promoted_at_idx \(visibility=\? AND org_id=\?\)/,
+		);
 	});
 });

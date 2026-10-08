@@ -162,6 +162,11 @@ export const EXPECTED_SCHEMA = {
 				columns: ["user_id", "promoted_at", "id"],
 			},
 			{
+				name: "lessons_visibility_org_promoted_at_idx",
+				unique: false,
+				columns: ["visibility", "org_id", "promoted_at", "id"],
+			},
+			{
 				name: "lessons_visibility_promoted_at_idx",
 				unique: false,
 				columns: ["visibility", "promoted_at", "id"],

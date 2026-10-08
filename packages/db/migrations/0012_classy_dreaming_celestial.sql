@@ -1,0 +1,1 @@
+CREATE INDEX `lessons_visibility_org_promoted_at_idx` ON `lessons` (`visibility`,`org_id`,`promoted_at`,`id`);
