@@ -2792,9 +2792,24 @@ org is resolved after a first pass and only if one does:
 	// hottest machine route - to serve the minority that share with an org
 	// would be the wrong trade. A private or public push runs exactly the
 	// queries it ran before this change.
+	// `ORG_UNRESOLVED`, not null. Corrected 2026-10-08 after Task 9's
+	// implementer found that this plan's two steps contradicted each other and
+	// would have shipped A GATE THAT NEVER OPENS: Step 3 has `screen` refuse
+	// any org lesson when the token's org is null, and this pass called it with
+	// exactly that - so no entry ever carried a parsed org lesson, `wantsOrg`
+	// was never true, the org was never resolved, and the tier stayed shut
+	// while every refusal test passed. The failure mode is the dangerous kind:
+	// the work looks done and the feature is absent.
+	//
+	// So pass 1 passes a third state meaning "not asked yet", distinct from
+	// both a real org id and a resolved absence. A module-level symbol rather
+	// than `undefined`, because `undefined` is also what a forgotten argument
+	// looks like, and conflating the two admits an org lesson unchecked:
+	//
+	//   const ORG_UNRESOLVED = Symbol("org not yet resolved");
 	const parsed = candidates.map((candidate) => {
 		try {
-			return { screened: screen(candidate, null) };
+			return { screened: screen(candidate, ORG_UNRESOLVED) };
 		} catch (error) {
 			return { failed: unexpected(idOf(candidate), error) };
 		}
@@ -2900,6 +2915,28 @@ The most important ablation in this plan. Temporarily remove the
 
 Confirm "shows an account outside the org none of them" FAILS by returning the
 lesson. Restore, re-run, confirm green, report both runs.
+
+**The outsider must belong to an org of their own, and this plan originally got
+that wrong.** Corrected 2026-10-08. `pool.ts` builds the org disjunct only
+inside `if (bounded.length > 0)`, so a reader in NO orgs never has it built at
+all — their read is answered by "public OR mine", and removing the `org_id`
+comparison cannot move that assertion by any input. The brief's outsider was in
+no org, so the stage's single most important ablation was unfalsifiable as
+specified.
+
+Give the outsider their own org (`POST /api/orgs`, so the fixture goes through
+the real route) and the `org_id` comparison becomes the only thing between them
+and the other org's lesson. Then the ablation genuinely hands them the lesson.
+Keep a **separate** case for the zero-org reader: that is a real and different
+branch — refused before the disjunct is built rather than by it — and it
+deserves its own assertion rather than being conflated with this one.
+
+This was the fourth time in this stage that an ablation passed because the
+fixture could not reach the state the guard exists for. The general rule, which
+is now worth more than any of the four instances: **when an ablation passes, the
+guard is either redundant or the fixture is inadequate, and the two are
+indistinguishable until you check which branch the fixture actually reaches.**
+Check the branch, not the assertion.
 
 - [ ] **Step 8: Record the operational facts**
 
