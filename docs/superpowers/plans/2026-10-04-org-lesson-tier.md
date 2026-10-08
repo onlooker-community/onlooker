@@ -2426,11 +2426,28 @@ bash scripts/source-guards.test.sh
 
 - [ ] **Step 8: Prove the new plan assertions can fail (REQUIRED)**
 
-Temporarily drop `lessons_visibility_promoted_at_idx` from
-`packages/db/src/schema.ts`, regenerate the migration, and confirm the org-browse
-assertions FAIL with `SCAN lessons`. Restore everything — schema, migration,
-journal, snapshot, `expected-schema.ts` — and re-run. Report both runs, and
-confirm with `git status` that nothing from the ablation survived.
+**Drop BOTH visibility-leading indexes, not one.** Corrected 2026-10-08 from
+"drop `lessons_visibility_promoted_at_idx`", which stopped working the moment
+this task added a second visibility-leading index: either one alone satisfies
+SQLite's OR-to-index-union rewrite, so the surviving index backstops the dropped
+one and no `SCAN lessons` appears. Task 7's implementer ran the literal version
+anyway, reported that an unrelated test broke instead, and then ran the real one
+— which is the right order of operations and worth copying.
+
+So: temporarily drop both `lessons_visibility_promoted_at_idx` and
+`lessons_visibility_org_promoted_at_idx` from `packages/db/src/schema.ts`,
+regenerate the migration, and confirm every org-browse and public-browse plan
+assertion FAILS with `SCAN lessons`. Restore everything — schema, migration,
+journal, snapshot, `expected-schema.ts` — re-run, and confirm with `git status`
+that nothing from the ablation survived. A from-scratch
+`build` + `generate:expected-schema` producing a zero diff is the strongest
+confirmation available and is cheap; do that too.
+
+Note the general shape of what happened here, because it will recur: **adding a
+second mechanism that satisfies the same property makes the single-mechanism
+ablation stop proving anything.** It is not that the guard weakened — it is that
+the fixture now has a backstop, and the ablation has to remove every path to the
+property, not just the one that used to be the only one.
 
 - [ ] **Step 9: Commit**
 
