@@ -181,22 +181,28 @@ describe("POST /lessons", () => {
 		expect(results[0].error).not.toMatch(/pull before you push/i);
 	});
 
-	// Public opened 2026-10-03; org did not, and the message still names the
-	// tier so a client can tell "not yet" from "never".
+	// This case used to assert "the org tier is not open yet". All three tiers
+	// are open as of ONL-141, so the refusal it pins has changed rather than
+	// disappeared: `machineToken` is minted with no org (see mintMachineToken),
+	// and an org lesson pushed with such a token is refused for the credential.
 	//
-	// org stays shut for a specific reason, not caution: `OrgIds` in
-	// db/pool.ts now resolves real membership, but nothing yet stamps org_id
-	// on a write and this gate still refuses the tier outright. Task 9 opens
-	// it, alongside whatever else that stage requires.
-	it("rejects org with a message naming the tier", async () => {
+	// It stays in THIS file, beside the split-jury case, because the push
+	// gate's refusal vocabulary is a property of the gate: a reader here
+	// should not have to open routes/lessons-org.test.ts to learn what the
+	// gate admits. That suite proves the same refusal end to end against a
+	// real org, which is a different claim.
+	it("rejects an org lesson pushed with a token bound to no org", async () => {
 		const response = await push(machineToken, [lesson({ visibility: "org" })]);
 
 		const { results } = (await response.json()) as {
 			results: Array<{ outcome: string; error: string }>;
 		};
 		expect(results[0].outcome).toBe("invalid");
-		expect(results[0].error).toMatch(/not open/i);
-		expect(results[0].error).toMatch(/org/);
+		// Names the TOKEN. An error about the tier would read as "wait for a
+		// tier that already exists" and send the author to the wrong place -
+		// the same distinction the split-jury case below turns on.
+		expect(results[0].error).toMatch(/token/i);
+		expect(results[0].error).not.toMatch(/not open/i);
 	});
 
 	it("accepts a public lesson whose jury was unanimous", async () => {
