@@ -104,6 +104,43 @@ describe("the mock's machine lifecycle", () => {
 		expect(JSON.stringify(body)).toContain("invalid_name");
 	});
 
+	// Mirrors handleCreateMachine's own membership check (apps/api's
+	// machines.ts) rather than minting a token bound to an org the picker
+	// never actually offered this account - a real gap the contract cannot
+	// see, since neither side's shape changes.
+	it("404s a mint bound to an org the account does not belong to", async () => {
+		const response = await fetchMock("/api/machines", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({
+				name: "work laptop",
+				org_id: "org-does-not-exist",
+			}),
+		});
+		expect(response.status).toBe(404);
+		const body = (await response.json()) as { error?: { code?: string } };
+		expect(JSON.stringify(body)).toContain("not_found");
+	});
+
+	// The positive case beside the refusal above: "org-acme" is the one org
+	// MOCK_ORG seeds every account into.
+	it("mints bound to the org the account belongs to", async () => {
+		const response = await fetchMock("/api/machines", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({ name: "work laptop", org_id: "org-acme" }),
+		});
+		expect(response.status).toBe(201);
+		const created = (await response.json()) as { org_id: string | null };
+		expect(created.org_id).toBe("org-acme");
+	});
+
 	it("marks a revoked machine rather than dropping it from the list", async () => {
 		const { id } = (await (await mint("stolen laptop")).json()) as {
 			id: string;

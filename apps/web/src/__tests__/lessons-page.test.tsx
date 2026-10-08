@@ -241,6 +241,36 @@ describe("the detail pane", () => {
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
 	});
 
+	// The author name reaches the detail pane through the same `authors` map
+	// the row reads, carried on through LessonsContext rather than refetched -
+	// the same split LessonDetail.tsx's `own` already makes for ownership.
+	it("also names the author in the detail pane for a listed lesson", async () => {
+		withPool([VITE], { authors: { [VITE.id]: "Bob" } });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// Two matches, not one - matching the "vite" tag's own precedent
+		// above: the row's own line (covered by "names the author of an org
+		// lesson" in the org authorship block) plus the detail pane's. A
+		// single match would mean only the row rendered it and the detail
+		// pane did not.
+		expect(screen.getAllByText("Bob").length).toBe(2);
+	});
+
+	// The one path `authors` cannot answer for - a lesson on no loaded page -
+	// so only author_name on getLesson's own response can name it here.
+	it("names the author of a lesson reached only by deep link", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: true,
+			author_name: "Carol",
+		});
+		await at(`/lessons/${D1.id}`);
+
+		expect(await screen.findByText("Carol")).toBeDefined();
+	});
+
 	// A pasted link to a lesson outside the loaded pages. This is the one case
 	// memory cannot answer, and the only reason GET /api/lessons/:id exists.
 	it("fetches a lesson the loaded page does not hold", async () => {

@@ -1044,6 +1044,14 @@ export async function mockDataApi(
 		// createMachine in machinesApi.ts - the browser omits the key for a
 		// private-only mint rather than sending it as null.
 		const orgId = typeof body.org_id === "string" ? body.org_id : null;
+		// Mirrors handleCreateMachine's membership check: 404, not 403, for an
+		// org the account does not belong to - matching orgs/authorize.ts, a
+		// non-member must not be able to tell a real org apart from one that
+		// does not exist. The mock has only the one org any account belongs
+		// to (MOCK_ORG above), so anything else refuses the same way.
+		if (orgId !== null && orgId !== MOCK_ORG.id) {
+			throw new AuthApiError(404, "not_found", "No such org");
+		}
 
 		mockMachineCounter += 1;
 		const id = `mock-machine-${mockMachineCounter}`;
