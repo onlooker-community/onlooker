@@ -112,13 +112,22 @@ describe("the pool read's query plan", () => {
 	// disjunction needs one on `visibility` before SQLite will consider the
 	// union rewrite at all.
 	//
-	// Matches either visibility-leading index by name. Once
-	// lessons_visibility_org_promoted_at_idx existed (added for the org
-	// browse - see "the pool read's query plan" measurement in the design
-	// spec), SQLite started answering THIS branch from it instead of
-	// lessons_visibility_promoted_at_idx: both carry `visibility` as their
-	// first column, so either resolves the union rewrite, and the planner's
-	// tie-break between them is not this test's business to pin.
+	// Two visibility-leading indexes exist now - lessons_visibility_promoted_
+	// at_idx and lessons_visibility_org_promoted_at_idx, added for the org
+	// browse (see "The index, measured" in the design spec) - and either can
+	// legitimately answer this branch: both carry `visibility` as their first
+	// column, so either resolves the union rewrite. The regex below accepts
+	// both on purpose. Which one SQLite actually picks is a cost-model
+	// tie-break, not a property of our schema, and pinning one name would
+	// make this test depend on SQLite's internals rather than on the
+	// property we care about - that the branch is seekable on `visibility`,
+	// not scanned.
+	//
+	// Loosening this does not leave index existence unguarded:
+	// packages/db/src/expected-schema.ts records the shape of every index,
+	// including both of these, and is checked against the deployed schema.
+	// If either index vanished, that check would fail independently of
+	// anything asserted here.
 	it("uses a visibility-leading index for the public disjunct", async () => {
 		const plan = await planForAuthenticatedBrowse();
 
