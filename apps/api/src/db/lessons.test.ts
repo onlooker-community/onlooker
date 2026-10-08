@@ -484,8 +484,14 @@ describe("retractOrgLesson", () => {
 	});
 
 	it("appends to the AUTHOR's feed, not the retracting owner's", async () => {
-		// The author's mirror is what needs to learn the lesson is gone.
-		const org = await createOrgWithOwner(db(), "Acme", userId);
+		// D6: a member authors an org lesson and an owner retracts it. The
+		// author's mirror is what needs to learn the lesson is gone, so the
+		// owner here is a genuinely different id from the author - otherwise
+		// nothing would distinguish "the author's feed" from "the owner's
+		// feed" and this test would pass no matter which one the write
+		// actually targeted.
+		const owner = await createUser(db(), "owner@example.com", "hash", "Bo");
+		const org = await createOrgWithOwner(db(), "Acme", owner.id);
 		const written = lesson({ visibility: "org" }) as TLesson;
 		await createLessonsWithFeed(db(), userId, [written], org.id);
 
@@ -498,6 +504,7 @@ describe("retractOrgLesson", () => {
 			.bind(written.id)
 			.first<{ user_id: string }>();
 		expect(row?.user_id).toBe(userId);
+		expect(row?.user_id).not.toBe(owner.id);
 	});
 
 	it("returns null for an id that does not exist", async () => {

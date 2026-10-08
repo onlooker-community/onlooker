@@ -1,17 +1,47 @@
 import { env } from "cloudflare:test";
+import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed, probeLessonId } from "../db/lessons.js";
 import { addMembership, createOrgWithOwner } from "../db/orgs.js";
-import { lesson, resetLessonCounter } from "../test-support/lessons.js";
+import { errorHandler } from "../middleware/error.js";
+import { BASE, lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
 	resetOrgTables,
 	type SignedUpUser,
 	signup,
 } from "../test-support/orgs.js";
+import { ApiError, type WorkerEnv } from "../types";
+import { handleRetractOrgLesson } from "./orgs-lessons.js";
 
 const db = () => env.DB;
+const REAL_ENV = env as unknown as WorkerEnv;
+
+// Same string the sibling retracts' own failure tests use
+// (routes/lessons-push-failure.test.ts) - the real wrapped form D1 emits for
+// a lesson_feed sequence collision.
+const SEQ_COLLISION =
+	"D1_ERROR: UNIQUE constraint failed: lesson_feed.user_id, lesson_feed.seq: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_UNIQUE)";
+
+/**
+ * The real binding, with db.batch() failing the way D1 can under sustained
+ * contention. Same idiom as routes/lessons-push-failure.test.ts, which is the
+ * only place in this suite that already forces SequenceExhaustedError through
+ * a route handler - neither admin-moderation.test.ts nor
+ * lessons-browser.test.ts has a 503 test of its own to follow instead.
+ */
+function batchFailsWith(error: Error): WorkerEnv {
+	const broken = new Proxy(REAL_ENV.DB, {
+		get(target, property, receiver) {
+			if (property === "batch") return () => Promise.reject(error);
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	}) as D1Database;
+
+	return { ...REAL_ENV, DB: broken };
+}
 
 let owner: SignedUpUser;
 let member: SignedUpUser;
@@ -68,6 +98,13 @@ describe("POST /api/orgs/:id/lessons/:lessonId/retract", () => {
 		);
 
 		expect(response.status).toBe(200);
+		// Matches the retract family's shape (handleOperatorRetract,
+		// admin-moderation.ts:35), the closest relative.
+		expect(await response.json()).toEqual({
+			id: sharedId,
+			seq: expect.any(Number),
+			status: "retracted",
+		});
 		expect((await probeLessonId(db(), sharedId))?.status).toBe("retracted");
 	});
 
@@ -132,5 +169,46 @@ describe("POST /api/orgs/:id/lessons/:lessonId/retract", () => {
 		// Their own lesson is still theirs to see - through `user_id = ?`,
 		// not through the org disjunct.
 		expect(departedSees).toContain(authored.id);
+	});
+});
+
+describe("POST /api/orgs/:id/lessons/:lessonId/retract when the write fails", () => {
+	// Calls the handler directly rather than through SELF, the same way
+	// routes/lessons-push-failure.test.ts does and for the same reason:
+	// sustained sequence contention is a D1 failure, and there is no request
+	// through the worker that provokes one. That file is the only existing
+	// precedent for forcing SequenceExhaustedError through a route handler -
+	// neither admin-moderation.test.ts nor lessons-browser.test.ts has a 503
+	// test of its own for their equivalent retracts, so this follows
+	// lessons-push-failure.test.ts's idiom instead.
+	it("answers 503 for sustained sequence contention, like the sibling retracts", async () => {
+		const thrown = await handleRetractOrgLesson(
+			new Request(`${BASE}/api/orgs/${orgId}/lessons/${sharedId}/retract`, {
+				method: "POST",
+			}),
+			batchFailsWith(new Error(SEQ_COLLISION)),
+			{ id: orgId, lessonId: sharedId },
+			{ userId: owner.id },
+		).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		expect(thrown).toBeInstanceOf(ApiError);
+		expect((thrown as ApiError).status).toBe(503);
+		expect(errorHandler(thrown).status).toBe(503);
+	});
+
+	it("writes nothing at all when it gives up", async () => {
+		await handleRetractOrgLesson(
+			new Request(`${BASE}/api/orgs/${orgId}/lessons/${sharedId}/retract`, {
+				method: "POST",
+			}),
+			batchFailsWith(new Error(SEQ_COLLISION)),
+			{ id: orgId, lessonId: sharedId },
+			{ userId: owner.id },
+		).catch(() => {});
+
+		expect((await probeLessonId(db(), sharedId))?.status).toBe("active");
 	});
 });
