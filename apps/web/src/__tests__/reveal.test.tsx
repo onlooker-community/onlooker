@@ -12,6 +12,7 @@ const MACHINE = {
 	id: "m1",
 	name: "work laptop",
 	token: `onlk_${"a".repeat(64)}`,
+	org_id: null,
 };
 
 /** Drives the hook from outside the dialog, the way MachinesPage will. */

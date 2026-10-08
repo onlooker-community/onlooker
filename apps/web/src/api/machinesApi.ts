@@ -38,6 +38,14 @@ export interface Machine {
 	inventory_at: string | null;
 	/** Plugins the reported inventory names. Null when nothing was reported. */
 	plugin_count: number | null;
+	/**
+	 * The org this machine pushes to, or null for a private-only token.
+	 *
+	 * An id, not a name. This page already lists the account's orgs to build
+	 * the picker, so it resolves the name itself rather than asking the API
+	 * for a field it can derive.
+	 */
+	org_id: string | null;
 }
 
 /** One place a plugin is installed on a machine, and what is installed there. */
@@ -73,14 +81,25 @@ export interface MintedMachine {
 	id: string;
 	name: string;
 	token: string;
+	/** The org this token pushes to, or null for a private-only mint. */
+	org_id: string | null;
 }
 
 export function listMachines(): Promise<{ machines: Machine[] }> {
 	return apiClient.get<{ machines: Machine[] }>(MACHINE_ENDPOINTS.machines);
 }
 
-export function createMachine(name: string): Promise<MintedMachine> {
-	return apiClient.post<MintedMachine>(MACHINE_ENDPOINTS.machines, { name });
+export function createMachine(
+	name: string,
+	orgId: string | null = null,
+): Promise<MintedMachine> {
+	return apiClient.post<MintedMachine>(MACHINE_ENDPOINTS.machines, {
+		name,
+		// Omitted rather than sent as null when there is no org, so the body a
+		// private-only mint sends is byte-identical to the one this app sent
+		// before orgs existed.
+		...(orgId ? { org_id: orgId } : {}),
+	});
 }
 
 /**
