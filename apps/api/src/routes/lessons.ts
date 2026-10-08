@@ -9,6 +9,7 @@ import {
 } from "../db/lessons.js";
 import type { Principal } from "../db/pool.js";
 import { checkCrossFieldRules } from "../lessons/rules.js";
+import { requireMachineToken } from "../middleware/machine-auth.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { canonicalize } from "../utils/canonical.js";
@@ -74,6 +75,23 @@ function differingFields(stored: string, incoming: unknown): string[] {
 }
 
 /**
+ * The token's org is not known yet, so skip the check that needs it.
+ *
+ * Deliberately a symbol rather than `undefined` or a default parameter. The
+ * first screening pass exists to find out whether the batch mentions an org at
+ * all, which it cannot do if screening refuses every org lesson for want of
+ * the very org that pass is trying to decide whether to fetch. A caller must
+ * therefore be able to say "not resolved yet" - and must not be able to say it
+ * by accident: `undefined` is what a forgotten argument looks like, and the
+ * cost of that mistake is an org lesson admitted without its credential
+ * checked. A symbol has to be named to be passed.
+ *
+ * Only handlePushLessons' first pass may use it. The second pass always passes
+ * a resolved `string | null`, and only the second pass's verdict is acted on.
+ */
+const ORG_UNRESOLVED = Symbol("token org not resolved yet");
+
+/**
  * Everything about one lesson that can be decided without the database.
  *
  * Kept separate from the write because none of these checks may consume a
@@ -82,6 +100,13 @@ function differingFields(stored: string, incoming: unknown): string[] {
  */
 function screen(
 	candidate: unknown,
+	/**
+	 * The org the pushing token is bound to, or null for a private-only token.
+	 * Resolved by the caller only when a batch actually contains an org
+	 * lesson - see handlePushLessons - which is why ORG_UNRESOLVED is the
+	 * third possibility rather than this being optional.
+	 */
+	tokenOrgId: string | null | typeof ORG_UNRESOLVED,
 ): { lesson: TLesson } | { result: PushResult } {
 	const id = idOf(candidate);
 
@@ -102,24 +127,56 @@ function screen(
 	// The tier gate says so explicitly. A generic validation failure here would
 	// read as a client bug rather than a tier that has not opened.
 	//
-	// public opened 2026-10-03, once its read path, edge rate limit, pool
-	// index and a designated operator were all in place. org still does not,
-	// and the reason has moved rather than disappeared: `OrgIds` in
-	// db/pool.ts now resolves real membership, so the read side is ready, but
-	// nothing yet stamps org_id on a write and this gate still refuses the
-	// tier outright. Task 9 opens it, alongside whatever else that stage
-	// requires. A tier stays shut until its own task opens it, not the
-	// moment its read path merely exists.
+	// All three tiers are open as of ONL-141. public opened 2026-10-03; org
+	// opened with this change, in the same commit as the read path that makes
+	// it mean anything - `OrgIds` in db/pool.ts resolves the reader's orgs and
+	// the predicate authorizes on the lesson's own org_id. The coupling was
+	// deliberate: an org lesson admitted against an inert resolver would have
+	// been readable only by its author and would have become org-visible
+	// retroactively on a later deploy, which is a disclosure its author never
+	// consented to.
 	//
 	// What a public lesson must additionally clear - a unanimous jury - is in
 	// lessons/rules.ts, with the other cross-field rules, so a client is told
 	// about every problem at once instead of one per round trip.
-	if (lesson.visibility !== "private" && lesson.visibility !== "public") {
+	//
+	// With all three open, `ZVisibility` is exactly private | org | public and
+	// nothing reaches the refusal below - ZLesson rejects a fourth value
+	// first. It is kept, and deliberately not replaced with an exhaustiveness
+	// assertion, because it is the fail-closed landing for a tier ADDED to the
+	// contract later: a new tier arrives refused by name, rather than admitted
+	// by a gate that happens to list only the ones it knows to exclude. No
+	// test can cover it without a value the contract does not have, which is
+	// why this paragraph is here instead.
+	if (
+		lesson.visibility !== "private" &&
+		lesson.visibility !== "public" &&
+		lesson.visibility !== "org"
+	) {
 		return {
 			result: {
 				id,
 				outcome: "invalid",
-				error: `The ${lesson.visibility} tier is not open yet; only private and public lessons are accepted`,
+				error: `The ${lesson.visibility} tier is not open yet; only private, public and org lessons are accepted`,
+			},
+		};
+	}
+
+	// Named for the TOKEN, not the lesson. The author's mistake is which
+	// credential they used: this lesson is well-formed and this account may
+	// well belong to an org - the token they pushed with is simply not bound
+	// to one, and no request field can change that (D3).
+	//
+	// ORG_UNRESOLVED falls through, because it is neither a string nor null.
+	// That is the first pass, whose admissions are discarded - see the two
+	// passes in handlePushLessons.
+	if (lesson.visibility === "org" && tokenOrgId === null) {
+		return {
+			result: {
+				id,
+				outcome: "invalid",
+				error:
+					"This machine token is not bound to an org; mint a token for the org you want to share with",
 			},
 		};
 	}
@@ -193,9 +250,54 @@ export async function handlePushLessons(
 	const admitted: Admitted[] = [];
 
 	// 1. Everything decidable without touching the database.
-	for (const [index, candidate] of candidates.entries()) {
+	//
+	// Two passes, because the org is only needed if the batch contains an org
+	// lesson and only parsing can tell. `requireMachineToken` re-verifies
+	// against D1 and rewrites last_used_at, so paying it on every push - the
+	// hottest machine route - to serve the minority that share with an org
+	// would be the wrong trade. A private or public push runs exactly the
+	// queries it ran before this change.
+	//
+	// The first pass passes ORG_UNRESOLVED, not null. null is a real answer
+	// meaning "a private-only token", and screening against it here would
+	// refuse every org lesson before `wantsOrg` could see one - leaving the
+	// gate permanently shut, since the org would then never be fetched.
+	const parsed = candidates.map((candidate) => {
 		try {
-			const screened = screen(candidate);
+			return { screened: screen(candidate, ORG_UNRESOLVED) };
+		} catch (error) {
+			return { failed: unexpected(idOf(candidate), error) };
+		}
+	});
+
+	const wantsOrg = parsed.some(
+		(entry) =>
+			entry.screened !== undefined &&
+			"lesson" in entry.screened &&
+			entry.screened.lesson.visibility === "org",
+	);
+
+	// The fourth handler that verifies its own credential, and the only one
+	// that does so conditionally. See the `handler` field's doc comment in
+	// router.ts: `Principal` deliberately carries only userId, so the org -
+	// like machineId and email - is available on requireMachineToken's own
+	// return value and nowhere else.
+	const tokenOrgId = wantsOrg
+		? (await requireMachineToken(request, env)).orgId
+		: null;
+
+	for (const [index, candidate] of candidates.entries()) {
+		const entry = parsed[index];
+		if (entry.failed) {
+			results[index] = entry.failed;
+			continue;
+		}
+		try {
+			// Re-screened with the token's org now known. Screening is pure -
+			// it consumes no sequence number and touches no database - so
+			// running it twice for a batch that mentions an org costs nothing
+			// but CPU and keeps one gate rather than two.
+			const screened = screen(candidate, tokenOrgId);
 			if ("result" in screened) results[index] = screened.result;
 			else admitted.push({ index, lesson: screened.lesson });
 		} catch (error) {
@@ -234,6 +336,7 @@ export async function handlePushLessons(
 				env.DB,
 				userId,
 				creatable.map((item) => item.lesson),
+				tokenOrgId,
 			);
 
 			for (const [offset, write] of writes.entries()) {
