@@ -444,6 +444,41 @@ this path. That is the same reason **Rate Limiting** above gives for
 writing itself down: if the gap is never closed, the first symptom is a
 bill, not a failing test.
 
+### The org lesson tier
+
+**All three visibility tiers are open.** `POST /lessons` accepts
+`visibility: "org"` as of ONL-141; before that it refused the tier outright.
+Nothing needs enabling per environment — there is no flag.
+
+**An org lesson's reach follows the TOKEN it was pushed with, not the
+author's memberships.** The server reads the org from `machine_tokens.org_id`
+and stamps it onto the row; no request field can name an org. The practical
+consequences for a support question:
+
+- An account in an org that pushes with a token bound to no org gets
+  `outcome: "invalid"` per lesson, naming the token. The fix is minting a new
+  token for that org (`POST /api/machines` with `org_id`), not editing the
+  lesson. The rest of the batch still lands — push is per lesson, not
+  all-or-nothing.
+- A token is bound at minting time, after a membership check, and never
+  re-checked. An author removed from an org keeps pushing to it until that
+  token is revoked. This is deliberate — see D3 — but it means **revoking the
+  token is the action that ends the sharing**, not removing the member.
+- A lesson keeps the org it was pushed with. Moving an author between orgs
+  does not move their existing lessons.
+
+**Deleting an org is not reversible, and it does more than unbind tokens.**
+Both columns are `ON DELETE set null` (`packages/db/migrations/0011_*.sql`):
+
+- Every machine token bound to that org becomes private-only. Pushes keep
+  working; org lessons from those tokens start being refused.
+- Every lesson already shared with that org has its `org_id` nulled. Because
+  the read predicate requires `org_id IN (<the reader's orgs>)` and NULL
+  matches nothing, those lessons become readable **by their author only** —
+  immediately, and permanently, since the org id they referred to no longer
+  exists. Renaming an org is the safe operation; deleting one silently
+  narrows a body of shared lessons that no later action can restore.
+
 ## Rollback
 
 ### View Deployments
