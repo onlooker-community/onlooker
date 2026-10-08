@@ -75,27 +75,21 @@ function differingFields(stored: string, incoming: unknown): string[] {
 }
 
 /**
- * The token's org is not known yet, so skip the check that needs it.
+ * What a candidate claims to be, or null if it is not a lesson at all.
  *
- * Deliberately a symbol rather than `undefined` or a default parameter. The
- * first screening pass exists to find out whether the batch mentions an org at
- * all, which it cannot do if screening refuses every org lesson for want of
- * the very org that pass is trying to decide whether to fetch. A caller must
- * therefore be able to say "not resolved yet" - and must not be able to say it
- * by accident: `undefined` is what a forgotten argument looks like, and the
- * cost of that mistake is an org lesson admitted without its credential
- * checked. A symbol has to be named to be passed.
+ * The whole of what the first pass in handlePushLessons needs, and
+ * deliberately no more. Asking "what does this claim to be" rather than
+ * "would this be accepted" keeps the question that decides whether to fetch
+ * the token's org independent of every check that needs the org already -
+ * see the two passes there, and the comment on `screen`'s `tokenOrgId`.
  *
- * `null` is not a substitute either, in the other direction. It is a real
- * answer - "a private-only token" - so conflating "not resolved yet" with
- * "resolved to nothing" refuses every org lesson before the batch can be
- * found to contain one, which leaves the tier permanently shut because the
- * org is then never fetched. Both mistakes are now type errors.
- *
- * Only handlePushLessons' first pass may use it. The second pass always passes
- * a resolved `string | null`, and only the second pass's verdict is acted on.
+ * Returns null for anything ZLesson rejects: a candidate that is not a lesson
+ * cannot be an org lesson, and pass 2 reports the parse failure itself.
  */
-const ORG_UNRESOLVED = Symbol("token org not resolved yet");
+function claimedVisibility(candidate: unknown): TLesson["visibility"] | null {
+	const parsed = ZLesson.safeParse(candidate);
+	return parsed.success ? parsed.data.visibility : null;
+}
 
 /**
  * Everything about one lesson that can be decided without the database.
@@ -108,11 +102,15 @@ function screen(
 	candidate: unknown,
 	/**
 	 * The org the pushing token is bound to, or null for a private-only token.
-	 * Resolved by the caller only when a batch actually contains an org
-	 * lesson - see handlePushLessons - which is why ORG_UNRESOLVED is the
-	 * third possibility rather than this being optional.
+	 *
+	 * Always a resolved answer - there is no "not known yet". The caller works
+	 * out whether it needs this at all by asking `claimedVisibility`, which
+	 * screens nothing, so `screen` is never called before the org is known.
+	 * Required rather than defaulted, so a new call site has to say which it
+	 * means: a forgotten argument defaulting to null would silently refuse
+	 * every org lesson, and the mistake would look like a tier that is shut.
 	 */
-	tokenOrgId: string | null | typeof ORG_UNRESOLVED,
+	tokenOrgId: string | null,
 ): { lesson: TLesson } | { result: PushResult } {
 	const id = idOf(candidate);
 
@@ -173,9 +171,10 @@ function screen(
 	// well belong to an org - the token they pushed with is simply not bound
 	// to one, and no request field can change that (D3).
 	//
-	// ORG_UNRESOLVED falls through, because it is neither a string nor null.
-	// That is the first pass, whose admissions are discarded - see the two
-	// passes in handlePushLessons.
+	// This sits ABOVE the lesson's own cross-field checks, so reaching it with
+	// an unresolved org would blame the credential for a lesson that is merely
+	// malformed. That is why the caller never screens before resolving - see
+	// handlePushLessons.
 	if (lesson.visibility === "org" && tokenOrgId === null) {
 		return {
 			result: {
@@ -264,24 +263,31 @@ export async function handlePushLessons(
 	// would be the wrong trade. A private or public push runs exactly the
 	// queries it ran before this change.
 	//
-	// The first pass passes ORG_UNRESOLVED, not null. null is a real answer
-	// meaning "a private-only token", and screening against it here would
-	// refuse every org lesson before `wantsOrg` could see one - leaving the
-	// gate permanently shut, since the org would then never be fetched.
+	// The first pass asks ONLY what each candidate claims to be, and screens
+	// nothing. That is deliberate on both counts.
+	//
+	// It must not screen, because `wantsOrg` is a question about what the batch
+	// CONTAINS, not about what survived. Deriving it from pass 1's admissions
+	// meant an org lesson that tripped any check below the org gate -
+	// superseded_by, the cross-field rules - was never counted, so the org went
+	// unresolved and pass 2 blamed the credential for a token that was bound
+	// correctly. The error then depended on what else was in the batch: wrong
+	// alone, right beside a valid org lesson that resolved the org for it.
+	//
+	// And it must not carry a lesson, because any lesson it could admit would
+	// not have had its credential checked - that check is the one thing this
+	// pass cannot perform yet. Returning only a visibility means no such
+	// lesson exists for a later reader to pick up and write, rather than a
+	// usable one kept safe by convention.
 	const parsed = candidates.map((candidate) => {
 		try {
-			return { screened: screen(candidate, ORG_UNRESOLVED) };
+			return { claims: claimedVisibility(candidate) };
 		} catch (error) {
 			return { failed: unexpected(idOf(candidate), error) };
 		}
 	});
 
-	const wantsOrg = parsed.some(
-		(entry) =>
-			entry.screened !== undefined &&
-			"lesson" in entry.screened &&
-			entry.screened.lesson.visibility === "org",
-	);
+	const wantsOrg = parsed.some((entry) => entry.claims === "org");
 
 	// The fourth handler that verifies its own credential, and the only one
 	// that does so conditionally. See the `handler` field's doc comment in
@@ -299,10 +305,11 @@ export async function handlePushLessons(
 			continue;
 		}
 		try {
-			// Re-screened with the token's org now known. Screening is pure -
-			// it consumes no sequence number and touches no database - so
-			// running it twice for a batch that mentions an org costs nothing
-			// but CPU and keeps one gate rather than two.
+			// The only screening that happens, and the only verdict acted on.
+			// Pass 1 parsed to read a visibility and threw its result away;
+			// parsing twice is pure - no sequence number, no database - so the
+			// cost is CPU, and the benefit is one gate rather than two and no
+			// lesson anywhere that reached a verdict without its credential.
 			const screened = screen(candidate, tokenOrgId);
 			if ("result" in screened) results[index] = screened.result;
 			else admitted.push({ index, lesson: screened.lesson });

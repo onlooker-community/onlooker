@@ -237,14 +237,19 @@ describe("the org lesson tier, end to end", () => {
 	// resolves the token's org only for a batch that mentions one. Both halves
 	// run through the SAME harness with the SAME token and the same account -
 	// only the lesson's visibility differs - so the second half is what proves
-	// the first is measuring anything at all.
+	// the first is measuring anything at all. Without that pairing, a probe
+	// that had quietly stopped observing would pass the first half.
 	//
-	// Called directly rather than through SELF on purpose: the router's own
-	// resolvePrincipal verifies the machine token for every machine route, so
-	// over HTTP both halves would touch machine_tokens and the extra read
-	// would be invisible. Bypassing the router leaves the handler's own
-	// requireMachineToken as the only thing that can.
-	it("reads the credential again only for a batch that mentions an org", async () => {
+	// SCOPE, because the name alone could be read as more than it proves: this
+	// measures what THE HANDLER adds, not what the request costs in total. The
+	// handler is called directly, off the router, and that is the only way the
+	// measurement works - resolvePrincipal verifies the machine token for
+	// every `auth: "machine"` route, so over HTTP both halves would touch
+	// machine_tokens and the handler's own extra read would be invisible
+	// against it. A real private push over HTTP therefore still verifies once,
+	// in the router. What this pins is that the handler adds no second read to
+	// it.
+	it("adds no credential read of its own unless the batch mentions an org", async () => {
 		const seen: string[] = [];
 		const probed = {
 			...(env as unknown as WorkerEnv),
@@ -287,6 +292,39 @@ describe("the org lesson tier, end to end", () => {
 
 		expect(afterPrivate).toEqual([]);
 		expect(afterOrg.length).toBeGreaterThan(0);
+	});
+
+	// An error must not depend on what else was in the batch.
+	//
+	// `wantsOrg` asks what the batch CONTAINS, which is a question about what
+	// each candidate parses as - not about whether it survived screening. Those
+	// came apart once: deriving it from pass 1's admissions meant an org lesson
+	// that tripped any check sitting after the org gate was never counted, the
+	// org was never resolved, and pass 2 then blamed the credential for a token
+	// that was bound perfectly well. Alone in a batch it got the wrong error;
+	// beside one valid org lesson it got the right one, because the sibling
+	// resolved the org on its behalf.
+	//
+	// "Alone" is therefore the whole point of the first half, and the equality
+	// in the second is the invariant: same lesson, same verdict, whatever it
+	// travels with.
+	it("blames the lesson, not the credential, for an invalid org lesson alone in a batch", async () => {
+		const broken = () =>
+			lesson({
+				visibility: "org",
+				superseded_by: "01KZ45MKAM734ZS7JK24D2DK99",
+			});
+
+		const alone = await pushOne(adaOrgToken, broken());
+		const beside = await pushResults(adaOrgToken, [
+			lesson({ visibility: "org" }),
+			broken(),
+		]);
+
+		expect(alone.outcome).toBe("invalid");
+		expect(alone.error).toMatch(/superseded_by/);
+		expect(alone.error).not.toMatch(/token/i);
+		expect(beside[1].error).toBe(alone.error);
 	});
 
 	// Why can a removed member still push to the org? Because a token is bound
