@@ -13,6 +13,7 @@ import {
 	type Machine,
 	revokeMachine,
 } from "../api/machinesApi";
+import { listOrgs, type Org } from "../api/orgsApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { MachineInventory } from "../components/MachineInventory";
@@ -35,6 +36,19 @@ const row: CSSProperties = {
 	borderBottom: `2px solid ${PALETTE.border}`,
 };
 
+// A native select, matching the one LessonsPage's status filter and
+// OrgsPage's role picker already use: one control on this form does not
+// justify a SelectField in form.tsx, and the native control is what a
+// screen reader and a keyboard already know how to drive.
+const orgSelect: CSSProperties = {
+	padding: "0.4rem 0.5rem",
+	background: "var(--ground)",
+	color: "var(--ink)",
+	border: `2px solid ${PALETTE.border}`,
+	borderRadius: 0,
+	fontFamily: "var(--font-body)",
+};
+
 /**
  * Key for a live or revoked machine, Sleep for one that has never phoned
  * home. Revoked wins over never-used when both are true - a dead credential
@@ -49,6 +63,13 @@ export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [name, setName] = useState("");
+	// "" is the narrower, private-only credential and the default - see the
+	// picker's own option below. Also null, not an empty orgs array, while
+	// this is still loading or failed to load: the private option must keep
+	// working either way, so a failure here falls back to looking like an
+	// account in no org rather than blocking the form.
+	const [orgs, setOrgs] = useState<Org[] | null>(null);
+	const [orgId, setOrgId] = useState("");
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
 	const { revealed, reveal } = useReveal();
@@ -82,6 +103,24 @@ export default function MachinesPage() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	const loadOrgs = useCallback(async () => {
+		try {
+			const { orgs: rows } = await listOrgs();
+			setOrgs(rows);
+		} catch {
+			// The picker is a convenience over the private-only default, and
+			// that default has to keep working even when this call fails - so
+			// a failed load leaves the account looking like it is in no org
+			// rather than putting an error in front of the one path that must
+			// still succeed.
+			setOrgs([]);
+		}
+	}, []);
+
+	useEffect(() => {
+		void loadOrgs();
+	}, [loadOrgs]);
 
 	// Two jobs, one dependency.
 	//
@@ -124,13 +163,14 @@ export default function MachinesPage() {
 		setMinting(true);
 		setMintError(null);
 		try {
-			const created = await createMachine(trimmed);
+			const created = await createMachine(trimmed, orgId || null);
 			// The reveal goes up before the list is reloaded. If that reload
 			// throws, the person still has their token on screen - losing the
 			// only copy to a failed GET would be the one unrecoverable failure
 			// this page is capable of.
 			reveal(created);
 			setName("");
+			setOrgId("");
 			await load();
 		} catch (error) {
 			setMintError(describeError(error, "Could not mint a token."));
@@ -195,6 +235,15 @@ export default function MachinesPage() {
 		}
 	};
 
+	// Resolved here rather than sent by the API: this page already lists the
+	// account's orgs to build the picker above, and a name absent from that
+	// list - the org fetch still loading, or the account having since left
+	// it - renders nothing rather than a name this page cannot vouch for.
+	const orgName = (machine: Machine): string | null =>
+		machine.org_id
+			? (orgs?.find((org) => org.id === machine.org_id)?.name ?? null)
+			: null;
+
 	const action = (machine: Machine) => {
 		// A revoked machine keeps its row - that is how a person sees that they
 		// revoked it - but there is nothing left to do to it. The row losing its
@@ -249,6 +298,34 @@ export default function MachinesPage() {
 						hint="Something you will recognize in this list later."
 						error={mintError}
 					/>
+					<div style={{ marginBottom: "1rem" }}>
+						<label
+							htmlFor="machine-org"
+							style={{ display: "block", marginBottom: "0.25rem" }}
+						>
+							Org
+						</label>
+						<select
+							id="machine-org"
+							value={orgId}
+							disabled={minting}
+							onChange={(event) => setOrgId(event.target.value)}
+							style={orgSelect}
+						>
+							{/*
+							  Value "" first and always present - a token that can
+							  push to an org is the wider credential, so the
+							  narrower, private-only default leads. An account in
+							  no org sees only this option.
+							*/}
+							<option value="">Keep this token private</option>
+							{(orgs ?? []).map((org) => (
+								<option key={org.id} value={org.id}>
+									{org.name}
+								</option>
+							))}
+						</select>
+					</div>
 					<SubmitButton
 						loading={minting}
 						loadingLabel="Minting..."
@@ -326,6 +403,9 @@ export default function MachinesPage() {
 											}}
 										>
 											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+											{orgName(machine) ? (
+												<Chip>{orgName(machine)}</Chip>
+											) : null}
 											{/*
 											  Labeled, not bare. LessonsPage's own meta line gets
 											  away with an unlabeled date because it only ever

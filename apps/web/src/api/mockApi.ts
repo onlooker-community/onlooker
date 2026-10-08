@@ -765,6 +765,8 @@ interface MockMachine {
 	 */
 	inventory?: unknown;
 	inventory_at?: string | null;
+	/** The org this machine pushes to, or null for a private-only token. */
+	org_id: string | null;
 }
 
 /**
@@ -1022,17 +1024,15 @@ export async function mockDataApi(
 				...machine,
 				inventory_at: machine.inventory_at ?? null,
 				plugin_count: mockPluginCount(inventory),
-				// Every mock machine is private-only - nothing here can yet mint one
-				// bound to an org - so this is always null, matching what a real
-				// token minted without one returns.
-				org_id: null,
+				// Carried through from the create call below rather than
+				// hardcoded, now that minting can bind to an org.
 			})),
 		});
 	}
 
 	if (poolPath === "/api/machines" && options.method === "POST") {
 		const { email } = requireAuth(options);
-		const body = readBody<{ name?: unknown }>(options);
+		const body = readBody<{ name?: unknown; org_id?: unknown }>(options);
 		// Trimmed before the emptiness check, matching handleCreateMachine.
 		// A mock that accepted "   " would let a machine named nothing into
 		// the list in development and 400 in production.
@@ -1040,6 +1040,10 @@ export async function mockDataApi(
 		if (!name) {
 			throw new AuthApiError(400, "invalid_name", "A machine needs a name");
 		}
+		// Absent rather than null when the caller sends no org, matching
+		// createMachine in machinesApi.ts - the browser omits the key for a
+		// private-only mint rather than sending it as null.
+		const orgId = typeof body.org_id === "string" ? body.org_id : null;
 
 		mockMachineCounter += 1;
 		const id = `mock-machine-${mockMachineCounter}`;
@@ -1049,14 +1053,15 @@ export async function mockDataApi(
 			created_at: new Date().toISOString(),
 			last_used_at: null,
 			revoked_at: null,
+			org_id: orgId,
 		});
 
 		// The raw token appears here and nowhere else, ever - the same promise
 		// handleCreateMachine makes. Nothing above stored it.
-		//
-		// org_id is always null: nothing in the mock yet mints a token bound to
-		// an org, matching a real mint that names none.
-		return json({ id, name, token: mintMockMachineToken(), org_id: null }, 201);
+		return json(
+			{ id, name, token: mintMockMachineToken(), org_id: orgId },
+			201,
+		);
 	}
 
 	// Before the DELETE branch below, which matches on the same prefix. A
