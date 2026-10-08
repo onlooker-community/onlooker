@@ -641,12 +641,14 @@ export async function dispatch(
 		// Before the handler, so a handler cannot run unauthenticated even if it
 		// forgets to check. This is what the required `auth` field buys - see
 		// resolvePrincipal. Almost every handler acts on this principal instead
-		// of verifying its own credential; the four that still call
-		// requireAuth/requireMachineToken themselves (handlePutInventory,
-		// handlePostSessions, handleGetUserProfile, and handlePushLessons for a
-		// batch containing an org lesson) do so because each needs a field
-		// Principal does not carry - see the `handler` field's doc comment on
-		// `Route`, above.
+		// of verifying its own credential; the few that still call
+		// requireAuth/requireMachineToken themselves do so because each needs a
+		// field Principal does not carry.
+		//
+		// The `handler` field's doc comment on `Route` names them and says why.
+		// Deliberately not restated here: this comment used to carry its own
+		// copy of the list, and the two drifted apart the moment a fourth
+		// handler was added. One list to keep correct is the point.
 		const principal = await resolvePrincipal(request, env, matched.route.auth);
 		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {

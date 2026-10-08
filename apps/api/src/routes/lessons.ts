@@ -86,6 +86,12 @@ function differingFields(stored: string, incoming: unknown): string[] {
  * cost of that mistake is an org lesson admitted without its credential
  * checked. A symbol has to be named to be passed.
  *
+ * `null` is not a substitute either, in the other direction. It is a real
+ * answer - "a private-only token" - so conflating "not resolved yet" with
+ * "resolved to nothing" refuses every org lesson before the batch can be
+ * found to contain one, which leaves the tier permanently shut because the
+ * org is then never fetched. Both mistakes are now type errors.
+ *
  * Only handlePushLessons' first pass may use it. The second pass always passes
  * a resolved `string | null`, and only the second pass's verdict is acted on.
  */

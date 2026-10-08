@@ -57,11 +57,22 @@ let outsider: SignedUpUser;
 let loner: SignedUpUser;
 let orgId: string;
 
-/** Ada's and Bo's machine tokens, both bound to the same org. */
+/** Ada's and Bo's machines, both bound to the same org. */
 let adaOrgToken: string;
-let boOrgToken: string;
+let boOrgMachine: MintedToken;
 /** Ada's other machine. Same account, same org membership, no org on the token. */
 let adaPrivateOnlyToken: string;
+
+/**
+ * One machine, named by the two things a test needs it for.
+ *
+ * `id` is what DELETE /api/machines/:id takes, which is how a test ends a
+ * token's authority; `token` is what push takes.
+ */
+interface MintedToken {
+	id: string;
+	token: string;
+}
 
 /**
  * Mint a machine token through POST /api/machines.
@@ -73,7 +84,7 @@ async function mintToken(
 	session: string,
 	name: string,
 	boundTo: string | null,
-): Promise<string> {
+): Promise<MintedToken> {
 	const response = await call("/api/machines", session, {
 		method: "POST",
 		body: JSON.stringify(
@@ -87,7 +98,7 @@ async function mintToken(
 		);
 	}
 
-	return ((await response.json()) as { token: string }).token;
+	return (await response.json()) as MintedToken;
 }
 
 /** Create an org through POST /api/orgs; return its id. */
@@ -153,9 +164,9 @@ beforeEach(async () => {
 	// - so there is no route-only path from "invited" to "member".
 	await addMembership(db(), orgId, bo.id, "member");
 
-	adaOrgToken = await mintToken(ada.token, "ada-laptop", orgId);
-	boOrgToken = await mintToken(bo.token, "bo-laptop", orgId);
-	adaPrivateOnlyToken = await mintToken(ada.token, "ada-desktop", null);
+	adaOrgToken = (await mintToken(ada.token, "ada-laptop", orgId)).token;
+	boOrgMachine = await mintToken(bo.token, "bo-laptop", orgId);
+	adaPrivateOnlyToken = (await mintToken(ada.token, "ada-desktop", null)).token;
 });
 
 describe("the org lesson tier, end to end", () => {
@@ -164,7 +175,7 @@ describe("the org lesson tier, end to end", () => {
 		const fromBo = lesson({ visibility: "org" });
 
 		expect((await pushOne(adaOrgToken, fromAda)).outcome).toBe("created");
-		expect((await pushOne(boOrgToken, fromBo)).outcome).toBe("created");
+		expect((await pushOne(boOrgMachine.token, fromBo)).outcome).toBe("created");
 
 		const adaSees = await browse(ada.token);
 		const boSees = await browse(bo.token);
@@ -276,6 +287,67 @@ describe("the org lesson tier, end to end", () => {
 
 		expect(afterPrivate).toEqual([]);
 		expect(afterOrg.length).toBeGreaterThan(0);
+	});
+
+	// Why can a removed member still push to the org? Because a token is bound
+	// to its org once, at minting, after a membership check, and nothing ever
+	// re-checks: `verifyMachineToken` reads `machine_tokens.org_id` and that is
+	// the whole of it. Removing the member deletes an `org_memberships` row and
+	// touches no credential. REVOKING THE TOKEN is the action that ends the
+	// sharing.
+	//
+	// That is D3, not an oversight. The server reads the org from the
+	// credential and never from the request, which is what stops a client
+	// naming an org its holder does not belong to. Note the asymmetry this
+	// produces, asserted below: reading stops at once, because the read
+	// predicate resolves the reader's CURRENT memberships on every query,
+	// while writing continues, because the write reads a credential that was
+	// authorized when it was issued.
+	//
+	// MAKING THIS CASE FAIL BY CHECKING MEMBERSHIP AT PUSH TIME WOULD BE A
+	// DESIGN CHANGE, NOT A BUG FIX. It would move the authority from the
+	// credential back to request time and put an `org_memberships` read on the
+	// hottest machine route - the very cost the conditional resolve above
+	// exists to avoid. If this behavior is ever unwanted, the fix is revoking
+	// tokens when a membership ends, not consulting memberships on every push.
+	it("lets a removed member keep pushing until their token is revoked", async () => {
+		const fromAda = lesson({ visibility: "org" });
+		await pushOne(adaOrgToken, fromAda);
+		expect(await browse(bo.token)).toContain(fromAda.id);
+
+		const removal = await call(
+			`/api/orgs/${orgId}/members/${bo.id}`,
+			ada.token,
+			{ method: "DELETE" },
+		);
+		expect(removal.status).toBe(200);
+
+		// Reading stops immediately - Acme is no longer among Bo's orgs, so the
+		// predicate stops counting it.
+		expect(await browse(bo.token)).not.toContain(fromAda.id);
+
+		// Writing does not. The token still carries the org, and the lesson
+		// still reaches the org it names: Ada, who is still a member, reads it.
+		const afterRemoval = lesson({ visibility: "org" });
+		expect((await pushOne(boOrgMachine.token, afterRemoval)).outcome).toBe(
+			"created",
+		);
+		expect(await browse(ada.token)).toContain(afterRemoval.id);
+
+		// Revoking the credential is what actually ends it. A revoked token
+		// gets no per-lesson verdict at all - it never reaches the handler,
+		// because the router rejects it.
+		const revocation = await call(
+			`/api/machines/${boOrgMachine.id}`,
+			bo.token,
+			{ method: "DELETE" },
+		);
+		expect(revocation.status).toBe(200);
+
+		const blocked = await push(boOrgMachine.token, [
+			lesson({ visibility: "org" }),
+		]);
+		expect(blocked.status).toBe(401);
 	});
 
 	// The risk this change introduces at the route rather than the db layer.
