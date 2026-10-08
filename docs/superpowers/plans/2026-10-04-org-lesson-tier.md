@@ -1951,10 +1951,19 @@ describe("retractOrgLesson", () => {
 
 	it("appends to the AUTHOR's feed, not the retracting owner's", async () => {
 		// The author's mirror is what needs to learn the lesson is gone.
+		//
+		// The fixture must give the author and the owner DIFFERENT ids, or the
+		// second half of this test's name is unobservable - which is how the
+		// first version of it shipped: author and owner were the same account,
+		// and retractOrgLesson takes no caller identity, so nothing could tell
+		// the two outcomes apart. This is also the scenario the feature exists
+		// for, per D6: a member writes, and an owner takes it down.
+		const member = (await createUser(db(), "member@example.com", "hash", "Mo")).id;
+		await addMembership(db(), orgRow.id, member, "member");
 		const written = lesson({ visibility: "org" }) as TLesson;
-		await createLessonsWithFeed(db(), ada, [written], "org-a");
+		await createLessonsWithFeed(db(), member, [written], orgRow.id);
 
-		await retractOrgLesson(db(), "org-a", written.id);
+		await retractOrgLesson(db(), orgRow.id, written.id);
 
 		const row = await db()
 			.prepare(
@@ -1962,7 +1971,9 @@ describe("retractOrgLesson", () => {
 			)
 			.bind(written.id)
 			.first<{ user_id: string }>();
-		expect(row?.user_id).toBe(ada);
+		expect(row?.user_id).toBe(member);
+		// Both halves, said out loud.
+		expect(row?.user_id).not.toBe(ownerId);
 	});
 
 	it("returns null for an id that does not exist", async () => {
@@ -2142,16 +2153,40 @@ export async function handleRetractOrgLesson(
 ): Promise<Response> {
 	await requireOrgRole(env.DB, principal as Principal, params.id, "owner");
 
-	const seq = await retractOrgLesson(env.DB, params.id, params.lessonId);
+	// The catch is not optional, and this plan originally omitted it. Both
+	// sibling retract routes - admin-moderation.ts and lessons-browser.ts -
+	// map SequenceExhaustedError to this exact 503, because nothing was
+	// written when it fires: the batch rolled back whole and no sequence
+	// number was consumed, so "retry" is correct advice where a 500 would
+	// leave the caller unsure whether their request landed. The message is
+	// byte-identical to the siblings' on purpose.
+	let seq: number | null;
+	try {
+		seq = await retractOrgLesson(env.DB, params.id, params.lessonId);
+	} catch (error) {
+		if (error instanceof SequenceExhaustedError) {
+			throw new ApiError(
+				503,
+				"sequence_contention",
+				"Could not assign a lesson sequence; nothing was written, so retry",
+			);
+		}
+		throw error;
+	}
 
 	// 404 and not 403: a distinguishable answer would confirm that a lesson id
 	// exists, which is the reasoning transitionLesson and getLessonForUser
 	// both already follow.
 	if (seq === null) throw new ApiError(404, "not_found", "No such lesson");
 
-	return Response.json({ success: true, seq });
+	// The retract family's shape, matching admin-moderation.ts - the closest
+	// relative, being the other retract by someone who is not the author.
+	return Response.json({ id: params.lessonId, seq, status: "retracted" });
 }
 ```
+
+Import `SequenceExhaustedError` from `../db/lessons.js` alongside
+`retractOrgLesson`.
 
 Check `requireOrgRole`'s exact parameter order in `orgs/authorize.ts:25` before
 writing this, and match it.
