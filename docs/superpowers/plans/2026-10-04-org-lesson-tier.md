@@ -2568,13 +2568,23 @@ same reasoning the API-side comments carry, in brief.
 
 - [ ] **Step 4: The machines page**
 
-Add a `<select>` to the create form, labeled "Org", with a first option whose
-value is `""` and whose label says the token stays private — read the page's
-existing form idiom and use `form.tsx`'s components rather than a bare element.
-Load the orgs with the same hook pattern the page already uses for machines, and
-render nothing but the private option when the account is in no org. In the
-machine list, render the org's name resolved from that list, and nothing when
-`org_id` is null.
+Add a select to the create form, labeled "Org", with a first option whose value
+is `""` and whose label says the token stays private. Load the orgs with the
+same hook pattern the page already uses for machines, and render nothing but the
+private option when the account is in no org. In the machine list, render the
+org's name resolved from that list, and nothing when `org_id` is null.
+
+**Use a bare native `<select>` with a manual `<label>`.** Corrected 2026-10-08:
+this step originally said to use `form.tsx`'s components, and `form.tsx` has no
+select primitive at all. The codebase's real idiom for this is a native element
+— `OrgsPage`'s role picker and `LessonsPage`'s status filter both do it that way
+— so follow those two rather than inventing a primitive for one picker.
+
+One test-design note from Task 8, so the next person does not spend time on it:
+an org's name now appears twice on this page, once as a row's chip and once as
+the picker's own `<option>`, so a plain `findByText` matches both. Disambiguate
+with `{ selector: ":not(option)" }`, which `lessons-page.test.tsx` already uses
+for the same reason.
 
 - [ ] **Step 5: The lessons page**
 
