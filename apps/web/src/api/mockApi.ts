@@ -601,6 +601,19 @@ async function mockOrgsApi(
 		return json({ revoked: path.split("/invites/")[1] });
 	}
 
+	// Matches apps/api's handleRetractOrgLesson's shape (routes/orgs-lessons.ts)
+	// - { id, seq, status } - unconditionally, the same way the members and
+	// invites DELETE branches above answer without checking the id is real.
+	// Nothing under apps/web/src calls this route yet; the branch exists so the
+	// mock and the contract cannot drift apart the moment something does.
+	if (
+		method === "POST" &&
+		/^\/api\/orgs\/[^/]+\/lessons\/[^/]+\/retract$/.test(path)
+	) {
+		const lessonId = path.split("/lessons/")[1]?.split("/")[0] ?? "";
+		return json({ id: lessonId, seq: 1, status: "retracted" });
+	}
+
 	if (method === "PATCH" && /^\/api\/orgs\/[^/]+$/.test(path)) {
 		const { name } = readBody<{ name: string }>(options);
 		return json({ org: { id: path.split("/").pop(), name } });

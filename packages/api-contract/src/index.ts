@@ -659,6 +659,12 @@ export const ORG_LIFECYCLE: ContractCase[] = [
 		status: 401,
 	},
 	{
+		name: "POST /api/orgs/:id/lessons/:lessonId/retract with no credential",
+		path: "/api/orgs/any/lessons/any/retract",
+		init: { method: "POST" },
+		status: 401,
+	},
+	{
 		// The value is irrelevant - 401 lands before the body is read - so this
 		// is deliberately a single character rather than anything resembling a
 		// credential.
