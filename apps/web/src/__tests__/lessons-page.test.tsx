@@ -1107,6 +1107,60 @@ describe("paging past the first page", () => {
 
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
 	});
+
+	// setAuthors merges a loaded-more page into what is already on screen, the
+	// same way setLessons does just above it - replacing instead would drop a
+	// first-page author's name off the (still-rendered) first-page row the
+	// instant "Load more" resolves, which is the worst outcome this feature
+	// has: one person's name on another person's lesson becomes one person's
+	// name MISSING, but a silent regression either way. The merge was
+	// untested until now.
+	it("keeps a first page's author after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			authors: { [VITE.id]: "Ada" },
+		});
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(await screen.findByText("Ada")).toBeDefined();
+
+		withPool([D1], {
+			cursor: null,
+			has_more: false,
+			authors: { [D1.id]: "Bob" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await screen.findByText(D1.claim);
+
+		// Both must still be on screen - the second page's response names only
+		// Bob, so Ada surviving is evidence of a merge, not a coincidence.
+		expect(screen.getByText("Ada")).toBeDefined();
+		expect(screen.getByText("Bob")).toBeDefined();
+	});
+
+	// setOwnedIds, just above setAuthors in loadMore, merges the same way and
+	// was equally untested. Same shape as the author test above: the second
+	// page's owned_ids names only D1, so VITE still offering its control is
+	// evidence the first page's ownership survived the merge.
+	it("keeps a first page's lesson owned after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			owned_ids: [VITE.id],
+		});
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([D1], { cursor: null, has_more: false, owned_ids: [] });
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await screen.findByText(D1.claim);
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+	});
 });
 
 describe("the visual language", () => {
