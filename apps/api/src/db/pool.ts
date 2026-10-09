@@ -20,76 +20,36 @@ export interface Principal {
 }
 
 /**
- * The org-membership hole. ONL-12 fills this.
+ * The orgs the reader belongs to.
  *
- * Contract: return the user_ids sharing an org with `userId`. Never include a
- * non-member. NEVER THROW - an org that cannot be resolved returns [], so a
- * membership outage narrows access instead of widening it.
+ * Contract: return the ids of orgs `userId` is a member of. Never include an
+ * org they do not belong to. NEVER THROW - an org list that cannot be resolved
+ * must return [], so a membership outage narrows access instead of widening it.
+ * `readPool` enforces that structurally by catching anything this throws, so
+ * the property does not rest on a resolver's politeness.
  *
- * MUST stay within MAX_ORG_MEMBERS_BOUND below (50 - D1's 100-bound-parameter
- * cap, halved for headroom the same way lessons.ts's ID_LOOKUP_CHUNK is).
- * This is not a soft preference: this predicate binds one `?` per id, so an
- * `IN (...)` list cannot express an org bigger than the bound AT ALL. An org
- * larger than that is this issue's to solve with a different shape entirely -
- * a JOIN against a membership table, not a longer id list - not something a
- * resolver can paper over by returning more ids. Past the bound,
- * visibilityPredicate truncates rather than throwing, which silently drops
- * members rather than growing the query; that is a floor against a resolver
- * that ignores this contract, not a way to run a big org correctly.
+ * This used to return the ids of the reader's org-MATES, and the predicate
+ * matched them against `lessons.user_id`. That authorized on who the author
+ * was rather than on which org the lesson was shared with, which over-shares
+ * the moment a user can belong to two orgs: Alice in orgs A and B pushes one
+ * org lesson, and Bob (A only) and Carol (B only) can both read it because each
+ * shares AN org with Alice. The rename is not cosmetic - a function whose name
+ * says "members" and whose values are orgs is the kind of thing a later reader
+ * fixes in the wrong direction.
  */
-export type OrgMembers = (db: D1Database, userId: string) => Promise<string[]>;
+export type OrgIds = (db: D1Database, userId: string) => Promise<string[]>;
 
 /**
- * The inert stub - and as of 2026-10-03 its inertness is the ONLY thing
- * holding the org disjunct shut, where it used to be the lesser of two.
+ * The fail-closed default: a reader in no orgs.
  *
- * The condition that used to carry the weight was the closed push tier gate
- * at routes/lessons.ts. That gate opened for `public` on 2026-10-03, so the
- * `visibility` column now holds real public rows and an authenticated
- * readPool matches OTHER accounts' non-retracted, unblocked public lessons.
- * That is the spec's intent for the browse surface rather than a bug, and the
- * route-level tests in routes/lessons-browser.test.ts now observe it.
- *
- * `org` is a different matter and stays shut at that same gate, precisely
- * BECAUSE this resolver is still a stub. An org lesson admitted today would
- * be readable only by its owner, and would become org-visible retroactively
- * the moment this function starts returning members - a disclosure its author
- * never asked for. So the two are coupled: whoever implements OrgMembers
- * (ONL-12) opens the org tier in the same change, or neither.
- *
- * Note what that means for the reading below. Emptying the org set does not
- * narrow `visibility = 'public'`, which sits outside the `if (principal)`
- * branch - that disjunct is live now and this stub never governed it.
- *
- * It also had a measured performance consequence, now repaired. EXPLAIN QUERY
- * PLAN against a database built from the real migrations:
- *   - Before this predicate (old listLessonsPage): `SEARCH lessons USING
- *     INDEX lessons_user_promoted_at_idx (user_id=?)` - indexed, no sort,
- *     because the index already supplies promoted_at order.
- *   - This predicate without an index on visibility: `SCAN lessons` plus
- *     `USE TEMP B-TREE FOR ORDER BY` - a full table scan across every user's
- *     rows, plus a sort, on EVERY authenticated browse. Not conditional on
- *     the gate: the planner cannot know the 'public' disjunct matches
- *     nothing, so it scans to find that out.
- *   - Today, with lessons_visibility_promoted_at_idx on (visibility,
- *     promoted_at, id): `MULTI-INDEX OR` over that index and
- *     lessons_user_id_idx, plus the sort. No full scan. The sort cannot be
- *     avoided once the leading clause is a disjunction, because a union of
- *     two index scans is not ordered by promoted_at.
- *   - The ANONYMOUS read does better still: its predicate is a bare
- *     `visibility = 'public'` with no union to merge, so it plans as a single
- *     `SEARCH lessons USING INDEX lessons_visibility_promoted_at_idx` with no
- *     sort at all - the index supplies the order.
- * The correlated NOT EXISTS on the blocklist is cheap throughout
- * (lesson_author_blocks.author_key is the primary key, so a covering index).
- *
- * This IS observed by a test now. pool-query-plan.test.ts hands readPool a
- * recording stand-in for D1, captures the statement it actually prepares, and
- * EXPLAINs that - so losing the index, or rewriting the predicate into
- * something unindexable, fails rather than quietly costing a scan. Only the
- * plan is checked; the latency it buys still needs real volume to see.
+ * Still the default parameter rather than the live resolver, deliberately. A
+ * forgotten wiring then narrows a read instead of widening one, and
+ * `routes/lessons-public.ts` keeps an anonymous path that resolves no orgs at
+ * all. What catches a forgotten wiring is a test through the production entry
+ * point - see "resolves the reader's orgs" in db/pool.test.ts - rather than a
+ * default that papers over it.
  */
-export const noOrgMembers: OrgMembers = async () => [];
+export const noOrgIds: OrgIds = async () => [];
 
 export interface PoolFilters {
 	statuses?: string[];
@@ -98,24 +58,34 @@ export interface PoolFilters {
 }
 
 /**
- * The largest org-membership list this predicate will bind into one query.
+ * The largest number of a reader's orgs this predicate will bind into one
+ * query.
  *
- * D1 caps bound parameters per query at 100 - the same fact `lessons.ts`'s
- * `ID_LOOKUP_CHUNK` derives from, halving that cap for the same reason. This
- * query carries other binds beside the org list too: both `user_id` binds in
- * visibilityPredicate itself, up to four `statuses`, two cursor binds, and
- * the page `LIMIT`. 50 - matching `ID_LOOKUP_CHUNK` rather than disagreeing
- * with it - leaves real headroom under the cap instead of sitting near it.
+ * D1 caps bound parameters per query at 100 - the fact `lessons.ts`'s
+ * `ID_LOOKUP_CHUNK` derives from, halving it for the same reason. This query
+ * carries other binds beside the org list: both `user_id` binds in
+ * visibilityPredicate, up to four `statuses`, two cursor binds, and the page
+ * LIMIT.
  *
- * This is a hard ceiling on what an `IN (...)` id list can express, not a
- * safety valve for an unusually large but ordinary org. Past this count,
- * ONL-12's resolver cannot be answered with an id list handed to this
- * predicate at all - an org bigger than the bound needs a JOIN against a
- * membership table, not a bigger list. See the truncation below for what
- * happens if such a resolver ships anyway: it is a floor against breakage,
- * not a supported way to run a big org.
+ * What changed with the rekey is what this bounds. It used to limit an org's
+ * SIZE - a hard ceiling on the members an `IN (...)` list could express, past
+ * which the predicate silently stopped recognizing members, which is why
+ * MAX_ORG_MEMBERS_BOUND was a standing ceiling on how big an org could be at
+ * all. Now it limits how many orgs ONE READER may have counted in a single
+ * query, which is one or two in practice and 50 at the cap. The org-size
+ * ceiling is gone, not raised.
  */
-export const MAX_ORG_MEMBERS_BOUND = 50;
+export const MAX_READER_ORGS_BOUND = 50;
+
+/**
+ * How many author ids the name lookup binds per statement.
+ *
+ * Matches `lessons.ts`'s ID_LOOKUP_CHUNK rather than disagreeing with it: D1
+ * caps bound parameters at 100, and a page can carry up to BROWSE_MAX_LIMIT
+ * rows, so a page of 200 distinct org authors would exceed the cap in one
+ * statement.
+ */
+const AUTHOR_LOOKUP_CHUNK = 50;
 
 /**
  * The only place a visibility predicate is constructed.
@@ -128,7 +98,9 @@ export const MAX_ORG_MEMBERS_BOUND = 50;
  *
  * Note that org membership widens `org` only. A member of your org still cannot
  * read your `private` lessons, which is why the org branch tests visibility
- * rather than only ownership.
+ * rather than only ownership. That stays true after the rekey below - it is
+ * now true because the disjunct tests `visibility = 'org'` against the
+ * lesson's own org rather than against the author's identity.
  *
  * A decision, recorded because a reader cannot otherwise tell whether it was
  * considered: `ZStatus` is `active | refuted | superseded | retracted`, and
@@ -144,7 +116,7 @@ export const MAX_ORG_MEMBERS_BOUND = 50;
  */
 function visibilityPredicate(
 	principal: Principal | null,
-	orgMemberIds: string[],
+	readerOrgIds: string[],
 ): { sql: string; binds: unknown[] } {
 	const binds: unknown[] = [];
 	const visible: string[] = ["visibility = 'public'"];
@@ -153,18 +125,16 @@ function visibilityPredicate(
 		visible.push("user_id = ?");
 		binds.push(principal.userId);
 
-		// Truncated, not thrown: OrgMembers promises never to throw, and a
-		// resolver whose org exceeds the bound should still only narrow which
-		// members are recognized, not take the whole read down - including the
-		// caller's own private lessons, which the same query answers. This is a
-		// floor against a broken or oversized resolver, not a supported way to
-		// serve a big org: see MAX_ORG_MEMBERS_BOUND above for why a bigger org
-		// needs a different predicate entirely, not a bigger list here.
-		const bounded = orgMemberIds.slice(0, MAX_ORG_MEMBERS_BOUND);
+		// Truncated, not thrown, for the same reason as before: this read also
+		// answers the caller's own private lessons, and a reader in more orgs
+		// than the bound should lose org rows rather than lose the whole page.
+		// Unreachable in practice now that the bound counts the reader's orgs
+		// rather than an org's members.
+		const bounded = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
 
 		if (bounded.length > 0) {
 			visible.push(
-				`(visibility = 'org' AND user_id IN (${bounded
+				`(visibility = 'org' AND org_id IN (${bounded
 					.map(() => "?")
 					.join(", ")}))`,
 			);
@@ -185,6 +155,31 @@ function visibilityPredicate(
 }
 
 /**
+ * The reader's orgs, or none - never an exception.
+ *
+ * The OrgIds contract says a resolver never throws. This catches anyway,
+ * because "narrows on failure" is a property worth having by construction
+ * rather than by agreement: a resolver is a function someone else writes, and
+ * the cost of being wrong here is that a membership outage takes down a read
+ * that also serves the caller's own private lessons.
+ *
+ * Narrowing is the only safe direction, so there is deliberately no error
+ * propagated to the caller and nothing retried.
+ */
+async function resolveOrgIds(
+	db: D1Database,
+	principal: Principal | null,
+	orgIds: OrgIds,
+): Promise<string[]> {
+	if (!principal) return [];
+	try {
+		return await orgIds(db, principal.userId);
+	} catch {
+		return [];
+	}
+}
+
+/**
  * One page of the pool this principal may read, newest first.
  *
  * Callers pass filters, never SQL. There is no other path from a route to a
@@ -195,11 +190,11 @@ export async function readPool(
 	db: D1Database,
 	principal: Principal | null,
 	filters: PoolFilters,
-	orgMembers: OrgMembers = noOrgMembers,
+	orgIds: OrgIds = noOrgIds,
 ): Promise<LessonPage> {
 	const limit = Math.min(Math.max(1, filters.limit), BROWSE_MAX_LIMIT);
-	const orgMemberIds = principal ? await orgMembers(db, principal.userId) : [];
-	const predicate = visibilityPredicate(principal, orgMemberIds);
+	const readerOrgIds = await resolveOrgIds(db, principal, orgIds);
+	const predicate = visibilityPredicate(principal, readerOrgIds);
 
 	const binds: unknown[] = [...predicate.binds];
 	let where = predicate.sql;
@@ -226,19 +221,26 @@ export async function readPool(
 	// each body.
 	const { results } = await db
 		.prepare(
-			`SELECT body, user_id FROM lessons
+			`SELECT body, user_id, visibility, org_id FROM lessons
 			 WHERE ${where}
 			 ORDER BY promoted_at DESC, id DESC
 			 LIMIT ?`,
 		)
 		.bind(...binds)
-		.all<{ body: string; user_id: string }>();
+		.all<{
+			body: string;
+			user_id: string;
+			visibility: string;
+			org_id: string | null;
+		}>();
 
 	const rows = results ?? [];
 	const hasMore = rows.length > limit;
 	const kept = (hasMore ? rows.slice(0, limit) : rows).map((r) => ({
 		lesson: JSON.parse(r.body) as { id: string; promoted_at: string },
 		userId: r.user_id,
+		visibility: r.visibility,
+		orgId: r.org_id,
 	}));
 	const page = kept.map((r) => r.lesson);
 
@@ -247,6 +249,32 @@ export async function readPool(
 	const ownedIds = principal
 		? kept.filter((r) => r.userId === principal.userId).map((r) => r.lesson.id)
 		: [];
+
+	// Attributed only where the org disjunct is what matched. A row is
+	// org-reached when it is an 'org' row whose org is one of the reader's: a
+	// public row is not, and neither is the reader's own 'org' row once they
+	// have left that org.
+	//
+	// Bounded the same way visibilityPredicate bounds its own IN list, even
+	// though this filter cannot misbehave on an unbounded list - it runs
+	// in-memory over rows the predicate already admitted, so a row whose org
+	// was truncated away by the predicate never reaches here at all. The
+	// bound is applied anyway so this, the predicate, and orgAuthorName all
+	// agree on one reader-org list rather than each truncating it separately.
+	const boundedReaderOrgIds = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+	const orgReached = kept.filter(
+		(r) =>
+			r.visibility === "org" &&
+			// Narrows r.orgId from `string | null` to `string` for the
+			// `includes` call below, rather than filtering anything the next
+			// line would not already exclude - a null fails `includes` on a
+			// string[] anyway. Removing it is a type error, not a cleanup:
+			// `Array<string>.includes` does not accept `string | null`.
+			r.orgId !== null &&
+			boundedReaderOrgIds.includes(r.orgId),
+	);
+	const authors = await authorNames(db, orgReached);
+
 	const last = page.at(-1);
 	const cursor =
 		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
@@ -267,7 +295,54 @@ export async function readPool(
 		cursor,
 		hasMore,
 		ownedIds,
+		authors,
 	};
+}
+
+/**
+ * Author names for the org rows on one page, by lesson id.
+ *
+ * A second statement rather than a join in the pool read, for two reasons. The
+ * repo's own precedent is this shape - see getLessonForUser's note on not
+ * widening readPoolLesson's SELECT - and a LEFT JOIN in the main statement
+ * would change the plan that pool-query-plan.test.ts pins, for a lookup that
+ * most pages do not need at all.
+ *
+ * Runs no statement when a page carries no org rows, which is every anonymous
+ * read and most authenticated ones.
+ */
+async function authorNames(
+	db: D1Database,
+	orgReached: Array<{ lesson: { id: string }; userId: string }>,
+): Promise<Record<string, string>> {
+	if (orgReached.length === 0) return {};
+
+	const ids = [...new Set(orgReached.map((r) => r.userId))];
+	const names = new Map<string, string>();
+
+	for (let at = 0; at < ids.length; at += AUTHOR_LOOKUP_CHUNK) {
+		const chunk = ids.slice(at, at + AUTHOR_LOOKUP_CHUNK);
+		const { results } = await db
+			.prepare(
+				`SELECT id, name FROM users
+				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+			)
+			.bind(...chunk)
+			.all<{ id: string; name: string | null }>();
+
+		for (const row of results ?? []) {
+			// A null or empty name produces no key at all. The server does not
+			// invent a label for a member who never set one.
+			if (row.name) names.set(row.id, row.name);
+		}
+	}
+
+	const authors: Record<string, string> = {};
+	for (const row of orgReached) {
+		const name = names.get(row.userId);
+		if (name) authors[row.lesson.id] = name;
+	}
+	return authors;
 }
 
 /**
@@ -282,10 +357,10 @@ export async function readPoolLesson(
 	db: D1Database,
 	principal: Principal | null,
 	id: string,
-	orgMembers: OrgMembers = noOrgMembers,
+	orgIds: OrgIds = noOrgIds,
 ): Promise<unknown | null> {
-	const orgMemberIds = principal ? await orgMembers(db, principal.userId) : [];
-	const predicate = visibilityPredicate(principal, orgMemberIds);
+	const readerOrgIds = await resolveOrgIds(db, principal, orgIds);
+	const predicate = visibilityPredicate(principal, readerOrgIds);
 
 	const row = await db
 		.prepare(
@@ -296,4 +371,51 @@ export async function readPoolLesson(
 		.first<{ body: string }>();
 
 	return row ? (JSON.parse(row.body) as unknown) : null;
+}
+
+/**
+ * The name of an org lesson's author, for a reader who reaches it through the
+ * org disjunct - or null.
+ *
+ * A separate function from readPoolLesson rather than a widening of it. That
+ * one is also the anonymous public route's read, and its contract is that no
+ * code path may widen what it sees; leaving its shape and its single caller
+ * list alone is worth more than saving a primary-key lookup here.
+ *
+ * This is a name lookup, not an authorization check: its WHERE tests
+ * `visibility`/`org_id` but omits the retracted-and-blocked-author boundary
+ * `visibilityPredicate` applies, because duplicating that logic into a
+ * second query would be a worse defect than this function existing at all -
+ * `visibilityPredicate` stays the only place a visibility predicate is
+ * constructed. That means this must never be called for a lesson id that
+ * has not already been established as readable. Its one caller,
+ * `getLessonForUser` in lessons.ts, satisfies that by construction: it
+ * already returned null (lessons.ts, `if (!lesson) return null`) for any
+ * row `readPoolLesson` - which DOES apply the full predicate - would not
+ * admit, before this ever runs.
+ */
+export async function orgAuthorName(
+	db: D1Database,
+	readerOrgIds: string[],
+	lessonId: string,
+): Promise<string | null> {
+	if (readerOrgIds.length === 0) return null;
+
+	// Bounded the same way visibilityPredicate bounds its own IN list - a
+	// reader in more orgs than the cap must not blow D1's bound-parameter
+	// limit and turn a readable deep link into a 500. See MAX_READER_ORGS_BOUND.
+	const bounded = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+
+	const row = await db
+		.prepare(
+			`SELECT u.name AS name FROM lessons l
+			 JOIN users u ON u.id = l.user_id
+			 WHERE l.id = ?
+			   AND l.visibility = 'org'
+			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
+		)
+		.bind(lessonId, ...bounded)
+		.first<{ name: string | null }>();
+
+	return row?.name ?? null;
 }

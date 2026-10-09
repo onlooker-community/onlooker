@@ -307,3 +307,31 @@ export async function countOwners(
 		);
 	return Number(rows[0]?.n ?? 0);
 }
+
+/**
+ * The ids of the orgs this user belongs to.
+ *
+ * This is what the read predicate's org disjunct binds. It reads
+ * `org_memberships` by `user_id`, which `org_memberships_user_id_idx` exists
+ * for.
+ *
+ * Ordered by id so a given reader's bound org list is deterministic between
+ * calls - worth having on its own, independent of any query-plan test, since
+ * a resolver whose output order varies would make the predicate's bind list
+ * vary with it for no reason.
+ *
+ * Membership only. A pending invite is not membership, and if it were counted
+ * here an invitation would read the org's lessons before anybody accepted it.
+ */
+export async function orgIdsForUser(
+	db: D1Database,
+	userId: string,
+): Promise<string[]> {
+	const rows = await client(db)
+		.select({ org_id: org_memberships.org_id })
+		.from(org_memberships)
+		.where(eq(org_memberships.user_id, userId))
+		.orderBy(org_memberships.org_id);
+
+	return rows.map((row) => row.org_id);
+}

@@ -130,6 +130,18 @@ export const machine_tokens = sqliteTable(
 		last_used_at: text("last_used_at"),
 		revoked_at: text("revoked_at"),
 		/**
+		 * The org this token pushes to, or null for a private-only token.
+		 *
+		 * Set when the token is minted and never afterward, which is what makes
+		 * D3 true: the server reads the org from the credential rather than
+		 * from the request, so a client cannot name an org its holder does not
+		 * belong to and a stolen token cannot be retargeted. The cost is one
+		 * token per org, deliberately.
+		 */
+		org_id: text("org_id").references(() => orgs.id, {
+			onDelete: "set null",
+		}),
+		/**
 		 * The machine's reported plugin inventory, as the CLI's own JSON.
 		 *
 		 * A document rather than a `machine_plugins` table, for the reason the
@@ -204,6 +216,26 @@ export const lessons = sqliteTable(
 		// packages/lesson-contract/src/primitives.ts for why it is 128 bits:
 		// a collision would block an innocent author alongside a bad actor.
 		author_key: text("author_key").notNull().default(""),
+		/**
+		 * The org this lesson was shared with, or null.
+		 *
+		 * Earns a column under this table's own stated rule - only the fields
+		 * the server filters or orders on are lifted out of `body` - because
+		 * the read predicate filters on it.
+		 *
+		 * Stamped by the server from the push credential, never carried in the
+		 * lesson contract. Set only on a row whose visibility is 'org': a
+		 * private row with an org_id would be invisible to the org but would
+		 * make it reachable by the org-retract path, which authorizes on this
+		 * column.
+		 *
+		 * NULL is the fail-closed value. `org_id IN (...)` is never true for
+		 * NULL, so an 'org' row that somehow lacks an org matches nothing for
+		 * every reader including its author's org-mates.
+		 */
+		org_id: text("org_id").references(() => orgs.id, {
+			onDelete: "set null",
+		}),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
@@ -241,6 +273,9 @@ export const lessons = sqliteTable(
 			table.promoted_at,
 			table.id,
 		),
+		visibilityOrgPromotedAtIdx: index(
+			"lessons_visibility_org_promoted_at_idx",
+		).on(table.visibility, table.org_id, table.promoted_at, table.id),
 	}),
 );
 

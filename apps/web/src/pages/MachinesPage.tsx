@@ -13,6 +13,7 @@ import {
 	type Machine,
 	revokeMachine,
 } from "../api/machinesApi";
+import { listOrgs, type Org } from "../api/orgsApi";
 import { ConfirmAction } from "../components/ConfirmAction";
 import { SubmitButton, TextField } from "../components/form";
 import { MachineInventory } from "../components/MachineInventory";
@@ -35,6 +36,19 @@ const row: CSSProperties = {
 	borderBottom: `2px solid ${PALETTE.border}`,
 };
 
+// A native select, matching the one LessonsPage's status filter and
+// OrgsPage's role picker already use: one control on this form does not
+// justify a SelectField in form.tsx, and the native control is what a
+// screen reader and a keyboard already know how to drive.
+const orgSelect: CSSProperties = {
+	padding: "0.4rem 0.5rem",
+	background: "var(--ground)",
+	color: "var(--ink)",
+	border: `2px solid ${PALETTE.border}`,
+	borderRadius: 0,
+	fontFamily: "var(--font-body)",
+};
+
 /**
  * Key for a live or revoked machine, Sleep for one that has never phoned
  * home. Revoked wins over never-used when both are true - a dead credential
@@ -49,6 +63,13 @@ export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [name, setName] = useState("");
+	// "" is the narrower, private-only credential and the default - see the
+	// picker's own option below. Also null, not an empty orgs array, while
+	// this is still loading or failed to load: the private option must keep
+	// working either way, so a failure here falls back to looking like an
+	// account in no org rather than blocking the form.
+	const [orgs, setOrgs] = useState<Org[] | null>(null);
+	const [orgId, setOrgId] = useState("");
 	const [minting, setMinting] = useState(false);
 	const [mintError, setMintError] = useState<string | null>(null);
 	const { revealed, reveal } = useReveal();
@@ -82,6 +103,24 @@ export default function MachinesPage() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	const loadOrgs = useCallback(async () => {
+		try {
+			const { orgs: rows } = await listOrgs();
+			setOrgs(rows);
+		} catch {
+			// The picker is a convenience over the private-only default, and
+			// that default has to keep working even when this call fails - so
+			// a failed load leaves the account looking like it is in no org
+			// rather than putting an error in front of the one path that must
+			// still succeed.
+			setOrgs([]);
+		}
+	}, []);
+
+	useEffect(() => {
+		void loadOrgs();
+	}, [loadOrgs]);
 
 	// Two jobs, one dependency.
 	//
@@ -124,13 +163,14 @@ export default function MachinesPage() {
 		setMinting(true);
 		setMintError(null);
 		try {
-			const created = await createMachine(trimmed);
+			const created = await createMachine(trimmed, orgId || null);
 			// The reveal goes up before the list is reloaded. If that reload
 			// throws, the person still has their token on screen - losing the
 			// only copy to a failed GET would be the one unrecoverable failure
 			// this page is capable of.
 			reveal(created);
 			setName("");
+			setOrgId("");
 			await load();
 		} catch (error) {
 			setMintError(describeError(error, "Could not mint a token."));
@@ -195,6 +235,15 @@ export default function MachinesPage() {
 		}
 	};
 
+	// Resolved here rather than sent by the API: this page already lists the
+	// account's orgs to build the picker above, and a name absent from that
+	// list - the org fetch still loading, or the account having since left
+	// it - renders nothing rather than a name this page cannot vouch for.
+	const orgName = (machine: Machine): string | null =>
+		machine.org_id
+			? (orgs?.find((org) => org.id === machine.org_id)?.name ?? null)
+			: null;
+
 	const action = (machine: Machine) => {
 		// A revoked machine keeps its row - that is how a person sees that they
 		// revoked it - but there is nothing left to do to it. The row losing its
@@ -249,6 +298,34 @@ export default function MachinesPage() {
 						hint="Something you will recognize in this list later."
 						error={mintError}
 					/>
+					<div style={{ marginBottom: "1rem" }}>
+						<label
+							htmlFor="machine-org"
+							style={{ display: "block", marginBottom: "0.25rem" }}
+						>
+							Org
+						</label>
+						<select
+							id="machine-org"
+							value={orgId}
+							disabled={minting}
+							onChange={(event) => setOrgId(event.target.value)}
+							style={orgSelect}
+						>
+							{/*
+							  Value "" first and always present - a token that can
+							  push to an org is the wider credential, so the
+							  narrower, private-only default leads. An account in
+							  no org sees only this option.
+							*/}
+							<option value="">Keep this token private</option>
+							{(orgs ?? []).map((org) => (
+								<option key={org.id} value={org.id}>
+									{org.name}
+								</option>
+							))}
+						</select>
+					</div>
 					<SubmitButton
 						loading={minting}
 						loadingLabel="Minting..."
@@ -287,46 +364,52 @@ export default function MachinesPage() {
 						  lives on Panel's own <section>, one level up.
 						*/}
 						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-							{machines.map((machine) => (
-								<li
-									key={machine.id}
-									data-machine-row={machine.id}
-									ref={(el) => {
-										if (el) rowRefs.current.set(machine.id, el);
-										else rowRefs.current.delete(machine.id);
-									}}
-									// Focusable only by script. The row is not a control, but
-									// it is where a person was standing when the control under
-									// their focus unmounted.
-									tabIndex={-1}
-									style={row}
-								>
-									<Plate
-										tone={machine.revoked_at ? "red" : "teal"}
-										icon={machineIcon(machine)}
-									/>
-									<span style={{ minWidth: 0, flex: 1 }}>
-										<span
-											style={{
-												display: "block",
-												marginBottom: "var(--space-1)",
-												fontSize: "var(--text-body-md)",
-											}}
-										>
-											{machine.name}
-										</span>
-										<span
-											style={{
-												display: "flex",
-												gap: "var(--space-2)",
-												alignItems: "center",
-												flexWrap: "wrap",
-												color: PALETTE.muted,
-												fontSize: "var(--text-body-sm)",
-											}}
-										>
-											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-											{/*
+							{machines.map((machine) => {
+								// Hoisted: the two reads below (the condition and the
+								// child) would otherwise each walk `orgs` with their own
+								// Array.find pass per row.
+								const orgLabel = orgName(machine);
+								return (
+									<li
+										key={machine.id}
+										data-machine-row={machine.id}
+										ref={(el) => {
+											if (el) rowRefs.current.set(machine.id, el);
+											else rowRefs.current.delete(machine.id);
+										}}
+										// Focusable only by script. The row is not a control, but
+										// it is where a person was standing when the control under
+										// their focus unmounted.
+										tabIndex={-1}
+										style={row}
+									>
+										<Plate
+											tone={machine.revoked_at ? "red" : "teal"}
+											icon={machineIcon(machine)}
+										/>
+										<span style={{ minWidth: 0, flex: 1 }}>
+											<span
+												style={{
+													display: "block",
+													marginBottom: "var(--space-1)",
+													fontSize: "var(--text-body-md)",
+												}}
+											>
+												{machine.name}
+											</span>
+											<span
+												style={{
+													display: "flex",
+													gap: "var(--space-2)",
+													alignItems: "center",
+													flexWrap: "wrap",
+													color: PALETTE.muted,
+													fontSize: "var(--text-body-sm)",
+												}}
+											>
+												{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+												{orgLabel ? <Chip>{orgLabel}</Chip> : null}
+												{/*
 											  Labeled, not bare. LessonsPage's own meta line gets
 											  away with an unlabeled date because it only ever
 											  shows one - this row shows two, and the table it
@@ -335,69 +418,72 @@ export default function MachinesPage() {
 											  the label and its date wrap as one unit rather than
 											  splitting across lines at narrow widths.
 											*/}
-											<span
-												style={{
-													display: "inline-flex",
-													gap: "var(--space-1)",
-												}}
-											>
-												Created <When iso={machine.created_at} />
-											</span>
-											{machine.last_used_at ? (
 												<span
 													style={{
 														display: "inline-flex",
 														gap: "var(--space-1)",
 													}}
 												>
-													Last used <When iso={machine.last_used_at} />
+													Created <When iso={machine.created_at} />
 												</span>
-											) : (
-												// Not a dash. Minting a token and never pointing
-												// a plugin at it is the likeliest first-run
-												// failure in the product, and a blank line does
-												// not say that - it reads as missing data.
-												<Chip>Never used</Chip>
-											)}
-											{/*
+												{machine.last_used_at ? (
+													<span
+														style={{
+															display: "inline-flex",
+															gap: "var(--space-1)",
+														}}
+													>
+														Last used <When iso={machine.last_used_at} />
+													</span>
+												) : (
+													// Not a dash. Minting a token and never pointing
+													// a plugin at it is the likeliest first-run
+													// failure in the product, and a blank line does
+													// not say that - it reads as missing data.
+													<Chip>Never used</Chip>
+												)}
+												{/*
 											  Never reported is not zero plugins. One is a claim
 											  about the machine, the other about what we know -
 											  so the machine that has not told us gets a chip
 											  rather than a count, and no control to expand.
 											*/}
-											{machine.inventory_at === null ? (
-												<Chip>Never reported</Chip>
-											) : (
-												<button
-													type="button"
-													aria-expanded={openInventory === machine.id}
-													onClick={() =>
-														setOpenInventory(
-															openInventory === machine.id ? null : machine.id,
-														)
-													}
-													style={{
-														background: "none",
-														border: "none",
-														padding: 0,
-														font: "inherit",
-														color: "inherit",
-														textDecoration: "underline",
-														cursor: "pointer",
-													}}
-												>
-													{machine.plugin_count}{" "}
-													{machine.plugin_count === 1 ? "plugin" : "plugins"}
-												</button>
-											)}
+												{machine.inventory_at === null ? (
+													<Chip>Never reported</Chip>
+												) : (
+													<button
+														type="button"
+														aria-expanded={openInventory === machine.id}
+														onClick={() =>
+															setOpenInventory(
+																openInventory === machine.id
+																	? null
+																	: machine.id,
+															)
+														}
+														style={{
+															background: "none",
+															border: "none",
+															padding: 0,
+															font: "inherit",
+															color: "inherit",
+															textDecoration: "underline",
+															cursor: "pointer",
+														}}
+													>
+														{machine.plugin_count}{" "}
+														{machine.plugin_count === 1 ? "plugin" : "plugins"}
+													</button>
+												)}
+											</span>
+											{openInventory === machine.id ? (
+												<MachineInventory machineId={machine.id} />
+											) : null}
 										</span>
-										{openInventory === machine.id ? (
-											<MachineInventory machineId={machine.id} />
-										) : null}
-									</span>
-									<span style={{ flex: "none" }}>{action(machine)}</span>
-								</li>
-							))}
+										<span style={{ flex: "none" }}>{action(machine)}</span>
+									</li>
+								);
+							})}
 						</ul>
 
 						{revokeError ? (

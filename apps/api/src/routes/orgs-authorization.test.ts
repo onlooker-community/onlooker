@@ -1,20 +1,27 @@
 import { env } from "cloudflare:test";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createLessonsWithFeed } from "../db/lessons.js";
+import { createInvite } from "../db/org-invites.js";
 import { addMembership, createOrgWithOwner } from "../db/orgs.js";
 import { createUser } from "../db/queries.js";
 import { ROUTES } from "../router.js";
+import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
 	resetOrgTables,
 	type SignedUpUser,
 	signup,
 } from "../test-support/orgs.js";
+import { hashToken } from "../utils/crypto.js";
 
 const db = () => env.DB;
 let ada: string;
 let member: SignedUpUser;
 let outsider: SignedUpUser;
 let orgId: string;
+let lessonId: string;
+let inviteId: string;
 
 /**
  * Every /api/orgs route, with the role it requires.
@@ -41,6 +48,7 @@ const REQUIRED_ROLE: Record<
 	"POST /api/orgs/:id/invites": "owner",
 	"GET /api/orgs/:id/invites": "owner",
 	"DELETE /api/orgs/:id/invites/:inviteId": "owner",
+	"POST /api/orgs/:id/lessons/:lessonId/retract": "owner",
 	"GET /api/orgs/invites/verify": "none",
 	"POST /api/orgs/invites/accept": "none",
 };
@@ -50,17 +58,50 @@ const orgRoutes = () =>
 
 beforeEach(async () => {
 	await resetOrgTables();
+	// resetOrgTables deliberately does not touch these two - see its doc
+	// comment - so this suite, which now seeds a real org lesson below,
+	// clears them itself, the same way orgs-lessons.test.ts does.
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
+	resetLessonCounter();
+
 	ada = (await createUser(db(), "ada@example.com", "hash", "Ada")).id;
 	member = await signup("member@example.com");
 	outsider = await signup("outsider@example.com");
 	orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
 	await addMembership(db(), orgId, member.id, "member");
+
+	// A REAL lesson, not the placeholder ":lessonId" once was. With a
+	// nonexistent id, retractOrgLesson returns null for an owner and a
+	// non-owner alike, so the 404 a member gets back is indistinguishable
+	// from "no such lesson" - the enumeration guard would pass whether or
+	// not the route checked a role at all. A real, actually-shared lesson
+	// is what makes "a plain member gets 404 from every owner route" prove
+	// the role gate fired rather than the lookup failing.
+	const written = lesson({ visibility: "org" }) as TLesson;
+	await createLessonsWithFeed(db(), ada, [written], orgId);
+	lessonId = written.id;
+
+	// A REAL pending invite, for the same reason as the lesson above: with
+	// a nonexistent id, deleteInvite returns false for an owner and a
+	// non-owner alike, so a 404 does not distinguish "no such invite" from
+	// the role check firing. A real invite makes revocation observable.
+	const invite = await createInvite(db(), {
+		orgId,
+		email: "invitee@example.com",
+		role: "member",
+		tokenHash: await hashToken(crypto.randomUUID()),
+		expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+		invitedBy: ada,
+	});
+	inviteId = invite.id;
 });
 
 /** Fill a route pattern with concrete ids for this fixture. */
 function concrete(path: string, targetUserId: string): string {
 	return path
-		.replace(":inviteId", crypto.randomUUID())
+		.replace(":inviteId", inviteId)
+		.replace(":lessonId", lessonId)
 		.replace(":userId", targetUserId)
 		.replace(":id", orgId);
 }

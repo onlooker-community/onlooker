@@ -279,6 +279,10 @@ export const MACHINE_LIFECYCLE = {
 	 * reporting what they run. The count and never the document: a list
 	 * carrying every machine's full inventory is what the browse-then-detail
 	 * split exists to prevent, and `inventoryInList` below fails if one leaks.
+	 *
+	 * `org_id` joined them when minting began binding a token to an org - the
+	 * page resolves the org's name itself from the account's own org list, so
+	 * this carries only the id, never a join.
 	 */
 	listFields: [
 		"id",
@@ -288,6 +292,7 @@ export const MACHINE_LIFECYCLE = {
 		"revoked_at",
 		"inventory_at",
 		"plugin_count",
+		"org_id",
 	],
 	/**
 	 * A listed machine never carries its inventory document. `scopes` is the
@@ -302,8 +307,12 @@ export const MACHINE_LIFECYCLE = {
 	 * `TokenReveal` ("the token for <name>") and was asserted nowhere before
 	 * this - a rename here would blank that sentence with every other check
 	 * still passing.
+	 *
+	 * `org_id` joined this when minting began binding a token to an org - the
+	 * contract's own mint names none, so it comes back null, but the key is
+	 * still part of the shape both implementations must agree on.
 	 */
-	createFields: ["id", "name", "token"],
+	createFields: ["id", "name", "token", "org_id"],
 } as const;
 
 /**
@@ -443,6 +452,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -464,6 +477,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -535,6 +552,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a status control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				owned_ids: expectArray,
+				// Pinned for the same reason `owned_ids` is: the detail pane reads
+				// it to show who wrote an org lesson, and an absent key there
+				// silently shows nothing rather than failing visibly.
+				authors: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -635,6 +656,12 @@ export const ORG_LIFECYCLE: ContractCase[] = [
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email: "new@example.com", role: "member" }),
 		},
+		status: 401,
+	},
+	{
+		name: "POST /api/orgs/:id/lessons/:lessonId/retract with no credential",
+		path: "/api/orgs/any/lessons/any/retract",
+		init: { method: "POST" },
 		status: 401,
 	},
 	{

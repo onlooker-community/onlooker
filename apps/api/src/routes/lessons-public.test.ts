@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
+import { createOrgWithOwner } from "../db/orgs.js";
 import { createUser } from "../db/queries.js";
 import {
 	BASE,
@@ -58,8 +59,17 @@ describe("GET /api/public/lessons/:id", () => {
 	});
 
 	it("404s an org lesson", async () => {
-		const org = await seed({ visibility: "org" });
-		expect((await get(org.id)).status).toBe(404);
+		// A REAL org_id, not the NULL seed() would leave it with. NULL makes
+		// this pass on an absent column rather than on the visibility: the
+		// anonymous route's predicate tests `visibility = 'public'` alone, so
+		// an 'org' row 404s whether or not it carries an org_id at all. A real
+		// org_id is what makes this the test that exercises the shape the
+		// spec describes - an org row that genuinely belongs to an org.
+		const orgId = (await createOrgWithOwner(db(), "Acme", owner)).id;
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), owner, [written], orgId);
+
+		expect((await get(written.id)).status).toBe(404);
 	});
 
 	it("404s a retracted public lesson", async () => {

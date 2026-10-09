@@ -2,8 +2,13 @@ import { env } from "cloudflare:test";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
-import { createLessonsWithFeed } from "./lessons.js";
-import { MAX_ORG_MEMBERS_BOUND, readPool, readPoolLesson } from "./pool.js";
+import {
+	createLessonsWithFeed,
+	getLessonForUser,
+	listLessonsPage,
+} from "./lessons.js";
+import { addMembership, createOrgWithOwner } from "./orgs.js";
+import { MAX_READER_ORGS_BOUND, readPool, readPoolLesson } from "./pool.js";
 import { createUser } from "./queries.js";
 
 const db = () => env.DB;
@@ -15,9 +20,22 @@ beforeEach(async () => {
 	await db().prepare("DELETE FROM lesson_author_blocks").run();
 	await db().prepare("DELETE FROM lesson_feed").run();
 	await db().prepare("DELETE FROM lessons").run();
+	await db().prepare("DELETE FROM org_memberships").run();
+	await db().prepare("DELETE FROM orgs").run();
 	await db().prepare("DELETE FROM users").run();
 	mine = (await createUser(db(), "mine@example.com", "hash", "Ada")).id;
 	theirs = (await createUser(db(), "theirs@example.com", "hash", "Bob")).id;
+	// lessons.org_id carries a real FK to orgs(id) (migration 0011), so any
+	// literal org id this file hands to seedFor as a value actually stored
+	// in the row - "org-a" below - has to exist as a row first. Ids that
+	// only ever appear inside a resolver's returned list (never inserted,
+	// only bound into the predicate's `IN (...)`) need no such row - that is
+	// why "org-b" and the padding ids in the truncation test are never
+	// created here.
+	await db()
+		.prepare("INSERT INTO orgs (id, name) VALUES (?, ?)")
+		.bind("org-a", "org-a")
+		.run();
 	resetLessonCounter();
 });
 
@@ -33,9 +51,10 @@ beforeEach(async () => {
 async function seedFor(
 	owner: string,
 	overrides: Record<string, unknown>,
+	orgId: string | null = null,
 ): Promise<TLesson> {
 	const written = lesson(overrides) as TLesson;
-	await createLessonsWithFeed(db(), owner, [written]);
+	await createLessonsWithFeed(db(), owner, [written], orgId);
 	return written;
 }
 
@@ -131,8 +150,8 @@ describe("readPool, authenticated", () => {
 		expect(idsIn(page)).toEqual([]);
 	});
 
-	it("does not return another user's org lesson while OrgMembers is inert", async () => {
-		await seedFor(theirs, { visibility: "org" });
+	it("does not return another user's org lesson to a reader in no orgs", async () => {
+		await seedFor(theirs, { visibility: "org" }, "org-a");
 		const page = await readPool(db(), { userId: mine }, { limit: 50 });
 		expect(idsIn(page)).toEqual([]);
 	});
@@ -143,44 +162,133 @@ describe("readPool, authenticated", () => {
 		expect(idsIn(page)).toEqual([pub.id]);
 	});
 
-	it("returns an org lesson once a resolver names the owner a member", async () => {
-		// Proves the hole is wired without deciding what an org is - that is
-		// ONL-12's. A resolver that names `theirs` is enough.
-		const org = await seedFor(theirs, { visibility: "org" });
+	it("returns an org lesson to a reader in that org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, "org-a");
 
 		const page = await readPool(
 			db(),
 			{ userId: mine },
 			{ limit: 50 },
-			async () => [theirs],
+			async () => ["org-a"],
 		);
 
-		expect(idsIn(page)).toEqual([org.id]);
+		expect(idsIn(page)).toEqual([shared.id]);
 	});
 
-	it("still hides a private lesson from an org member", async () => {
-		// Org membership widens `org`, never `private`.
-		await seedFor(theirs, { visibility: "private" });
+	it("does not return an org lesson to a reader in a different org", async () => {
+		await seedFor(theirs, { visibility: "org" }, "org-a");
 
 		const page = await readPool(
 			db(),
 			{ userId: mine },
 			{ limit: 50 },
-			async () => [theirs],
+			async () => ["org-b"],
 		);
 
 		expect(idsIn(page)).toEqual([]);
 	});
 
-	it("truncates an oversized org list rather than binding it all", async () => {
-		// MAX_ORG_MEMBERS_BOUND keeps this predicate's `IN (...)` list under
-		// D1's bound-parameter cap - a floor against a broken or oversized
-		// resolver, not a supported way to run a big org (see pool.ts). Naming
-		// `theirs` past the bound proves the excess is dropped rather than the
-		// query itself breaking.
-		await seedFor(theirs, { visibility: "org" });
+	it("does not leak an org lesson to a reader who shares only a DIFFERENT org with its author", async () => {
+		// The bug this stage fixes, in the shape it actually had. Alice belongs
+		// to orgs A and B; the lesson is shared with A; Carol belongs to B
+		// only. Carol and Alice share an org, which is exactly what the old
+		// predicate keyed on - it bound the reader's org-MATES against
+		// lessons.user_id, so sharing ANY org with the author was enough.
+		//
+		// Through listLessonsPage rather than readPool, because the resolver's
+		// semantics are half the bug. A test that injects its own resolver can
+		// only ablate the predicate, and the predicate reverted without the
+		// resolver binds org ids against user_id, matches nobody, and fails
+		// closed - which is why the version of this test that injected a
+		// resolver could not fail.
+		const alice = (await createUser(db(), "alice@example.com", "hash", "Alice"))
+			.id;
+		const carol = (await createUser(db(), "carol@example.com", "hash", "Carol"))
+			.id;
+		const bob = (await createUser(db(), "bob@example.com", "hash", "Bob")).id;
+		const orgA = await createOrgWithOwner(db(), "Org A", alice);
+		const orgB = await createOrgWithOwner(db(), "Org B", alice);
+		await addMembership(db(), orgA.id, bob, "member");
+		await addMembership(db(), orgB.id, carol, "member");
+
+		const sharedWithA = await seedFor(alice, { visibility: "org" }, orgA.id);
+
+		// Carol shares org B with Alice and nothing else. She must see nothing.
+		expect(idsIn(await listLessonsPage(db(), carol, { limit: 50 }))).toEqual(
+			[],
+		);
+
+		// The positive half, so this cannot pass by the fixture being empty or
+		// the lesson being unreadable to everyone: Bob, in org A, does see it.
+		expect(idsIn(await listLessonsPage(db(), bob, { limit: 50 }))).toEqual([
+			sharedWithA.id,
+		]);
+	});
+
+	it("matches nothing for an org lesson with a NULL org_id", async () => {
+		// The fail-closed property of `org_id IN (...)`: never true for NULL.
+		// An 'org' row that somehow lacks an org is unreadable rather than
+		// broadly readable.
+		await seedFor(theirs, { visibility: "org" }, null);
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a", "org-b"],
+		);
+
+		expect(idsIn(page)).toEqual([]);
+	});
+
+	it("still hides a private lesson from a reader in the same org", async () => {
+		// Org membership widens `org`, never `private`. lessons.ts refuses to
+		// stamp org_id on anything but an 'org' row, so this state is not
+		// reachable through seedFor - it is built by hand here, writing the
+		// column directly, to prove the predicate itself requires
+		// `visibility = 'org'` and not merely an org_id match.
+		const priv = await seedFor(theirs, { visibility: "private" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind("org-a", priv.id)
+			.run();
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(idsIn(page)).toEqual([]);
+	});
+
+	it("narrows rather than widens when the resolver throws", async () => {
+		// The never-throw contract, observed rather than assumed. A membership
+		// outage must not take down a read that also serves the caller's own
+		// lessons, and must not widen one.
+		const own = await seedFor(mine, { visibility: "private" });
+		await seedFor(theirs, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => {
+				throw new Error("org_memberships is unavailable");
+			},
+		);
+
+		expect(idsIn(page)).toEqual([own.id]);
+	});
+
+	it("truncates an oversized reader-org list rather than binding it all", async () => {
+		// MAX_READER_ORGS_BOUND keeps the `IN (...)` list under D1's
+		// bound-parameter cap. Naming the lesson's org past the bound proves
+		// the excess is dropped rather than the query breaking.
+		await seedFor(theirs, { visibility: "org" }, "org-a");
 		const padding = Array.from(
-			{ length: MAX_ORG_MEMBERS_BOUND },
+			{ length: MAX_READER_ORGS_BOUND },
 			(_, i) => `padding-${i}`,
 		);
 
@@ -188,10 +296,26 @@ describe("readPool, authenticated", () => {
 			db(),
 			{ userId: mine },
 			{ limit: 50 },
-			async () => [...padding, theirs],
+			async () => [...padding, "org-a"],
 		);
 
 		expect(idsIn(page)).toEqual([]);
+	});
+});
+
+describe("listLessonsPage", () => {
+	it("resolves the reader's orgs", async () => {
+		// Through the production entry point, not readPool: this is the test
+		// that catches a forgotten resolver argument, which is otherwise a
+		// silent narrowing nothing fails on.
+		const ada = (await createUser(db(), "ada2@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		const page = await listLessonsPage(db(), mine, { limit: 50 });
+
+		expect(idsIn(page)).toEqual([shared.id]);
 	});
 });
 
@@ -210,6 +334,224 @@ describe("readPoolLesson", () => {
 	it("returns null for a missing id, indistinguishably", async () => {
 		expect(
 			await readPoolLesson(db(), null, "01NOPE00000000000000000000"),
+		).toBeNull();
+	});
+
+	it("returns an org lesson to a reader in that org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, "org-a");
+
+		const found = await readPoolLesson(
+			db(),
+			{ userId: mine },
+			shared.id,
+			async () => ["org-a"],
+		);
+
+		expect((found as { id: string }).id).toBe(shared.id);
+	});
+
+	it("returns null for an org lesson to a reader in a different org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, "org-a");
+
+		const found = await readPoolLesson(
+			db(),
+			{ userId: mine },
+			shared.id,
+			async () => ["org-b"],
+		);
+
+		expect(found).toBeNull();
+	});
+});
+
+describe("getLessonForUser", () => {
+	it("resolves the reader's orgs", async () => {
+		// Through the production entry point, not readPoolLesson directly:
+		// this is what catches a dropped fourth argument at the call site,
+		// which otherwise silently narrows every org-tier single-lesson read
+		// to nothing and nothing fails on it.
+		const ada = (await createUser(db(), "ada3@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		const found = await getLessonForUser(db(), mine, shared.id);
+
+		expect(found).not.toBeNull();
+		expect((found?.lesson as { id: string }).id).toBe(shared.id);
+		expect(found?.own).toBe(false);
+	});
+});
+
+describe("org attribution", () => {
+	it("names the author of an org lesson the reader reaches through their org", async () => {
+		const shared = await seedFor(theirs, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// `theirs` was created with the name "Bob" in this suite's beforeEach.
+		expect(page.authors).toEqual({ [shared.id]: "Bob" });
+	});
+
+	it("does not name the author of a public lesson", async () => {
+		// A public row carries author_key alone, so the anonymous surface's
+		// disclosure is unchanged and nothing links an author across tiers.
+		await seedFor(theirs, { visibility: "public" });
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(page.authors).toEqual({});
+	});
+
+	it("does not name the author of a public lesson that carries an org_id", async () => {
+		// Unreachable through the writer - createLessonsWithFeed stamps org_id
+		// only onto 'org' rows and nothing mutates visibility afterward - so
+		// the row is built by hand, as "still hides a private lesson from a
+		// reader in the same org" is.
+		//
+		// This is what makes the filter's `visibility === "org"` clause
+		// load-bearing rather than merely redundant. Without a test that can
+		// tell the clause's presence from its absence, a later reader deletes
+		// it as dead weight with every test still green - and then a write
+		// path that ever puts an org on a public row spills a name onto the
+		// one tier whose disclosure guarantee is an unlinkable author_key and
+		// nothing else.
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind("org-a", pub.id)
+			.run();
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// The row is still returned - it is public - and still unattributed.
+		expect(idsIn(page)).toContain(pub.id);
+		expect(page.authors).toEqual({});
+	});
+
+	it("does not name the author of an org lesson the reader reaches as its owner", async () => {
+		// Reached through `user_id = ?` rather than through the org disjunct:
+		// the reader left the org, and their own lesson is still theirs to see.
+		const own = await seedFor(mine, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => [],
+		);
+
+		expect(idsIn(page)).toEqual([own.id]);
+		expect(page.authors).toEqual({});
+	});
+
+	it("names the reader's own org lesson in an org they still belong to", async () => {
+		const own = await seedFor(mine, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// Their own name, which is harmless and is what the filter produces:
+		// the org match decides attribution, not which disjunct admitted the
+		// row. `mine` was created with the name "Ada" in this suite's
+		// beforeEach.
+		expect(page.authors[own.id]).toBe("Ada");
+	});
+
+	it("omits the key for an author who has no name", async () => {
+		// createUser's fourth parameter is `name?: string`, which does not
+		// accept `null` under this repo's strict compiler settings - so the
+		// nameless user is inserted directly rather than through createUser.
+		const nameless = crypto.randomUUID();
+		await db()
+			.prepare(
+				"INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, NULL)",
+			)
+			.bind(nameless, "no@example.com", "hash")
+			.run();
+		const shared = await seedFor(nameless, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(idsIn(page)).toEqual([shared.id]);
+		expect(page.authors).toEqual({});
+	});
+
+	it("is always present, even with nothing to attribute", async () => {
+		// Same rule as owned_ids: a client must not have to tell "nobody is
+		// named" apart from "this server does not say".
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+
+		expect(page.authors).toEqual({});
+	});
+});
+
+describe("getLessonForUser's author_name", () => {
+	it("names the author of an org lesson the reader reaches through their org", async () => {
+		const ada = (await createUser(db(), "ada4@example.com", "hash", "Ada")).id;
+		const org = await createOrgWithOwner(db(), "Acme Three", ada);
+		await addMembership(db(), org.id, mine, "member");
+		const shared = await seedFor(ada, { visibility: "org" }, org.id);
+
+		expect((await getLessonForUser(db(), mine, shared.id))?.author_name).toBe(
+			"Ada",
+		);
+	});
+
+	it("names nobody for a public lesson", async () => {
+		const pub = await seedFor(theirs, { visibility: "public" });
+
+		expect(
+			(await getLessonForUser(db(), mine, pub.id))?.author_name,
+		).toBeNull();
+	});
+
+	it("names nobody for a public lesson that carries an org_id", async () => {
+		// The ablation target. Built by hand for the reason the sidecar's
+		// equivalent test gives: through the writer a public row's org_id is
+		// always NULL, so the org_id clause alone would exclude it and the
+		// visibility clause would be untestable.
+		await addMembership(db(), "org-a", mine, "member");
+		const pub = await seedFor(theirs, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind("org-a", pub.id)
+			.run();
+
+		expect(
+			(await getLessonForUser(db(), mine, pub.id))?.author_name,
+		).toBeNull();
+	});
+
+	it("names nobody for the reader's own private lesson", async () => {
+		const own = await seedFor(mine, { visibility: "private" });
+
+		expect(
+			(await getLessonForUser(db(), mine, own.id))?.author_name,
 		).toBeNull();
 	});
 });

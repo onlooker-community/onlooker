@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetOrgTables } from "../test-support/orgs.js";
+import { createInvite } from "./org-invites.js";
 import {
 	addMembership,
 	countOwners,
@@ -8,6 +9,7 @@ import {
 	getMembership,
 	listMembers,
 	listOrgsForUser,
+	orgIdsForUser,
 	removeMembership,
 	renameOrg,
 	setMemberRole,
@@ -173,5 +175,40 @@ describe("toOrgRole", () => {
 		for (const bad of ["admin", "", "Owner", null, undefined, 7]) {
 			expect(() => toOrgRole(bad)).toThrow(/Invalid org role/);
 		}
+	});
+});
+
+describe("orgIdsForUser", () => {
+	// Reuses the suite's own `ada`/`bob` fixtures from the top-level
+	// beforeEach rather than creating fresh users with the same emails,
+	// which would collide with it on the UNIQUE(email) index.
+	it("returns every org this user belongs to", async () => {
+		const a = await createOrgWithOwner(db(), "Acme", ada);
+		const b = await createOrgWithOwner(db(), "Beta", ada);
+
+		expect((await orgIdsForUser(db(), ada)).sort()).toEqual(
+			[a.id, b.id].sort(),
+		);
+	});
+
+	it("returns an empty list for a user in no org", async () => {
+		expect(await orgIdsForUser(db(), bob)).toEqual([]);
+	});
+
+	it("does not return an org the user only has an invite to", async () => {
+		// Membership is the predicate's input, and an unaccepted invite is not
+		// membership. If this ever returned the invited org, a pending invite
+		// would read the org's lessons.
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await createInvite(db(), {
+			orgId: org.id,
+			email: "bob@example.com",
+			role: "member",
+			tokenHash: "hash-x",
+			expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+			invitedBy: ada,
+		});
+
+		expect(await orgIdsForUser(db(), bob)).toEqual([]);
 	});
 });

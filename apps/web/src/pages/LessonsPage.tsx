@@ -60,6 +60,18 @@ export interface LessonsContext {
 	 * update - the only caller runs it after the round-trip returns.
 	 */
 	patchLesson: (id: string, status: LessonStatus) => void;
+	/**
+	 * The names of the authors of the org lessons on this page, by lesson id.
+	 *
+	 * Carried beside the documents for the reason `ownedIds` is: a lesson
+	 * body is the published contract's shape and nothing server-computed
+	 * belongs in it. A key is absent when the author has no name set - the
+	 * server does not invent a label, and neither does this page.
+	 *
+	 * Accumulated across pages exactly like `ownedIds`, so the two never
+	 * disagree about a row.
+	 */
+	authors: Record<string, string>;
 }
 
 /**
@@ -97,6 +109,10 @@ export default function LessonsPage() {
 	// loadMore, and left alone by patchLesson, which changes a status and
 	// never an owner.
 	const [ownedIds, setOwnedIds] = useState<string[]>([]);
+	// Moves with `lessons` the same way `ownedIds` does - replaced on load,
+	// merged on loadMore, left alone by patchLesson, which changes a status
+	// and never an author.
+	const [authors, setAuthors] = useState<Record<string, string>>({});
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// Whether any load attempt has ever settled - guarded below so a
 	// superseded request cannot flip it early, and never reset back to false
@@ -173,6 +189,12 @@ export default function LessonsPage() {
 			// Empty is also the safe reading, since it offers no status
 			// control rather than one that cannot succeed.
 			setOwnedIds(page.owned_ids ?? []);
+			// `?? {}`, for the identical reason the line above defaults to `[]`:
+			// a page without `authors` - an older API still rolling out under a
+			// newer bundle - would otherwise throw out of this handler and
+			// blank the pool entirely. Empty is also the safe reading, since
+			// no page renders a name it cannot attribute.
+			setAuthors(page.authors ?? {});
 			// `has_more` and not `cursor !== null`, because those are two facts
 			// and only one of them is the question being asked - even though,
 			// today, they always agree. `listLessonsPage` derives `hasMore` as
@@ -190,6 +212,7 @@ export default function LessonsPage() {
 			if (seq !== requestSeq.current) return;
 			setLessons(null);
 			setOwnedIds([]);
+			setAuthors({});
 			setCursor(null);
 			setLoadError(describeError(error, "Could not load the pool."));
 		} finally {
@@ -237,6 +260,7 @@ export default function LessonsPage() {
 			if (seq !== requestSeq.current) return;
 			setLessons((current) => [...(current ?? []), ...page.lessons]);
 			setOwnedIds((current) => [...current, ...(page.owned_ids ?? [])]);
+			setAuthors((current) => ({ ...current, ...(page.authors ?? {}) }));
 			setCursor(page.has_more ? page.cursor : null);
 			// Behind the same seq guard as the append itself: a page that lands
 			// after the filter has moved on must not report ITS end as the end
@@ -274,6 +298,7 @@ export default function LessonsPage() {
 		ownedIds,
 		poolSettled,
 		patchLesson,
+		authors,
 	};
 
 	// The live region's whole text, computed once rather than duplicated
@@ -460,6 +485,11 @@ export default function LessonsPage() {
 											<StatusBadge status={lesson.status} />
 											{lesson.applies_to.stack[0] ? (
 												<Chip>{lesson.applies_to.stack[0]}</Chip>
+											) : null}
+											{authors[lesson.id] ? (
+												<span data-testid="lesson-author">
+													{authors[lesson.id]}
+												</span>
 											) : null}
 											<When
 												iso={lesson.promoted_at}

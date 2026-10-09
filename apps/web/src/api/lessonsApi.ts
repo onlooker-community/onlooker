@@ -60,12 +60,31 @@ export interface LessonPage {
 	 * Always sent, empty when the caller owns none of the page.
 	 */
 	owned_ids: string[];
+	/**
+	 * The names of the authors of the org lessons on this page, by lesson id.
+	 *
+	 * Carried beside the documents for the reason `owned_ids` is - a lesson
+	 * body is the published contract's shape, and nothing server-computed
+	 * belongs in it. Only an org row the caller can read through membership
+	 * carries a name here; a public row's author stays behind its opaque
+	 * author_key. A key is absent when the author has no name set - the
+	 * server does not invent a label, and this client must not either.
+	 *
+	 * Always sent, empty when the page holds no org rows.
+	 */
+	authors: Record<string, string>;
 }
 
 /** One lesson, with the same ownership answer `owned_ids` gives for a page. */
 export interface OwnedLesson {
 	lesson: Lesson;
 	own: boolean;
+	/**
+	 * This lesson's author name, the same way `authors` names one on a page -
+	 * absent when the author has no name set, or when the row is public
+	 * rather than attributed through an org.
+	 */
+	author_name: string | null;
 }
 
 export interface ListLessonsOptions {

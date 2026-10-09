@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	createMachine: vi.fn(),
 	revokeMachine: vi.fn(),
 	getMachineInventory: vi.fn(),
+	listOrgs: vi.fn(),
 }));
 
 vi.mock("../api/machinesApi", () => ({
@@ -25,6 +26,13 @@ vi.mock("../api/machinesApi", () => ({
 	createMachine: mocks.createMachine,
 	revokeMachine: mocks.revokeMachine,
 	getMachineInventory: mocks.getMachineInventory,
+}));
+
+// orgsApi is a second seam, matching machinesApi above - this page uses
+// listOrgs to build the picker and resolve a machine's org name, and no
+// other test in this file cares what it returns.
+vi.mock("../api/orgsApi", () => ({
+	listOrgs: mocks.listOrgs,
 }));
 
 const { default: MachinesPage } = await import("../pages/MachinesPage");
@@ -74,6 +82,8 @@ const REVOKED_NEVER_USED = {
 	plugin_count: null,
 };
 
+const ORG_ACME = { id: "org-acme", name: "Acme", role: "owner" as const };
+
 function withMachines(...machines: unknown[]) {
 	mocks.listMachines.mockResolvedValue({ machines });
 }
@@ -83,6 +93,12 @@ beforeEach(() => {
 	mocks.createMachine.mockReset();
 	mocks.revokeMachine.mockReset();
 	mocks.getMachineInventory.mockReset();
+	// Every test above the org picker describe block below predates orgs and
+	// does not care what this returns - defaulted here so the page's own
+	// fetch on mount has something to resolve rather than hanging a test
+	// that never configures it.
+	mocks.listOrgs.mockReset();
+	mocks.listOrgs.mockResolvedValue({ orgs: [] });
 	Object.defineProperty(navigator, "clipboard", {
 		value: { writeText: vi.fn().mockResolvedValue(undefined) },
 		configurable: true,
@@ -708,5 +724,96 @@ describe("MachinesPage inventory", () => {
 		fireEvent.click(await screen.findByRole("button", { name: /2 plugins/i }));
 
 		expect(await screen.findByRole("alert")).toBeTruthy();
+	});
+});
+
+/**
+ * The org picker on the mint form, and the resolved name on an existing
+ * machine's row. Both read off listOrgs rather than a field machinesApi
+ * sends, because org_id is an id and this page already has the names.
+ */
+describe("MachinesPage org picker", () => {
+	it("offers the caller's orgs when minting a token", async () => {
+		withMachines();
+		mocks.listOrgs.mockResolvedValue({ orgs: [ORG_ACME] });
+		await renderPage();
+
+		expect(await screen.findByLabelText(/org/i)).toBeInTheDocument();
+		expect(
+			await screen.findByRole("option", { name: "Acme" }),
+		).toBeInTheDocument();
+	});
+
+	it("defaults to no org, which mints a private-only token", async () => {
+		withMachines();
+		mocks.listOrgs.mockResolvedValue({ orgs: [ORG_ACME] });
+		await renderPage();
+
+		const select = await screen.findByLabelText(/org/i);
+		// A token that can push to an org is the wider credential; the default
+		// is the narrower one.
+		expect((select as HTMLSelectElement).value).toBe("");
+	});
+
+	it("shows which org an existing machine pushes to", async () => {
+		withMachines({ ...USED, org_id: ORG_ACME.id });
+		mocks.listOrgs.mockResolvedValue({ orgs: [ORG_ACME] });
+		await renderPage();
+
+		// Matches lessons-page.test.tsx's own ":not(option)" idiom: the
+		// picker's own <option>Acme</option> is a second match for the bare
+		// text, and the row's chip is the one this test is actually about.
+		expect(
+			await screen.findByText("Acme", { selector: ":not(option)" }),
+		).toBeInTheDocument();
+	});
+
+	// An account in no org sees only the private option - there is nothing
+	// else for the picker to offer.
+	it("offers only the private option when the account is in no org", async () => {
+		withMachines();
+		mocks.listOrgs.mockResolvedValue({ orgs: [] });
+		await renderPage();
+
+		const select = (await screen.findByLabelText(/org/i)) as HTMLSelectElement;
+		expect(select.options).toHaveLength(1);
+	});
+
+	it("mints with no org_id when the picker is left on its default", async () => {
+		withMachines();
+		mocks.listOrgs.mockResolvedValue({ orgs: [ORG_ACME] });
+		mocks.createMachine.mockResolvedValue(MINTED);
+		await renderPage();
+
+		fireEvent.change(screen.getByLabelText(/machine name/i), {
+			target: { value: "second laptop" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mint token/i }));
+
+		await waitFor(() =>
+			expect(mocks.createMachine).toHaveBeenCalledWith("second laptop", null),
+		);
+	});
+
+	it("mints with the chosen org_id when an org is selected", async () => {
+		withMachines();
+		mocks.listOrgs.mockResolvedValue({ orgs: [ORG_ACME] });
+		mocks.createMachine.mockResolvedValue(MINTED);
+		await renderPage();
+
+		fireEvent.change(screen.getByLabelText(/machine name/i), {
+			target: { value: "second laptop" },
+		});
+		fireEvent.change(await screen.findByLabelText(/org/i), {
+			target: { value: ORG_ACME.id },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mint token/i }));
+
+		await waitFor(() =>
+			expect(mocks.createMachine).toHaveBeenCalledWith(
+				"second laptop",
+				ORG_ACME.id,
+			),
+		);
 	});
 });

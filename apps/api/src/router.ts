@@ -43,6 +43,7 @@ import {
 	handleRenameOrg,
 	handleResendVerification,
 	handleResetPassword,
+	handleRetractOrgLesson,
 	handleRevokeInvite,
 	handleRevokeMachine,
 	handleSetMemberRole,
@@ -83,12 +84,21 @@ export interface Route {
 	 * `principal` is what a handler acts on: `dispatch` resolves it from the
 	 * route's declared `auth` before the handler runs, via `resolvePrincipal`,
 	 * and almost every handler reads `userId` off it rather than verifying its
-	 * own credential. Three handlers still make their own call because each
+	 * own credential. Four handlers still make their own call because each
 	 * needs a field `Principal` deliberately does not carry (see `db/pool.ts`):
-	 * `handlePutInventory` and `handlePostSessions` need `machineId`, and
-	 * `handleGetUserProfile` needs `email`. The two `machineId` ones re-verify
-	 * against D1 and re-write `last_used_at` on every request; the `email` one
-	 * is a local HMAC verify with no I/O.
+	 * `handlePutInventory` and `handlePostSessions` need `machineId`,
+	 * `handleGetUserProfile` needs `email`, and `handlePushLessons` needs the
+	 * machine token's `orgId`. The `machineId` and `orgId` ones re-verify
+	 * against D1 and re-write `last_used_at`; the `email` one is a local HMAC
+	 * verify with no I/O.
+	 *
+	 * `handlePushLessons` is the only one that resolves CONDITIONALLY, and on
+	 * purpose: it screens the batch first and calls `requireMachineToken`
+	 * only when some lesson in it is `visibility: "org"`. Push is the hottest
+	 * machine route, so a private or public push must not pay a D1 round trip
+	 * and a `last_used_at` rewrite to serve the minority that share with an
+	 * org. Screening is pure, so it runs twice instead - see the comments in
+	 * `routes/lessons.ts`.
 	 */
 	handler: (
 		request: Request,
@@ -458,6 +468,13 @@ export const ROUTES: Route[] = [
 		handler: handleRevokeInvite,
 	},
 	{
+		method: "POST",
+		path: "/api/orgs/:id/lessons/:lessonId/retract",
+		auth: "session",
+		cors: "app",
+		handler: handleRetractOrgLesson,
+	},
+	{
 		// Unauthenticated: the credential is the token in the query string, the
 		// same as /auth/reset-password/verify. Its literal `invites` segment
 		// cannot be swallowed by /api/orgs/:id/invites - matchPath requires every
@@ -624,11 +641,14 @@ export async function dispatch(
 		// Before the handler, so a handler cannot run unauthenticated even if it
 		// forgets to check. This is what the required `auth` field buys - see
 		// resolvePrincipal. Almost every handler acts on this principal instead
-		// of verifying its own credential; the three that still call
-		// requireAuth/requireMachineToken themselves (handlePutInventory,
-		// handlePostSessions, handleGetUserProfile) do so because each needs a
-		// field Principal does not carry - see the `handler` field's doc
-		// comment on `Route`, above.
+		// of verifying its own credential; the few that still call
+		// requireAuth/requireMachineToken themselves do so because each needs a
+		// field Principal does not carry.
+		//
+		// The `handler` field's doc comment on `Route` names them and says why.
+		// Deliberately not restated here: this comment used to carry its own
+		// copy of the list, and the two drifted apart the moment a fourth
+		// handler was added. One list to keep correct is the point.
 		const principal = await resolvePrincipal(request, env, matched.route.auth);
 		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {

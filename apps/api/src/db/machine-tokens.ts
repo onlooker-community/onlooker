@@ -25,6 +25,15 @@ export interface MachineTokenSummary {
 	 * the machine, null is a claim about what we know.
 	 */
 	plugin_count: number | null;
+	/**
+	 * The org this token pushes to, or null for a private-only token.
+	 *
+	 * An id rather than a name: the only page that renders this already lists
+	 * the caller's orgs to offer the picker, so it can resolve the name
+	 * itself, and a join here would put a second query in front of a list that
+	 * does not need one.
+	 */
+	org_id: string | null;
 }
 
 /**
@@ -44,6 +53,7 @@ export async function createMachineToken(
 	db: D1Database,
 	userId: string,
 	name: string,
+	orgId: string | null = null,
 ): Promise<{ id: string; token: string }> {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
 	const token =
@@ -59,6 +69,7 @@ export async function createMachineToken(
 			name,
 			token_hash: await hashToken(token),
 			created_at: new Date().toISOString(),
+			org_id: orgId,
 		});
 
 	return { id, token };
@@ -74,11 +85,15 @@ export async function createMachineToken(
 export async function verifyMachineToken(
 	db: D1Database,
 	token: string,
-): Promise<{ userId: string; machineId: string } | null> {
+): Promise<{ userId: string; machineId: string; orgId: string | null } | null> {
 	if (!token.startsWith(TOKEN_PREFIX)) return null;
 
 	const rows = await client(db)
-		.select({ id: machine_tokens.id, user_id: machine_tokens.user_id })
+		.select({
+			id: machine_tokens.id,
+			user_id: machine_tokens.user_id,
+			org_id: machine_tokens.org_id,
+		})
 		.from(machine_tokens)
 		.where(
 			and(
@@ -99,7 +114,12 @@ export async function verifyMachineToken(
 	// The machine id travels with the owner because the lookup already has it.
 	// Without it a caller knows whose token this is but not which machine is
 	// speaking, and a machine describing itself has to land on its own row.
-	return { userId: row.user_id, machineId: row.id };
+	//
+	// The org travels with the credential because that is where push reads it
+	// from: the server stamps the lesson's org from the token rather than from
+	// the request, so a client cannot name an org its holder does not belong
+	// to. Null means a private-only token.
+	return { userId: row.user_id, machineId: row.id, orgId: row.org_id };
 }
 
 /**
@@ -148,6 +168,7 @@ export async function listMachineTokens(
 			revoked_at: machine_tokens.revoked_at,
 			inventory: machine_tokens.inventory,
 			inventory_at: machine_tokens.inventory_at,
+			org_id: machine_tokens.org_id,
 		})
 		.from(machine_tokens)
 		.where(eq(machine_tokens.user_id, userId))

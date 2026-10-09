@@ -195,6 +195,23 @@ describe("the list pane", () => {
 	});
 });
 
+describe("org authorship", () => {
+	it("names the author of an org lesson", async () => {
+		withPool([VITE], { authors: { [VITE.id]: "Bob" } });
+		await at("/lessons");
+		expect(await screen.findByText("Bob")).toBeDefined();
+	});
+
+	// The server omits the key rather than inventing a label when a member
+	// has no name set, and the row must not invent one either.
+	it("renders no author line when the server names nobody", async () => {
+		withPool([VITE], { authors: {} });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(screen.queryByTestId("lesson-author")).not.toBeInTheDocument();
+	});
+});
+
 describe("the detail pane", () => {
 	// The whole reason the list returns full bodies. If this ever issues a
 	// request, the in-memory read has quietly stopped working and every click
@@ -222,6 +239,36 @@ describe("the detail pane", () => {
 		expect(screen.getAllByText("vite").length).toBe(2);
 		expect(screen.getByText(/3 of 3/)).toBeDefined();
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
+	});
+
+	// The author name reaches the detail pane through the same `authors` map
+	// the row reads, carried on through LessonsContext rather than refetched -
+	// the same split LessonDetail.tsx's `own` already makes for ownership.
+	it("also names the author in the detail pane for a listed lesson", async () => {
+		withPool([VITE], { authors: { [VITE.id]: "Bob" } });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// Two matches, not one - matching the "vite" tag's own precedent
+		// above: the row's own line (covered by "names the author of an org
+		// lesson" in the org authorship block) plus the detail pane's. A
+		// single match would mean only the row rendered it and the detail
+		// pane did not.
+		expect(screen.getAllByText("Bob").length).toBe(2);
+	});
+
+	// The one path `authors` cannot answer for - a lesson on no loaded page -
+	// so only author_name on getLesson's own response can name it here.
+	it("names the author of a lesson reached only by deep link", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: true,
+			author_name: "Carol",
+		});
+		await at(`/lessons/${D1.id}`);
+
+		expect(await screen.findByText("Carol")).toBeDefined();
 	});
 
 	// A pasted link to a lesson outside the loaded pages. This is the one case
@@ -1059,6 +1106,60 @@ describe("paging past the first page", () => {
 		});
 
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+	});
+
+	// setAuthors merges a loaded-more page into what is already on screen, the
+	// same way setLessons does just above it - replacing instead would drop a
+	// first-page author's name off the (still-rendered) first-page row the
+	// instant "Load more" resolves, which is the worst outcome this feature
+	// has: one person's name on another person's lesson becomes one person's
+	// name MISSING, but a silent regression either way. The merge was
+	// untested until now.
+	it("keeps a first page's author after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			authors: { [VITE.id]: "Ada" },
+		});
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(await screen.findByText("Ada")).toBeDefined();
+
+		withPool([D1], {
+			cursor: null,
+			has_more: false,
+			authors: { [D1.id]: "Bob" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await screen.findByText(D1.claim);
+
+		// Both must still be on screen - the second page's response names only
+		// Bob, so Ada surviving is evidence of a merge, not a coincidence.
+		expect(screen.getByText("Ada")).toBeDefined();
+		expect(screen.getByText("Bob")).toBeDefined();
+	});
+
+	// setOwnedIds, just above setAuthors in loadMore, merges the same way and
+	// was equally untested. Same shape as the author test above: the second
+	// page's owned_ids names only D1, so VITE still offering its control is
+	// evidence the first page's ownership survived the merge.
+	it("keeps a first page's lesson owned after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			owned_ids: [VITE.id],
+		});
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([D1], { cursor: null, has_more: false, owned_ids: [] });
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await screen.findByText(D1.claim);
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
 	});
 });
 

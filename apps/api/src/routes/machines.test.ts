@@ -1,27 +1,36 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createOrgWithOwner } from "../db/orgs.js";
 
 const db = () => env.DB;
 const BASE = "https://api.onlooker.dev";
 const PASSWORD = "correct-horse-battery";
 
 let accessToken: string;
+let orgId: string;
 
-async function signup(email: string): Promise<string> {
+async function signup(email: string): Promise<{ id: string; token: string }> {
 	const response = await SELF.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
 	});
-	const body = (await response.json()) as { token: string };
-	return body.token;
+	const body = (await response.json()) as {
+		token: string;
+		user: { id: string };
+	};
+	return { id: body.user.id, token: body.token };
 }
 
 beforeEach(async () => {
 	await db().prepare("DELETE FROM machine_tokens").run();
 	await db().prepare("DELETE FROM sessions").run();
+	await db().prepare("DELETE FROM org_memberships").run();
+	await db().prepare("DELETE FROM orgs").run();
 	await db().prepare("DELETE FROM users").run();
-	accessToken = await signup("machines@example.com");
+	const owner = await signup("machines@example.com");
+	accessToken = owner.token;
+	orgId = (await createOrgWithOwner(db(), "Acme", owner.id)).id;
 });
 
 describe("POST /api/machines", () => {
@@ -163,12 +172,60 @@ describe("DELETE /api/machines/:id", () => {
 		});
 		const { id } = (await create.json()) as { id: string };
 
-		const otherToken = await signup("other@example.com");
+		const other = await signup("other@example.com");
 		const response = await SELF.fetch(`${BASE}/api/machines/${id}`, {
 			method: "DELETE",
-			headers: { Authorization: `Bearer ${otherToken}` },
+			headers: { Authorization: `Bearer ${other.token}` },
 		});
 
 		expect(response.status).toBe(404);
+	});
+});
+
+describe("minting a token for an org", () => {
+	it("binds the token to an org the caller belongs to", async () => {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "laptop", org_id: orgId }),
+		});
+
+		expect(response.status).toBe(201);
+		expect(await response.json()).toMatchObject({ org_id: orgId });
+	});
+
+	it("404s an org the caller does not belong to", async () => {
+		// 404 and not 403, matching orgs/authorize.ts: a non-member must not be
+		// able to tell an org they are not in from an org that does not exist.
+		const stranger = await signup("stranger@example.com");
+		const other = await createOrgWithOwner(db(), "Somebody Else", stranger.id);
+
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "laptop", org_id: other.id }),
+		});
+
+		expect(response.status).toBe(404);
+	});
+
+	it("mints a private-only token when no org is named", async () => {
+		const response = await SELF.fetch(`${BASE}/api/machines`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({ name: "laptop" }),
+		});
+
+		expect(response.status).toBe(201);
+		expect(await response.json()).toMatchObject({ org_id: null });
 	});
 });

@@ -601,6 +601,19 @@ async function mockOrgsApi(
 		return json({ revoked: path.split("/invites/")[1] });
 	}
 
+	// Matches apps/api's handleRetractOrgLesson's shape (routes/orgs-lessons.ts)
+	// - { id, seq, status } - unconditionally, the same way the members and
+	// invites DELETE branches above answer without checking the id is real.
+	// Nothing under apps/web/src calls this route yet; the branch exists so the
+	// mock and the contract cannot drift apart the moment something does.
+	if (
+		method === "POST" &&
+		/^\/api\/orgs\/[^/]+\/lessons\/[^/]+\/retract$/.test(path)
+	) {
+		const lessonId = path.split("/lessons/")[1]?.split("/")[0] ?? "";
+		return json({ id: lessonId, seq: 1, status: "retracted" });
+	}
+
 	if (method === "PATCH" && /^\/api\/orgs\/[^/]+$/.test(path)) {
 		const { name } = readBody<{ name: string }>(options);
 		return json({ org: { id: path.split("/").pop(), name } });
@@ -765,6 +778,8 @@ interface MockMachine {
 	 */
 	inventory?: unknown;
 	inventory_at?: string | null;
+	/** The org this machine pushes to, or null for a private-only token. */
+	org_id: string | null;
 }
 
 /**
@@ -896,8 +911,15 @@ export async function mockDataApi(
 		// `owned_ids` is empty for the same reason `lessons` is - the mock pool
 		// holds nothing - but it is sent rather than omitted, because the real
 		// API always sends it and the detail pane reads it to decide whether
-		// to offer a status control at all.
-		return json({ lessons: [], cursor: null, has_more: false, owned_ids: [] });
+		// to offer a status control at all. `authors` is empty for the same
+		// reason: the mock pool has no org rows to attribute.
+		return json({
+			lessons: [],
+			cursor: null,
+			has_more: false,
+			owned_ids: [],
+			authors: {},
+		});
 	}
 
 	if (poolPath === "/api/activity" && (options.method ?? "GET") === "GET") {
@@ -1015,19 +1037,33 @@ export async function mockDataApi(
 				...machine,
 				inventory_at: machine.inventory_at ?? null,
 				plugin_count: mockPluginCount(inventory),
+				// Carried through from the create call below rather than
+				// hardcoded, now that minting can bind to an org.
 			})),
 		});
 	}
 
 	if (poolPath === "/api/machines" && options.method === "POST") {
 		const { email } = requireAuth(options);
-		const body = readBody<{ name?: unknown }>(options);
+		const body = readBody<{ name?: unknown; org_id?: unknown }>(options);
 		// Trimmed before the emptiness check, matching handleCreateMachine.
 		// A mock that accepted "   " would let a machine named nothing into
 		// the list in development and 400 in production.
 		const name = typeof body.name === "string" ? body.name.trim() : "";
 		if (!name) {
 			throw new AuthApiError(400, "invalid_name", "A machine needs a name");
+		}
+		// Absent rather than null when the caller sends no org, matching
+		// createMachine in machinesApi.ts - the browser omits the key for a
+		// private-only mint rather than sending it as null.
+		const orgId = typeof body.org_id === "string" ? body.org_id : null;
+		// Mirrors handleCreateMachine's membership check: 404, not 403, for an
+		// org the account does not belong to - matching orgs/authorize.ts, a
+		// non-member must not be able to tell a real org apart from one that
+		// does not exist. The mock has only the one org any account belongs
+		// to (MOCK_ORG above), so anything else refuses the same way.
+		if (orgId !== null && orgId !== MOCK_ORG.id) {
+			throw new AuthApiError(404, "not_found", "No such org");
 		}
 
 		mockMachineCounter += 1;
@@ -1038,11 +1074,15 @@ export async function mockDataApi(
 			created_at: new Date().toISOString(),
 			last_used_at: null,
 			revoked_at: null,
+			org_id: orgId,
 		});
 
 		// The raw token appears here and nowhere else, ever - the same promise
 		// handleCreateMachine makes. Nothing above stored it.
-		return json({ id, name, token: mintMockMachineToken() }, 201);
+		return json(
+			{ id, name, token: mintMockMachineToken(), org_id: orgId },
+			201,
+		);
 	}
 
 	// Before the DELETE branch below, which matches on the same prefix. A

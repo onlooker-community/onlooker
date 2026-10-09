@@ -1,7 +1,8 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
-import { readPool, readPoolLesson } from "./pool.js";
+import { orgIdsForUser } from "./orgs.js";
+import { orgAuthorName, readPool, readPoolLesson } from "./pool.js";
 import {
 	BROWSE_DEFAULT_LIMIT,
 	BROWSE_MAX_LIMIT,
@@ -28,6 +29,8 @@ export interface StoredLesson {
 	visibility: string;
 	status: string;
 	body: string;
+	/** The org this lesson was shared with, or null. Null for every tier but 'org'. */
+	org_id: string | null;
 }
 
 /**
@@ -129,6 +132,13 @@ export async function createLessonsWithFeed(
 	db: D1Database,
 	userId: string,
 	lessons: TLesson[],
+	/**
+	 * The org the pushing MACHINE TOKEN is bound to, or null for a
+	 * private-only token. Not a per-lesson value and not a contract field:
+	 * the server reads it from the credential so a client cannot name an org
+	 * its holder does not belong to.
+	 */
+	orgId: string | null = null,
 ): Promise<BatchWrite[]> {
 	const results: BatchWrite[] = lessons.map(() => ({ outcome: "taken" }));
 	if (lessons.length === 0) return results;
@@ -156,8 +166,8 @@ export async function createLessonsWithFeed(
 				db
 					.prepare(
 						`INSERT INTO lessons
-							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, created_at, updated_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, org_id, created_at, updated_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.bind(
 						lesson.id,
@@ -173,6 +183,10 @@ export async function createLessonsWithFeed(
 						// lesson's author does not change.
 						lesson.promoted_at,
 						lesson.author_key,
+						// Only an org-visible row carries the token's org. A
+						// private row with an org_id would be reachable by the
+						// org-retract path, which authorizes on this column.
+						lesson.visibility === "org" ? orgId : null,
 						now,
 						now,
 					),
@@ -251,7 +265,7 @@ export async function probeLessonIds(
 		const chunk = unique.slice(at, at + ID_LOOKUP_CHUNK);
 		const rows = await db
 			.prepare(
-				`SELECT id, user_id, visibility, status, body
+				`SELECT id, user_id, visibility, status, body, org_id
 				 FROM lessons
 				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
 			)
@@ -353,6 +367,44 @@ export async function retractAnyLesson(
 	const stored = await probeLessonId(db, id);
 	if (!stored) return null;
 	return transitionLesson(db, stored.user_id, id, "retracted", null);
+}
+
+/**
+ * Retract a lesson shared with one org, on that org's authority.
+ *
+ * THE THIRD retract function, and separate from both others on purpose.
+ * `transitionLesson`'s `WHERE id = ? AND user_id = ?` is the user-facing
+ * guarantee that a caller cannot touch somebody else's lesson, and
+ * `retractAnyLesson` is the operator path. Widening either with an "and also
+ * org owners" argument would put a cross-owner write one wrong argument away
+ * from an ordinary transition. Three functions cannot be confused.
+ *
+ * Authorizes on the lesson's own `org_id` AND on `visibility = 'org'`. The
+ * visibility check is defense in depth against the write side: createLessons-
+ * WithFeed stamps the org only onto org-visible rows precisely so this path
+ * cannot reach a member's private lesson, and checking here too means one
+ * mistake is not enough.
+ *
+ * Returns the new seq, or null when the lesson does not exist, is not shared
+ * with this org, or is not an org lesson at all - the caller cannot tell those
+ * apart, which keeps the route from confirming another org's lesson ids.
+ *
+ * Appends to the AUTHOR's feed, like any other transition, so their mirror
+ * learns about it on the next delta pull. D6 is deliberate here: the lesson
+ * survives its author leaving the org, and this is the control that keeps that
+ * from making the operator the moderation queue for every customer.
+ */
+export async function retractOrgLesson(
+	db: D1Database,
+	orgId: string,
+	lessonId: string,
+): Promise<number | null> {
+	const stored = await probeLessonId(db, lessonId);
+	if (!stored) return null;
+	if (stored.visibility !== "org") return null;
+	if (stored.org_id !== orgId) return null;
+
+	return transitionLesson(db, stored.user_id, lessonId, "retracted", null);
 }
 
 /**
@@ -561,7 +613,7 @@ export async function listLessonsPage(
 	userId: string,
 	opts: { statuses?: string[]; cursor?: string | null; limit: number },
 ): Promise<LessonPage> {
-	return readPool(db, { userId }, opts);
+	return readPool(db, { userId }, opts, orgIdsForUser);
 }
 
 /**
@@ -576,8 +628,22 @@ export async function getLessonForUser(
 	db: D1Database,
 	userId: string,
 	id: string,
-): Promise<{ lesson: unknown; own: boolean } | null> {
-	const lesson = await readPoolLesson(db, { userId }, id);
+): Promise<{
+	lesson: unknown;
+	own: boolean;
+	author_name: string | null;
+} | null> {
+	// Resolved once into a local rather than passed as orgIdsForUser twice:
+	// one membership read per request instead of two, and the name this
+	// resolves and the predicate readPoolLesson applies cannot disagree about
+	// which orgs the reader is in.
+	const readerOrgIds = await orgIdsForUser(db, userId);
+	const lesson = await readPoolLesson(
+		db,
+		{ userId },
+		id,
+		async () => readerOrgIds,
+	);
 	if (!lesson) return null;
 
 	// A second statement rather than widening readPoolLesson's SELECT, because
@@ -590,5 +656,9 @@ export async function getLessonForUser(
 		.bind(id, userId)
 		.first<{ own: number }>();
 
-	return { lesson, own: owned !== null };
+	// Resolved from the same org list the predicate used, so the name can only
+	// appear for a row the org disjunct is what admitted.
+	const author_name = await orgAuthorName(db, readerOrgIds, id);
+
+	return { lesson, own: owned !== null, author_name };
 }

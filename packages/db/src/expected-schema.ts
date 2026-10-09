@@ -127,6 +127,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "org_id",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
 				name: "created_at",
 				type: "TEXT",
 				notnull: 1,
@@ -154,6 +160,11 @@ export const EXPECTED_SCHEMA = {
 				name: "lessons_user_promoted_at_idx",
 				unique: false,
 				columns: ["user_id", "promoted_at", "id"],
+			},
+			{
+				name: "lessons_visibility_org_promoted_at_idx",
+				unique: false,
+				columns: ["visibility", "org_id", "promoted_at", "id"],
 			},
 			{
 				name: "lessons_visibility_promoted_at_idx",
@@ -202,6 +213,12 @@ export const EXPECTED_SCHEMA = {
 			},
 			{
 				name: "revoked_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
+				name: "org_id",
 				type: "TEXT",
 				notnull: 0,
 				pk: 0,
