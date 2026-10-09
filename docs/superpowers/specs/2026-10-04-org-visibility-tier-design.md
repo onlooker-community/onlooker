@@ -533,8 +533,9 @@ as the resolver.
 Two carry the most weight:
 
 1. **The milestone's done-when, verbatim.** Two accounts in one org each read
-   the other's org lessons; an account outside the org reads none; a contract
-   test pins both.
+   the other's org lessons; an account outside the org reads none; pinned at
+   `apps/api/src/routes/lessons-org.test.ts:173`, a route-level end-to-end
+   test — not a contract test, which cannot seed two accounts in one org.
 2. **A regression test for the bug in this document.** Alice in orgs A and B, a
    lesson shared with A, Carol in B reads nothing. This one must be *shown to
    fail against the shipped author-keyed predicate* — restore the old disjunct,
