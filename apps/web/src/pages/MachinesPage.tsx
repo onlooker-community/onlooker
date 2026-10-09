@@ -364,49 +364,52 @@ export default function MachinesPage() {
 						  lives on Panel's own <section>, one level up.
 						*/}
 						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-							{machines.map((machine) => (
-								<li
-									key={machine.id}
-									data-machine-row={machine.id}
-									ref={(el) => {
-										if (el) rowRefs.current.set(machine.id, el);
-										else rowRefs.current.delete(machine.id);
-									}}
-									// Focusable only by script. The row is not a control, but
-									// it is where a person was standing when the control under
-									// their focus unmounted.
-									tabIndex={-1}
-									style={row}
-								>
-									<Plate
-										tone={machine.revoked_at ? "red" : "teal"}
-										icon={machineIcon(machine)}
-									/>
-									<span style={{ minWidth: 0, flex: 1 }}>
-										<span
-											style={{
-												display: "block",
-												marginBottom: "var(--space-1)",
-												fontSize: "var(--text-body-md)",
-											}}
-										>
-											{machine.name}
-										</span>
-										<span
-											style={{
-												display: "flex",
-												gap: "var(--space-2)",
-												alignItems: "center",
-												flexWrap: "wrap",
-												color: PALETTE.muted,
-												fontSize: "var(--text-body-sm)",
-											}}
-										>
-											{machine.revoked_at ? <Chip>Revoked</Chip> : null}
-											{orgName(machine) ? (
-												<Chip>{orgName(machine)}</Chip>
-											) : null}
-											{/*
+							{machines.map((machine) => {
+								// Hoisted: the two reads below (the condition and the
+								// child) would otherwise each walk `orgs` with their own
+								// Array.find pass per row.
+								const orgLabel = orgName(machine);
+								return (
+									<li
+										key={machine.id}
+										data-machine-row={machine.id}
+										ref={(el) => {
+											if (el) rowRefs.current.set(machine.id, el);
+											else rowRefs.current.delete(machine.id);
+										}}
+										// Focusable only by script. The row is not a control, but
+										// it is where a person was standing when the control under
+										// their focus unmounted.
+										tabIndex={-1}
+										style={row}
+									>
+										<Plate
+											tone={machine.revoked_at ? "red" : "teal"}
+											icon={machineIcon(machine)}
+										/>
+										<span style={{ minWidth: 0, flex: 1 }}>
+											<span
+												style={{
+													display: "block",
+													marginBottom: "var(--space-1)",
+													fontSize: "var(--text-body-md)",
+												}}
+											>
+												{machine.name}
+											</span>
+											<span
+												style={{
+													display: "flex",
+													gap: "var(--space-2)",
+													alignItems: "center",
+													flexWrap: "wrap",
+													color: PALETTE.muted,
+													fontSize: "var(--text-body-sm)",
+												}}
+											>
+												{machine.revoked_at ? <Chip>Revoked</Chip> : null}
+												{orgLabel ? <Chip>{orgLabel}</Chip> : null}
+												{/*
 											  Labeled, not bare. LessonsPage's own meta line gets
 											  away with an unlabeled date because it only ever
 											  shows one - this row shows two, and the table it
@@ -415,69 +418,72 @@ export default function MachinesPage() {
 											  the label and its date wrap as one unit rather than
 											  splitting across lines at narrow widths.
 											*/}
-											<span
-												style={{
-													display: "inline-flex",
-													gap: "var(--space-1)",
-												}}
-											>
-												Created <When iso={machine.created_at} />
-											</span>
-											{machine.last_used_at ? (
 												<span
 													style={{
 														display: "inline-flex",
 														gap: "var(--space-1)",
 													}}
 												>
-													Last used <When iso={machine.last_used_at} />
+													Created <When iso={machine.created_at} />
 												</span>
-											) : (
-												// Not a dash. Minting a token and never pointing
-												// a plugin at it is the likeliest first-run
-												// failure in the product, and a blank line does
-												// not say that - it reads as missing data.
-												<Chip>Never used</Chip>
-											)}
-											{/*
+												{machine.last_used_at ? (
+													<span
+														style={{
+															display: "inline-flex",
+															gap: "var(--space-1)",
+														}}
+													>
+														Last used <When iso={machine.last_used_at} />
+													</span>
+												) : (
+													// Not a dash. Minting a token and never pointing
+													// a plugin at it is the likeliest first-run
+													// failure in the product, and a blank line does
+													// not say that - it reads as missing data.
+													<Chip>Never used</Chip>
+												)}
+												{/*
 											  Never reported is not zero plugins. One is a claim
 											  about the machine, the other about what we know -
 											  so the machine that has not told us gets a chip
 											  rather than a count, and no control to expand.
 											*/}
-											{machine.inventory_at === null ? (
-												<Chip>Never reported</Chip>
-											) : (
-												<button
-													type="button"
-													aria-expanded={openInventory === machine.id}
-													onClick={() =>
-														setOpenInventory(
-															openInventory === machine.id ? null : machine.id,
-														)
-													}
-													style={{
-														background: "none",
-														border: "none",
-														padding: 0,
-														font: "inherit",
-														color: "inherit",
-														textDecoration: "underline",
-														cursor: "pointer",
-													}}
-												>
-													{machine.plugin_count}{" "}
-													{machine.plugin_count === 1 ? "plugin" : "plugins"}
-												</button>
-											)}
+												{machine.inventory_at === null ? (
+													<Chip>Never reported</Chip>
+												) : (
+													<button
+														type="button"
+														aria-expanded={openInventory === machine.id}
+														onClick={() =>
+															setOpenInventory(
+																openInventory === machine.id
+																	? null
+																	: machine.id,
+															)
+														}
+														style={{
+															background: "none",
+															border: "none",
+															padding: 0,
+															font: "inherit",
+															color: "inherit",
+															textDecoration: "underline",
+															cursor: "pointer",
+														}}
+													>
+														{machine.plugin_count}{" "}
+														{machine.plugin_count === 1 ? "plugin" : "plugins"}
+													</button>
+												)}
+											</span>
+											{openInventory === machine.id ? (
+												<MachineInventory machineId={machine.id} />
+											) : null}
 										</span>
-										{openInventory === machine.id ? (
-											<MachineInventory machineId={machine.id} />
-										) : null}
-									</span>
-									<span style={{ flex: "none" }}>{action(machine)}</span>
-								</li>
-							))}
+										<span style={{ flex: "none" }}>{action(machine)}</span>
+									</li>
+								);
+							})}
 						</ul>
 
 						{revokeError ? (
