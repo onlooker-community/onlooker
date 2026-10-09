@@ -265,6 +265,11 @@ export async function readPool(
 	const orgReached = kept.filter(
 		(r) =>
 			r.visibility === "org" &&
+			// Narrows r.orgId from `string | null` to `string` for the
+			// `includes` call below, rather than filtering anything the next
+			// line would not already exclude - a null fails `includes` on a
+			// string[] anyway. Removing it is a type error, not a cleanup:
+			// `Array<string>.includes` does not accept `string | null`.
 			r.orgId !== null &&
 			boundedReaderOrgIds.includes(r.orgId),
 	);
