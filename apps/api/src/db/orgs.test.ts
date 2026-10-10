@@ -10,6 +10,7 @@ import {
 	listMembers,
 	listOrgsForUser,
 	orgIdsForUser,
+	ownerOrgIdsForUser,
 	removeMembership,
 	renameOrg,
 	setMemberRole,
@@ -210,5 +211,57 @@ describe("orgIdsForUser", () => {
 		});
 
 		expect(await orgIdsForUser(db(), bob)).toEqual([]);
+	});
+});
+
+describe("ownerOrgIdsForUser", () => {
+	it("returns the orgs this user owns", async () => {
+		const owner = (
+			await createUser(db(), "owner1@example.com", "hash", "Owner1")
+		).id;
+		const a = await createOrgWithOwner(db(), "Acme", owner);
+		const b = await createOrgWithOwner(db(), "Beta", owner);
+
+		expect((await ownerOrgIdsForUser(db(), owner)).sort()).toEqual(
+			[a.id, b.id].sort(),
+		);
+	});
+
+	it("omits an org where the user is only a member", async () => {
+		// The whole point of this resolver. A member may read the org's
+		// lessons; only an owner may retract one.
+		const owner = (
+			await createUser(db(), "owner2@example.com", "hash", "Owner2")
+		).id;
+		const member = (
+			await createUser(db(), "member1@example.com", "hash", "Member1")
+		).id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await addMembership(db(), org.id, member, "member");
+
+		expect(await ownerOrgIdsForUser(db(), member)).toEqual([]);
+	});
+
+	it("returns an empty list for a user in no org", async () => {
+		const solo = (await createUser(db(), "solo@example.com", "hash", "Solo"))
+			.id;
+
+		expect(await ownerOrgIdsForUser(db(), solo)).toEqual([]);
+	});
+
+	it("includes an org the user was promoted to owner in", async () => {
+		// Role is read at query time, not membership time, so a promotion
+		// takes effect without anything else being rewritten.
+		const owner = (
+			await createUser(db(), "owner3@example.com", "hash", "Owner3")
+		).id;
+		const promoted = (
+			await createUser(db(), "promoted@example.com", "hash", "Promoted")
+		).id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await addMembership(db(), org.id, promoted, "member");
+		await setMemberRole(db(), org.id, promoted, "owner");
+
+		expect(await ownerOrgIdsForUser(db(), promoted)).toEqual([org.id]);
 	});
 });

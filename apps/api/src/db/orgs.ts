@@ -335,3 +335,35 @@ export async function orgIdsForUser(
 
 	return rows.map((row) => row.org_id);
 }
+
+/**
+ * The ids of the orgs this user OWNS.
+ *
+ * Separate from `orgIdsForUser` rather than a widening of it, and the
+ * separation is the point: that one feeds the visibility predicate, which must
+ * stay keyed on membership. A role in that bind path has no business being
+ * there, and one function answering both questions is how a later change puts
+ * a role where a membership belongs.
+ *
+ * Filters on role in SQL and returns ids, so no role is ever narrowed into
+ * TypeScript here - which is why this does not need `toOrgRole`.
+ *
+ * Ordered by id so one reader's list is byte-identical between runs.
+ */
+export async function ownerOrgIdsForUser(
+	db: D1Database,
+	userId: string,
+): Promise<string[]> {
+	const rows = await client(db)
+		.select({ org_id: org_memberships.org_id })
+		.from(org_memberships)
+		.where(
+			and(
+				eq(org_memberships.user_id, userId),
+				eq(org_memberships.role, "owner"),
+			),
+		)
+		.orderBy(org_memberships.org_id);
+
+	return rows.map((row) => row.org_id);
+}
