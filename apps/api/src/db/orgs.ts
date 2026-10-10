@@ -6,9 +6,9 @@ import { client } from "./client.js";
 /**
  * Org membership and roles: creation, renaming, who belongs, who owns.
  *
- * NOT the only home for a query against `orgs` or `org_memberships`, despite
- * what an earlier version of this comment claimed. `org_invites` never lived
- * here at all - that table is `db/org-invites.ts`'s, a sibling module, and
+ * NOT the only home for a query against `orgs`, despite what an earlier
+ * version of this comment claimed. `org_invites` never lived here at all -
+ * that table is `db/org-invites.ts`'s, a sibling module, and
  * `routes/orgs-invite-accept.ts` holds its own `orgs` name lookup for
  * displaying an invitation before anyone signs in.
  *
@@ -20,9 +20,13 @@ import { client } from "./client.js";
  * cannot be factored out here without either querying `lessons` from a third
  * file (which the guard refuses) or duplicating `visibilityPredicate`'s
  * boundary into a second copy (which is the worse defect `orgAuthorName`'s
- * own doc comment already explains). This file stays where plain membership
- * and role questions belong; the lesson-shaped ones belong beside the lesson
- * queries they join against.
+ * own doc comment already explains).
+ *
+ * `org_memberships` is a different claim: in production code this file IS
+ * its only home - the sole other hit anywhere in the repo is
+ * `test-support/orgs.ts`'s teardown DELETE. This file stays where plain
+ * membership and role questions belong; the lesson-shaped ones belong beside
+ * the lesson queries they join against.
  */
 
 export type OrgRole = "owner" | "member";
