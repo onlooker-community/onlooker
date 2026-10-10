@@ -1,5 +1,6 @@
 import type { TLesson, TStatus } from "@onlooker-community/lesson-contract";
 import { apiClient } from "./client";
+import { ORG_ENDPOINTS } from "./orgsApi";
 
 // The pool, as a person browses it. Beside machinesApi.ts and deliberately the
 // same shape: transport - auth header, retries, refresh-and-replay on 401 -
@@ -30,6 +31,17 @@ export type Lesson = TLesson;
 
 /** The four values the `status` column holds. */
 export type LessonStatus = TStatus;
+
+/**
+ * An org the signed-in account may retract a lesson in.
+ *
+ * Mirrors `RetractableOrg` in apps/api's pool-page.ts. The name is sent rather
+ * than resolved here because this page lists no orgs of its own.
+ */
+export interface RetractableOrg {
+	org_id: string;
+	org_name: string;
+}
 
 /**
  * The two a human may assert from a browser.
@@ -73,6 +85,18 @@ export interface LessonPage {
 	 * Always sent, empty when the page holds no org rows.
 	 */
 	authors: Record<string, string>;
+	/**
+	 * Which org, if any, the signed-in account may retract each org lesson
+	 * in, by lesson id.
+	 *
+	 * The server decides what the caller may act on, not this client - a key
+	 * appears only for a teammate's org lesson in an org the caller owns, and
+	 * the caller did not author. Carried beside the documents for the same
+	 * reason `authors` is.
+	 *
+	 * Always sent, empty when nothing on this page qualifies.
+	 */
+	retractable_in: Record<string, RetractableOrg>;
 }
 
 /** One lesson, with the same ownership answer `owned_ids` gives for a page. */
@@ -85,6 +109,12 @@ export interface OwnedLesson {
 	 * rather than attributed through an org.
 	 */
 	author_name: string | null;
+	/**
+	 * This lesson's retract authority, the same way `retractable_in` answers
+	 * for a page - present only when this is a teammate's org lesson in an
+	 * org the caller owns, `null` otherwise.
+	 */
+	retractable_in: RetractableOrg | null;
 }
 
 export interface ListLessonsOptions {
@@ -143,6 +173,29 @@ export function setLessonStatus(
 	return apiClient.patch<{ id: string; seq: number }>(
 		`${LESSON_ENDPOINTS.lessons}/${encodeURIComponent(id)}/status`,
 		{ status },
+	);
+}
+
+/**
+ * Retract a lesson at org level, on the authority of owning the org it was
+ * shared with.
+ *
+ * A different endpoint from `setLessonStatus`, deliberately: that one is
+ * owner-scoped by `WHERE id = ? AND user_id = ?` and can only ever move the
+ * caller's own lesson. This one is one-way - there is no org-level route back
+ * to active - and the UI says so before it is used.
+ *
+ * Routed through `ORG_ENDPOINTS.orgs` (orgsApi.ts) rather than a path built
+ * here, the same way every other /api/orgs call is - this is an org-scoped
+ * route wearing a lessons-shaped tail, not a lessons route.
+ */
+export function retractOrgLesson(
+	orgId: string,
+	lessonId: string,
+): Promise<{ id: string; seq: number; status: string }> {
+	return apiClient.post<{ id: string; seq: number; status: string }>(
+		`${ORG_ENDPOINTS.orgs}/${encodeURIComponent(orgId)}/lessons/${encodeURIComponent(lessonId)}/retract`,
+		{},
 	);
 }
 

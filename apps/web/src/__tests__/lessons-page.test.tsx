@@ -6,8 +6,14 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import {
+	MemoryRouter,
+	Route,
+	Routes,
+	useOutletContext,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import LessonsPage, { type LessonsContext } from "../pages/LessonsPage";
 
 // auth and lessonsApi are the seams, matching machines-route.test.tsx.
 // Everything between them - App's route table, the layout route, the Outlet
@@ -1160,6 +1166,71 @@ describe("paging past the first page", () => {
 		expect(
 			await screen.findByRole("button", { name: /^retract$/i }),
 		).toBeDefined();
+	});
+});
+
+// retractableIn has no renderer yet - the control that reads it is a later
+// task - so there is nothing on screen the way `authors` has a row and
+// `owned_ids` has a button. This probe is the only way to see the merge at
+// all: it reads LessonsContext straight off the Outlet, the same thing a
+// future consumer would, without adding a second copy of App's route table.
+function RetractableProbe() {
+	const { retractableIn } = useOutletContext<LessonsContext>();
+	return (
+		<pre data-testid="retractable-in">{JSON.stringify(retractableIn)}</pre>
+	);
+}
+
+function renderLessonsPageAt(path: string) {
+	return render(
+		<MemoryRouter initialEntries={[path]}>
+			<Routes>
+				<Route path="/lessons" element={<LessonsPage />}>
+					<Route path=":id" element={<RetractableProbe />} />
+				</Route>
+			</Routes>
+		</MemoryRouter>,
+	);
+}
+
+describe("org retract authority", () => {
+	// setRetractableIn merges a loaded-more page into what is already on
+	// screen, the same way setAuthors does just above it in LessonsPage - and
+	// for the same stakes raised there, pointed at a worse outcome: replacing
+	// instead of merging would drop a first-page org's authority the instant
+	// "Load more" resolves, or - if a later page reused an id carelessly -
+	// attach one org's authority to a DIFFERENT lesson. The merge was
+	// untested until now.
+	it("keeps a first page's retractable org after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			retractable_in: { [VITE.id]: { org_id: "org-1", org_name: "Acme" } },
+		});
+		renderLessonsPageAt(`/lessons/${VITE.id}`);
+		await waitFor(() =>
+			expect(screen.getByTestId("retractable-in")).toHaveTextContent(VITE.id),
+		);
+
+		// The second page names only D1's org - Ada's first-page entry
+		// surviving below is evidence of a merge, not a coincidence.
+		withPool([D1], {
+			cursor: null,
+			has_more: false,
+			retractable_in: { [D1.id]: { org_id: "org-2", org_name: "Beta" } },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await waitFor(() =>
+			expect(screen.getByTestId("retractable-in")).toHaveTextContent(D1.id),
+		);
+
+		const parsed = JSON.parse(
+			screen.getByTestId("retractable-in").textContent ?? "{}",
+		);
+		expect(parsed).toEqual({
+			[VITE.id]: { org_id: "org-1", org_name: "Acme" },
+			[D1.id]: { org_id: "org-2", org_name: "Beta" },
+		});
 	});
 });
 
