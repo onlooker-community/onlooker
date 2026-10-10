@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
@@ -70,6 +71,45 @@ async function block(authorKey: string): Promise<void> {
 
 const idsIn = (page: { lessons: unknown[] }) =>
 	(page.lessons as Array<{ id: string }>).map((l) => l.id);
+
+/**
+ * A D1 stand-in for the D3 laziness proof: every call reaches the real
+ * binding - so a page can actually carry an org-reached row - while every
+ * `prepare()` is also remembered, so a test can ask which tables a call to
+ * `readPool` touched.
+ *
+ * Not modeled on `pool-query-plan.test.ts`'s recorder as a direct copy: that
+ * one answers every `all()`/`first()` with nothing at all, which is exactly
+ * right for a query-PLAN test that never needs a row back, but wrong here.
+ * `orgReached` is computed from the rows the main SELECT actually returns,
+ * so a recorder that always answers empty can never produce a page with an
+ * org-reached row - the one branch this proof needs to also show DOES run
+ * the two statements, so the negative assertion is not vacuously true of a
+ * fixture that cannot reach the other branch either. A Proxy over the real
+ * binding is the shape that lets both halves run against one real
+ * database.
+ */
+function spy(real: D1Database): { sqls: string[]; db: D1Database } {
+	const sqls: string[] = [];
+	const proxied = new Proxy(real, {
+		get(target, prop, receiver) {
+			if (prop === "prepare") {
+				return (sql: string) => {
+					sqls.push(sql);
+					return target.prepare(sql);
+				};
+			}
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+	return { sqls, db: proxied };
+}
+
+/** Whether any captured statement names this table, as a whole word. */
+function anyStatementTouches(sqls: string[], table: string): boolean {
+	const named = new RegExp(`\\b${table}\\b`, "i");
+	return sqls.some((sql) => named.test(sql));
+}
 
 describe("readPool, anonymous", () => {
 	it("returns a public lesson", async () => {
@@ -507,6 +547,194 @@ describe("org attribution", () => {
 		const page = await readPool(db(), { userId: mine }, { limit: 50 });
 
 		expect(page.authors).toEqual({});
+	});
+});
+
+describe("retractable_in", () => {
+	it("names the org for an owner reading a teammate's org lesson", async () => {
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
+			.id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await addMembership(db(), org.id, author, "member");
+		const shared = await seedFor(author, { visibility: "org" }, org.id);
+
+		const page = await readPool(
+			db(),
+			{ userId: owner },
+			{ limit: 50 },
+			async () => [org.id],
+		);
+
+		expect(page.retractableIn).toEqual({
+			[shared.id]: { org_id: org.id, org_name: "Acme" },
+		});
+	});
+
+	// THE case this feature turns on. A member may read the lesson and must
+	// not be offered a control the API would refuse.
+	it("gives a MEMBER of the same org nothing", async () => {
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		const member = (await createUser(db(), "member@example.com", "hash", "Mem"))
+			.id;
+		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
+			.id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await addMembership(db(), org.id, member, "member");
+		await addMembership(db(), org.id, author, "member");
+		const shared = await seedFor(author, { visibility: "org" }, org.id);
+
+		const page = await readPool(
+			db(),
+			{ userId: member },
+			{ limit: 50 },
+			async () => [org.id],
+		);
+
+		// They can read it...
+		expect(idsIn(page)).toEqual([shared.id]);
+		// ...and may not retract it.
+		expect(page.retractableIn).toEqual({});
+	});
+
+	it("gives nothing for the reader's OWN lesson in an org they own", async () => {
+		// D6: the author's bidirectional control answers for this, and two
+		// controls on one lesson is worse than one.
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		const own = await seedFor(owner, { visibility: "org" }, org.id);
+
+		const page = await readPool(
+			db(),
+			{ userId: owner },
+			{ limit: 50 },
+			async () => [org.id],
+		);
+
+		expect(idsIn(page)).toEqual([own.id]);
+		expect(page.retractableIn).toEqual({});
+	});
+
+	it("gives nothing for a public lesson, whatever the reader owns", async () => {
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
+			.id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await seedFor(author, { visibility: "public" });
+
+		const page = await readPool(
+			db(),
+			{ userId: owner },
+			{ limit: 50 },
+			async () => [org.id],
+		);
+
+		expect(page.retractableIn).toEqual({});
+	});
+
+	it("is always present, even with nothing to retract", async () => {
+		// Same rule as owned_ids and authors: a client must not have to tell
+		// "nothing is retractable" from "this server does not say".
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+
+		expect(page.retractableIn).toEqual({});
+	});
+
+	// Not required by the brief, but cheap once the fixture exists: a reader
+	// who OWNS one org and is only a MEMBER of another gets an entry for
+	// exactly the lesson in the org they own.
+	it("gives an entry only for the org the reader owns, not the one they merely belong to", async () => {
+		const reader = (await createUser(db(), "reader@example.com", "hash", "Rea"))
+			.id;
+		const otherOwner = (
+			await createUser(db(), "other-owner@example.com", "hash", "Oth")
+		).id;
+		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
+			.id;
+		const owned = await createOrgWithOwner(db(), "Acme", reader);
+		const memberOf = await createOrgWithOwner(db(), "Globex", otherOwner);
+		await addMembership(db(), owned.id, author, "member");
+		await addMembership(db(), memberOf.id, reader, "member");
+		await addMembership(db(), memberOf.id, author, "member");
+
+		const inOwned = await seedFor(author, { visibility: "org" }, owned.id);
+		const inMemberOf = await seedFor(
+			author,
+			{ visibility: "org" },
+			memberOf.id,
+		);
+
+		const page = await readPool(
+			db(),
+			{ userId: reader },
+			{ limit: 50 },
+			async () => [owned.id, memberOf.id],
+		);
+
+		expect(idsIn(page).sort()).toEqual([inMemberOf.id, inOwned.id].sort());
+		expect(page.retractableIn).toEqual({
+			[inOwned.id]: { org_id: owned.id, org_name: "Acme" },
+		});
+	});
+});
+
+/**
+ * D3 is a claim about queries NOT run, which no test above observes - each
+ * of them only checks what `page.retractableIn` holds, which is the same
+ * whether the lazy branch ran zero extra statements or two of them that
+ * happened to resolve to nothing. This proves the shortcut itself.
+ */
+describe("retractable_in, the laziness proof (D3)", () => {
+	it("runs no statement against orgs or org_memberships for a private-only page", async () => {
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		// A real org this reader owns, so ownerOrgIdsForUser would have
+		// something to find if it ran at all. The point is that it must not
+		// run - not that it would come back empty if it did, which a reader
+		// could otherwise mistake for the proof.
+		await createOrgWithOwner(db(), "Acme", owner);
+		await seedFor(owner, { visibility: "private" });
+		await seedFor(theirs, { visibility: "public" });
+
+		const { sqls, db: spied } = spy(db());
+		const page = await readPool(spied, { userId: owner }, { limit: 50 });
+
+		// Sanity: this is an ordinary page with rows on it, not an empty one
+		// that would make "no extra statement ran" trivially true for a
+		// different reason.
+		expect(idsIn(page).length).toBe(2);
+		expect(page.retractableIn).toEqual({});
+		expect(anyStatementTouches(sqls, "orgs")).toBe(false);
+		expect(anyStatementTouches(sqls, "org_memberships")).toBe(false);
+	});
+
+	// The positive half, so the negative assertion above cannot pass because
+	// `spy`'s Proxy or `anyStatementTouches`'s matcher is silently broken
+	// and would never have caught a real statement either.
+	it("runs both statements when a row is org-reached", async () => {
+		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
+			.id;
+		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
+			.id;
+		const org = await createOrgWithOwner(db(), "Acme", owner);
+		await addMembership(db(), org.id, author, "member");
+		await seedFor(author, { visibility: "org" }, org.id);
+
+		const { sqls, db: spied } = spy(db());
+		const page = await readPool(
+			spied,
+			{ userId: owner },
+			{ limit: 50 },
+			async () => [org.id],
+		);
+
+		expect(page.retractableIn).not.toEqual({});
+		expect(anyStatementTouches(sqls, "orgs")).toBe(true);
+		expect(anyStatementTouches(sqls, "org_memberships")).toBe(true);
 	});
 });
 

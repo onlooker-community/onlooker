@@ -80,6 +80,8 @@ export async function handleBrowseLessons(
 			owned_ids: page.ownedIds,
 			// Always present, even when empty, for the reason owned_ids is.
 			authors: page.authors,
+			// Always present, even when empty, for the reason owned_ids is.
+			retractable_in: page.retractableIn,
 		});
 	} catch (error) {
 		if (error instanceof InvalidCursorError) {
