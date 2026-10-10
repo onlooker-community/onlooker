@@ -649,8 +649,21 @@ export default function LessonDetail() {
 			  lesson (D6) - belt and suspenders against ever rendering both
 			  controls on the same lesson, since the author's pair is
 			  strictly more capable.
+
+			  Gated on status too, matching `next`'s own gate just above:
+			  offered only for `active`, and never for `retracted`, `refuted`
+			  or `superseded` - the org control must not be more permissive
+			  than the author's own pair, which offers nothing for the last
+			  two either. Unlike `next` this does not flip to a second state
+			  on success - there is no org-level route back to active - so
+			  once used it simply disappears rather than reading "Make
+			  active". Without this gate the control survives its own
+			  success: `retractOrgLesson` carries no server-side
+			  precondition, so a second click on an already-retracted lesson
+			  would "succeed" again, appending another feed row while
+			  appearing to have done nothing new.
 			*/}
-			{!own && retractableIn ? (
+			{!own && retractableIn && lesson.status === "active" ? (
 				<div>
 					<ConfirmAction
 						trigger={`Retract for ${retractableIn.org_name}`}

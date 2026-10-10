@@ -1177,11 +1177,12 @@ describe("paging past the first page", () => {
 	});
 });
 
-// retractableIn has no renderer yet - the control that reads it is a later
-// task - so there is nothing on screen the way `authors` has a row and
-// `owned_ids` has a button. This probe is the only way to see the merge at
-// all: it reads LessonsContext straight off the Outlet, the same thing a
-// future consumer would, without adding a second copy of App's route table.
+// The org retract control (below, in "org retract control") now renders off
+// this map, but only one lesson's entry at a time - so no render test ever
+// looks at the whole thing, and none would notice if `setRetractableIn`
+// regressed from a merge to a plain replace. This probe is what still can: it
+// reads LessonsContext straight off the Outlet and proves the shape across a
+// `loadMore` page boundary, without adding a second copy of App's route table.
 function RetractableProbe() {
 	const { retractableIn } = useOutletContext<LessonsContext>();
 	return (
@@ -1322,6 +1323,31 @@ describe("org retract control", () => {
 			).toBe(2),
 		);
 		expect(mocks.getLesson).not.toHaveBeenCalled();
+		// The control's one job is done, and there is no org-level route back
+		// to active - so unlike the author's pair it must not flip to a
+		// second state, it must disappear. `retractOrgLesson` carries no
+		// server-side precondition, so a control that stayed mounted here
+		// would "succeed" again on a second click while appearing to have
+		// done nothing new. This reads status through `listed`, since the
+		// lesson is on the loaded page - `patchLesson` is what has to carry
+		// it.
+		expect(
+			screen.queryByRole("button", { name: `Retract for ${ORG.org_name}` }),
+		).toBeNull();
+	});
+
+	// Direct proof of the status gate, distinct from the success-flow case
+	// above: a lesson already retracted before this pane ever rendered it,
+	// with retract authority otherwise intact, must not offer the control.
+	it("offers no org control on a lesson already retracted", async () => {
+		withPool([{ ...VITE, status: "retracted" }], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
 	});
 
 	// The deep-fetched twin of the first case above - the split that shipped
@@ -1420,6 +1446,12 @@ describe("org retract control", () => {
 			await screen.findByText("Retracted", { selector: ":not(option)" }),
 		).toBeDefined();
 		expect(mocks.getLesson).toHaveBeenCalledTimes(1);
+		// Same disappearance as the listed success test above, proved on the
+		// other source: this lesson is on no loaded page, so it is `setFetched`
+		// that has to carry the new status, not `patchLesson`.
+		expect(
+			screen.queryByRole("button", { name: `Retract for ${ORG.org_name}` }),
+		).toBeNull();
 	});
 });
 
