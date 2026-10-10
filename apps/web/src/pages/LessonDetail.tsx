@@ -5,6 +5,8 @@ import {
 	type BrowserStatus,
 	getLesson,
 	type Lesson,
+	type RetractableOrg,
+	retractOrgLesson,
 	setLessonStatus,
 } from "../api/lessonsApi";
 import { ConfirmAction } from "../components/ConfirmAction";
@@ -70,8 +72,19 @@ function Chips({ values }: { values: string[] }) {
 
 export default function LessonDetail() {
 	const { id } = useParams();
-	const { lessons, ownedIds, authors, poolSettled, patchLesson } =
-		useOutletContext<LessonsContext>();
+	// `retractableIn` renamed on the way in: the local derivation below needs
+	// that exact name, for the same reason `own` and `authorName` are not
+	// called `ownedIds` or `authors` either - and a shadowed binding here
+	// would silently read the context's whole map where the render below
+	// means one lesson's answer.
+	const {
+		lessons,
+		ownedIds,
+		authors,
+		poolSettled,
+		patchLesson,
+		retractableIn: retractableIn_,
+	} = useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
 	// retraction written into it by patchLesson shows here without a refetch.
@@ -98,12 +111,29 @@ export default function LessonDetail() {
 	const [fetchedAuthorName, setFetchedAuthorName] = useState<string | null>(
 		null,
 	);
+	/**
+	 * The org this viewer may retract `fetched` in, the same way
+	 * `fetchedAuthorName` answers for the author name - set from the same
+	 * `getLesson` response that sets `fetched`, so the two cannot describe
+	 * different lessons.
+	 */
+	const [fetchedRetractableIn, setFetchedRetractableIn] =
+		useState<RetractableOrg | null>(null);
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const [actionError, setActionError] = useState<{
 		message: string;
 		retryable: boolean;
 		attempted: BrowserStatus;
+	} | null>(null);
+	// Held apart from `pending`/`actionError` above: this is a different
+	// request on a different endpoint, and sharing either would disable the
+	// wrong control's spinner or let one action's failure paint over the
+	// other's.
+	const [orgPending, setOrgPending] = useState(false);
+	const [orgActionError, setOrgActionError] = useState<{
+		message: string;
+		retryable: boolean;
 	} | null>(null);
 	// Bumped whenever a transition settles for the lesson still on screen -
 	// success or failure alike. ConfirmAction owns "armed" internally now, so
@@ -135,6 +165,8 @@ export default function LessonDetail() {
 	useEffect(() => {
 		setActionError(null);
 		setPending(false);
+		setOrgActionError(null);
+		setOrgPending(false);
 	}, [id]);
 
 	// The list can vanish underneath this pane: a failed filter refetch sets
@@ -146,8 +178,9 @@ export default function LessonDetail() {
 			setFetched(listed);
 			setFetchedOwn(ownedIds.includes(listed.id));
 			setFetchedAuthorName(authors[listed.id] ?? null);
+			setFetchedRetractableIn(retractableIn_[listed.id] ?? null);
 		}
-	}, [listed, ownedIds, authors]);
+	}, [listed, ownedIds, authors, retractableIn_]);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -165,11 +198,12 @@ export default function LessonDetail() {
 		let live = true;
 		setFetchError(null);
 		getLesson(id)
-			.then(({ lesson, own, author_name }) => {
+			.then(({ lesson, own, author_name, retractable_in }) => {
 				if (live) {
 					setFetched(lesson);
 					setFetchedOwn(own);
 					setFetchedAuthorName(author_name);
+					setFetchedRetractableIn(retractable_in);
 				}
 			})
 			.catch((error) => {
@@ -209,6 +243,20 @@ export default function LessonDetail() {
 		? (authors[listed.id] ?? null)
 		: fetched?.id === id
 			? fetchedAuthorName
+			: null;
+
+	/**
+	 * The org this viewer may retract this lesson in, or null.
+	 *
+	 * Same listed/fetched split as `authorName` and for the same reason: the
+	 * sidecar cannot answer for a deep-linked lesson that is on no loaded
+	 * page, and a filter refetch can empty it while this pane still shows a
+	 * lesson out of `fetched`.
+	 */
+	const retractableIn: RetractableOrg | null = listed
+		? (retractableIn_[listed.id] ?? null)
+		: fetched?.id === id
+			? fetchedRetractableIn
 			: null;
 
 	const transition = async (next: BrowserStatus) => {
@@ -261,6 +309,60 @@ export default function LessonDetail() {
 			// a lesson the user has left must not touch the one now showing.
 			if (currentId.current === target) {
 				setPending(false);
+				setSettleCount((count) => count + 1);
+			}
+		}
+	};
+
+	// This lesson is not the viewer's own; it reaches org level through
+	// `retractOrgLesson` instead of `setLessonStatus`, which is still
+	// `WHERE id = ? AND user_id = ?` and would only 404 here. One-way - there
+	// is no org-level route back to active - which is why this has no
+	// "Make active" counterpart the way `transition` does.
+	const retractForOrg = async (orgId: string) => {
+		if (!id || orgPending) return;
+		// Captured once, up front, for the same reason `transition` does:
+		// `id` from `useParams` can change under this same call while it is
+		// in flight.
+		const target = id;
+		setOrgPending(true);
+		setOrgActionError(null);
+		try {
+			await retractOrgLesson(orgId, target);
+			// AFTER the round-trip, never before - matching `transition`.
+			// Ungated by `currentId`: the server did write, so the list must
+			// carry that regardless of where the user has since navigated.
+			patchLesson(target, "retracted");
+			setFetched((current) =>
+				current && current.id === target
+					? { ...current, status: "retracted" }
+					: current,
+			);
+		} catch (error) {
+			// Same rule `transition` reads off `code`: a 503 whose code is
+			// sequence_contention promises nothing was written, so it is worth
+			// retrying; everything else, including a 404, is not.
+			const retryable =
+				error instanceof AuthApiError && error.code === "sequence_contention";
+			// Gated, matching `transition`: a rejection that settles after the
+			// user has moved to another lesson must not paint this one's error
+			// under that one.
+			if (currentId.current === target) {
+				setOrgActionError({
+					message: describeError(
+						error,
+						"Could not retract that lesson for the org.",
+					),
+					retryable,
+				});
+			}
+		} finally {
+			// Gated, matching `transition`, and sharing its `settleCount`: both
+			// are "a transition settled for the lesson still on screen," and
+			// the author and org controls never render at once, so one counter
+			// disarming either ConfirmAction is unambiguous.
+			if (currentId.current === target) {
+				setOrgPending(false);
 				setSettleCount((count) => count + 1);
 			}
 		}
@@ -529,6 +631,52 @@ export default function LessonDetail() {
 									// moved, `next` would have flipped too and
 									// this would retry the opposite transition.
 									onClick={() => void transition(actionError.attempted)}
+								>
+									Try again
+								</Button>
+							) : null}
+						</div>
+					) : null}
+				</div>
+			) : null}
+
+			{/*
+			  The other case `next` does not cover: not the viewer's own, but
+			  an org they own may still retract it, through the authority
+			  Task 1-5 resolved server-side - this client re-derives none of
+			  it. `!own` is asserted here too even though the server is not
+			  supposed to populate `retractableIn` for the viewer's own
+			  lesson (D6) - belt and suspenders against ever rendering both
+			  controls on the same lesson, since the author's pair is
+			  strictly more capable.
+			*/}
+			{!own && retractableIn ? (
+				<div>
+					<ConfirmAction
+						trigger={`Retract for ${retractableIn.org_name}`}
+						question={`This lesson is not yours. Retracting it stops ${retractableIn.org_name} from reading it, and only its author can make it active again — you cannot undo this.`}
+						confirmLabel="Yes, retract for the org"
+						variant="danger"
+						pending={orgPending}
+						resetToken={`${id}:${settleCount}`}
+						onConfirm={() => void retractForOrg(retractableIn.org_id)}
+					/>
+
+					{orgActionError ? (
+						<div role="alert" style={{ marginTop: "0.75rem" }}>
+							<p style={{ color: PALETTE.danger, margin: "0 0 0.5rem" }}>
+								{orgActionError.message}
+							</p>
+							{/*
+							  Same reasoning as the author control's own retry:
+							  offered only where the server promised nothing was
+							  written.
+							*/}
+							{orgActionError.retryable ? (
+								<Button
+									loading={orgPending}
+									loadingLabel="Working..."
+									onClick={() => void retractForOrg(retractableIn.org_id)}
 								>
 									Try again
 								</Button>

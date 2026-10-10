@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 	listLessons: vi.fn(),
 	getLesson: vi.fn(),
 	setLessonStatus: vi.fn(),
+	retractOrgLesson: vi.fn(),
 }));
 
 vi.mock("../api/lessonsApi", () => ({
@@ -44,6 +45,7 @@ vi.mock("../api/lessonsApi", () => ({
 	listLessons: mocks.listLessons,
 	getLesson: mocks.getLesson,
 	setLessonStatus: mocks.setLessonStatus,
+	retractOrgLesson: mocks.retractOrgLesson,
 }));
 
 const { default: App } = await import("../App");
@@ -130,11 +132,17 @@ const UNEXPECTED_FETCH = {
 	claim: "getLesson should not have been called for this test",
 };
 
+// The org every "org retract control" test below names, when one is needed at
+// all - its identity does not vary case to case, so one constant stands in
+// for every fixture and every assertion that reads it back off the button.
+const ORG = { org_id: "org-1", org_name: "Acme" };
+
 beforeEach(() => {
 	mocks.listLessons.mockReset();
 	mocks.getLesson.mockReset();
 	mocks.getLesson.mockResolvedValue({ lesson: UNEXPECTED_FETCH, own: true });
 	mocks.setLessonStatus.mockReset();
+	mocks.retractOrgLesson.mockReset();
 });
 
 describe("the list pane", () => {
@@ -1231,6 +1239,157 @@ describe("org retract authority", () => {
 			[VITE.id]: { org_id: "org-1", org_name: "Acme" },
 			[D1.id]: { org_id: "org-2", org_name: "Beta" },
 		});
+	});
+});
+
+describe("org retract control", () => {
+	it("lets an org owner retract a teammate's org lesson, naming the org", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
+	// The fixture's lesson is still readable - only retractable_in is empty -
+	// so a control rendering here would mean nothing distinguishes a member
+	// from an owner at all, rather than the gate working. Without the lesson
+	// staying readable this would pass for the wrong reason: nothing rendered
+	// at all.
+	it("offers no control to a member who may read the lesson but not retract it at org level", async () => {
+		withPool([VITE], { owned_ids: [], retractable_in: {} });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+		expect(screen.queryByRole("button", { name: /^retract$/i })).toBeNull();
+	});
+
+	// retractable_in is populated here even though the viewer owns the
+	// lesson - something the server would not actually send, since D6 gates
+	// it on the viewer NOT being the author. It is set anyway so this proves
+	// the component's own `!own` gate, rather than relying on the server
+	// never sending both facts at once.
+	it("shows the author's own control, not the org one, on the reader's own org lesson", async () => {
+		withPool([VITE], {
+			owned_ids: [VITE.id],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	it("patches the row to retracted after a successful org retract, without a refetch", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		mocks.retractOrgLesson.mockResolvedValue({
+			id: VITE.id,
+			seq: 7,
+			status: "retracted",
+		});
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		await waitFor(() =>
+			expect(mocks.retractOrgLesson).toHaveBeenCalledWith(ORG.org_id, VITE.id),
+		);
+		// Two badges: the row in the list and the heading in the detail, the
+		// same pairing the author's own retract test above already pins.
+		await waitFor(() =>
+			expect(
+				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
+			).toBe(2),
+		);
+		expect(mocks.getLesson).not.toHaveBeenCalled();
+	});
+
+	// The deep-fetched twin of the first case above - the split that shipped
+	// untested in ONL-141.
+	it("names the org on a deep link to a teammate's org lesson", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: ORG,
+		});
+		await at(`/lessons/${D1.id}`);
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
+	// The deep-fetched twin of the member case above.
+	it("offers no control on a deep link to a lesson the viewer may only read", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: null,
+		});
+		await at(`/lessons/${D1.id}`);
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	// Proves `fetchedRetractableIn` is set from the same `getLesson` response
+	// that sets `fetched`, carrying all the way through to a successful write -
+	// not merely read once at arrival and then stale.
+	it("patches a deep-fetched lesson to retracted after a successful org retract", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: ORG,
+		});
+		mocks.retractOrgLesson.mockResolvedValue({
+			id: D1.id,
+			seq: 3,
+			status: "retracted",
+		});
+		await at(`/lessons/${D1.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		await waitFor(() =>
+			expect(mocks.retractOrgLesson).toHaveBeenCalledWith(ORG.org_id, D1.id),
+		);
+		expect(
+			await screen.findByText("Retracted", { selector: ":not(option)" }),
+		).toBeDefined();
+		expect(mocks.getLesson).toHaveBeenCalledTimes(1);
 	});
 });
 
