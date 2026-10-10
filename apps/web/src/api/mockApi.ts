@@ -912,13 +912,16 @@ export async function mockDataApi(
 		// holds nothing - but it is sent rather than omitted, because the real
 		// API always sends it and the detail pane reads it to decide whether
 		// to offer a status control at all. `authors` is empty for the same
-		// reason: the mock pool has no org rows to attribute.
+		// reason: the mock pool has no org rows to attribute. `retractable_in`
+		// is empty for the same reason again - there is no org lesson here for
+		// anyone to retract.
 		return json({
 			lessons: [],
 			cursor: null,
 			has_more: false,
 			owned_ids: [],
 			authors: {},
+			retractable_in: {},
 		});
 	}
 
