@@ -178,7 +178,12 @@ than a join, which would change the measured query plan that
 is retractable.
 
 `getLessonForUser` resolves the reader's orgs once already; it gains the owner
-check on the same path, and only for a lesson that is org-reached.
+check on the same path. Unconditionally, not only for a lesson that is
+org-reached - this mirrors `author_name` beside it on the same function,
+which is the established pattern there, and making it conditional would need
+to know the lesson's visibility before the resolution runs, which is not yet
+known at that point. `orgRetractableFor`'s own WHERE clause is what actually
+limits the match to `visibility = 'org'`; this call just always asks.
 
 ## Client shape *(proposed)*
 

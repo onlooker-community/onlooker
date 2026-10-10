@@ -976,7 +976,19 @@ different lessons.
 
 - [ ] **Step 3: Render it**
 
-A second `ConfirmAction`, rendered only when `!own && retractableIn`. Its copy
+A second `ConfirmAction`, rendered only when
+`!own && retractableIn && lesson.status !== "retracted"`. The status term
+matters: it is tempting to gate this the way the author's own pair is gated,
+on `status === "active"`, reasoning that the org control should not be more
+permissive than the author's. That reasoning is wrong - the author's pair
+offers nothing for `refuted` or `superseded` because its `next` is a
+two-state toggle with nothing left to toggle there, not because retraction is
+inappropriate for those statuses, and withholding the org control for
+`refuted` too would leave an owner's only route for it "ask the platform
+operator," the exact outcome D6 exists to prevent. `!== "retracted"` is
+withheld only once the lesson is already retracted, since there is no
+org-level route back to active and a second click would "succeed" again,
+appending another feed row while appearing to have done nothing new. Its copy
 carries D5:
 
 ```tsx
