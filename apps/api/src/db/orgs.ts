@@ -4,13 +4,25 @@ import { and, eq, sql } from "drizzle-orm";
 import { client } from "./client.js";
 
 /**
- * Org membership and roles. The only home for a query against `orgs`,
- * `org_memberships` or `org_invites`.
+ * Org membership and roles: creation, renaming, who belongs, who owns.
  *
- * Note what is NOT here: anything touching `lessons`. Stage 2 adds the org
- * disjunct to db/pool.ts, which is the only module allowed to return lesson
- * content - scripts/source-guards.test.sh enforces that boundary, and a join
- * from this file would fail it.
+ * NOT the only home for a query against `orgs` or `org_memberships`, despite
+ * what an earlier version of this comment claimed. `org_invites` never lived
+ * here at all - that table is `db/org-invites.ts`'s, a sibling module, and
+ * `routes/orgs-invite-accept.ts` holds its own `orgs` name lookup for
+ * displaying an invitation before anyone signs in.
+ *
+ * `db/pool.ts` holds two more `orgs` queries of its own - `retractableOrgs`'s
+ * name lookup and `orgRetractableFor`'s JOIN - and that one is load-bearing,
+ * not drift. `scripts/source-guards.test.sh` lets only `db/lessons.ts` and
+ * `db/pool.ts` query `lessons` or `lesson_feed`, so a lookup that has to
+ * correlate an org with a lesson row - "which org may retract THIS lesson" -
+ * cannot be factored out here without either querying `lessons` from a third
+ * file (which the guard refuses) or duplicating `visibilityPredicate`'s
+ * boundary into a second copy (which is the worse defect `orgAuthorName`'s
+ * own doc comment already explains). This file stays where plain membership
+ * and role questions belong; the lesson-shaped ones belong beside the lesson
+ * queries they join against.
  */
 
 export type OrgRole = "owner" | "member";

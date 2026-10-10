@@ -1,8 +1,13 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
-import { orgIdsForUser } from "./orgs.js";
-import { orgAuthorName, readPool, readPoolLesson } from "./pool.js";
+import { orgIdsForUser, ownerOrgIdsForUser } from "./orgs.js";
+import {
+	orgAuthorName,
+	orgRetractableFor,
+	readPool,
+	readPoolLesson,
+} from "./pool.js";
 import {
 	BROWSE_DEFAULT_LIMIT,
 	BROWSE_MAX_LIMIT,
@@ -10,6 +15,7 @@ import {
 	encodeCursor,
 	InvalidCursorError,
 	type LessonPage,
+	type RetractableOrg,
 } from "./pool-page.js";
 
 /**
@@ -632,6 +638,7 @@ export async function getLessonForUser(
 	lesson: unknown;
 	own: boolean;
 	author_name: string | null;
+	retractable_in: RetractableOrg | null;
 } | null> {
 	// Resolved once into a local rather than passed as orgIdsForUser twice:
 	// one membership read per request instead of two, and the name this
@@ -660,5 +667,16 @@ export async function getLessonForUser(
 	// appear for a row the org disjunct is what admitted.
 	const author_name = await orgAuthorName(db, readerOrgIds, id);
 
-	return { lesson, own: owned !== null, author_name };
+	// From the reader's OWNED orgs, resolved here rather than inside
+	// orgRetractableFor so the two org lists this function depends on - the
+	// membership list the predicate used and the owner list this uses - are
+	// both visible in one place.
+	const retractable_in = await orgRetractableFor(
+		db,
+		userId,
+		await ownerOrgIdsForUser(db, userId),
+		id,
+	);
+
+	return { lesson, own: owned !== null, author_name, retractable_in };
 }

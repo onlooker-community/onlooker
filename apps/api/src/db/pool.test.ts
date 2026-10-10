@@ -421,6 +421,72 @@ describe("getLessonForUser", () => {
 		expect((found?.lesson as { id: string }).id).toBe(shared.id);
 		expect(found?.own).toBe(false);
 	});
+
+	it("names the org for an owner reading a teammate's org lesson", async () => {
+		const owner = (await createUser(db(), "o2@example.com", "hash", "Ona")).id;
+		const author = (await createUser(db(), "a2@example.com", "hash", "Al")).id;
+		const org = await createOrgWithOwner(db(), "Acme Two", owner);
+		await addMembership(db(), org.id, author, "member");
+		const shared = await seedFor(author, { visibility: "org" }, org.id);
+
+		const found = await getLessonForUser(db(), owner, shared.id);
+
+		expect(found?.retractable_in).toEqual({
+			org_id: org.id,
+			org_name: "Acme Two",
+		});
+	});
+
+	it("answers null for a member of the same org", async () => {
+		const owner = (await createUser(db(), "o3@example.com", "hash", "Ona")).id;
+		const member = (await createUser(db(), "m3@example.com", "hash", "Mem")).id;
+		const author = (await createUser(db(), "a3@example.com", "hash", "Al")).id;
+		const org = await createOrgWithOwner(db(), "Acme Three", owner);
+		await addMembership(db(), org.id, member, "member");
+		await addMembership(db(), org.id, author, "member");
+		const shared = await seedFor(author, { visibility: "org" }, org.id);
+
+		const found = await getLessonForUser(db(), member, shared.id);
+
+		expect(found).not.toBeNull();
+		expect(found?.retractable_in).toBeNull();
+	});
+
+	it("answers null for the reader's own lesson in an org they own", async () => {
+		const owner = (await createUser(db(), "o4@example.com", "hash", "Ona")).id;
+		const org = await createOrgWithOwner(db(), "Acme Four", owner);
+		const own = await seedFor(owner, { visibility: "org" }, org.id);
+
+		expect(
+			(await getLessonForUser(db(), owner, own.id))?.retractable_in,
+		).toBeNull();
+	});
+
+	it("answers null for a public lesson, even one that carries a real org_id", async () => {
+		// Deliberately NOT the brief's literal fixture (a public lesson with
+		// no org_id at all). That shape cannot tell "excluded because
+		// visibility isn't 'org'" apart from "excluded because org_id is
+		// null" - the same gap Task 2's analogous public-lesson test left,
+		// caught in review. So: a real org the reader OWNS, and a public
+		// lesson force-updated to carry that org's id, the same way "does not
+		// name the author of a public lesson that carries an org_id" above
+		// builds its fixture. Unreachable through the writer -
+		// createLessonsWithFeed stamps org_id only onto 'org' rows - hence
+		// the raw UPDATE.
+		const owner = (await createUser(db(), "o5@example.com", "hash", "Ona")).id;
+		const author = (await createUser(db(), "a5@example.com", "hash", "Al")).id;
+		const org = await createOrgWithOwner(db(), "Acme Five", owner);
+		const pub = await seedFor(author, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(org.id, pub.id)
+			.run();
+
+		const found = await getLessonForUser(db(), owner, pub.id);
+
+		expect(found).not.toBeNull();
+		expect(found?.retractable_in).toBeNull();
+	});
 });
 
 describe("org attribution", () => {

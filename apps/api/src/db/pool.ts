@@ -508,3 +508,44 @@ export async function orgAuthorName(
 
 	return row?.name ?? null;
 }
+
+/**
+ * The org a reader may retract ONE lesson in, or null.
+ *
+ * The by-id twin of `retractableOrgs`, and separate for the reason
+ * `orgAuthorName` is separate from the `authors` sidecar: a deep-linked lesson
+ * is on no loaded page, so the page-shaped answer cannot speak for it.
+ *
+ * NOT an authorization check, and the same caveat `orgAuthorName` carries
+ * applies: this WHERE omits the retracted-and-blocked-author boundary that
+ * `visibilityPredicate` applies, so the only reason it cannot be used to probe
+ * an arbitrary lesson id is that its caller - `getLessonForUser` - has already
+ * returned null for a row the reader may not read. Do not call it anywhere
+ * that has not established readability first.
+ *
+ * The boundary is deliberately not duplicated here: `visibilityPredicate` is
+ * the only place a visibility predicate is constructed.
+ */
+export async function orgRetractableFor(
+	db: D1Database,
+	readerUserId: string,
+	ownerOrgIds: string[],
+	lessonId: string,
+): Promise<RetractableOrg | null> {
+	const bounded = ownerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+	if (bounded.length === 0) return null;
+
+	const row = await db
+		.prepare(
+			`SELECT o.id AS org_id, o.name AS org_name FROM lessons l
+			 JOIN orgs o ON o.id = l.org_id
+			 WHERE l.id = ?
+			   AND l.visibility = 'org'
+			   AND l.user_id != ?
+			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
+		)
+		.bind(lessonId, readerUserId, ...bounded)
+		.first<{ org_id: string; org_name: string }>();
+
+	return row ? { org_id: row.org_id, org_name: row.org_name } : null;
+}

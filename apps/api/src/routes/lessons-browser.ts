@@ -117,6 +117,7 @@ export async function handleGetLesson(
 		lesson: found.lesson,
 		own: found.own,
 		author_name: found.author_name,
+		retractable_in: found.retractable_in,
 	});
 }
 
