@@ -280,6 +280,8 @@ export async function revokeAllSessionsForUser(
 	await client(db).delete(sessions).where(eq(sessions.user_id, userId));
 }
 
+export type AccountDeleteResult = "ok" | "sole_owner";
+
 /**
  * Delete an account.
  *
@@ -287,12 +289,51 @@ export async function revokeAllSessionsForUser(
  * users, so they go with it and this does not sweep them by hand. queries.test
  * asserts that, because the day the constraint changes is the day a deleted
  * account keeps a working session.
+ *
+ * Refuses while the account is the sole owner of an org. `org_memberships`
+ * cascades from `users` too, which made this the one path to zero owners that
+ * nothing guarded: `removeMembership` already refuses to let a last owner
+ * leave, and deleting the account walked straight past it. Since the org
+ * lesson tier opened that state is unrecoverable rather than merely awkward -
+ * every owner route needs an owner to already exist, `retract` included, so
+ * an ownerless org can never be moderated from the inside again (ONL-136).
+ *
+ * The guard is part of the DELETE's own WHERE clause for the same reason
+ * db/orgs.ts gives for `removeMembership` and `setMemberRole`: a read of
+ * "how many owners" followed by an unconditional write lets this interleave
+ * with a concurrent demotion, each seeing two owners before either lands,
+ * leaving zero. One statement is one transaction in D1, so folding the
+ * condition in makes the check and the write atomic.
+ *
+ * Deleting an account that is already gone still reports "ok". That keeps the
+ * original intent - the caller's intent was "make it gone", and it is - while
+ * letting a real refusal be told apart from it.
  */
 export async function deleteUser(
 	db: D1Database,
 	userId: string,
-): Promise<void> {
-	await client(db).delete(users).where(eq(users.id, userId));
+): Promise<AccountDeleteResult> {
+	const result = await db
+		.prepare(
+			`DELETE FROM users
+			 WHERE id = ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM org_memberships m
+			     WHERE m.user_id = ? AND m.role = 'owner'
+			       AND (SELECT COUNT(*) FROM org_memberships o
+			            WHERE o.org_id = m.org_id AND o.role = 'owner') = 1)`,
+		)
+		.bind(userId, userId)
+		.run();
+
+	if ((result.meta.changes ?? 0) > 0) return "ok";
+
+	// Zero rows is ambiguous - no such account, or refused to protect an org's
+	// last owner - so it takes one more read to resolve. That read is not
+	// itself racy: the write has already safely failed one way or the other,
+	// and this only chooses which answer the caller gets. Same shape as
+	// removeMembership's follow-up read.
+	return (await getUserById(db, userId)) ? "sole_owner" : "ok";
 }
 
 /**
