@@ -685,12 +685,27 @@ describe("retractable_in", () => {
 	});
 
 	it("gives nothing for a public lesson, whatever the reader owns", async () => {
+		// Deliberately NOT a public lesson with no org_id at all - that shape
+		// cannot tell "excluded because visibility isn't 'org'" apart from
+		// "excluded because org_id is null", so an ablation of the
+		// `r.visibility === "org"` clause at pool.ts:277 would still pass
+		// this test. A real org the reader OWNS, and a public lesson
+		// force-updated to carry that org's id, the same way "answers null
+		// for a public lesson, even one that carries a real org_id" below
+		// (getLessonForUser's equivalent) and the ONL-141 attribution
+		// fixture both build theirs. Unreachable through the writer -
+		// createLessonsWithFeed stamps org_id only onto 'org' rows - hence
+		// the raw UPDATE.
 		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))
 			.id;
 		const author = (await createUser(db(), "author@example.com", "hash", "Al"))
 			.id;
 		const org = await createOrgWithOwner(db(), "Acme", owner);
-		await seedFor(author, { visibility: "public" });
+		const pub = await seedFor(author, { visibility: "public" });
+		await db()
+			.prepare("UPDATE lessons SET org_id = ? WHERE id = ?")
+			.bind(org.id, pub.id)
+			.run();
 
 		const page = await readPool(
 			db(),
@@ -775,6 +790,17 @@ describe("retractable_in, the laziness proof (D3)", () => {
 		expect(idsIn(page).length).toBe(2);
 		expect(page.retractableIn).toEqual({});
 		expect(anyStatementTouches(sqls, "orgs")).toBe(false);
+		// This half is NOT evidence of the same laziness decision the `orgs`
+		// assertion above pins. It holds only because this call passes no
+		// fourth argument, so `resolveOrgIds` defaults to `noOrgIds` and
+		// never reads `org_memberships` at all. The production caller,
+		// `listLessonsPage`, always passes `orgIdsForUser` as that resolver,
+		// which reads `org_memberships` unconditionally for every page,
+		// private-only ones included - the predicate's membership read was
+		// never gated on whether anything turns out to be org-reached. Do
+		// not move this assertion into a test that calls `listLessonsPage`
+		// expecting it to still hold; it would go red for a reason that has
+		// nothing to do with D3.
 		expect(anyStatementTouches(sqls, "org_memberships")).toBe(false);
 	});
 

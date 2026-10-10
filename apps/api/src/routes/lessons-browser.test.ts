@@ -428,4 +428,33 @@ describe("retractable_in, at the route", () => {
 			[shared.id]: { org_id: org.id, org_name: "Acme" },
 		});
 	});
+
+	// The by-id twin of the browse-route test above. Nothing joins
+	// getLessonForUser's db-level coverage of `retractable_in` to the
+	// `GET /api/lessons/:id` route it travels through - a hardcoded `null`
+	// at lessons-browser.ts:120 would pass every other test in this file
+	// and in db/pool.test.ts alike. This is the design's exact warning
+	// about what shipped broken on the previous branch, closed here for the
+	// single-lesson route the way the browse route was already closed
+	// above.
+	it("names the org for an owner reading a teammate's org lesson, on the single-lesson route", async () => {
+		const reader = await getUserByEmail(db(), "browser@example.com");
+		const org = await createOrgWithOwner(
+			db(),
+			"Acme",
+			(reader as { id: string }).id,
+		);
+		const author = (await createUser(db(), "author@example.com", "hash", "Bob"))
+			.id;
+		await addMembership(db(), org.id, author, "member");
+
+		const shared = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), author, [shared], org.id);
+
+		const body = (await (await browse(`/api/lessons/${shared.id}`)).json()) as {
+			retractable_in: { org_id: string; org_name: string } | null;
+		};
+
+		expect(body.retractable_in).toEqual({ org_id: org.id, org_name: "Acme" });
+	});
 });
