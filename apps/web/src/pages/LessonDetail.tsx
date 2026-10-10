@@ -349,10 +349,23 @@ export default function LessonDetail() {
 			// under that one.
 			if (currentId.current === target) {
 				setOrgActionError({
-					message: describeError(
-						error,
-						"Could not retract that lesson for the org.",
-					),
+					// A 404 here can mean the lesson is no longer shared with
+					// this org, or that the caller is no longer its owner -
+					// requireOrgRole's "No such org" and retractOrgLesson's
+					// "No such lesson" are deliberately indistinguishable at
+					// the server (the design's Errors rule says the copy
+					// "must not claim to know which"), so rendering either
+					// message verbatim would claim to know a cause. "No such
+					// org" in particular reads as the org itself being gone,
+					// which is wrong for the demoted-owner case that is the
+					// common way this actually fires.
+					message:
+						error instanceof AuthApiError && error.code === "not_found"
+							? "This lesson could not be retracted for the org. It may no longer be shared there, or it may no longer be yours to act for."
+							: describeError(
+									error,
+									"Could not retract that lesson for the org.",
+								),
 					retryable,
 				});
 			}
@@ -650,20 +663,28 @@ export default function LessonDetail() {
 			  controls on the same lesson, since the author's pair is
 			  strictly more capable.
 
-			  Gated on status too, matching `next`'s own gate just above:
-			  offered only for `active`, and never for `retracted`, `refuted`
-			  or `superseded` - the org control must not be more permissive
-			  than the author's own pair, which offers nothing for the last
-			  two either. Unlike `next` this does not flip to a second state
-			  on success - there is no org-level route back to active - so
-			  once used it simply disappears rather than reading "Make
-			  active". Without this gate the control survives its own
-			  success: `retractOrgLesson` carries no server-side
-			  precondition, so a second click on an already-retracted lesson
-			  would "succeed" again, appending another feed row while
-			  appearing to have done nothing new.
+			  Gated on status too, but NOT the way an earlier version of this
+			  comment argued - "must not be more permissive than the
+			  author's own pair" - which is wrong and has been removed. The
+			  author's own pair offers nothing for `refuted` or `superseded`
+			  because its `next` is a two-state toggle with nothing left to
+			  toggle there, not because retraction is inappropriate for
+			  those statuses: `BROWSER_TRANSITIONS` accepts `retracted` from
+			  any status, and the org route does too. Withholding this
+			  control for a `refuted` org lesson too would leave an owner's
+			  only route for it "ask the platform operator" - the exact
+			  outcome D6 exists to prevent.
+
+			  So the gate is `!== "retracted"`: withheld only once the
+			  lesson is already retracted, because there is no org-level
+			  route back to active, so once used the control simply
+			  disappears rather than reading "Make active". Without this
+			  gate the control survives its own success: `retractOrgLesson`
+			  carries no server-side precondition, so a second click on an
+			  already-retracted lesson would "succeed" again, appending
+			  another feed row while appearing to have done nothing new.
 			*/}
-			{!own && retractableIn && lesson.status === "active" ? (
+			{!own && retractableIn && lesson.status !== "retracted" ? (
 				<div>
 					<ConfirmAction
 						trigger={`Retract for ${retractableIn.org_name}`}

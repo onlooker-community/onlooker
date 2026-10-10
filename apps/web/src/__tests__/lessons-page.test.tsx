@@ -1350,6 +1350,29 @@ describe("org retract control", () => {
 		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
 	});
 
+	// D6 exists so an owner's only route for an org lesson is never "ask the
+	// platform operator." The author's own pair offers nothing for
+	// `refuted` because its `next` is a two-state toggle with nothing left
+	// to toggle there - not because retraction is inappropriate for a
+	// refuted lesson - and `BROWSER_TRANSITIONS` accepts `retracted` from
+	// any status. An earlier gate of `lesson.status === "active"` withheld
+	// this control for `refuted` too, leaving exactly the gap D6 exists to
+	// prevent.
+	it("offers the control for a refuted org lesson", async () => {
+		withPool([{ ...VITE, status: "refuted" }], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
 	// The deep-fetched twin of the first case above - the split that shipped
 	// untested in ONL-141.
 	it("names the org on a deep link to a teammate's org lesson", async () => {
@@ -1452,6 +1475,50 @@ describe("org retract control", () => {
 		expect(
 			screen.queryByRole("button", { name: `Retract for ${ORG.org_name}` }),
 		).toBeNull();
+	});
+
+	// No rejection case existed for the org control at all before this. The
+	// error alert below renders only because a failed attempt leaves the
+	// lesson's status unpatched: the gate above is `!== "retracted"`, so the
+	// control stays mounted after the failure, which is what gives the
+	// error alert somewhere to render beneath.
+	it("leaves the org lesson untouched when the server refuses, without repeating its 404 verbatim", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		mocks.retractOrgLesson.mockRejectedValue(
+			new AuthApiError(404, "not_found", "No such org"),
+		);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		// `requireOrgRole`'s literal "No such org" must not surface: it
+		// claims to know a cause the design deliberately keeps ambiguous
+		// (a 404 here could equally be `retractOrgLesson`'s "No such
+		// lesson"), and it reads as the org itself being gone, which is
+		// wrong for the demoted-owner case that is the common way this
+		// actually fires.
+		expect(
+			await screen.findByText(/could not be retracted for the org/i),
+		).toBeDefined();
+		expect(screen.queryByText(/^no such org$/i)).toBeNull();
+		expect(
+			screen.queryByText("Retracted", { selector: ":not(option)" }),
+		).toBeNull();
+		// Still mounted: the gate above still admits it, since the failed
+		// write never patched the status to "retracted".
+		expect(
+			screen.getByRole("button", { name: `Retract for ${ORG.org_name}` }),
+		).toBeDefined();
 	});
 });
 
