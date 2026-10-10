@@ -1357,6 +1357,36 @@ describe("org retract control", () => {
 		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
 	});
 
+	// The deep-fetched twin of the own-lesson case above. `own` comes from two
+	// different sources depending on path - `ownedIds` for a listed lesson,
+	// `fetchedOwn` for one only this pane holds - and the listed-path test
+	// above exercises only the first. A defect that mis-wires the second -
+	// reading the context's `own` where `fetchedOwn` belongs, or ignoring it
+	// outright - would pass every other test in this file. This project has
+	// already paid for that exact gap once: the single-lesson path shipped
+	// with zero coverage on this split and had to be fixed after review.
+	//
+	// `retractable_in` is populated here even though `own` is true -
+	// something the server would not actually do, since it populates that
+	// field only for a lesson the viewer did NOT author. It is fed in anyway
+	// to prove the client's own `!own` gate holds, rather than relying on the
+	// server to never send both facts at once. Do not "fix" this fixture into
+	// a more realistic shape - that would quietly delete the coverage.
+	it("shows the author's own control, not the org one, on a deep-fetched own lesson", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: true,
+			retractable_in: ORG,
+		});
+		await at(`/lessons/${D1.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
 	// Proves `fetchedRetractableIn` is set from the same `getLesson` response
 	// that sets `fetched`, carrying all the way through to a successful write -
 	// not merely read once at arrival and then stale.
