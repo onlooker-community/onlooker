@@ -1,4 +1,7 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 import { orgIdsForUser, ownerOrgIdsForUser } from "./orgs.js";
@@ -679,4 +682,67 @@ export async function getLessonForUser(
 	);
 
 	return { lesson, own: owned !== null, author_name, retractable_in };
+}
+
+/**
+ * Whether this user has a lesson that must outlive their account.
+ *
+ * The condition is the whole of ONL-136's decision: a lesson shared with an
+ * org belongs to the org once its author leaves. `org_id IS NOT NULL` is not
+ * redundant with `visibility = 'org'` - `lessons.org_id` is ON DELETE SET
+ * NULL, so a row whose org was deleted is readable by nobody at all, and
+ * keeping an account alive to anchor one would retain identity for nothing.
+ */
+export async function hasOrgSharedLessons(
+	db: D1Database,
+	userId: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS present FROM lessons
+			 WHERE user_id = ? AND visibility = 'org' AND org_id IS NOT NULL
+			 LIMIT 1`,
+		)
+		.bind(userId)
+		.first<{ present: number }>();
+
+	return row !== null;
+}
+
+/**
+ * The statement that deletes the lessons going with a deleted account.
+ *
+ * Everything except the org-shared ones: a private lesson would be
+ * permanently unreadable once nobody can authenticate as its author, and a
+ * public one is the author's own publication to withdraw. The inverse of
+ * `hasOrgSharedLessons` above, deliberately written as the same condition
+ * negated so the two cannot drift apart.
+ *
+ * Returns the statement rather than running it, so its one caller can put it
+ * in the same `db.batch` as the UPDATE that anonymizes the account. Running it
+ * separately would delete these lessons before that UPDATE's own sole-owner
+ * guard had a chance to refuse, leaving an account stripped of its lessons and
+ * still holding its identity - the half-dismantled state the design exists to
+ * avoid. The `anonymized_at IS NOT NULL` gate is the other half of that: the
+ * batch shares one transaction, so this sees the UPDATE's effect and fires
+ * only if it landed.
+ *
+ * Each deleted lesson takes its own `lesson_feed` rows with it, because
+ * `lesson_feed.lesson_id` cascades from `lessons`. The author's remaining feed
+ * rows - the ones belonging to surviving lessons - stay, which keeps
+ * `transitionLesson`'s `MAX(seq) + 1` continuous for a later org retract.
+ */
+export function nonOrgLessonsDelete(
+	db: D1Database,
+	userId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM lessons
+			 WHERE user_id = ?
+			   AND NOT (visibility = 'org' AND org_id IS NOT NULL)
+			   AND EXISTS (SELECT 1 FROM users
+			               WHERE id = ? AND anonymized_at IS NOT NULL)`,
+		)
+		.bind(userId, userId);
 }
