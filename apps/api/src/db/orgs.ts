@@ -22,11 +22,15 @@ import { client } from "./client.js";
  * boundary into a second copy (which is the worse defect `orgAuthorName`'s
  * own doc comment already explains).
  *
- * `org_memberships` is a different claim: in production code this file IS
- * its only home - the sole other hit anywhere in the repo is
- * `test-support/orgs.ts`'s teardown DELETE. This file stays where plain
- * membership and role questions belong; the lesson-shaped ones belong beside
- * the lesson queries they join against.
+ * `org_memberships` was this file's alone until ONL-136 landed. `db/queries.ts`
+ * holds one now, inside `deleteUser`, and for a reason of the same shape: the
+ * sole-owner guard has to be part of the DELETE against `users` to be atomic,
+ * so a membership count read from here first could interleave with a
+ * concurrent demotion and let the last owner go. Beyond that one and
+ * `test-support/orgs.ts`'s teardown DELETE, this file is still where plain
+ * membership and role questions belong. The ones that have to be atomic with
+ * another table's write, or that join against a lesson, belong beside what
+ * they join.
  */
 
 export type OrgRole = "owner" | "member";
@@ -382,4 +386,36 @@ export async function ownerOrgIdsForUser(
 		.orderBy(org_memberships.org_id);
 
 	return rows.map((row) => row.org_id);
+}
+
+/**
+ * The orgs this user owns alone.
+ *
+ * Explanatory only. `deleteUser` decides the refusal itself, inside its own
+ * DELETE, because a decision made from a separate read can interleave with a
+ * concurrent demotion. This runs only after that write has already refused,
+ * to say which orgs are responsible - so a drifting answer here can misname
+ * an org in an error message but can never admit a deletion the guard
+ * rejected, nor reject one it allowed.
+ *
+ * Ordered by name so the message is stable between calls.
+ */
+export async function soleOwnedOrgs(
+	db: D1Database,
+	userId: string,
+): Promise<{ id: string; name: string }[]> {
+	const rows = await db
+		.prepare(
+			`SELECT o.id AS id, o.name AS name
+			   FROM orgs o
+			   JOIN org_memberships m ON m.org_id = o.id
+			  WHERE m.user_id = ? AND m.role = 'owner'
+			    AND (SELECT COUNT(*) FROM org_memberships c
+			         WHERE c.org_id = o.id AND c.role = 'owner') = 1
+			  ORDER BY o.name`,
+		)
+		.bind(userId)
+		.all<{ id: string; name: string }>();
+
+	return rows.results ?? [];
 }

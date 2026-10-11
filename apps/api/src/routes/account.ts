@@ -9,6 +9,7 @@
  * - Account deletion with cascading deletes
  */
 
+import { soleOwnedOrgs } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import {
 	consumeVerificationToken,
@@ -242,7 +243,7 @@ export async function handleChangePassword(
  *
  * Requires: Access token
  * Response: { success: boolean }
- * Errors: 401 (unauthorized)
+ * Errors: 401 (unauthorized), 409 (sole owner of an org)
  */
 export async function handleDeleteAccount(
 	_request: Request,
@@ -259,9 +260,30 @@ export async function handleDeleteAccount(
 	// the day the constraint changes is the day a deleted account keeps a
 	// working session.
 	//
-	// Deliberately unconditional: deleting an already-deleted account is not an
-	// error worth reporting to someone whose intent was "make it gone".
-	await deleteUser(env.DB, userId);
+	// Not unconditional any more. org_memberships cascades from users too, so
+	// this was the one way to leave an org with zero owners - a state no route
+	// can repair, and since the org lesson tier opened, one where the org's
+	// lessons can never be retracted either (ONL-136). deleteUser refuses
+	// inside its own statement; this turns that refusal into an answer.
+	//
+	// An already-deleted account still reports success, so the original intent
+	// survives: the caller wanted it gone, and it is.
+	const result = await deleteUser(env.DB, userId);
+
+	if (result === "sole_owner") {
+		// Read for the message only, and only once the write has refused. The
+		// names make the refusal actionable - the way out is to promote another
+		// owner in each org named, and without them somebody who owns several
+		// has no route that would tell them which one is blocking this.
+		const orgs = await soleOwnedOrgs(env.DB, userId);
+
+		throw new ApiError(
+			409,
+			"sole_owner",
+			"An org needs an owner; promote somebody else first",
+			{ orgs },
+		);
+	}
 
 	return jsonResponse({ success: true });
 }
