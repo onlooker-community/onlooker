@@ -234,6 +234,12 @@ describe("deleting the org the lesson was shared with", () => {
 		});
 		expect(deleted.status).toBe(200);
 
+		// The claim this describe block is named for: ON DELETE SET NULL
+		// actually fired on this row. Without this, the two browse() assertions
+		// below pass for an unrelated reason - see the comment above them - and
+		// would do so even with org_id left dangling at the deleted org's id.
+		expect((await probeLessonId(db(), sharedId))?.org_id).toBeNull();
+
 		// lessons.org_id is ON DELETE SET NULL, and visibilityPredicate pushes
 		// `user_id = ?` as its own disjunct, so the author keeps it...
 		expect(await browse(member.token)).toContain(sharedId);
