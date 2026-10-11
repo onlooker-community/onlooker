@@ -266,8 +266,10 @@ export async function handleDeleteAccount(
 	// lessons can never be retracted either (ONL-136). deleteUser refuses
 	// inside its own statement; this turns that refusal into an answer.
 	//
-	// An already-deleted account still reports success, so the original intent
-	// survives: the caller wanted it gone, and it is.
+	// Both successes answer the same shape. Whether the row was deleted or
+	// kept as an anchor for an org's lessons is not the caller's business, and
+	// saying which would tell anybody who can trigger this call whether the
+	// account had org lessons.
 	const result = await deleteUser(env.DB, userId);
 
 	if (result === "sole_owner") {

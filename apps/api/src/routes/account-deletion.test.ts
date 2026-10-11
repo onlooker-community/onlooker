@@ -1,7 +1,10 @@
 import { env } from "cloudflare:test";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createLessonsWithFeed } from "../db/lessons.js";
 import { addMembership } from "../db/orgs.js";
 import { getUserById } from "../db/queries.js";
+import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
 	resetOrgTables,
@@ -24,6 +27,13 @@ let bob: SignedUpUser;
 
 beforeEach(async () => {
 	await resetOrgTables();
+	// resetOrgTables deliberately does not touch these two tables - see its
+	// doc comment - so this suite, which now seeds a lesson, clears them
+	// itself, the same way routes/orgs-lessons.test.ts does.
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
+	resetLessonCounter();
+
 	ada = await signup("ada@example.com");
 	bob = await signup("bob@example.com");
 });
@@ -109,5 +119,22 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 
 		expect(response.status).toBe(200);
 		expect(await getUserById(db(), ada.id)).toBeNull();
+	});
+
+	it("reports success when the account is anonymized rather than deleted", async () => {
+		const orgId = await createOrg(ada.token, "Acme");
+		await addMembership(db(), orgId, bob.id, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada.id,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		const response = await deleteAccount(ada.token);
+
+		// The caller cannot tell the two paths apart, by design.
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ success: true });
 	});
 });

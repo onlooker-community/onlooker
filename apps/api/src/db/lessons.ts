@@ -746,3 +746,40 @@ export function nonOrgLessonsDelete(
 		)
 		.bind(userId, userId);
 }
+
+/**
+ * deleteUser's (db/queries.ts) first attempt: delete the account outright
+ * unless it is a sole owner or anchors a lesson shared with an org.
+ *
+ * Lives here rather than beside its one caller because its WHERE clause names
+ * `lessons` directly, and `scripts/source-guards.test.sh` keeps every lesson
+ * query inside this file and db/pool.ts - the same reason `nonOrgLessonsDelete`
+ * above is a statement-returning function rather than inline SQL in
+ * queries.ts.
+ *
+ * The org-lesson condition is `hasOrgSharedLessons`'s own test, inlined rather
+ * than called: deciding with a separate read and then deleting would let a
+ * lesson pushed in between be cascaded away - the loss this work exists to
+ * prevent. Folding it into the DELETE's own WHERE makes the check and the
+ * write atomic, the same reason the sole-owner condition beside it is a
+ * subquery rather than a prior read (#198).
+ */
+export function deleteUserUnlessProtected(
+	db: D1Database,
+	userId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM users
+			 WHERE id = ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM org_memberships m
+			     WHERE m.user_id = ? AND m.role = 'owner'
+			       AND (SELECT COUNT(*) FROM org_memberships o
+			            WHERE o.org_id = m.org_id AND o.role = 'owner') = 1)
+			   AND NOT EXISTS (
+			     SELECT 1 FROM lessons
+			     WHERE user_id = ? AND visibility = 'org' AND org_id IS NOT NULL)`,
+		)
+		.bind(userId, userId, userId);
+}
