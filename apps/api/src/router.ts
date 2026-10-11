@@ -19,6 +19,7 @@ import {
 	handleCreateMachine,
 	handleCreateOrg,
 	handleDeleteAccount,
+	handleDeleteOrg,
 	handleForgotPassword,
 	handleGetInventory,
 	handleGetLesson,
@@ -421,6 +422,13 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleRenameOrg,
+	},
+	{
+		method: "DELETE",
+		path: "/api/orgs/:id",
+		auth: "session",
+		cors: "app",
+		handler: handleDeleteOrg,
 	},
 	{
 		method: "GET",

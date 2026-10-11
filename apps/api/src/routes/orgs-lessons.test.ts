@@ -3,7 +3,11 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed, probeLessonId } from "../db/lessons.js";
-import { addMembership, createOrgWithOwner } from "../db/orgs.js";
+import {
+	addMembership,
+	createOrgWithOwner,
+	removeMembership,
+} from "../db/orgs.js";
 import { errorHandler } from "../middleware/error.js";
 import { BASE, lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
@@ -210,5 +214,32 @@ describe("POST /api/orgs/:id/lessons/:lessonId/retract when the write fails", ()
 		).catch(() => {});
 
 		expect((await probeLessonId(db(), sharedId))?.status).toBe("active");
+	});
+});
+
+describe("deleting the org the lesson was shared with", () => {
+	it("leaves the lesson readable by its author and by nobody else", async () => {
+		// Both can read it to begin with: the member wrote it, the owner
+		// reaches it through the org.
+		expect(await browse(member.token)).toContain(sharedId);
+		expect(await browse(owner.token)).toContain(sharedId);
+
+		// The org can only be deleted by its sole member, so the member goes
+		// first. Leaving does not unshare the lesson - that is ONL-12's
+		// design - so the lesson is still visibility 'org' here.
+		await removeMembership(db(), orgId, member.id);
+
+		const deleted = await call(`/api/orgs/${orgId}`, owner.token, {
+			method: "DELETE",
+		});
+		expect(deleted.status).toBe(200);
+
+		// lessons.org_id is ON DELETE SET NULL, and visibilityPredicate pushes
+		// `user_id = ?` as its own disjunct, so the author keeps it...
+		expect(await browse(member.token)).toContain(sharedId);
+		// ...while `org_id IN (...)` is never true for NULL, so the former
+		// owner does not. This pair is the whole reason the route needs no
+		// lesson handling of its own.
+		expect(await browse(owner.token)).not.toContain(sharedId);
 	});
 });

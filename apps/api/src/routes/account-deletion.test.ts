@@ -93,4 +93,21 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 		expect(response.status).toBe(200);
 		expect(await getUserById(db(), ada.id)).toBeNull();
 	});
+
+	it("deletes the account once the sole-owned org is deleted", async () => {
+		const orgId = await createOrg(ada.token, "Solo");
+		expect((await deleteAccount(ada.token)).status).toBe(409);
+
+		// The way out #198 left for an owner with no one to promote. Without
+		// this route that 409 is unfollowable and the account is undeletable.
+		const removed = await call(`/api/orgs/${orgId}`, ada.token, {
+			method: "DELETE",
+		});
+		expect(removed.status).toBe(200);
+
+		const response = await deleteAccount(ada.token);
+
+		expect(response.status).toBe(200);
+		expect(await getUserById(db(), ada.id)).toBeNull();
+	});
 });

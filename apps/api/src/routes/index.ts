@@ -51,6 +51,7 @@ export {
 } from "./machines";
 export {
 	handleCreateOrg,
+	handleDeleteOrg,
 	handleListOrgs,
 	handleRenameOrg,
 	ORG_NAME_MAX_LENGTH,
