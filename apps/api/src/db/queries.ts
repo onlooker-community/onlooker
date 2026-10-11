@@ -389,9 +389,19 @@ export async function deleteUser(
 		nonOrgLessonsDelete(db, userId),
 	]);
 
-	// Either this call anonymized the row or a previous one did. Both are the
-	// same answer to the caller.
-	return "anonymized";
+	// The UPDATE's own guard may have refused - the race a concurrent
+	// demotion can win between this function's reads and its write - so this
+	// reads rather than assumes. Non-null means this call anonymized the
+	// row, or a previous one did; both are the same answer to the caller.
+	// Still null means the guard refused: the account is untouched and the
+	// org still needs an owner, the same refusal soleOwnedOrgs would have
+	// given a moment earlier.
+	const landedRow = await db
+		.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ anonymized_at: string | null }>();
+
+	return landedRow?.anonymized_at != null ? "anonymized" : "sole_owner";
 }
 
 /**

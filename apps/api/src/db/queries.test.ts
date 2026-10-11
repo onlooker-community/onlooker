@@ -528,11 +528,16 @@ describe("deleteUser when an org lesson must survive", () => {
 			},
 		}) as D1Database;
 
-		await deleteUser(racing, ada);
+		// The honest answer on this path is "sole_owner", not "anonymized": the
+		// UPDATE's own guard refused, nothing was written, and the org still
+		// needs an owner. A test asserting only the row would pass even if
+		// deleteUser assumed success and misreported it - which is exactly
+		// what it did before this assertion was added.
+		expect(await deleteUser(racing, ada)).toBe("sole_owner");
 
-		// Whatever deleteUser reports, the row and the org must be exactly as
-		// they were: the UPDATE's own guard refusing is what keeps a demotion
-		// racing the batch from anonymizing an org's only owner.
+		// The row and the org must be exactly as they were: the UPDATE's own
+		// guard refusing is what keeps a demotion racing the batch from
+		// anonymizing an org's only owner.
 		const row = await db()
 			.prepare("SELECT name, anonymized_at FROM users WHERE id = ?")
 			.bind(ada)

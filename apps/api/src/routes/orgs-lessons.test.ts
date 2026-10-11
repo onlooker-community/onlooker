@@ -266,10 +266,10 @@ describe("after the author's account is gone", () => {
 			{ method: "POST" },
 		);
 
-		// A 500 here is the failure mode to watch for: transitionLesson
-		// allocates MAX(seq)+1 for the AUTHOR's feed and inserts under their
-		// user_id, so an author whose row was deleted rather than anonymized
-		// would make this violate a foreign key.
+		// Measured, not assumed (Step 11 ablation): without anonymization the
+		// author's row is gone, `lessons.user_id` cascades, and the lesson goes
+		// with it - the retract then 404s rather than 500ing. This 200 is
+		// evidence the row survived its author.
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({ status: "retracted" });
 	});
