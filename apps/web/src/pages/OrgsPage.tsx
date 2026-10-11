@@ -8,6 +8,7 @@ import {
 import {
 	createInvite,
 	createOrg,
+	deleteOrg,
 	listInvites,
 	listMembers,
 	listOrgs,
@@ -179,6 +180,8 @@ function OrgSection({
 	const [invitesError, setInvitesError] = useState<string | null>(null);
 	const [leaving, setLeaving] = useState(false);
 	const [leaveError, setLeaveError] = useState<string | null>(null);
+	const [deleting, setDeleting] = useState(false);
+	const [deleteError, setDeleteError] = useState<string | null>(null);
 
 	const loadMembers = useCallback(async () => {
 		setMembersError(null);
@@ -231,6 +234,19 @@ function OrgSection({
 		}
 	};
 
+	const remove = async () => {
+		setDeleting(true);
+		setDeleteError(null);
+		try {
+			await deleteOrg(org.id);
+			onChanged();
+		} catch (error) {
+			setDeleteError(describeError(error, "Could not delete that org."));
+		} finally {
+			setDeleting(false);
+		}
+	};
+
 	return (
 		<Panel title={org.name}>
 			<div style={{ marginBottom: "0.75rem" }}>
@@ -269,6 +285,22 @@ function OrgSection({
 							/>
 						)}
 					</div>
+					{members?.length === 1 ? (
+						<div style={{ marginTop: "1rem" }}>
+							{deleteError ? (
+								<FormMessage kind="error">{deleteError}</FormMessage>
+							) : null}
+							<ConfirmAction
+								trigger={`Delete ${org.name}`}
+								question={`Deleting ${org.name} is permanent. Lessons you shared with it stay readable by you and by nobody else, any pending invitations are canceled, and a machine token bound to it keeps working but can no longer push to an org.`}
+								confirmLabel="Yes, delete this org"
+								pendingLabel="Deleting..."
+								pending={deleting}
+								variant="danger"
+								onConfirm={() => void remove()}
+							/>
+						</div>
+					) : null}
 				</>
 			) : (
 				<div style={{ marginTop: "1rem" }}>

@@ -677,6 +677,12 @@ export const ORG_LIFECYCLE: ContractCase[] = [
 		status: 401,
 	},
 	{
+		name: "DELETE /api/orgs/:id with no credential",
+		path: "/api/orgs/any",
+		init: { method: "DELETE" },
+		status: 401,
+	},
+	{
 		// The value is irrelevant - 401 lands before the body is read - so this
 		// is deliberately a single character rather than anything resembling a
 		// credential.

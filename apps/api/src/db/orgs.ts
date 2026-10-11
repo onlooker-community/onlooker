@@ -419,3 +419,79 @@ export async function soleOwnedOrgs(
 
 	return rows.results ?? [];
 }
+
+/**
+ * How many people belong to this org, in any role.
+ *
+ * `countOwners` above answers the question every other guard in this file
+ * asks. This one exists because org deletion asks a different one: not "would
+ * this leave the org without an owner" but "is anybody else here at all".
+ */
+export async function countMembers(
+	db: D1Database,
+	orgId: string,
+): Promise<number> {
+	const rows = await client(db)
+		.select({ n: sql<number>`COUNT(*)` })
+		.from(org_memberships)
+		.where(eq(org_memberships.org_id, orgId));
+	return Number(rows[0]?.n ?? 0);
+}
+
+export type OrgDeleteResult = "ok" | "has_members" | "not_found";
+
+/**
+ * Delete an org, but only when the caller is the only member left in it.
+ *
+ * Why an org can be deleted at all: #198 made account deletion refuse while
+ * the account is an org's sole owner, which closed the one path to an
+ * ownerless org. For an owner with other members that is a speed bump - they
+ * promote somebody and then delete. For the ONLY member of an org it was a
+ * dead end, with nobody to promote and no route to delete the org, so that
+ * account could not be deleted at all (ONL-136).
+ *
+ * Why sole-member rather than any owner: a lesson shared with an org survives
+ * its author's departure, by ONL-12's design, and ending a populated org
+ * destroys that sharing for people who never agreed to it. An owner winding
+ * down a real team org removes its members first.
+ *
+ * The condition is part of the DELETE's own WHERE clause for the reason
+ * removeMembership and setMemberRole above both give, and here the race is
+ * concrete rather than theoretical: an invitee accepting between a count and
+ * an unconditional delete would leave the org destroyed and the new member
+ * holding a membership row that cascaded away under them. One statement is
+ * one transaction in D1.
+ *
+ * A zero-row result is then ambiguous - other members, or an org already gone
+ * - so one read resolves it. That read cannot invert the decision: the write
+ * has already succeeded or failed authoritatively, and the count only chooses
+ * which answer the caller gets. requireOrgRole found a membership moments
+ * earlier at the route, so a count that has since fallen to zero means the
+ * org itself went, because org_memberships cascades from orgs.
+ *
+ * Nothing here touches `lessons`. Four foreign keys already decide an org's
+ * contents: org_memberships and org_invites cascade, while lessons.org_id and
+ * machine_tokens.org_id are ON DELETE SET NULL. A lesson left with a NULL
+ * org_id and visibility 'org' stays readable by its author - visibilityPredicate
+ * pushes `user_id = ?` as its own disjunct - and by nobody else, which is the
+ * right end state for a lesson whose org no longer exists.
+ */
+export async function deleteOrg(
+	db: D1Database,
+	orgId: string,
+	userId: string,
+): Promise<OrgDeleteResult> {
+	const result = await db
+		.prepare(
+			`DELETE FROM orgs
+			 WHERE id = ?
+			   AND NOT EXISTS (SELECT 1 FROM org_memberships
+			                   WHERE org_id = ? AND user_id != ?)`,
+		)
+		.bind(orgId, orgId, userId)
+		.run();
+
+	if ((result.meta.changes ?? 0) > 0) return "ok";
+
+	return (await countMembers(db, orgId)) > 1 ? "has_members" : "not_found";
+}

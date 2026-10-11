@@ -1,4 +1,10 @@
-import { createOrgWithOwner, listOrgsForUser, renameOrg } from "../db/orgs.js";
+import {
+	countMembers,
+	createOrgWithOwner,
+	deleteOrg,
+	listOrgsForUser,
+	renameOrg,
+} from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import { requireOrgRole } from "../orgs/authorize.js";
 import type { RouteParams, WorkerEnv } from "../types";
@@ -83,4 +89,55 @@ export async function handleRenameOrg(
 	}
 
 	return Response.json({ org: { id: params.id, name } });
+}
+
+/**
+ * Delete an org, for an owner who is its only member.
+ *
+ * The 409 names no members. The only page that renders this already lists
+ * them - OrgsPage fetches members for every role - so the count is what it
+ * cannot work out for itself. That is the same reasoning
+ * MachineTokenSummary.org_id gives for carrying an id without a name.
+ *
+ * The 404 for an already-deleted org is deliberate, and the opposite of
+ * handleDeleteAccount's choice to report success for an account that is
+ * already gone. There the caller's own identity was the target and "make it
+ * gone" was satisfied; here the caller is asserting something about a
+ * resource that is no longer theirs to assert anything about, which is what
+ * requireOrgRole would have said a moment earlier.
+ */
+export async function handleDeleteOrg(
+	_request: Request,
+	env: WorkerEnv,
+	params: RouteParams,
+	principal: Principal | null,
+): Promise<Response> {
+	await requireOrgRole(env.DB, principal, params.id, "owner");
+
+	const outcome = await deleteOrg(
+		env.DB,
+		params.id,
+		(principal as Principal).userId,
+	);
+
+	if (outcome === "has_members") {
+		throw new ApiError(
+			409,
+			"has_members",
+			"An org with other members cannot be deleted; remove them first",
+			{ member_count: await countMembers(env.DB, params.id) },
+		);
+	}
+
+	if (outcome === "not_found") {
+		// Reachable only by the caller's own second in-flight request racing
+		// this one to delete the same org - requireOrgRole above already ruled
+		// out every other principal. Byte-identical to the 404 requireOrgRole
+		// itself throws (orgs/authorize.ts:31), so no test can pin behavior this
+		// branch would diverge from; db/orgs.test.ts covers deleteOrg's own
+		// not_found at the layer that decides it.
+		throw new ApiError(404, "not_found", "No such org");
+	}
+
+	return Response.json({ deleted: params.id });
 }

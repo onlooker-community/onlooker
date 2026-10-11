@@ -280,7 +280,7 @@ export async function handleDeleteAccount(
 		throw new ApiError(
 			409,
 			"sole_owner",
-			"An org needs an owner; promote somebody else first",
+			"An org needs an owner; promote somebody else, or delete the org if you are its only member",
 			{ orgs },
 		);
 	}

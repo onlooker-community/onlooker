@@ -42,6 +42,7 @@ const REQUIRED_ROLE: Record<
 	"POST /api/orgs": "none",
 	"GET /api/orgs": "none",
 	"PATCH /api/orgs/:id": "owner",
+	"DELETE /api/orgs/:id": "owner",
 	"GET /api/orgs/:id/members": "member",
 	"PATCH /api/orgs/:id/members/:userId": "owner",
 	"DELETE /api/orgs/:id/members/:userId": "argument-dependent",

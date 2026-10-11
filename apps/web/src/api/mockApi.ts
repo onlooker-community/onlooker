@@ -619,6 +619,10 @@ async function mockOrgsApi(
 		return json({ org: { id: path.split("/").pop(), name } });
 	}
 
+	if (method === "DELETE" && /^\/api\/orgs\/[^/]+$/.test(path)) {
+		return json({ deleted: path.split("/").pop() });
+	}
+
 	return null;
 }
 
