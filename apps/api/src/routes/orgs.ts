@@ -130,6 +130,12 @@ export async function handleDeleteOrg(
 	}
 
 	if (outcome === "not_found") {
+		// Reachable only by the caller's own second in-flight request racing
+		// this one to delete the same org - requireOrgRole above already ruled
+		// out every other principal. Byte-identical to the 404 requireOrgRole
+		// itself throws (orgs/authorize.ts:31), so no test can pin behavior this
+		// branch would diverge from; db/orgs.test.ts covers deleteOrg's own
+		// not_found at the layer that decides it.
 		throw new ApiError(404, "not_found", "No such org");
 	}
 
