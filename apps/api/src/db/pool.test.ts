@@ -616,6 +616,60 @@ describe("org attribution", () => {
 	});
 });
 
+describe("former_authors", () => {
+	it("names the lessons whose author has been anonymized", async () => {
+		const written = await seedFor(theirs, { visibility: "org" }, "org-a");
+		await db()
+			.prepare("UPDATE users SET name = NULL, anonymized_at = ? WHERE id = ?")
+			.bind(new Date().toISOString(), theirs)
+			.run();
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		expect(page.formerAuthors).toContain(written.id);
+		// A null name emits no `authors` key, so the two cannot both describe
+		// the same lesson.
+		expect(page.authors[written.id]).toBeUndefined();
+	});
+
+	it("does not name a member who simply never set a name", async () => {
+		// createUser's fourth parameter is `name?: string`, which does not
+		// accept `null` under this repo's strict compiler settings - so the
+		// nameless user is inserted directly, the same way "omits the key for
+		// an author who has no name" above does.
+		const nameless = crypto.randomUUID();
+		await db()
+			.prepare(
+				"INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, NULL)",
+			)
+			.bind(nameless, "nameless@example.com", "hash")
+			.run();
+		const written = await seedFor(nameless, { visibility: "org" }, "org-a");
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ limit: 50 },
+			async () => ["org-a"],
+		);
+
+		// The distinction this field exists for: unattributed because nobody
+		// set a name, versus unattributed because the author is gone.
+		expect(page.formerAuthors).not.toContain(written.id);
+		expect(page.authors[written.id]).toBeUndefined();
+	});
+
+	it("is present and empty for a page with no org rows", async () => {
+		const page = await readPool(db(), { userId: mine }, { limit: 50 });
+		expect(page.formerAuthors).toEqual([]);
+	});
+});
+
 describe("retractable_in", () => {
 	it("names the org for an owner reading a teammate's org lesson", async () => {
 		const owner = (await createUser(db(), "owner@example.com", "hash", "Ona"))

@@ -269,7 +269,7 @@ export async function readPool(
 	// though this filter cannot misbehave on an unbounded list - it runs
 	// in-memory over rows the predicate already admitted, so a row whose org
 	// was truncated away by the predicate never reaches here at all. The
-	// bound is applied anyway so this, the predicate, and orgAuthorName all
+	// bound is applied anyway so this, the predicate, and orgAuthorFacts all
 	// agree on one reader-org list rather than each truncating it separately.
 	const boundedReaderOrgIds = readerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
 	const orgReached = kept.filter(
@@ -283,7 +283,7 @@ export async function readPool(
 			r.orgId !== null &&
 			boundedReaderOrgIds.includes(r.orgId),
 	);
-	const authors = await authorNames(db, orgReached);
+	const { authors, formerAuthors } = await authorNames(db, orgReached);
 
 	// Lazy on purpose: `orgReached` being empty is the common case - every
 	// anonymous read and most authenticated ones - and neither query below
@@ -322,12 +322,19 @@ export async function readPool(
 		hasMore,
 		ownedIds,
 		authors,
+		formerAuthors,
 		retractableIn,
 	};
 }
 
 /**
- * Author names for the org rows on one page, by lesson id.
+ * Author names for the org rows on one page, by lesson id - and which of
+ * those rows belong to an author whose account has since been anonymized.
+ *
+ * Both come from the same statement. It already selects from `users` for
+ * exactly the rows that need it, so reading `anonymized_at` alongside `name`
+ * costs nothing further; a second statement for `formerAuthors` would be the
+ * extra query this function exists to avoid.
  *
  * A second statement rather than a join in the pool read, for two reasons. The
  * repo's own precedent is this shape - see getLessonForUser's note on not
@@ -341,35 +348,39 @@ export async function readPool(
 async function authorNames(
 	db: D1Database,
 	orgReached: Array<{ lesson: { id: string }; userId: string }>,
-): Promise<Record<string, string>> {
-	if (orgReached.length === 0) return {};
+): Promise<{ authors: Record<string, string>; formerAuthors: string[] }> {
+	if (orgReached.length === 0) return { authors: {}, formerAuthors: [] };
 
 	const ids = [...new Set(orgReached.map((r) => r.userId))];
 	const names = new Map<string, string>();
+	const departed = new Set<string>();
 
 	for (let at = 0; at < ids.length; at += AUTHOR_LOOKUP_CHUNK) {
 		const chunk = ids.slice(at, at + AUTHOR_LOOKUP_CHUNK);
 		const { results } = await db
 			.prepare(
-				`SELECT id, name FROM users
+				`SELECT id, name, anonymized_at FROM users
 				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
 			)
 			.bind(...chunk)
-			.all<{ id: string; name: string | null }>();
+			.all<{ id: string; name: string | null; anonymized_at: string | null }>();
 
 		for (const row of results ?? []) {
 			// A null or empty name produces no key at all. The server does not
 			// invent a label for a member who never set one.
 			if (row.name) names.set(row.id, row.name);
+			if (row.anonymized_at) departed.add(row.id);
 		}
 	}
 
 	const authors: Record<string, string> = {};
+	const formerAuthors: string[] = [];
 	for (const row of orgReached) {
 		const name = names.get(row.userId);
 		if (name) authors[row.lesson.id] = name;
+		if (departed.has(row.userId)) formerAuthors.push(row.lesson.id);
 	}
-	return authors;
+	return { authors, formerAuthors };
 }
 
 /**
@@ -464,7 +475,8 @@ export async function readPoolLesson(
 
 /**
  * The name of an org lesson's author, for a reader who reaches it through the
- * org disjunct - or null.
+ * org disjunct, and whether that author's account has been anonymized - or
+ * null/false when the lesson is out of reach.
  *
  * A separate function from readPoolLesson rather than a widening of it. That
  * one is also the anonymous public route's read, and its contract is that no
@@ -482,13 +494,17 @@ export async function readPoolLesson(
  * already returned null (lessons.ts, `if (!lesson) return null`) for any
  * row `readPoolLesson` - which DOES apply the full predicate - would not
  * admit, before this ever runs.
+ *
+ * Renamed from `orgAuthorName` because it now answers two facts instead of
+ * one, for the same no-extra-query reason `authorNames` folds
+ * `anonymized_at` into its existing `users` lookup.
  */
-export async function orgAuthorName(
+export async function orgAuthorFacts(
 	db: D1Database,
 	readerOrgIds: string[],
 	lessonId: string,
-): Promise<string | null> {
-	if (readerOrgIds.length === 0) return null;
+): Promise<{ name: string | null; formerAuthor: boolean }> {
+	if (readerOrgIds.length === 0) return { name: null, formerAuthor: false };
 
 	// Bounded the same way visibilityPredicate bounds its own IN list - a
 	// reader in more orgs than the cap must not blow D1's bound-parameter
@@ -497,26 +513,26 @@ export async function orgAuthorName(
 
 	const row = await db
 		.prepare(
-			`SELECT u.name AS name FROM lessons l
+			`SELECT u.name AS name, u.anonymized_at AS anonymized_at FROM lessons l
 			 JOIN users u ON u.id = l.user_id
 			 WHERE l.id = ?
 			   AND l.visibility = 'org'
 			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
 		)
 		.bind(lessonId, ...bounded)
-		.first<{ name: string | null }>();
+		.first<{ name: string | null; anonymized_at: string | null }>();
 
-	return row?.name ?? null;
+	return { name: row?.name ?? null, formerAuthor: row?.anonymized_at != null };
 }
 
 /**
  * The org a reader may retract ONE lesson in, or null.
  *
  * The by-id twin of `retractableOrgs`, and separate for the reason
- * `orgAuthorName` is separate from the `authors` sidecar: a deep-linked lesson
+ * `orgAuthorFacts` is separate from the `authors` sidecar: a deep-linked lesson
  * is on no loaded page, so the page-shaped answer cannot speak for it.
  *
- * NOT an authorization check, and the same caveat `orgAuthorName` carries
+ * NOT an authorization check, and the same caveat `orgAuthorFacts` carries
  * applies: this WHERE omits the retracted-and-blocked-author boundary that
  * `visibilityPredicate` applies, so the only reason it cannot be used to probe
  * an arbitrary lesson id is that its caller - `getLessonForUser` - has already

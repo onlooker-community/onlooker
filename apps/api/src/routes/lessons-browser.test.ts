@@ -64,6 +64,7 @@ describe("GET /api/lessons", () => {
 			has_more: false,
 			owned_ids: [],
 			authors: {},
+			former_authors: [],
 			retractable_in: {},
 		});
 	});
@@ -456,5 +457,47 @@ describe("retractable_in, at the route", () => {
 		};
 
 		expect(body.retractable_in).toEqual({ org_id: org.id, org_name: "Acme" });
+	});
+});
+
+/**
+ * db/pool.test.ts already proves readPool and getLessonForUser compute the
+ * anonymized-author facts. What it cannot prove is that they survive the trip
+ * through the route - the same gap "org attribution, at the route" and
+ * "retractable_in, at the route" close for their own sidecars, and the one
+ * ONL-141 shipped untested and had to fix after review.
+ */
+describe("former_authors and former_author, at the route", () => {
+	it("serializes former_authors and former_author", async () => {
+		// Seed an org lesson by somebody else, then anonymize them by hand -
+		// this test is about the serialization, not about deleteUser, so it
+		// sets the column directly rather than depending on Task 3.
+		const reader = await getUserByEmail(db(), "browser@example.com");
+		const org = await createOrgWithOwner(
+			db(),
+			"Acme",
+			(reader as { id: string }).id,
+		);
+		const author = (await createUser(db(), "author@example.com", "hash", "Bob"))
+			.id;
+
+		const shared = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), author, [shared], org.id);
+		await db()
+			.prepare("UPDATE users SET name = NULL, anonymized_at = ? WHERE id = ?")
+			.bind(new Date().toISOString(), author)
+			.run();
+
+		const page = (await (await browse("/api/lessons")).json()) as {
+			former_authors: string[];
+			authors: Record<string, string>;
+		};
+		expect(page.former_authors).toContain(shared.id);
+		expect(page.authors[shared.id]).toBeUndefined();
+
+		const one = (await (await browse(`/api/lessons/${shared.id}`)).json()) as {
+			former_author: boolean;
+		};
+		expect(one).toMatchObject({ former_author: true });
 	});
 });

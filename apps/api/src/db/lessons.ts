@@ -6,7 +6,7 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 import { orgIdsForUser, ownerOrgIdsForUser } from "./orgs.js";
 import {
-	orgAuthorName,
+	orgAuthorFacts,
 	orgRetractableFor,
 	readPool,
 	readPoolLesson,
@@ -641,6 +641,7 @@ export async function getLessonForUser(
 	lesson: unknown;
 	own: boolean;
 	author_name: string | null;
+	former_author: boolean;
 	retractable_in: RetractableOrg | null;
 } | null> {
 	// Resolved once into a local rather than passed as orgIdsForUser twice:
@@ -668,7 +669,8 @@ export async function getLessonForUser(
 
 	// Resolved from the same org list the predicate used, so the name can only
 	// appear for a row the org disjunct is what admitted.
-	const author_name = await orgAuthorName(db, readerOrgIds, id);
+	const { name: author_name, formerAuthor: former_author } =
+		await orgAuthorFacts(db, readerOrgIds, id);
 
 	// From the reader's OWNED orgs, resolved here rather than inside
 	// orgRetractableFor so the two org lists this function depends on - the
@@ -681,7 +683,13 @@ export async function getLessonForUser(
 		id,
 	);
 
-	return { lesson, own: owned !== null, author_name, retractable_in };
+	return {
+		lesson,
+		own: owned !== null,
+		author_name,
+		former_author,
+		retractable_in,
+	};
 }
 
 /**

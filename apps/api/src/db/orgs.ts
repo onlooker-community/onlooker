@@ -19,7 +19,7 @@ import { client } from "./client.js";
  * correlate an org with a lesson row - "which org may retract THIS lesson" -
  * cannot be factored out here without either querying `lessons` from a third
  * file (which the guard refuses) or duplicating `visibilityPredicate`'s
- * boundary into a second copy (which is the worse defect `orgAuthorName`'s
+ * boundary into a second copy (which is the worse defect `orgAuthorFacts`'s
  * own doc comment already explains).
  *
  * `org_memberships` was this file's alone until ONL-136 landed. `db/queries.ts`
