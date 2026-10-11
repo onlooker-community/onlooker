@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
-import { type Lesson, type LessonStatus, listLessons } from "../api/lessonsApi";
+import {
+	type Lesson,
+	type LessonStatus,
+	listLessons,
+	type RetractableOrg,
+} from "../api/lessonsApi";
 import { Icon } from "../components/Icon";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
@@ -72,6 +77,16 @@ export interface LessonsContext {
 	 * disagree about a row.
 	 */
 	authors: Record<string, string>;
+	/**
+	 * Which org, if any, the signed-in account may retract each org lesson
+	 * in, by lesson id.
+	 *
+	 * The server decides what the caller may act on; this page renders what
+	 * it is handed rather than re-deriving ownership or membership. Carried
+	 * beside the documents for the reason `authors` is, and accumulated
+	 * across pages exactly like it, so the two never disagree about a row.
+	 */
+	retractableIn: Record<string, RetractableOrg>;
 }
 
 /**
@@ -113,6 +128,12 @@ export default function LessonsPage() {
 	// merged on loadMore, left alone by patchLesson, which changes a status
 	// and never an author.
 	const [authors, setAuthors] = useState<Record<string, string>>({});
+	// Moves with `lessons` the same way `authors` does - replaced on load,
+	// merged on loadMore, left alone by patchLesson, which changes a status
+	// and never an org's authority.
+	const [retractableIn, setRetractableIn] = useState<
+		Record<string, RetractableOrg>
+	>({});
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// Whether any load attempt has ever settled - guarded below so a
 	// superseded request cannot flip it early, and never reset back to false
@@ -195,6 +216,13 @@ export default function LessonsPage() {
 			// blank the pool entirely. Empty is also the safe reading, since
 			// no page renders a name it cannot attribute.
 			setAuthors(page.authors ?? {});
+			// `?? {}`, for the identical reason the two lines above default: a
+			// page without `retractable_in` - an older API still rolling out
+			// under a newer bundle - would otherwise throw out of this handler
+			// and blank the pool entirely. Empty is also the safe reading,
+			// since it offers no retract control rather than one that cannot
+			// succeed.
+			setRetractableIn(page.retractable_in ?? {});
 			// `has_more` and not `cursor !== null`, because those are two facts
 			// and only one of them is the question being asked - even though,
 			// today, they always agree. `listLessonsPage` derives `hasMore` as
@@ -213,6 +241,7 @@ export default function LessonsPage() {
 			setLessons(null);
 			setOwnedIds([]);
 			setAuthors({});
+			setRetractableIn({});
 			setCursor(null);
 			setLoadError(describeError(error, "Could not load the pool."));
 		} finally {
@@ -261,6 +290,10 @@ export default function LessonsPage() {
 			setLessons((current) => [...(current ?? []), ...page.lessons]);
 			setOwnedIds((current) => [...current, ...(page.owned_ids ?? [])]);
 			setAuthors((current) => ({ ...current, ...(page.authors ?? {}) }));
+			setRetractableIn((current) => ({
+				...current,
+				...(page.retractable_in ?? {}),
+			}));
 			setCursor(page.has_more ? page.cursor : null);
 			// Behind the same seq guard as the append itself: a page that lands
 			// after the filter has moved on must not report ITS end as the end
@@ -299,6 +332,7 @@ export default function LessonsPage() {
 		poolSettled,
 		patchLesson,
 		authors,
+		retractableIn,
 	};
 
 	// The live region's whole text, computed once rather than duplicated

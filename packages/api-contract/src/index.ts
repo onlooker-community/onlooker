@@ -456,6 +456,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to show who wrote an org lesson, and an absent key there
 				// silently shows nothing rather than failing visibly.
 				authors: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to offer a retract control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				retractable_in: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -481,6 +485,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to show who wrote an org lesson, and an absent key there
 				// silently shows nothing rather than failing visibly.
 				authors: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to offer a retract control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				retractable_in: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -556,6 +564,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to show who wrote an org lesson, and an absent key there
 				// silently shows nothing rather than failing visibly.
 				authors: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to offer a retract control, and an absent
+				// key there silently offers nothing rather than failing visibly.
+				retractable_in: expectObject,
 			},
 			forbidden: NO_SECRETS,
 		},

@@ -48,6 +48,21 @@ export class InvalidCursorError extends Error {
 	}
 }
 
+/**
+ * An org a reader may retract a lesson in, named so the browser can say which.
+ *
+ * The name rides along rather than being resolved client-side, which is a
+ * deliberate departure from `MachineTokenSummary.org_id`. That one carries an
+ * id alone because the page rendering it already lists the account's orgs to
+ * build a picker; the lessons page lists no orgs and has no other reason to,
+ * so making it fetch the whole list to render one label would be worse than
+ * sending eleven more bytes.
+ */
+export interface RetractableOrg {
+	org_id: string;
+	org_name: string;
+}
+
 export interface LessonPage {
 	lessons: unknown[];
 	cursor: string | null;
@@ -90,4 +105,22 @@ export interface LessonPage {
 	 * rows on it.
 	 */
 	authors: Record<string, string>;
+	/**
+	 * The lessons on this page the reader may retract at org level, by lesson
+	 * id, each naming the org that grants it.
+	 *
+	 * Carried beside the documents for the reason `ownedIds` is, and populated
+	 * by the same principle: the server decides what the caller may act on and
+	 * the browser renders it. A key appears only when the row reached this
+	 * reader through the ORG disjunct and the reader's role in that org is
+	 * `owner`.
+	 *
+	 * Absent for the reader's own lesson even in an org they own - the
+	 * author's own bidirectional control answers for that one, and the org
+	 * retract is one-way.
+	 *
+	 * Always present, empty for an anonymous caller and for any page with no
+	 * org rows on it.
+	 */
+	retractableIn: Record<string, RetractableOrg>;
 }

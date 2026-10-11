@@ -4,13 +4,33 @@ import { and, eq, sql } from "drizzle-orm";
 import { client } from "./client.js";
 
 /**
- * Org membership and roles. The only home for a query against `orgs`,
- * `org_memberships` or `org_invites`.
+ * Org membership and roles: creation, renaming, who belongs, who owns.
  *
- * Note what is NOT here: anything touching `lessons`. Stage 2 adds the org
- * disjunct to db/pool.ts, which is the only module allowed to return lesson
- * content - scripts/source-guards.test.sh enforces that boundary, and a join
- * from this file would fail it.
+ * NOT the only home for a query against `orgs`, despite what an earlier
+ * version of this comment claimed. `org_invites` never lived here at all -
+ * that table is `db/org-invites.ts`'s, a sibling module, and
+ * `routes/orgs-invite-accept.ts` holds its own `orgs` name lookup for
+ * displaying an invitation before anyone signs in.
+ *
+ * `db/pool.ts` holds two more `orgs` queries of its own - `retractableOrgs`'s
+ * name lookup and `orgRetractableFor`'s JOIN - and that one is load-bearing,
+ * not drift. `scripts/source-guards.test.sh` lets only `db/lessons.ts` and
+ * `db/pool.ts` query `lessons` or `lesson_feed`, so a lookup that has to
+ * correlate an org with a lesson row - "which org may retract THIS lesson" -
+ * cannot be factored out here without either querying `lessons` from a third
+ * file (which the guard refuses) or duplicating `visibilityPredicate`'s
+ * boundary into a second copy (which is the worse defect `orgAuthorName`'s
+ * own doc comment already explains).
+ *
+ * `org_memberships` was this file's alone until ONL-136 landed. `db/queries.ts`
+ * holds one now, inside `deleteUser`, and for a reason of the same shape: the
+ * sole-owner guard has to be part of the DELETE against `users` to be atomic,
+ * so a membership count read from here first could interleave with a
+ * concurrent demotion and let the last owner go. Beyond that one and
+ * `test-support/orgs.ts`'s teardown DELETE, this file is still where plain
+ * membership and role questions belong. The ones that have to be atomic with
+ * another table's write, or that join against a lesson, belong beside what
+ * they join.
  */
 
 export type OrgRole = "owner" | "member";
@@ -331,6 +351,38 @@ export async function orgIdsForUser(
 		.select({ org_id: org_memberships.org_id })
 		.from(org_memberships)
 		.where(eq(org_memberships.user_id, userId))
+		.orderBy(org_memberships.org_id);
+
+	return rows.map((row) => row.org_id);
+}
+
+/**
+ * The ids of the orgs this user OWNS.
+ *
+ * Separate from `orgIdsForUser` rather than a widening of it, and the
+ * separation is the point: that one feeds the visibility predicate, which must
+ * stay keyed on membership. A role in that bind path has no business being
+ * there, and one function answering both questions is how a later change puts
+ * a role where a membership belongs.
+ *
+ * Filters on role in SQL and returns ids, so no role is ever narrowed into
+ * TypeScript here - which is why this does not need `toOrgRole`.
+ *
+ * Ordered by id so one reader's list is byte-identical between runs.
+ */
+export async function ownerOrgIdsForUser(
+	db: D1Database,
+	userId: string,
+): Promise<string[]> {
+	const rows = await client(db)
+		.select({ org_id: org_memberships.org_id })
+		.from(org_memberships)
+		.where(
+			and(
+				eq(org_memberships.user_id, userId),
+				eq(org_memberships.role, "owner"),
+			),
+		)
 		.orderBy(org_memberships.org_id);
 
 	return rows.map((row) => row.org_id);

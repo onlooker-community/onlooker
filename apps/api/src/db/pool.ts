@@ -1,10 +1,12 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { ownerOrgIdsForUser } from "./orgs.js";
 import {
 	BROWSE_MAX_LIMIT,
 	decodeCursor,
 	encodeCursor,
 	InvalidCursorError,
 	type LessonPage,
+	type RetractableOrg,
 } from "./pool-page.js";
 
 /**
@@ -86,6 +88,14 @@ export const MAX_READER_ORGS_BOUND = 50;
  * statement.
  */
 const AUTHOR_LOOKUP_CHUNK = 50;
+
+/**
+ * How many org ids the name lookup binds per statement. Same value and same
+ * reason as AUTHOR_LOOKUP_CHUNK: D1 caps bound parameters at 100, and while a
+ * reader's org count will not approach that, the two lookups should not
+ * disagree about the bound they respect.
+ */
+const ORG_NAME_LOOKUP_CHUNK = 50;
 
 /**
  * The only place a visibility predicate is constructed.
@@ -275,6 +285,22 @@ export async function readPool(
 	);
 	const authors = await authorNames(db, orgReached);
 
+	// Lazy on purpose: `orgReached` being empty is the common case - every
+	// anonymous read and most authenticated ones - and neither query below
+	// runs for it. So an ordinary private-or-public browse makes exactly the
+	// queries it made before this field existed. Same shape as the push
+	// gate's conditional token-org resolution in routes/lessons.ts, for the
+	// same reason: do not charge every request for what a minority needs.
+	const retractableIn =
+		orgReached.length === 0 || principal === null
+			? {}
+			: await retractableOrgs(
+					db,
+					orgReached,
+					principal.userId,
+					await ownerOrgIdsForUser(db, principal.userId),
+				);
+
 	const last = page.at(-1);
 	const cursor =
 		hasMore && last ? encodeCursor(last.promoted_at, last.id) : null;
@@ -296,6 +322,7 @@ export async function readPool(
 		hasMore,
 		ownedIds,
 		authors,
+		retractableIn,
 	};
 }
 
@@ -343,6 +370,68 @@ async function authorNames(
 		if (name) authors[row.lesson.id] = name;
 	}
 	return authors;
+}
+
+/**
+ * Which of a page's org-reached rows the reader may retract, with the org
+ * named.
+ *
+ * A second statement rather than a join, for the reason `authorNames` gives:
+ * a join in the pool read would change the plan
+ * `pool-query-plan.test.ts` pins, for a lookup most pages do not need.
+ *
+ * `ownerOrgIds` is the reader's OWNED orgs, so membership alone yields no
+ * entry. The author check is what implements D6 - a reader's own lesson is
+ * answered by their own control, and offering both would be worse than one.
+ */
+async function retractableOrgs(
+	db: D1Database,
+	orgReached: Array<{
+		lesson: { id: string };
+		userId: string;
+		orgId: string | null;
+	}>,
+	readerUserId: string,
+	ownerOrgIds: string[],
+): Promise<Record<string, RetractableOrg>> {
+	const bounded = ownerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+	if (bounded.length === 0) return {};
+
+	// D6 applied before the name lookup, so a page of only the reader's own
+	// org lessons costs no second statement either.
+	const theirs = orgReached.filter(
+		(r) =>
+			r.userId !== readerUserId &&
+			r.orgId !== null &&
+			bounded.includes(r.orgId),
+	);
+	if (theirs.length === 0) return {};
+
+	const ids = [...new Set(theirs.map((r) => r.orgId as string))];
+	const names = new Map<string, string>();
+	for (let at = 0; at < ids.length; at += ORG_NAME_LOOKUP_CHUNK) {
+		const chunk = ids.slice(at, at + ORG_NAME_LOOKUP_CHUNK);
+		const { results } = await db
+			.prepare(
+				`SELECT id, name FROM orgs
+				 WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+			)
+			.bind(...chunk)
+			.all<{ id: string; name: string }>();
+		for (const row of results ?? []) names.set(row.id, row.name);
+	}
+
+	const retractable: Record<string, RetractableOrg> = {};
+	for (const row of theirs) {
+		const orgId = row.orgId as string;
+		const name = names.get(orgId);
+		// No name means the org row is gone from under a lesson that still
+		// points at it, which the FK's ON DELETE SET NULL should prevent. No
+		// key rather than a guessed label, the same way a nameless author
+		// produces no attribution.
+		if (name) retractable[row.lesson.id] = { org_id: orgId, org_name: name };
+	}
+	return retractable;
 }
 
 /**
@@ -418,4 +507,45 @@ export async function orgAuthorName(
 		.first<{ name: string | null }>();
 
 	return row?.name ?? null;
+}
+
+/**
+ * The org a reader may retract ONE lesson in, or null.
+ *
+ * The by-id twin of `retractableOrgs`, and separate for the reason
+ * `orgAuthorName` is separate from the `authors` sidecar: a deep-linked lesson
+ * is on no loaded page, so the page-shaped answer cannot speak for it.
+ *
+ * NOT an authorization check, and the same caveat `orgAuthorName` carries
+ * applies: this WHERE omits the retracted-and-blocked-author boundary that
+ * `visibilityPredicate` applies, so the only reason it cannot be used to probe
+ * an arbitrary lesson id is that its caller - `getLessonForUser` - has already
+ * returned null for a row the reader may not read. Do not call it anywhere
+ * that has not established readability first.
+ *
+ * The boundary is deliberately not duplicated here: `visibilityPredicate` is
+ * the only place a visibility predicate is constructed.
+ */
+export async function orgRetractableFor(
+	db: D1Database,
+	readerUserId: string,
+	ownerOrgIds: string[],
+	lessonId: string,
+): Promise<RetractableOrg | null> {
+	const bounded = ownerOrgIds.slice(0, MAX_READER_ORGS_BOUND);
+	if (bounded.length === 0) return null;
+
+	const row = await db
+		.prepare(
+			`SELECT o.id AS org_id, o.name AS org_name FROM lessons l
+			 JOIN orgs o ON o.id = l.org_id
+			 WHERE l.id = ?
+			   AND l.visibility = 'org'
+			   AND l.user_id != ?
+			   AND l.org_id IN (${bounded.map(() => "?").join(", ")})`,
+		)
+		.bind(lessonId, readerUserId, ...bounded)
+		.first<{ org_id: string; org_name: string }>();
+
+	return row ? { org_id: row.org_id, org_name: row.org_name } : null;
 }

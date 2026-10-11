@@ -3,15 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
 	get: vi.fn(),
 	patch: vi.fn(),
+	post: vi.fn(),
 }));
 
 vi.mock("./client", () => ({
-	apiClient: { get: mocks.get, patch: mocks.patch },
+	apiClient: { get: mocks.get, patch: mocks.patch, post: mocks.post },
 }));
 
-const { getLesson, listActivity, listLessons, setLessonStatus } = await import(
-	"./lessonsApi"
-);
+const {
+	getLesson,
+	listActivity,
+	listLessons,
+	retractOrgLesson,
+	setLessonStatus,
+} = await import("./lessonsApi");
 
 beforeEach(() => {
 	mocks.get.mockReset().mockResolvedValue({
@@ -20,6 +25,9 @@ beforeEach(() => {
 		has_more: false,
 	});
 	mocks.patch.mockReset().mockResolvedValue({ id: "x", seq: 1 });
+	mocks.post
+		.mockReset()
+		.mockResolvedValue({ id: "x", seq: 1, status: "retracted" });
 });
 
 describe("listLessons", () => {
@@ -78,6 +86,19 @@ describe("setLessonStatus", () => {
 		expect(mocks.patch).toHaveBeenCalledWith(
 			"/api/lessons/01KZ45MKAM734ZS7JK24D2DK0R/status",
 			{ status: "retracted" },
+		);
+	});
+});
+
+describe("retractOrgLesson", () => {
+	// Both ids reach this from a click, not a URL bar, but encoding them is
+	// still the difference between retracting the lesson a person clicked
+	// and whatever a slash in its id would otherwise address instead.
+	it("posts to the org-scoped retract route with both ids encoded", async () => {
+		await retractOrgLesson("org/1", "01KZ 0R");
+		expect(mocks.post).toHaveBeenCalledWith(
+			"/api/orgs/org%2F1/lessons/01KZ%200R/retract",
+			{},
 		);
 	});
 });

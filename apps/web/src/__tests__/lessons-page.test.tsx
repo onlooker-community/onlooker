@@ -6,8 +6,14 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import {
+	MemoryRouter,
+	Route,
+	Routes,
+	useOutletContext,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import LessonsPage, { type LessonsContext } from "../pages/LessonsPage";
 
 // auth and lessonsApi are the seams, matching machines-route.test.tsx.
 // Everything between them - App's route table, the layout route, the Outlet
@@ -31,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 	listLessons: vi.fn(),
 	getLesson: vi.fn(),
 	setLessonStatus: vi.fn(),
+	retractOrgLesson: vi.fn(),
 }));
 
 vi.mock("../api/lessonsApi", () => ({
@@ -38,6 +45,7 @@ vi.mock("../api/lessonsApi", () => ({
 	listLessons: mocks.listLessons,
 	getLesson: mocks.getLesson,
 	setLessonStatus: mocks.setLessonStatus,
+	retractOrgLesson: mocks.retractOrgLesson,
 }));
 
 const { default: App } = await import("../App");
@@ -124,11 +132,17 @@ const UNEXPECTED_FETCH = {
 	claim: "getLesson should not have been called for this test",
 };
 
+// The org every "org retract control" test below names, when one is needed at
+// all - its identity does not vary case to case, so one constant stands in
+// for every fixture and every assertion that reads it back off the button.
+const ORG = { org_id: "org-1", org_name: "Acme" };
+
 beforeEach(() => {
 	mocks.listLessons.mockReset();
 	mocks.getLesson.mockReset();
 	mocks.getLesson.mockResolvedValue({ lesson: UNEXPECTED_FETCH, own: true });
 	mocks.setLessonStatus.mockReset();
+	mocks.retractOrgLesson.mockReset();
 });
 
 describe("the list pane", () => {
@@ -1159,6 +1173,351 @@ describe("paging past the first page", () => {
 		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
 		expect(
 			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+	});
+});
+
+// The org retract control (below, in "org retract control") now renders off
+// this map, but only one lesson's entry at a time - so no render test ever
+// looks at the whole thing, and none would notice if `setRetractableIn`
+// regressed from a merge to a plain replace. This probe is what still can: it
+// reads LessonsContext straight off the Outlet and proves the shape across a
+// `loadMore` page boundary, without adding a second copy of App's route table.
+function RetractableProbe() {
+	const { retractableIn } = useOutletContext<LessonsContext>();
+	return (
+		<pre data-testid="retractable-in">{JSON.stringify(retractableIn)}</pre>
+	);
+}
+
+function renderLessonsPageAt(path: string) {
+	return render(
+		<MemoryRouter initialEntries={[path]}>
+			<Routes>
+				<Route path="/lessons" element={<LessonsPage />}>
+					<Route path=":id" element={<RetractableProbe />} />
+				</Route>
+			</Routes>
+		</MemoryRouter>,
+	);
+}
+
+describe("org retract authority", () => {
+	// setRetractableIn merges a loaded-more page into what is already on
+	// screen, the same way setAuthors does just above it in LessonsPage - and
+	// for the same stakes raised there, pointed at a worse outcome: replacing
+	// instead of merging would drop a first-page org's authority the instant
+	// "Load more" resolves, or - if a later page reused an id carelessly -
+	// attach one org's authority to a DIFFERENT lesson. The merge was
+	// untested until now.
+	it("keeps a first page's retractable org after loading a second page", async () => {
+		withPool([VITE], {
+			cursor: "Y3Vyc29yLTE=",
+			has_more: true,
+			retractable_in: { [VITE.id]: { org_id: "org-1", org_name: "Acme" } },
+		});
+		renderLessonsPageAt(`/lessons/${VITE.id}`);
+		await waitFor(() =>
+			expect(screen.getByTestId("retractable-in")).toHaveTextContent(VITE.id),
+		);
+
+		// The second page names only D1's org - Ada's first-page entry
+		// surviving below is evidence of a merge, not a coincidence.
+		withPool([D1], {
+			cursor: null,
+			has_more: false,
+			retractable_in: { [D1.id]: { org_id: "org-2", org_name: "Beta" } },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		await waitFor(() =>
+			expect(screen.getByTestId("retractable-in")).toHaveTextContent(D1.id),
+		);
+
+		const parsed = JSON.parse(
+			screen.getByTestId("retractable-in").textContent ?? "{}",
+		);
+		expect(parsed).toEqual({
+			[VITE.id]: { org_id: "org-1", org_name: "Acme" },
+			[D1.id]: { org_id: "org-2", org_name: "Beta" },
+		});
+	});
+});
+
+describe("org retract control", () => {
+	it("lets an org owner retract a teammate's org lesson, naming the org", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
+	// The fixture's lesson is still readable - only retractable_in is empty -
+	// so a control rendering here would mean nothing distinguishes a member
+	// from an owner at all, rather than the gate working. Without the lesson
+	// staying readable this would pass for the wrong reason: nothing rendered
+	// at all.
+	it("offers no control to a member who may read the lesson but not retract it at org level", async () => {
+		withPool([VITE], { owned_ids: [], retractable_in: {} });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+		expect(screen.queryByRole("button", { name: /^retract$/i })).toBeNull();
+	});
+
+	// retractable_in is populated here even though the viewer owns the
+	// lesson - something the server would not actually send, since D6 gates
+	// it on the viewer NOT being the author. It is set anyway so this proves
+	// the component's own `!own` gate, rather than relying on the server
+	// never sending both facts at once.
+	it("shows the author's own control, not the org one, on the reader's own org lesson", async () => {
+		withPool([VITE], {
+			owned_ids: [VITE.id],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	it("patches the row to retracted after a successful org retract, without a refetch", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		mocks.retractOrgLesson.mockResolvedValue({
+			id: VITE.id,
+			seq: 7,
+			status: "retracted",
+		});
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		await waitFor(() =>
+			expect(mocks.retractOrgLesson).toHaveBeenCalledWith(ORG.org_id, VITE.id),
+		);
+		// Two badges: the row in the list and the heading in the detail, the
+		// same pairing the author's own retract test above already pins.
+		await waitFor(() =>
+			expect(
+				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
+			).toBe(2),
+		);
+		expect(mocks.getLesson).not.toHaveBeenCalled();
+		// The control's one job is done, and there is no org-level route back
+		// to active - so unlike the author's pair it must not flip to a
+		// second state, it must disappear. `retractOrgLesson` carries no
+		// server-side precondition, so a control that stayed mounted here
+		// would "succeed" again on a second click while appearing to have
+		// done nothing new. This reads status through `listed`, since the
+		// lesson is on the loaded page - `patchLesson` is what has to carry
+		// it.
+		expect(
+			screen.queryByRole("button", { name: `Retract for ${ORG.org_name}` }),
+		).toBeNull();
+	});
+
+	// Direct proof of the status gate, distinct from the success-flow case
+	// above: a lesson already retracted before this pane ever rendered it,
+	// with retract authority otherwise intact, must not offer the control.
+	it("offers no org control on a lesson already retracted", async () => {
+		withPool([{ ...VITE, status: "retracted" }], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	// D6 exists so an owner's only route for an org lesson is never "ask the
+	// platform operator." The author's own pair offers nothing for
+	// `refuted` because its `next` is a two-state toggle with nothing left
+	// to toggle there - not because retraction is inappropriate for a
+	// refuted lesson - and `BROWSER_TRANSITIONS` accepts `retracted` from
+	// any status. An earlier gate of `lesson.status === "active"` withheld
+	// this control for `refuted` too, leaving exactly the gap D6 exists to
+	// prevent.
+	it("offers the control for a refuted org lesson", async () => {
+		withPool([{ ...VITE, status: "refuted" }], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
+	// The deep-fetched twin of the first case above - the split that shipped
+	// untested in ONL-141.
+	it("names the org on a deep link to a teammate's org lesson", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: ORG,
+		});
+		await at(`/lessons/${D1.id}`);
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		).toBeDefined();
+	});
+
+	// The deep-fetched twin of the member case above.
+	it("offers no control on a deep link to a lesson the viewer may only read", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: null,
+		});
+		await at(`/lessons/${D1.id}`);
+		await screen.findByRole("heading", { name: D1.claim });
+
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	// The deep-fetched twin of the own-lesson case above. `own` comes from two
+	// different sources depending on path - `ownedIds` for a listed lesson,
+	// `fetchedOwn` for one only this pane holds - and the listed-path test
+	// above exercises only the first. A defect that mis-wires the second -
+	// reading the context's `own` where `fetchedOwn` belongs, or ignoring it
+	// outright - would pass every other test in this file. This project has
+	// already paid for that exact gap once: the single-lesson path shipped
+	// with zero coverage on this split and had to be fixed after review.
+	//
+	// `retractable_in` is populated here even though `own` is true -
+	// something the server would not actually do, since it populates that
+	// field only for a lesson the viewer did NOT author. It is fed in anyway
+	// to prove the client's own `!own` gate holds, rather than relying on the
+	// server to never send both facts at once. Do not "fix" this fixture into
+	// a more realistic shape - that would quietly delete the coverage.
+	it("shows the author's own control, not the org one, on a deep-fetched own lesson", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: true,
+			retractable_in: ORG,
+		});
+		await at(`/lessons/${D1.id}`);
+
+		expect(
+			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: /retract for/i })).toBeNull();
+	});
+
+	// Proves `fetchedRetractableIn` is set from the same `getLesson` response
+	// that sets `fetched`, carrying all the way through to a successful write -
+	// not merely read once at arrival and then stale.
+	it("patches a deep-fetched lesson to retracted after a successful org retract", async () => {
+		withPool([VITE]);
+		mocks.getLesson.mockResolvedValue({
+			lesson: D1,
+			own: false,
+			retractable_in: ORG,
+		});
+		mocks.retractOrgLesson.mockResolvedValue({
+			id: D1.id,
+			seq: 3,
+			status: "retracted",
+		});
+		await at(`/lessons/${D1.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		await waitFor(() =>
+			expect(mocks.retractOrgLesson).toHaveBeenCalledWith(ORG.org_id, D1.id),
+		);
+		expect(
+			await screen.findByText("Retracted", { selector: ":not(option)" }),
+		).toBeDefined();
+		expect(mocks.getLesson).toHaveBeenCalledTimes(1);
+		// Same disappearance as the listed success test above, proved on the
+		// other source: this lesson is on no loaded page, so it is `setFetched`
+		// that has to carry the new status, not `patchLesson`.
+		expect(
+			screen.queryByRole("button", { name: `Retract for ${ORG.org_name}` }),
+		).toBeNull();
+	});
+
+	// No rejection case existed for the org control at all before this. The
+	// error alert below renders only because a failed attempt leaves the
+	// lesson's status unpatched: the gate above is `!== "retracted"`, so the
+	// control stays mounted after the failure, which is what gives the
+	// error alert somewhere to render beneath.
+	it("leaves the org lesson untouched when the server refuses, without repeating its 404 verbatim", async () => {
+		withPool([VITE], {
+			owned_ids: [],
+			retractable_in: { [VITE.id]: ORG },
+		});
+		mocks.retractOrgLesson.mockRejectedValue(
+			new AuthApiError(404, "not_found", "No such org"),
+		);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: `Retract for ${ORG.org_name}`,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Yes, retract for the org" }),
+		);
+
+		// `requireOrgRole`'s literal "No such org" must not surface: it
+		// claims to know a cause the design deliberately keeps ambiguous
+		// (a 404 here could equally be `retractOrgLesson`'s "No such
+		// lesson"), and it reads as the org itself being gone, which is
+		// wrong for the demoted-owner case that is the common way this
+		// actually fires.
+		expect(
+			await screen.findByText(/could not be retracted for the org/i),
+		).toBeDefined();
+		expect(screen.queryByText(/^no such org$/i)).toBeNull();
+		expect(
+			screen.queryByText("Retracted", { selector: ":not(option)" }),
+		).toBeNull();
+		// Still mounted: the gate above still admits it, since the failed
+		// write never patched the status to "retracted".
+		expect(
+			screen.getByRole("button", { name: `Retract for ${ORG.org_name}` }),
 		).toBeDefined();
 	});
 });
