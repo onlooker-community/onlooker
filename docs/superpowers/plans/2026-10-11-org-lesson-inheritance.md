@@ -239,7 +239,19 @@ entry fails the schema test, so they are one change.
 - Consumes: nothing from Task 1 directly.
 - Produces, for Task 3:
   - `export async function hasOrgSharedLessons(db: D1Database, userId: string): Promise<boolean>`
-  - `export async function deleteNonOrgLessons(db: D1Database, userId: string): Promise<number>` — returns rows deleted.
+  - `export function nonOrgLessonsDelete(db: D1Database, userId: string): D1PreparedStatement`
+    — a **statement, not an executor.** Task 3 puts it inside a `db.batch`, and
+    it carries its own `anonymized_at IS NOT NULL` gate so it cannot fire
+    unless the anonymization in that same batch landed.
+
+**Why a statement rather than a function that runs it.** The obvious shape —
+`deleteNonOrgLessons(db, userId)` executing immediately — would run outside
+Task 3's transaction. If the batch's sole-owner guard then refused, the public
+and private lessons would already be gone while the anonymization had not
+happened, which is precisely the half-dismantled state the design promises
+never to produce. Handing back a statement keeps the whole operation in one
+transaction while keeping the `lessons` SQL in this file, which
+`scripts/source-guards.test.sh` requires.
 
 Both live here rather than in `db/queries.ts` because
 `scripts/source-guards.test.sh` permits a `lessons` query only in
@@ -280,7 +292,17 @@ describe("hasOrgSharedLessons", () => {
 	});
 });
 
-describe("deleteNonOrgLessons", () => {
+describe("nonOrgLessonsDelete", () => {
+	// The statement is gated on its subject already being anonymized, because
+	// Task 3 runs it in the same batch as the UPDATE that sets that column.
+	// These tests set it directly, which is also what the real caller's
+	// transaction makes true by the time the statement runs.
+	const anonymize = (userId: string) =>
+		db()
+			.prepare("UPDATE users SET anonymized_at = ? WHERE id = ?")
+			.bind(new Date().toISOString(), userId)
+			.run();
+
 	it("deletes public and private lessons and keeps org ones", async () => {
 		await createLessonsWithFeed(db(), author, [
 			lesson({ visibility: "public" }),
@@ -288,29 +310,35 @@ describe("deleteNonOrgLessons", () => {
 		], null);
 		const kept = lesson({ visibility: "org" });
 		await createLessonsWithFeed(db(), author, [kept], orgId);
+		await anonymize(author);
 
-		expect(await deleteNonOrgLessons(db(), author)).toBe(2);
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(2);
 
 		const rows = await db()
-			.prepare("SELECT id, visibility FROM lessons WHERE user_id = ?")
+			.prepare("SELECT id FROM lessons WHERE user_id = ?")
 			.bind(author)
-			.all<{ id: string; visibility: string }>();
+			.all<{ id: string }>();
 		expect(rows.results?.map((r) => r.id)).toEqual([kept.id]);
 	});
 
 	it("deletes an org lesson whose org is gone", async () => {
 		await createLessonsWithFeed(db(), author, [lesson({ visibility: "org" })], orgId);
 		await db().prepare("UPDATE lessons SET org_id = NULL WHERE user_id = ?").bind(author).run();
+		await anonymize(author);
 
-		expect(await deleteNonOrgLessons(db(), author)).toBe(1);
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(1);
 	});
 
 	it("takes the deleted lessons' feed rows with them", async () => {
 		await createLessonsWithFeed(db(), author, [lesson({ visibility: "public" })], null);
+		await anonymize(author);
+
 		// lesson_feed.lesson_id cascades from lessons, so this needs no code of
-		// its own - but it is the reason the anonymize path can keep the
-		// author's remaining feed rows without keeping dead ones.
-		expect(await deleteNonOrgLessons(db(), author)).toBe(1);
+		// its own - but it is why the anonymize path can keep the author's
+		// remaining feed rows without keeping dead ones.
+		await nonOrgLessonsDelete(db(), author).run();
 		const feed = await db()
 			.prepare("SELECT COUNT(*) AS n FROM lesson_feed WHERE user_id = ?")
 			.bind(author)
@@ -318,9 +346,22 @@ describe("deleteNonOrgLessons", () => {
 		expect(feed?.n).toBe(0);
 	});
 
+	it("does nothing while the account is not anonymized", async () => {
+		await createLessonsWithFeed(db(), author, [lesson({ visibility: "public" })], null);
+
+		// The gate. In Task 3 this is what keeps a refused sole-owner guard
+		// from leaving an account with its lessons deleted and its identity
+		// intact.
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(0);
+	});
+
 	it("leaves another user's lessons alone", async () => {
 		await createLessonsWithFeed(db(), other, [lesson({ visibility: "public" })], null);
-		expect(await deleteNonOrgLessons(db(), author)).toBe(0);
+		await anonymize(author);
+
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(0);
 	});
 });
 ```
@@ -368,7 +409,7 @@ export async function hasOrgSharedLessons(
 }
 
 /**
- * Delete the lessons that go with a deleted account.
+ * The statement that deletes the lessons going with a deleted account.
  *
  * Everything except the org-shared ones: a private lesson would be
  * permanently unreadable once nobody can authenticate as its author, and a
@@ -376,26 +417,33 @@ export async function hasOrgSharedLessons(
  * `hasOrgSharedLessons` above, deliberately written as the same condition
  * negated so the two cannot drift apart.
  *
- * Each lesson takes its own `lesson_feed` rows with it, because
+ * Returns the statement rather than running it, so its one caller can put it
+ * in the same `db.batch` as the UPDATE that anonymizes the account. Running it
+ * separately would delete these lessons before that UPDATE's own sole-owner
+ * guard had a chance to refuse, leaving an account stripped of its lessons and
+ * still holding its identity - the half-dismantled state the design exists to
+ * avoid. The `anonymized_at IS NOT NULL` gate is the other half of that: the
+ * batch shares one transaction, so this sees the UPDATE's effect and fires
+ * only if it landed.
+ *
+ * Each deleted lesson takes its own `lesson_feed` rows with it, because
  * `lesson_feed.lesson_id` cascades from `lessons`. The author's remaining feed
- * rows - the ones belonging to surviving lessons - stay, and they must:
- * `transitionLesson` allocates `MAX(seq) + 1` for this user, so they are what
- * keeps a later org retract's sequence correct.
+ * rows - the ones belonging to surviving lessons - stay, which keeps
+ * `transitionLesson`'s `MAX(seq) + 1` continuous for a later org retract.
  */
-export async function deleteNonOrgLessons(
+export function nonOrgLessonsDelete(
 	db: D1Database,
 	userId: string,
-): Promise<number> {
-	const result = await db
+): D1PreparedStatement {
+	return db
 		.prepare(
 			`DELETE FROM lessons
 			 WHERE user_id = ?
-			   AND NOT (visibility = 'org' AND org_id IS NOT NULL)`,
+			   AND NOT (visibility = 'org' AND org_id IS NOT NULL)
+			   AND EXISTS (SELECT 1 FROM users
+			               WHERE id = ? AND anonymized_at IS NOT NULL)`,
 		)
-		.bind(userId)
-		.run();
-
-	return result.meta.changes ?? 0;
+		.bind(userId, userId);
 }
 ```
 
@@ -409,7 +457,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Prove the org condition is load-bearing — ablate it**
 
-In `deleteNonOrgLessons`, change `AND NOT (visibility = 'org' AND org_id IS NOT NULL)`
+In `nonOrgLessonsDelete`, change `AND NOT (visibility = 'org' AND org_id IS NOT NULL)`
 to `AND NOT (visibility = 'org')`.
 
 ```bash
@@ -449,7 +497,7 @@ Use `/git-workflow:commit`. Stage `db/lessons.ts` and `db/lessons.test.ts`.
 
 **Interfaces:**
 - Consumes from Task 1: `users.anonymized_at`. From Task 2:
-  `hasOrgSharedLessons`, `deleteNonOrgLessons`.
+  `hasOrgSharedLessons`, `nonOrgLessonsDelete`.
 - Produces: `AccountDeleteResult = "deleted" | "anonymized" | "sole_owner"`.
   The route answers `{ success: true }` for the first two and the existing
   `409 sole_owner` for the third.
@@ -612,7 +660,7 @@ export type AccountDeleteResult = "deleted" | "anonymized" | "sole_owner";
 - [ ] **Step 4: Rewrite `deleteUser`**
 
 Replace the whole function. Add to `queries.ts`'s imports:
-`import { deleteNonOrgLessons, hasOrgSharedLessons } from "./lessons.js";`,
+`import { hasOrgSharedLessons, nonOrgLessonsDelete } from "./lessons.js";`,
 `import { soleOwnedOrgs } from "./orgs.js";`, and `hashPassword` from
 `../utils/crypto.js`.
 
@@ -663,8 +711,6 @@ export async function deleteUser(
 		return "deleted";
 	}
 
-	await deleteNonOrgLessons(db, userId);
-
 	// One batch is one transaction in D1. The UPDATE carries the sole-owner
 	// guard, and every cleanup is conditioned on the UPDATE having landed,
 	// which it can observe because they share the transaction. So a refused
@@ -710,6 +756,10 @@ export async function deleteUser(
 		db
 			.prepare(`DELETE FROM org_memberships WHERE user_id = ? ${landed}`)
 			.bind(userId, userId),
+		// Last, and inside the batch rather than before it. Task 2 returns a
+		// statement precisely so this cannot run outside the transaction that
+		// the sole-owner guard above might refuse.
+		nonOrgLessonsDelete(db, userId),
 	]);
 
 	// Either this call anonymized the row or a previous one did. Both are the
@@ -875,7 +925,7 @@ is not the author — which, after anonymization, is everybody.
 
 - [ ] **Step 11: Ablate the feed-keeping to prove step 10's first test**
 
-In `deleteNonOrgLessons` (Task 2, `db/lessons.ts`), temporarily widen the
+In `nonOrgLessonsDelete` (Task 2, `db/lessons.ts`), temporarily widen the
 delete to take every lesson — `WHERE user_id = ?` with no `NOT` clause — which
 also removes the surviving lesson's feed rows via the cascade.
 
