@@ -35,6 +35,7 @@ const indexNames = (table: Parameters<typeof getTableConfig>[0]) =>
 describe("users", () => {
 	it("declares exactly the columns apps/api queries", () => {
 		expect(columnNames(users)).toEqual([
+			"anonymized_at",
 			"created_at",
 			"email",
 			"email_verified",

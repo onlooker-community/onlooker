@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `anonymized_at` text;

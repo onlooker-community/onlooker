@@ -26,6 +26,21 @@ export const users = sqliteTable(
 		password_hash: text("password_hash").notNull(),
 		name: text("name"),
 		email_verified: text("email_verified"),
+		/**
+		 * When this account was anonymized, or NULL for a live account.
+		 *
+		 * Account deletion keeps the row only when an org lesson needs it as an
+		 * anchor - `lessons.user_id` is notNull, and `transitionLesson` writes
+		 * to this user's own `lesson_feed`, so a lesson cannot outlive its
+		 * author without one. Identity and credentials are stripped; this
+		 * column is what says so.
+		 *
+		 * Two readers depend on it. Attribution distinguishes a departed author
+		 * from a member who never set a name, which would otherwise render
+		 * identically. And a second deletion attempt answers "already gone"
+		 * from this rather than by matching an email against a pattern.
+		 */
+		anonymized_at: text("anonymized_at"),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
