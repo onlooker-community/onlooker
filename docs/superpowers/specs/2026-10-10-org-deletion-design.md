@@ -165,19 +165,34 @@ the caller alone and a typed confirmation would be ceremony.
 
 ## Server shape *(proposed)*
 
-`deleteOrg(db, orgId, userId): Promise<"ok" | "has_members">` in
-`apps/api/src/db/orgs.ts`, beside `soleOwnedOrgs`.
+Two functions in `apps/api/src/db/orgs.ts`, beside `countOwners` and
+`soleOwnedOrgs`:
 
-One statement, the D2 `DELETE`. On zero rows changed it resolves the ambiguity
-with one follow-up count of the org's memberships:
+- `countMembers(db, orgId): Promise<number>` — the same shape as `countOwners`
+  immediately above it, without the role filter.
+- `deleteOrg(db, orgId, userId): Promise<OrgDeleteResult>` where
+  `OrgDeleteResult = "ok" | "has_members" | "not_found"`.
 
-- count > 1 → `"has_members"`, and the route answers 409 with the count.
-- count 0 or 1 → the org was deleted concurrently, or never matched. The route
-  answers 404, which is what `requireOrgRole` would have said a moment earlier.
+**Three outcomes, not two.** A two-value result cannot express what this
+section requires, because a zero-row `DELETE` has two causes and they get
+different answers. `deleteOrg` resolves it with one follow-up `countMembers`:
 
-The follow-up read is explanatory only, the same standing `soleOwnedOrgs` has:
-the write has already decided authoritatively, and a drifting count can only
+- rows changed → `"ok"`.
+- 0 rows, count > 1 → `"has_members"`; the route answers 409.
+- 0 rows, count ≤ 1 → `"not_found"`; the org was deleted concurrently.
+  `requireOrgRole` found a membership moments earlier, so a count that has
+  since fallen to 0 means the org went with it — memberships cascade.
+
+The follow-up read is explanatory only, the standing `soleOwnedOrgs` already
+has: the write has decided authoritatively, and a drifting count can only
 change which answer the caller reads, never whether a deletion happened.
+
+The string union is deliberate, matching `MembershipWriteResult` rather than
+returning the count in a richer type. The route therefore calls `countMembers`
+itself to build the 409's `details`, which is a second read on the refusal path
+only — exactly what `handleDeleteAccount` does when `deleteUser` answers
+`"sole_owner"` and it calls `soleOwnedOrgs` for the names. A reviewer should
+read that second read as the house pattern, not as an oversight.
 
 The handler goes in `apps/api/src/routes/orgs.ts` with its siblings.
 
