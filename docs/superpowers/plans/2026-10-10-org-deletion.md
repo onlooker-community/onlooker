@@ -154,9 +154,18 @@ a reviewer will find it.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `apps/api/src/db/orgs.test.ts`. Extend the existing import from
-`./orgs.js` with `countMembers`, `deleteOrg`, and `getOrgName` (used to assert
-the org is gone), keeping the list alphabetical as it already is.
+Add to `apps/api/src/db/orgs.test.ts`. Three import changes first:
+
+- extend the existing import from `./orgs.js` with `countMembers`, `deleteOrg`
+  and `getOrgName` (used to assert the org is gone), keeping the list
+  alphabetical as it already is;
+- extend the existing `./org-invites.js` import with `listPendingInvites`
+  (`createInvite` is already imported);
+- add `hashToken` — find its module with
+  `grep -rn "export.*hashToken" apps/api/src` and import it from there. It is
+  what `orgs-authorization.test.ts` uses to build a real invite; `createInvite`
+  requires `tokenHash` and `expiresAt`, so a call omitting them will not
+  compile.
 
 ```ts
 describe("deleteOrg", () => {
@@ -198,12 +207,20 @@ describe("deleteOrg", () => {
 			orgId: org.id,
 			email: "cleo@example.com",
 			role: "member",
+			tokenHash: await hashToken(crypto.randomUUID()),
+			expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
 			invitedBy: ada,
 		});
+		// Established first: otherwise the assertions below pass against an
+		// invite that was never written, and this test would be green on a
+		// cascade that does not exist.
+		expect(await listPendingInvites(db(), org.id)).toHaveLength(1);
 
 		expect(await deleteOrg(db(), org.id, ada)).toBe("ok");
+
 		expect(await getMembership(db(), org.id, ada)).toBeNull();
 		expect(await countMembers(db(), org.id)).toBe(0);
+		expect(await listPendingInvites(db(), org.id)).toHaveLength(0);
 	});
 
 	it("counts every member, not just owners", async () => {
