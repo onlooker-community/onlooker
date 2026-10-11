@@ -1,12 +1,16 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetOrgTables } from "../test-support/orgs.js";
-import { createInvite } from "./org-invites.js";
+import { hashToken } from "../utils/crypto.js";
+import { createInvite, listPendingInvites } from "./org-invites.js";
 import {
 	addMembership,
+	countMembers,
 	countOwners,
 	createOrgWithOwner,
+	deleteOrg,
 	getMembership,
+	getOrgName,
 	listMembers,
 	listOrgsForUser,
 	orgIdsForUser,
@@ -331,5 +335,69 @@ describe("ownerOrgIdsForUser", () => {
 		await setMemberRole(db(), org.id, promoted, "owner");
 
 		expect(await ownerOrgIdsForUser(db(), promoted)).toEqual([org.id]);
+	});
+});
+
+describe("deleteOrg", () => {
+	it("deletes an org whose only member is the caller", async () => {
+		const org = await createOrgWithOwner(db(), "Solo", ada);
+
+		expect(await deleteOrg(db(), org.id, ada)).toBe("ok");
+		expect(await getOrgName(db(), org.id)).toBeNull();
+	});
+
+	it("refuses while any other member remains", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await addMembership(db(), org.id, bob, "member");
+
+		// The whole point of the guard. Ablation: delete the NOT EXISTS clause
+		// from deleteOrg's DELETE and this must fail - a fixture with only one
+		// member could not tell the guarded statement from an unguarded one.
+		expect(await deleteOrg(db(), org.id, ada)).toBe("has_members");
+		expect(await getOrgName(db(), org.id)).toBe("Acme");
+	});
+
+	it("refuses while another OWNER remains", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await addMembership(db(), org.id, bob, "owner");
+
+		// Not a special case of the test above: a reader could reasonably
+		// assume the guard counts members who are not owners, since every
+		// other guard in this file counts owners.
+		expect(await deleteOrg(db(), org.id, ada)).toBe("has_members");
+	});
+
+	it("reports not_found for an org that does not exist", async () => {
+		expect(await deleteOrg(db(), "no-such-org", ada)).toBe("not_found");
+	});
+
+	it("takes the memberships and invites with it", async () => {
+		const org = await createOrgWithOwner(db(), "Solo", ada);
+		await createInvite(db(), {
+			orgId: org.id,
+			email: "cleo@example.com",
+			role: "member",
+			tokenHash: await hashToken(crypto.randomUUID()),
+			expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+			invitedBy: ada,
+		});
+		// Established first: otherwise the assertions below pass against an
+		// invite that was never written, and this test would be green on a
+		// cascade that does not exist.
+		expect(await listPendingInvites(db(), org.id)).toHaveLength(1);
+
+		expect(await deleteOrg(db(), org.id, ada)).toBe("ok");
+
+		expect(await getMembership(db(), org.id, ada)).toBeNull();
+		expect(await countMembers(db(), org.id)).toBe(0);
+		expect(await listPendingInvites(db(), org.id)).toHaveLength(0);
+	});
+
+	it("counts every member, not just owners", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", ada);
+		await addMembership(db(), org.id, bob, "member");
+
+		expect(await countMembers(db(), org.id)).toBe(2);
+		expect(await countOwners(db(), org.id)).toBe(1);
 	});
 });
