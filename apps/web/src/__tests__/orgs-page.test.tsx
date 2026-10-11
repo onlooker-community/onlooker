@@ -6,6 +6,7 @@ import OrgsPage from "../pages/OrgsPage";
 vi.mock("../api/orgsApi", () => ({
 	listOrgs: vi.fn(),
 	createOrg: vi.fn(),
+	deleteOrg: vi.fn(),
 	listMembers: vi.fn(),
 	listInvites: vi.fn(),
 	createInvite: vi.fn(),
@@ -120,5 +121,85 @@ describe("OrgsPage", () => {
 		await waitFor(() =>
 			expect(api.removeMember).toHaveBeenCalledWith("org-2", "u1"),
 		);
+	});
+
+	it("offers deleting an owned org whose only member is you", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [OWNED] });
+		render(<OrgsPage />);
+		await screen.findByText("Acme");
+
+		expect(
+			await screen.findByRole("button", { name: /delete acme/i }),
+		).toBeInTheDocument();
+	});
+
+	it("does not offer deleting an org that still has other members", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [OWNED] });
+		vi.mocked(api.listMembers).mockResolvedValue({
+			members: [
+				MEMBERS[0],
+				{
+					user_id: "u2",
+					name: "Bob",
+					email: "bob@example.com",
+					role: "member" as const,
+					created_at: "2026-10-01T00:00:00.000Z",
+				},
+			],
+		});
+		render(<OrgsPage />);
+		await screen.findByText("Acme");
+
+		// The server refuses this with 409, and a control that reliably fails
+		// is worse than no control.
+		expect(
+			screen.queryByRole("button", { name: /delete/i }),
+		).not.toBeInTheDocument();
+	});
+
+	it("does not offer deleting an org you only belong to", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [JOINED] });
+		render(<OrgsPage />);
+		await screen.findByText("Beta");
+
+		expect(
+			screen.queryByRole("button", { name: /delete/i }),
+		).not.toBeInTheDocument();
+	});
+
+	it("deletes the org and stops listing it", async () => {
+		vi.mocked(api.listOrgs)
+			.mockResolvedValueOnce({ orgs: [OWNED] })
+			.mockResolvedValue({ orgs: [] });
+		vi.mocked(api.deleteOrg).mockResolvedValue({ deleted: OWNED.id });
+		render(<OrgsPage />);
+
+		await userEvent.click(
+			await screen.findByRole("button", { name: /delete acme/i }),
+		);
+		await userEvent.click(
+			await screen.findByRole("button", { name: /yes, delete this org/i }),
+		);
+
+		await waitFor(() => expect(api.deleteOrg).toHaveBeenCalledWith(OWNED.id));
+		expect(await screen.findByText(/not in any org/i)).toBeInTheDocument();
+	});
+
+	it("says what the confirmation will do", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [OWNED] });
+		render(<OrgsPage />);
+
+		await userEvent.click(
+			await screen.findByRole("button", { name: /delete acme/i }),
+		);
+
+		// The surprising fact is that the lessons survive. If this copy drifts
+		// to "deletes everything", it is wrong about the schema.
+		expect(
+			await screen.findByText(/stay readable by you and by nobody else/i),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/pending invitations are canceled/i),
+		).toBeInTheDocument();
 	});
 });

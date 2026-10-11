@@ -76,6 +76,12 @@ export function renameOrg(
 	);
 }
 
+export function deleteOrg(orgId: string): Promise<{ deleted: string }> {
+	return apiClient.delete<{ deleted: string }>(
+		`${ORG_ENDPOINTS.orgs}/${encodeURIComponent(orgId)}`,
+	);
+}
+
 export function listMembers(orgId: string): Promise<{ members: OrgMember[] }> {
 	return apiClient.get<{ members: OrgMember[] }>(
 		`${ORG_ENDPOINTS.orgs}/${encodeURIComponent(orgId)}/members`,
