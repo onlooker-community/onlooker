@@ -918,7 +918,8 @@ export async function mockDataApi(
 		// to offer a status control at all. `authors` is empty for the same
 		// reason: the mock pool has no org rows to attribute. `retractable_in`
 		// is empty for the same reason again - there is no org lesson here for
-		// anyone to retract.
+		// anyone to retract. `former_authors` is empty for the same reason - the
+		// mock pool has no org lessons with departed authors.
 		return json({
 			lessons: [],
 			cursor: null,
@@ -926,6 +927,7 @@ export async function mockDataApi(
 			owned_ids: [],
 			authors: {},
 			retractable_in: {},
+			former_authors: [],
 		});
 	}
 

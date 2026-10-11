@@ -460,6 +460,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a retract control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				retractable_in: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to say an author has left, and an absent
+				// key there silently says nothing rather than failing visibly.
+				former_authors: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -489,6 +493,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a retract control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				retractable_in: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to say an author has left, and an absent
+				// key there silently says nothing rather than failing visibly.
+				former_authors: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},
@@ -568,6 +576,10 @@ export function authenticatedCases(): ContractCase[] {
 				// it to decide whether to offer a retract control, and an absent
 				// key there silently offers nothing rather than failing visibly.
 				retractable_in: expectObject,
+				// Pinned for the same reason `authors` is: the detail pane reads
+				// it to decide whether to say an author has left, and an absent
+				// key there silently says nothing rather than failing visibly.
+				former_authors: expectArray,
 			},
 			forbidden: NO_SECRETS,
 		},
