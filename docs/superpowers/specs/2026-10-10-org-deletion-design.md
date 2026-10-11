@@ -139,8 +139,18 @@ client only avoids offering what it will refuse.
 
 **D6. The copy names what survives.** The surprising fact is not that the org
 goes — it is that the lessons do not. The confirm text says the org is gone for
-good, that lessons shared with it stay readable by you and by nobody else, and
-that pending invitations are canceled.
+good, that lessons shared with it stay readable by you and by nobody else,
+that pending invitations are canceled, and that a machine token bound to the
+org survives too, authenticating but unable to push to an org any longer.
+
+The fourth consequence was missing from this section until the whole-branch
+review (`.superpowers/sdd/2026-10-10-org-deletion/final-review.md`, Important
+2) caught it after the four tasks had already shipped: `machine_tokens.org_id`
+is also `ON DELETE SET NULL`, so the token keeps authenticating and then fails
+every `visibility: "org"` push with advice to mint a token for an org that no
+longer exists. That is a spec gap, not an implementation deviation — the code
+matched this section faithfully; this section just stopped one consequence
+short.
 
 `ConfirmAction` (`apps/web/src/components/ConfirmAction.tsx`), matching the
 retract and revoke-invite controls rather than the delete-account flow's typed

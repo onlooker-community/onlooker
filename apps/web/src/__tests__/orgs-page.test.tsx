@@ -202,4 +202,21 @@ describe("OrgsPage", () => {
 			screen.getByText(/pending invitations are canceled/i),
 		).toBeInTheDocument();
 	});
+
+	it("names the fourth consequence: a surviving machine token can no longer push to an org", async () => {
+		vi.mocked(api.listOrgs).mockResolvedValue({ orgs: [OWNED] });
+		render(<OrgsPage />);
+
+		await userEvent.click(
+			await screen.findByRole("button", { name: /delete acme/i }),
+		);
+
+		// The token survives with org_id null and keeps authenticating - it is
+		// the one consequence that is silent until the next `onlooker sync`.
+		// See routes/lessons.ts:184 for the push-time refusal this is warning
+		// about.
+		expect(
+			await screen.findByText(/no longer push to an org/i),
+		).toBeInTheDocument();
+	});
 });

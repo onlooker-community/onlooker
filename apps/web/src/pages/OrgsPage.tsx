@@ -292,7 +292,7 @@ function OrgSection({
 							) : null}
 							<ConfirmAction
 								trigger={`Delete ${org.name}`}
-								question={`Deleting ${org.name} is permanent. Lessons you shared with it stay readable by you and by nobody else, and any pending invitations are canceled.`}
+								question={`Deleting ${org.name} is permanent. Lessons you shared with it stay readable by you and by nobody else, any pending invitations are canceled, and a machine token bound to it keeps working but can no longer push to an org.`}
 								confirmLabel="Yes, delete this org"
 								pendingLabel="Deleting..."
 								pending={deleting}
