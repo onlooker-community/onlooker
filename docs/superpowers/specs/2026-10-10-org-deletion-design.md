@@ -184,10 +184,14 @@ The handler goes in `apps/api/src/routes/orgs.ts` with its siblings.
 ## Client shape *(proposed)*
 
 - `apps/web/src/api/orgsApi.ts` — `deleteOrg(orgId)`, beside `renameOrg`.
-- `apps/web/src/pages/OrgsPage.tsx` — a `ConfirmAction` in the org's own panel,
-  gated per D5, copy per D6. On success, drop the org from the loaded list and
-  clear the selection, so the page does not keep rendering a panel for an org
-  that no longer exists.
+- `apps/web/src/pages/OrgsPage.tsx` — a `ConfirmAction` in `OrgSection`'s panel,
+  gated per D5, copy per D6. On success it calls the `onChanged` prop the
+  section already takes, which is wired to the page's `load()` and refetches
+  `listOrgs()`; the deleted org then stops being listed and its panel stops
+  rendering. There is no selection state to clear — the page renders one
+  section per org — and no local list surgery, because `onChanged` is the
+  mechanism `leave` already uses for the same situation: a change that removes
+  the caller's own access to the org they are looking at.
 - Errors reuse the page's existing `describeError` path. The 409 is reachable
   only by a race — a member joining between the page's load and the click — so
   its message is the server's, not a hand-written branch.
