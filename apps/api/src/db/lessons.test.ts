@@ -3,7 +3,9 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	createLessonsWithFeed,
+	hasOrgSharedLessons,
 	isUniqueViolationOn,
+	nonOrgLessonsDelete,
 	probeLessonId,
 	probeLessonIds,
 	readLessonDelta,
@@ -512,5 +514,173 @@ describe("retractOrgLesson", () => {
 		expect(
 			await retractOrgLesson(db(), org.id, "01NOPE00000000000000000000"),
 		).toBeNull();
+	});
+});
+
+describe("hasOrgSharedLessons", () => {
+	// Neither `orgId` nor `other` is in scope at the top of this file, so this
+	// describe mints its own - `author` is just this file's existing `userId`,
+	// named to match the brief's tests.
+	let author: string;
+	let other: string;
+	let orgId: string;
+
+	beforeEach(async () => {
+		author = userId;
+		other = (await createUser(db(), "cleo@example.com", "hash", "Cleo")).id;
+		orgId = (await createOrgWithOwner(db(), "Acme", author)).id;
+	});
+
+	it("is true for a lesson shared with an org", async () => {
+		await createLessonsWithFeed(
+			db(),
+			author,
+			[lesson({ visibility: "org" })],
+			orgId,
+		);
+		expect(await hasOrgSharedLessons(db(), author)).toBe(true);
+	});
+
+	it("is false for public and private lessons only", async () => {
+		await createLessonsWithFeed(
+			db(),
+			author,
+			[lesson({ visibility: "public" }), lesson({ visibility: "private" })],
+			null,
+		);
+		expect(await hasOrgSharedLessons(db(), author)).toBe(false);
+	});
+
+	it("is false for an org lesson whose org is gone", async () => {
+		// org_id is ON DELETE SET NULL, so such a row is readable by nobody and
+		// must not keep an account alive as its anchor.
+		await createLessonsWithFeed(
+			db(),
+			author,
+			[lesson({ visibility: "org" })],
+			orgId,
+		);
+		await db()
+			.prepare("UPDATE lessons SET org_id = NULL WHERE user_id = ?")
+			.bind(author)
+			.run();
+		expect(await hasOrgSharedLessons(db(), author)).toBe(false);
+	});
+
+	it("is false for another user's org lesson", async () => {
+		await createLessonsWithFeed(
+			db(),
+			other,
+			[lesson({ visibility: "org" })],
+			orgId,
+		);
+		expect(await hasOrgSharedLessons(db(), author)).toBe(false);
+	});
+});
+
+describe("nonOrgLessonsDelete", () => {
+	let author: string;
+	let other: string;
+	let orgId: string;
+
+	beforeEach(async () => {
+		author = userId;
+		other = (await createUser(db(), "cleo@example.com", "hash", "Cleo")).id;
+		orgId = (await createOrgWithOwner(db(), "Acme", author)).id;
+	});
+
+	// The statement is gated on its subject already being anonymized, because
+	// Task 3 runs it in the same batch as the UPDATE that sets that column.
+	// These tests set it directly, which is also what the real caller's
+	// transaction makes true by the time the statement runs.
+	const anonymize = (userId: string) =>
+		db()
+			.prepare("UPDATE users SET anonymized_at = ? WHERE id = ?")
+			.bind(new Date().toISOString(), userId)
+			.run();
+
+	it("deletes public and private lessons and keeps org ones", async () => {
+		// meta.changes is not asserted here: D1 folds lesson_feed's
+		// ON DELETE CASCADE rows into it (measured below), so it counts
+		// something other than "how many lessons survived". The id check
+		// below is strictly stronger anyway - it names exactly which rows
+		// remain rather than counting them.
+		await createLessonsWithFeed(
+			db(),
+			author,
+			[lesson({ visibility: "public" }), lesson({ visibility: "private" })],
+			null,
+		);
+		const kept = lesson({ visibility: "org" });
+		await createLessonsWithFeed(db(), author, [kept], orgId);
+		await anonymize(author);
+
+		await nonOrgLessonsDelete(db(), author).run();
+
+		const rows = await db()
+			.prepare("SELECT id FROM lessons WHERE user_id = ?")
+			.bind(author)
+			.all<{ id: string }>();
+		expect(rows.results?.map((r) => r.id)).toEqual([kept.id]);
+	});
+
+	it("deletes an org lesson whose org is gone", async () => {
+		const written = lesson({ visibility: "org" });
+		await createLessonsWithFeed(db(), author, [written], orgId);
+		await db()
+			.prepare("UPDATE lessons SET org_id = NULL WHERE user_id = ?")
+			.bind(author)
+			.run();
+		await anonymize(author);
+
+		await nonOrgLessonsDelete(db(), author).run();
+		expect(await probeLessonId(db(), written.id)).toBeNull();
+	});
+
+	it("takes the deleted lessons' feed rows with them", async () => {
+		await createLessonsWithFeed(
+			db(),
+			author,
+			[lesson({ visibility: "public" })],
+			null,
+		);
+		await anonymize(author);
+
+		// lesson_feed.lesson_id cascades from lessons, so this needs no code of
+		// its own - but it is why the anonymize path can keep the author's
+		// remaining feed rows without keeping dead ones.
+		await nonOrgLessonsDelete(db(), author).run();
+		const feed = await db()
+			.prepare("SELECT COUNT(*) AS n FROM lesson_feed WHERE user_id = ?")
+			.bind(author)
+			.first<{ n: number }>();
+		expect(feed?.n).toBe(0);
+	});
+
+	it("does nothing while the account is not anonymized", async () => {
+		const written = lesson({ visibility: "public" });
+		await createLessonsWithFeed(db(), author, [written], null);
+
+		// The gate. In Task 3 this is what keeps a refused sole-owner guard
+		// from leaving an account with its lessons deleted and its identity
+		// intact. meta.changes alone would also pass if the statement had
+		// deleted the row and merely reported the count wrong, so the row's
+		// survival is asserted directly too.
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(0);
+		expect(await probeLessonId(db(), written.id)).not.toBeNull();
+	});
+
+	it("leaves another user's lessons alone", async () => {
+		await createLessonsWithFeed(
+			db(),
+			other,
+			[lesson({ visibility: "public" })],
+			null,
+		);
+		await anonymize(author);
+
+		const result = await nonOrgLessonsDelete(db(), author).run();
+		expect(result.meta.changes).toBe(0);
 	});
 });

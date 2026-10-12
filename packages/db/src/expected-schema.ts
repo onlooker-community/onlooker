@@ -561,6 +561,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "anonymized_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
 				name: "created_at",
 				type: "TEXT",
 				notnull: 1,

@@ -19,14 +19,16 @@ import { client } from "./client.js";
  * correlate an org with a lesson row - "which org may retract THIS lesson" -
  * cannot be factored out here without either querying `lessons` from a third
  * file (which the guard refuses) or duplicating `visibilityPredicate`'s
- * boundary into a second copy (which is the worse defect `orgAuthorName`'s
+ * boundary into a second copy (which is the worse defect `orgAuthorFacts`'s
  * own doc comment already explains).
  *
  * `org_memberships` was this file's alone until ONL-136 landed. `db/queries.ts`
- * holds one now, inside `deleteUser`, and for a reason of the same shape: the
- * sole-owner guard has to be part of the DELETE against `users` to be atomic,
- * so a membership count read from here first could interleave with a
- * concurrent demotion and let the last owner go. Beyond that one and
+ * holds two now, inside `deleteUser`: the anonymize UPDATE's own sole-owner
+ * subquery, and the `DELETE FROM org_memberships` gated on that UPDATE having
+ * landed. Both are there for a reason of the same shape: the sole-owner guard
+ * has to be part of the write against `users` to be atomic, so a membership
+ * count read from here first could interleave with a concurrent demotion and
+ * let the last owner go. Beyond those two and
  * `test-support/orgs.ts`'s teardown DELETE, this file is still where plain
  * membership and role questions belong. The ones that have to be atomic with
  * another table's write, or that join against a lesson, belong beside what

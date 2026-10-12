@@ -1,5 +1,19 @@
 import { env } from "cloudflare:test";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { lesson } from "../test-support/lessons.js";
+import { createLessonsWithFeed, probeLessonId } from "./lessons.js";
+import { createMachineToken, verifyMachineToken } from "./machine-tokens.js";
+import {
+	addMembership,
+	createOrgWithOwner,
+	getMembership,
+	removeMembership,
+} from "./orgs.js";
 import {
 	consumeVerificationToken,
 	createUser,
@@ -357,6 +371,227 @@ describe("deleteUser", () => {
 		const replacement = await createUser(db(), "d3@example.com", "hash2");
 
 		expect(replacement.id).not.toBe(id);
+	});
+});
+
+describe("deleteUser when an org lesson must survive", () => {
+	let ada: string;
+	let bob: string;
+
+	beforeEach(async () => {
+		ada = (await createUser(db(), "ada@example.com", "hash", "Ada")).id;
+		bob = (await createUser(db(), "bob@example.com", "hash", "Bob")).id;
+	});
+
+	it("anonymizes rather than deleting, and keeps the org lesson", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner"); // so ada is not a sole owner
+		const kept = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), ada, [kept], orgId);
+
+		expect(await deleteUser(db(), ada)).toBe("anonymized");
+
+		const row = await db()
+			.prepare(
+				"SELECT email, name, email_verified, anonymized_at FROM users WHERE id = ?",
+			)
+			.bind(ada)
+			.first<{
+				email: string;
+				name: string | null;
+				email_verified: string | null;
+				anonymized_at: string | null;
+			}>();
+		expect(row).not.toBeNull();
+		expect(row?.name).toBeNull();
+		expect(row?.email_verified).toBeNull();
+		expect(row?.anonymized_at).not.toBeNull();
+		expect(row?.email).not.toBe("ada@example.com");
+
+		const stored = await probeLessonId(db(), kept.id);
+		expect(stored?.user_id).toBe(ada);
+	});
+
+	it("deletes the account outright when no org lesson survives", async () => {
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "public" }) as TLesson],
+			null,
+		);
+
+		expect(await deleteUser(db(), ada)).toBe("deleted");
+		expect(await getUserById(db(), ada)).toBeNull();
+	});
+
+	it("destroys every credential and membership on the anonymize path", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+		const token = await createMachineToken(db(), ada, "laptop", null);
+		// Requested before deletion, delivered to an inbox ada still reads -
+		// a surviving link would resurrect the anonymized row with no
+		// account-state check of its own (handleResetPassword checks none).
+		const resetToken = await createVerificationToken(
+			db(),
+			ada,
+			"reset",
+			new Date(Date.now() + 1000 * 60 * 60),
+		);
+
+		expect(await deleteUser(db(), ada)).toBe("anonymized");
+
+		// The security-critical one: a surviving token authenticates AS the
+		// anonymized row, which no password can reach but a bearer token would.
+		expect(await verifyMachineToken(db(), token.token)).toBeNull();
+		expect(await getMembership(db(), orgId, ada)).toBeNull();
+		const sessions = await db()
+			.prepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?")
+			.bind(ada)
+			.first<{ n: number }>();
+		expect(sessions?.n).toBe(0);
+		// The resurrection path a surviving reset token would open - strictly
+		// easier than finding a leftover access token, since this one does
+		// not even require holding a credential issued before deletion.
+		expect(
+			await consumeVerificationToken(db(), resetToken, "reset"),
+		).toBeNull();
+	});
+
+	it("keeps the surviving lesson's feed rows", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		await deleteUser(db(), ada);
+
+		// transitionLesson allocates MAX(seq)+1 for this user. Deleting these
+		// would make a later org retract reuse a sequence number. One lesson
+		// seeded above means exactly one feed row - an exact count catches a
+		// partial deletion that leaves it behind, where ">0" would not.
+		const feed = await db()
+			.prepare("SELECT COUNT(*) AS n FROM lesson_feed WHERE user_id = ?")
+			.bind(ada)
+			.first<{ n: number }>();
+		expect(feed?.n).toBe(1);
+	});
+
+	it("still refuses a sole owner, leaving nothing half-dismantled", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+		const token = await createMachineToken(db(), ada, "laptop", null);
+
+		expect(await deleteUser(db(), ada)).toBe("sole_owner");
+
+		// The refusal must be total. A half-applied anonymization would leave
+		// an account that cannot log in and an org that still has its owner.
+		const row = await db()
+			.prepare("SELECT name, anonymized_at FROM users WHERE id = ?")
+			.bind(ada)
+			.first<{ name: string | null; anonymized_at: string | null }>();
+		expect(row?.name).toBe("Ada");
+		expect(row?.anonymized_at).toBeNull();
+		expect(await getMembership(db(), orgId, ada)).not.toBeNull();
+		expect(await verifyMachineToken(db(), token.token)).not.toBeNull();
+	});
+
+	// The test above proves the TOP-LEVEL soleOwnedOrgs read refuses. It
+	// cannot reach the UPDATE's own copy of the guard: with no second owner,
+	// that read alone already returns "sole_owner" before the batch is ever
+	// built. The UPDATE's guard exists for the read-then-write race - two
+	// owners pass both of deleteUser's reads, and only between the second
+	// read and the batch does a concurrent demotion leave a sole owner - so
+	// proving IT is load-bearing needs a fixture that actually races.
+	//
+	// Simulated here by hooking db.batch(): deleteUser's own reads still see
+	// two owners, and the demotion happens right as the batch would run,
+	// which is the earliest point a real concurrent write could land between
+	// this function's reads and its write.
+	it("refuses inside the batch too, when ownership changes between the read and the write", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		const racing = new Proxy(db(), {
+			get(target, property, receiver) {
+				if (property === "batch") {
+					return async (statements: D1PreparedStatement[]) => {
+						await removeMembership(db(), orgId, bob);
+						return target.batch(statements);
+					};
+				}
+				const value = Reflect.get(target, property, receiver);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as D1Database;
+
+		// The honest answer on this path is "sole_owner", not "anonymized": the
+		// UPDATE's own guard refused, nothing was written, and the org still
+		// needs an owner. A test asserting only the row would pass even if
+		// deleteUser assumed success and misreported it - which is exactly
+		// what it did before this assertion was added.
+		expect(await deleteUser(racing, ada)).toBe("sole_owner");
+
+		// The row and the org must be exactly as they were: the UPDATE's own
+		// guard refusing is what keeps a demotion racing the batch from
+		// anonymizing an org's only owner.
+		const row = await db()
+			.prepare("SELECT name, anonymized_at FROM users WHERE id = ?")
+			.bind(ada)
+			.first<{ name: string | null; anonymized_at: string | null }>();
+		expect(row?.name).toBe("Ada");
+		expect(row?.anonymized_at).toBeNull();
+		expect(await getMembership(db(), orgId, ada)).toEqual({ role: "owner" });
+	});
+
+	it("is idempotent", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		expect(await deleteUser(db(), ada)).toBe("anonymized");
+		const first = await db()
+			.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+			.bind(ada)
+			.first<{ anonymized_at: string | null }>();
+
+		// Reachable in practice: an access token outlives the account for up to
+		// TOKEN_EXPIRY_MINUTES (ONL-146), so the same caller can call twice.
+		expect(await deleteUser(db(), ada)).toBe("anonymized");
+		const second = await db()
+			.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+			.bind(ada)
+			.first<{ anonymized_at: string | null }>();
+		expect(second?.anonymized_at).toBe(first?.anonymized_at);
+	});
+
+	it("reports deleted for an account that is already gone", async () => {
+		expect(await deleteUser(db(), "no-such-user")).toBe("deleted");
 	});
 });
 

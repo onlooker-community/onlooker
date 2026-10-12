@@ -81,6 +81,8 @@ export async function handleBrowseLessons(
 			// Always present, even when empty, for the reason owned_ids is.
 			authors: page.authors,
 			// Always present, even when empty, for the reason owned_ids is.
+			former_authors: page.formerAuthors,
+			// Always present, even when empty, for the reason owned_ids is.
 			retractable_in: page.retractableIn,
 		});
 	} catch (error) {
@@ -117,6 +119,7 @@ export async function handleGetLesson(
 		lesson: found.lesson,
 		own: found.own,
 		author_name: found.author_name,
+		former_author: found.former_author,
 		retractable_in: found.retractable_in,
 	});
 }

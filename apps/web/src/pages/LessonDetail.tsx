@@ -84,6 +84,7 @@ export default function LessonDetail() {
 		poolSettled,
 		patchLesson,
 		retractableIn: retractableIn_,
+		formerAuthors,
 	} = useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
@@ -111,6 +112,13 @@ export default function LessonDetail() {
 	const [fetchedAuthorName, setFetchedAuthorName] = useState<string | null>(
 		null,
 	);
+	/**
+	 * Whether `fetched`'s author's account has since been anonymized, the
+	 * same way `fetchedAuthorName` answers for the author name -
+	 * `formerAuthors` cannot answer for a deep-linked lesson that is on no
+	 * loaded page, which is the one case `fetched` is for.
+	 */
+	const [fetchedFormerAuthor, setFetchedFormerAuthor] = useState(false);
 	/**
 	 * The org this viewer may retract `fetched` in, the same way
 	 * `fetchedAuthorName` answers for the author name - set from the same
@@ -179,8 +187,9 @@ export default function LessonDetail() {
 			setFetchedOwn(ownedIds.includes(listed.id));
 			setFetchedAuthorName(authors[listed.id] ?? null);
 			setFetchedRetractableIn(retractableIn_[listed.id] ?? null);
+			setFetchedFormerAuthor(formerAuthors.includes(listed.id));
 		}
-	}, [listed, ownedIds, authors, retractableIn_]);
+	}, [listed, ownedIds, authors, retractableIn_, formerAuthors]);
 
 	useEffect(() => {
 		// Nothing to do while the id is in memory, and nothing to decide until
@@ -198,12 +207,13 @@ export default function LessonDetail() {
 		let live = true;
 		setFetchError(null);
 		getLesson(id)
-			.then(({ lesson, own, author_name, retractable_in }) => {
+			.then(({ lesson, own, author_name, retractable_in, former_author }) => {
 				if (live) {
 					setFetched(lesson);
 					setFetchedOwn(own);
 					setFetchedAuthorName(author_name);
 					setFetchedRetractableIn(retractable_in);
+					setFetchedFormerAuthor(former_author);
 				}
 			})
 			.catch((error) => {
@@ -244,6 +254,22 @@ export default function LessonDetail() {
 		: fetched?.id === id
 			? fetchedAuthorName
 			: null;
+
+	/**
+	 * Whether this lesson's author's account has since been anonymized.
+	 *
+	 * Same listed/fetched split as `authorName` and for the same reason:
+	 * `formerAuthors` cannot answer for a deep-linked lesson that is on no
+	 * loaded page, and a filter refetch can clear it while this pane still
+	 * shows a lesson out of `fetched`. An anonymized account carries no name
+	 * AND cannot authenticate to set a new one (the API's `resolvePrincipal`
+	 * refuses it), so this and `authorName` never both hold for the same
+	 * lesson - the attribution block below reads `authorName` first and
+	 * falls through to this one otherwise, rather than the two racing.
+	 */
+	const formerAuthor = listed
+		? formerAuthors.includes(listed.id)
+		: fetched?.id === id && fetchedFormerAuthor;
 
 	/**
 	 * The org this viewer may retract this lesson in, or null.
@@ -569,6 +595,14 @@ export default function LessonDetail() {
 					{authorName ? (
 						<Field label="Author">
 							<p style={{ margin: 0 }}>{authorName}</p>
+						</Field>
+					) : formerAuthor ? (
+						// The server says only that the author's account has been
+						// anonymized - never a name, since a literal here could not
+						// be told apart from a member who set that as their actual
+						// name. "Former member" is this client's wording alone.
+						<Field label="Author">
+							<p style={{ margin: 0 }}>Former member</p>
 						</Field>
 					) : null}
 

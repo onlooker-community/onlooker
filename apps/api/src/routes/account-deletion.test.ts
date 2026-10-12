@@ -1,13 +1,19 @@
 import { env } from "cloudflare:test";
+import type { D1Database } from "@cloudflare/workers-types";
+import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addMembership } from "../db/orgs.js";
+import { createLessonsWithFeed } from "../db/lessons.js";
+import { addMembership, removeMembership } from "../db/orgs.js";
 import { getUserById } from "../db/queries.js";
+import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
 	resetOrgTables,
 	type SignedUpUser,
 	signup,
 } from "../test-support/orgs.js";
+import { ApiError, type WorkerEnv } from "../types";
+import { handleDeleteAccount } from "./account.js";
 
 // DELETE /auth/account used to be unconditional, and org_memberships cascades
 // from users, so the sole owner of an org could delete their account and leave
@@ -19,11 +25,19 @@ import {
 // other two paths to zero owners. These cover what the caller is told.
 
 const db = () => env.DB;
+const REAL_ENV = env as unknown as WorkerEnv;
 let ada: SignedUpUser;
 let bob: SignedUpUser;
 
 beforeEach(async () => {
 	await resetOrgTables();
+	// resetOrgTables deliberately does not touch these two tables - see its
+	// doc comment - so this suite, which now seeds a lesson, clears them
+	// itself, the same way routes/orgs-lessons.test.ts does.
+	await db().prepare("DELETE FROM lesson_feed").run();
+	await db().prepare("DELETE FROM lessons").run();
+	resetLessonCounter();
+
 	ada = await signup("ada@example.com");
 	bob = await signup("bob@example.com");
 });
@@ -109,5 +123,73 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 
 		expect(response.status).toBe(200);
 		expect(await getUserById(db(), ada.id)).toBeNull();
+	});
+
+	it("reports success when the account is anonymized rather than deleted", async () => {
+		const orgId = await createOrg(ada.token, "Acme");
+		await addMembership(db(), orgId, bob.id, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada.id,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		const response = await deleteAccount(ada.token);
+
+		// The caller cannot tell the two paths apart, by design.
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ success: true });
+	});
+
+	it("still answers 409 when a demotion races the anonymize batch", async () => {
+		// Calls the handler directly rather than through SELF, the same way
+		// routes/orgs-lessons.test.ts forces its own batch failure: there is no
+		// request through the worker that can land a write between deleteUser's
+		// reads and its batch, so this injects it at the binding instead.
+		const orgId = await createOrg(ada.token, "Acme");
+		await addMembership(db(), orgId, bob.id, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada.id,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		const racing = new Proxy(db(), {
+			get(target, property, receiver) {
+				if (property === "batch") {
+					return async (statements: unknown[]) => {
+						await removeMembership(db(), orgId, bob.id);
+						return (target as D1Database).batch(
+							statements as Parameters<D1Database["batch"]>[0],
+						);
+					};
+				}
+				const value = Reflect.get(target, property, receiver);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as D1Database;
+
+		const thrown = await handleDeleteAccount(
+			new Request("https://api.onlooker.dev/auth/account", {
+				method: "DELETE",
+			}),
+			{ ...REAL_ENV, DB: racing },
+			{},
+			{ userId: ada.id },
+		).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		// The UPDATE's own guard refused - the account is untouched and the org
+		// still needs an owner - so the caller gets the same refusal they would
+		// have gotten a moment earlier, not the 200 a call that merely checked
+		// the row would wrongly report.
+		expect(thrown).toBeInstanceOf(ApiError);
+		expect((thrown as ApiError).status).toBe(409);
+		expect((thrown as ApiError).code).toBe("sole_owner");
+		expect(await getUserById(db(), ada.id)).not.toBeNull();
 	});
 });

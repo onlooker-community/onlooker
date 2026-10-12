@@ -106,6 +106,24 @@ export interface LessonPage {
 	 */
 	authors: Record<string, string>;
 	/**
+	 * The org lessons on this page whose author's account has been anonymized.
+	 *
+	 * A separate list rather than a sentinel in `authors`, for the reason
+	 * `authorNames` gives for emitting no key at all when a name is missing:
+	 * the server does not invent labels, and a literal like "Former member" in
+	 * a name field cannot be told apart from a user who set that as their
+	 * actual name. The client renders the words.
+	 *
+	 * Disjoint from `authors` by construction: an anonymized row has a NULL
+	 * name, which produces no `authors` key - AND an anonymized account
+	 * cannot authenticate (`middleware/principal.ts`'s `resolvePrincipal`
+	 * refuses it), so nothing can give the row a name back. The second half
+	 * is load-bearing: `updateProfile` (`db/queries.ts`) is a second path
+	 * that writes `users.name`, and without the principal-resolution refusal
+	 * an anonymized account could reach it and set a new one.
+	 */
+	formerAuthors: string[];
+	/**
 	 * The lessons on this page the reader may retract at org level, by lesson
 	 * id, each naming the org that grants it.
 	 *

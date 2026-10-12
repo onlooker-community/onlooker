@@ -120,4 +120,15 @@ describe("account routes", () => {
 		renderAppAt("/settings");
 		expect(screen.queryByRole("heading", { name: /^profile$/i })).toBeNull();
 	});
+
+	it("says what deleting the account leaves behind", () => {
+		renderAppAt("/settings");
+
+		// The old copy promised "all associated data" was deleted, which
+		// becomes false the moment an org lesson survives and the row is kept
+		// as its anchor. A destructive confirmation that misdescribes what it
+		// destroys is worse than a missing one.
+		expect(screen.getByText(/stay with that org/i)).toBeInTheDocument();
+		expect(screen.queryByText(/all associated data/i)).not.toBeInTheDocument();
+	});
 });

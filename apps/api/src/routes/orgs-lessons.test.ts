@@ -2,12 +2,14 @@ import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { blockAuthor } from "../db/author-blocks.js";
 import { createLessonsWithFeed, probeLessonId } from "../db/lessons.js";
 import {
 	addMembership,
 	createOrgWithOwner,
 	removeMembership,
 } from "../db/orgs.js";
+import { deleteUser } from "../db/queries.js";
 import { errorHandler } from "../middleware/error.js";
 import { BASE, lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
@@ -247,5 +249,56 @@ describe("deleting the org the lesson was shared with", () => {
 		// owner does not. This pair is the whole reason the route needs no
 		// lesson handling of its own.
 		expect(await browse(owner.token)).not.toContain(sharedId);
+	});
+});
+
+describe("after the author's account is gone", () => {
+	it("an owner can still retract the lesson they left behind", async () => {
+		// The member authored sharedId and shared it with the org. The member
+		// is a plain member here, so nothing blocks deleting them - but assert
+		// the outcome rather than assuming.
+		expect(await deleteUser(db(), member.id)).toBe("anonymized");
+
+		const response = await call(
+			`/api/orgs/${orgId}/lessons/${sharedId}/retract`,
+			owner.token,
+			{ method: "POST" },
+		);
+
+		// Measured, not assumed (Step 11 ablation): without anonymization the
+		// author's row is gone, `lessons.user_id` cascades, and the lesson goes
+		// with it - the retract then 404s rather than 500ing. This 200 is
+		// evidence the row survived its author.
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ status: "retracted" });
+	});
+
+	it("and a block on that author still applies", async () => {
+		// lesson_author_blocks keys on author_key, not user_id, so a blocked
+		// author cannot evade a block by deleting their account. Anonymization
+		// must preserve that, and it does so only because author_key lives on
+		// the lesson row rather than being resolved through users.
+		// probeLessonId's StoredLesson does not select author_key - it is a
+		// column on the row (createLessonsWithFeed writes it alongside body,
+		// never through it), so this reads the column directly rather than
+		// through the JSON body.
+		const authorKey = (
+			await db()
+				.prepare("SELECT author_key FROM lessons WHERE id = ?")
+				.bind(sharedId)
+				.first<{ author_key: string }>()
+		)?.author_key;
+		await blockAuthor(db(), authorKey ?? "", "ONL-136 check", owner.id);
+
+		expect(await deleteUser(db(), member.id)).toBe("anonymized");
+
+		// Established before the absence check below, or that check would pass
+		// just as well for a lesson that no longer exists - and the lesson
+		// surviving its author is the whole point of this branch.
+		expect(await probeLessonId(db(), sharedId)).not.toBeNull();
+
+		const page = await call("/api/lessons", owner.token);
+		const body = (await page.json()) as { lessons: { id: string }[] };
+		expect(body.lessons.map((l) => l.id)).not.toContain(sharedId);
 	});
 });

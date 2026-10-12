@@ -1,8 +1,14 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { sessions, users, verification_tokens } from "@onlooker/db";
 import { and, eq, ne } from "drizzle-orm";
-import { hashToken } from "../utils/crypto.js";
+import { hashPassword, hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
+import {
+	deleteUserUnlessProtected,
+	hasOrgSharedLessons,
+	nonOrgLessonsDelete,
+} from "./lessons.js";
+import { soleOwnedOrgs } from "./orgs.js";
 
 export interface User {
 	id: string;
@@ -280,60 +286,150 @@ export async function revokeAllSessionsForUser(
 	await client(db).delete(sessions).where(eq(sessions.user_id, userId));
 }
 
-export type AccountDeleteResult = "ok" | "sole_owner";
-
 /**
- * Delete an account.
+ * What an account deletion did.
  *
- * Sessions and verification tokens both declare ON DELETE CASCADE against
- * users, so they go with it and this does not sweep them by hand. queries.test
- * asserts that, because the day the constraint changes is the day a deleted
- * account keeps a working session.
+ * "deleted" covers the row being gone, including an account that was already
+ * gone - the caller wanted it gone and it is, which is the intent the original
+ * unconditional handler had and this preserves.
  *
- * Refuses while the account is the sole owner of an org. `org_memberships`
- * cascades from `users` too, which made this the one path to zero owners that
- * nothing guarded: `removeMembership` already refuses to let a last owner
- * leave, and deleting the account walked straight past it. Since the org
- * lesson tier opened that state is unrecoverable rather than merely awkward -
- * every owner route needs an owner to already exist, `retract` included, so
- * an ownerless org can never be moderated from the inside again (ONL-136).
- *
- * The guard is part of the DELETE's own WHERE clause for the same reason
- * db/orgs.ts gives for `removeMembership` and `setMemberRole`: a read of
- * "how many owners" followed by an unconditional write lets this interleave
- * with a concurrent demotion, each seeing two owners before either lands,
- * leaving zero. One statement is one transaction in D1, so folding the
- * condition in makes the check and the write atomic.
- *
- * Deleting an account that is already gone still reports "ok". That keeps the
- * original intent - the caller's intent was "make it gone", and it is - while
- * letting a real refusal be told apart from it.
+ * "anonymized" means the row was kept as an anchor for a lesson shared with an
+ * org, stripped of identity and credentials. The route does not tell the two
+ * apart: a caller does not need to know, and the distinction would leak
+ * whether they had org lessons to anybody who could trigger the call.
  */
+export type AccountDeleteResult = "deleted" | "anonymized" | "sole_owner";
+
 export async function deleteUser(
 	db: D1Database,
 	userId: string,
 ): Promise<AccountDeleteResult> {
-	const result = await db
-		.prepare(
-			`DELETE FROM users
-			 WHERE id = ?
-			   AND NOT EXISTS (
-			     SELECT 1 FROM org_memberships m
-			     WHERE m.user_id = ? AND m.role = 'owner'
-			       AND (SELECT COUNT(*) FROM org_memberships o
-			            WHERE o.org_id = m.org_id AND o.role = 'owner') = 1)`,
-		)
-		.bind(userId, userId)
-		.run();
+	// The delete path, unchanged from #198 except for its second condition.
+	// Every one of the eight tables referencing users cascades, so a successful
+	// delete needs no cleanup of its own.
+	//
+	// That second condition is what makes the choice between paths unraceable.
+	// Deciding "this account has no org lessons" with a read and then deleting
+	// would let a lesson pushed in between be cascaded away - the exact loss
+	// this work exists to prevent. Refusing instead sends the retry down the
+	// anonymize path.
+	//
+	// Built in db/lessons.ts, not here: its WHERE clause names `lessons`
+	// directly, and the source guard keeps every lesson query inside that file
+	// and db/pool.ts.
+	const deleted = await deleteUserUnlessProtected(db, userId).run();
 
-	if ((result.meta.changes ?? 0) > 0) return "ok";
+	if ((deleted.meta.changes ?? 0) > 0) return "deleted";
 
-	// Zero rows is ambiguous - no such account, or refused to protect an org's
-	// last owner - so it takes one more read to resolve. That read is not
-	// itself racy: the write has already safely failed one way or the other,
-	// and this only chooses which answer the caller gets. Same shape as
-	// removeMembership's follow-up read.
-	return (await getUserById(db, userId)) ? "sole_owner" : "ok";
+	// Zero rows has three causes now, and the ORDER of these reads matters.
+	// The sole-owner check must come first: an account that is both a sole
+	// owner and the author of an org lesson would otherwise be anonymized
+	// while still owning an org, leaving zero owners - the state #198 shipped
+	// to prevent. Neither read can invert the decision; the write has already
+	// refused authoritatively, and the anonymize statement below re-checks the
+	// guard in its own WHERE rather than trusting what these said.
+	if ((await soleOwnedOrgs(db, userId)).length > 0) return "sole_owner";
+
+	if (!(await hasOrgSharedLessons(db, userId))) {
+		// Nothing to anchor and no org to protect, so the delete's own
+		// conditions did not refuse - the row was already gone.
+		return "deleted";
+	}
+
+	// One batch is one transaction in D1. The UPDATE carries the sole-owner
+	// guard, and every cleanup is conditioned on the UPDATE having landed,
+	// which it can observe because they share the transaction. So a refused
+	// guard leaves the account untouched rather than half-dismantled.
+	//
+	// `anonymized_at IS NULL` makes this idempotent, which is reachable: an
+	// access token outlives its account for up to TOKEN_EXPIRY_MINUTES.
+	const anonymized = `deleted+${crypto.randomUUID()}@deleted.invalid`;
+	// A real bcrypt hash of a discarded value, not a sentinel string:
+	// verifyPassword calls bcrypt.compare, which has no defined answer for a
+	// non-hash, while a hash of something nobody knows returns false for every
+	// guess.
+	const unusable = await hashPassword(
+		`${crypto.randomUUID()}${crypto.randomUUID()}`,
+	);
+	const now = new Date().toISOString();
+	const landed = `AND EXISTS (SELECT 1 FROM users WHERE id = ? AND anonymized_at IS NOT NULL)`;
+
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE users
+				    SET email = ?, password_hash = ?, name = NULL,
+				        email_verified = NULL, anonymized_at = ?
+				  WHERE id = ? AND anonymized_at IS NULL
+				    AND NOT EXISTS (
+				      SELECT 1 FROM org_memberships m
+				      WHERE m.user_id = ? AND m.role = 'owner'
+				        AND (SELECT COUNT(*) FROM org_memberships o
+				             WHERE o.org_id = m.org_id AND o.role = 'owner') = 1)`,
+			)
+			.bind(anonymized, unusable, now, userId, userId),
+		db
+			.prepare(`DELETE FROM sessions WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
+		db
+			.prepare(`DELETE FROM verification_tokens WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
+		db
+			.prepare(`DELETE FROM machine_tokens WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
+		db
+			.prepare(`DELETE FROM session_summaries WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
+		db
+			.prepare(`DELETE FROM org_memberships WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
+		// Last, and inside the batch rather than before it. Task 2 returns a
+		// statement precisely so this cannot run outside the transaction that
+		// the sole-owner guard above might refuse.
+		nonOrgLessonsDelete(db, userId),
+	]);
+
+	// The UPDATE's own guard may have refused - the race a concurrent
+	// demotion can win between this function's reads and its write - so this
+	// reads rather than assumes. Non-null means this call anonymized the
+	// row, or a previous one did; both are the same answer to the caller.
+	// Still null means the guard refused: the account is untouched and the
+	// org still needs an owner, the same refusal soleOwnedOrgs would have
+	// given a moment earlier.
+	const landedRow = await db
+		.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ anonymized_at: string | null }>();
+
+	return landedRow?.anonymized_at != null ? "anonymized" : "sole_owner";
+}
+
+/**
+ * Whether `userId` names an account that has been anonymized - kept as the
+ * anchor for an org lesson, stripped of identity and credentials, but not
+ * gone from `users` the way an ordinary deletion leaves it.
+ *
+ * `resolvePrincipal` calls this once per session- or operator-authenticated
+ * request; see its own comment for why that cost is accepted. This is the
+ * single indexed primary-key lookup that cost pays for, in the same raw-SQL
+ * shape `deleteUser`'s own post-batch re-read above already uses, rather than
+ * a second one somewhere else.
+ *
+ * False for a userId with no row at all. That is a different question -
+ * "does this account still exist" - and the handlers that need an answer to
+ * it already ask (getUserById, getPasswordHash); this answers only whether an
+ * EXISTING row has been anonymized.
+ */
+export async function isAnonymizedAccount(
+	db: D1Database,
+	userId: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ anonymized_at: string | null }>();
+
+	return row?.anonymized_at != null;
 }
 
 /**

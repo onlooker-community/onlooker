@@ -189,7 +189,7 @@ describe("the last-owner guard", () => {
 		const acme = await createOrgWithOwner(db(), "Acme", ada);
 		await addMembership(db(), acme.id, bob, "owner");
 
-		expect(await deleteUser(db(), ada)).toBe("ok");
+		expect(await deleteUser(db(), ada)).toBe("deleted");
 
 		expect(await getMembership(db(), acme.id, ada)).toBeNull();
 		expect(await countOwners(db(), acme.id)).toBe(1);
@@ -220,18 +220,18 @@ describe("the last-owner guard", () => {
 		const acme = await createOrgWithOwner(db(), "Acme", bob);
 		await addMembership(db(), acme.id, ada, "member");
 
-		expect(await deleteUser(db(), ada)).toBe("ok");
+		expect(await deleteUser(db(), ada)).toBe("deleted");
 
 		expect(await getMembership(db(), acme.id, ada)).toBeNull();
 		expect(await countOwners(db(), acme.id)).toBe(1);
 	});
 
 	// Keeps the original contract: the caller's intent was "make it gone",
-	// and it is. Reported as "ok" so a real refusal stays distinguishable
+	// and it is. Reported as "deleted" so a real refusal stays distinguishable
 	// from a no-op rather than both arriving as the same zero-row result.
-	it("deleteUser still reports ok for an account already gone", async () => {
-		expect(await deleteUser(db(), ada)).toBe("ok");
-		expect(await deleteUser(db(), ada)).toBe("ok");
+	it("deleteUser still reports deleted for an account already gone", async () => {
+		expect(await deleteUser(db(), ada)).toBe("deleted");
+		expect(await deleteUser(db(), ada)).toBe("deleted");
 	});
 });
 

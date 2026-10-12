@@ -1,9 +1,12 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { canonicalize } from "../utils/canonical.js";
 import { orgIdsForUser, ownerOrgIdsForUser } from "./orgs.js";
 import {
-	orgAuthorName,
+	orgAuthorFacts,
 	orgRetractableFor,
 	readPool,
 	readPoolLesson,
@@ -638,6 +641,7 @@ export async function getLessonForUser(
 	lesson: unknown;
 	own: boolean;
 	author_name: string | null;
+	former_author: boolean;
 	retractable_in: RetractableOrg | null;
 } | null> {
 	// Resolved once into a local rather than passed as orgIdsForUser twice:
@@ -665,7 +669,8 @@ export async function getLessonForUser(
 
 	// Resolved from the same org list the predicate used, so the name can only
 	// appear for a row the org disjunct is what admitted.
-	const author_name = await orgAuthorName(db, readerOrgIds, id);
+	const { name: author_name, formerAuthor: former_author } =
+		await orgAuthorFacts(db, readerOrgIds, id);
 
 	// From the reader's OWNED orgs, resolved here rather than inside
 	// orgRetractableFor so the two org lists this function depends on - the
@@ -678,5 +683,111 @@ export async function getLessonForUser(
 		id,
 	);
 
-	return { lesson, own: owned !== null, author_name, retractable_in };
+	return {
+		lesson,
+		own: owned !== null,
+		author_name,
+		former_author,
+		retractable_in,
+	};
+}
+
+/**
+ * Whether this user has a lesson that must outlive their account.
+ *
+ * The condition is the whole of ONL-136's decision: a lesson shared with an
+ * org belongs to the org once its author leaves. `org_id IS NOT NULL` is not
+ * redundant with `visibility = 'org'` - `lessons.org_id` is ON DELETE SET
+ * NULL, so a row whose org was deleted is readable by nobody at all, and
+ * keeping an account alive to anchor one would retain identity for nothing.
+ */
+export async function hasOrgSharedLessons(
+	db: D1Database,
+	userId: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS present FROM lessons
+			 WHERE user_id = ? AND visibility = 'org' AND org_id IS NOT NULL
+			 LIMIT 1`,
+		)
+		.bind(userId)
+		.first<{ present: number }>();
+
+	return row !== null;
+}
+
+/**
+ * The statement that deletes the lessons going with a deleted account.
+ *
+ * Everything except the org-shared ones: a private lesson would be
+ * permanently unreadable once nobody can authenticate as its author, and a
+ * public one is the author's own publication to withdraw. The inverse of
+ * `hasOrgSharedLessons` above, deliberately written as the same condition
+ * negated so the two cannot drift apart.
+ *
+ * Returns the statement rather than running it, so its one caller can put it
+ * in the same `db.batch` as the UPDATE that anonymizes the account. Running it
+ * separately would delete these lessons before that UPDATE's own sole-owner
+ * guard had a chance to refuse, leaving an account stripped of its lessons and
+ * still holding its identity - the half-dismantled state the design exists to
+ * avoid. The `anonymized_at IS NOT NULL` gate is the other half of that: the
+ * batch shares one transaction, so this sees the UPDATE's effect and fires
+ * only if it landed.
+ *
+ * Each deleted lesson takes its own `lesson_feed` rows with it, because
+ * `lesson_feed.lesson_id` cascades from `lessons`. The author's remaining feed
+ * rows - the ones belonging to surviving lessons - stay, which keeps
+ * `transitionLesson`'s `MAX(seq) + 1` continuous for a later org retract.
+ */
+export function nonOrgLessonsDelete(
+	db: D1Database,
+	userId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM lessons
+			 WHERE user_id = ?
+			   AND NOT (visibility = 'org' AND org_id IS NOT NULL)
+			   AND EXISTS (SELECT 1 FROM users
+			               WHERE id = ? AND anonymized_at IS NOT NULL)`,
+		)
+		.bind(userId, userId);
+}
+
+/**
+ * deleteUser's (db/queries.ts) first attempt: delete the account outright
+ * unless it is a sole owner or anchors a lesson shared with an org.
+ *
+ * Lives here rather than beside its one caller because its WHERE clause names
+ * `lessons` directly, and `scripts/source-guards.test.sh` keeps every lesson
+ * query inside this file and db/pool.ts - the same reason `nonOrgLessonsDelete`
+ * above is a statement-returning function rather than inline SQL in
+ * queries.ts.
+ *
+ * The org-lesson condition is `hasOrgSharedLessons`'s own test, inlined rather
+ * than called: deciding with a separate read and then deleting would let a
+ * lesson pushed in between be cascaded away - the loss this work exists to
+ * prevent. Folding it into the DELETE's own WHERE makes the check and the
+ * write atomic, the same reason the sole-owner condition beside it is a
+ * subquery rather than a prior read (#198).
+ */
+export function deleteUserUnlessProtected(
+	db: D1Database,
+	userId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM users
+			 WHERE id = ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM org_memberships m
+			     WHERE m.user_id = ? AND m.role = 'owner'
+			       AND (SELECT COUNT(*) FROM org_memberships o
+			            WHERE o.org_id = m.org_id AND o.role = 'owner') = 1)
+			   AND NOT EXISTS (
+			     SELECT 1 FROM lessons
+			     WHERE user_id = ? AND visibility = 'org' AND org_id IS NOT NULL)`,
+		)
+		.bind(userId, userId, userId);
 }
