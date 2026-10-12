@@ -97,6 +97,20 @@ export interface LessonPage {
 	 * Always sent, empty when nothing on this page qualifies.
 	 */
 	retractable_in: Record<string, RetractableOrg>;
+	/**
+	 * Which of `lessons` had an author whose account has since been
+	 * anonymized, by id.
+	 *
+	 * Carried beside the documents for the reason `authors` is - the server
+	 * says who has left, and a literal string in a name field cannot be told
+	 * apart from a member who actually chose that as their name, so this
+	 * must be its own key rather than a magic value inside `authors`. The
+	 * label itself ("Former member") is this client's wording, never the
+	 * server's - see `former_author` on `OwnedLesson`.
+	 *
+	 * Always sent, empty when nothing on this page qualifies.
+	 */
+	former_authors: string[];
 }
 
 /** One lesson, with the same ownership answer `owned_ids` gives for a page. */
@@ -109,6 +123,13 @@ export interface OwnedLesson {
 	 * rather than attributed through an org.
 	 */
 	author_name: string | null;
+	/**
+	 * Whether this lesson's author's account has since been anonymized, the
+	 * same way `former_authors` answers for a page - always sent, and the
+	 * one fact `author_name` alone cannot distinguish from a member who
+	 * never set a name.
+	 */
+	former_author: boolean;
 	/**
 	 * This lesson's retract authority, the same way `retractable_in` answers
 	 * for a page - present only when this is a teammate's org lesson in an

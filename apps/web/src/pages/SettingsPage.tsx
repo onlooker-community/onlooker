@@ -344,8 +344,9 @@ function DeleteAccountSection({
 	return (
 		<Panel title="Delete account" icon="Trashbin" variant="danger">
 			<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
-				Permanently delete your account and all associated data. This cannot be
-				undone.
+				Deleting your account cannot be undone. Lessons you shared with an org
+				stay with that org; everything else goes, and your account can no longer
+				be used.
 			</p>
 			{!confirming ? (
 				<Button onClick={() => setConfirming(true)} variant="ghost-danger">

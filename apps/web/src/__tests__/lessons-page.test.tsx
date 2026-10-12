@@ -271,6 +271,25 @@ describe("the detail pane", () => {
 		expect(screen.getAllByText("Bob").length).toBe(2);
 	});
 
+	// Same listed/fetched split authorName uses; seed former_authors with the
+	// listed lesson's id. The server reports which lessons lost an author, but
+	// the label is this client's wording, not the server's.
+	it("says a lesson's author has left", async () => {
+		withPool([VITE], { authors: {}, former_authors: [VITE.id] });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		expect(await screen.findByText(/former member/i)).toBeInTheDocument();
+	});
+
+	// authors empty, former_authors empty: neither a name nor the label -
+	// this is the case the ablation in Step 8 of the brief has to fail.
+	it("shows no attribution for a member who never set a name", async () => {
+		withPool([VITE], { authors: {}, former_authors: [] });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		expect(screen.queryByText(/former member/i)).not.toBeInTheDocument();
+	});
+
 	// The one path `authors` cannot answer for - a lesson on no loaded page -
 	// so only author_name on getLesson's own response can name it here.
 	it("names the author of a lesson reached only by deep link", async () => {
