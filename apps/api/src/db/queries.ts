@@ -405,6 +405,34 @@ export async function deleteUser(
 }
 
 /**
+ * Whether `userId` names an account that has been anonymized - kept as the
+ * anchor for an org lesson, stripped of identity and credentials, but not
+ * gone from `users` the way an ordinary deletion leaves it.
+ *
+ * `resolvePrincipal` calls this once per session- or operator-authenticated
+ * request; see its own comment for why that cost is accepted. This is the
+ * single indexed primary-key lookup that cost pays for, in the same raw-SQL
+ * shape `deleteUser`'s own post-batch re-read above already uses, rather than
+ * a second one somewhere else.
+ *
+ * False for a userId with no row at all. That is a different question -
+ * "does this account still exist" - and the handlers that need an answer to
+ * it already ask (getUserById, getPasswordHash); this answers only whether an
+ * EXISTING row has been anonymized.
+ */
+export async function isAnonymizedAccount(
+	db: D1Database,
+	userId: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare("SELECT anonymized_at FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ anonymized_at: string | null }>();
+
+	return row?.anonymized_at != null;
+}
+
+/**
  * The stored password hash for a user, by id.
  *
  * By id and not by email on purpose. An access token carries an email claim
