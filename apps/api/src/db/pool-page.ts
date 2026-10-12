@@ -114,8 +114,13 @@ export interface LessonPage {
 	 * a name field cannot be told apart from a user who set that as their
 	 * actual name. The client renders the words.
 	 *
-	 * Disjoint from `authors` by construction - an anonymized row has a NULL
-	 * name, which produces no `authors` key.
+	 * Disjoint from `authors` by construction: an anonymized row has a NULL
+	 * name, which produces no `authors` key - AND an anonymized account
+	 * cannot authenticate (`middleware/principal.ts`'s `resolvePrincipal`
+	 * refuses it), so nothing can give the row a name back. The second half
+	 * is load-bearing: `updateProfile` (`db/queries.ts`) is a second path
+	 * that writes `users.name`, and without the principal-resolution refusal
+	 * an anonymized account could reach it and set a new one.
 	 */
 	formerAuthors: string[];
 	/**

@@ -261,10 +261,11 @@ export default function LessonDetail() {
 	 * Same listed/fetched split as `authorName` and for the same reason:
 	 * `formerAuthors` cannot answer for a deep-linked lesson that is on no
 	 * loaded page, and a filter refetch can clear it while this pane still
-	 * shows a lesson out of `fetched`. An anonymized account carries no
-	 * name, so this and `authorName` never both hold for the same lesson -
-	 * the attribution block below reads `authorName` first and falls
-	 * through to this one otherwise, rather than the two racing.
+	 * shows a lesson out of `fetched`. An anonymized account carries no name
+	 * AND cannot authenticate to set a new one (the API's `resolvePrincipal`
+	 * refuses it), so this and `authorName` never both hold for the same
+	 * lesson - the attribution block below reads `authorName` first and
+	 * falls through to this one otherwise, rather than the two racing.
 	 */
 	const formerAuthor = listed
 		? formerAuthors.includes(listed.id)

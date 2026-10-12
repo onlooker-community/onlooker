@@ -331,16 +331,16 @@ export async function readPool(
  * Author names for the org rows on one page, by lesson id - and which of
  * those rows belong to an author whose account has since been anonymized.
  *
- * Both come from the same statement. It already selects from `users` for
- * exactly the rows that need it, so reading `anonymized_at` alongside `name`
- * costs nothing further; a second statement for `formerAuthors` would be the
- * extra query this function exists to avoid.
+ * Both come from this lookup's own single statement. It already selects from
+ * `users` for exactly the rows that need it, so reading `anonymized_at`
+ * alongside `name` costs nothing further; a second statement for
+ * `formerAuthors` would be the extra query this function exists to avoid.
  *
- * A second statement rather than a join in the pool read, for two reasons. The
- * repo's own precedent is this shape - see getLessonForUser's note on not
- * widening readPoolLesson's SELECT - and a LEFT JOIN in the main statement
- * would change the plan that pool-query-plan.test.ts pins, for a lookup that
- * most pages do not need at all.
+ * A separate statement here rather than a join in the pool read's own SELECT,
+ * for two reasons. The repo's own precedent is this shape - see
+ * getLessonForUser's note on not widening readPoolLesson's SELECT - and a
+ * LEFT JOIN in that SELECT would change the plan that pool-query-plan.test.ts
+ * pins, for a lookup that most pages do not need at all.
  *
  * Runs no statement when a page carries no org rows, which is every anonymous
  * read and most authenticated ones.
