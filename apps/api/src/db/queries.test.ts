@@ -434,6 +434,15 @@ describe("deleteUser when an org lesson must survive", () => {
 			orgId,
 		);
 		const token = await createMachineToken(db(), ada, "laptop", null);
+		// Requested before deletion, delivered to an inbox ada still reads -
+		// a surviving link would resurrect the anonymized row with no
+		// account-state check of its own (handleResetPassword checks none).
+		const resetToken = await createVerificationToken(
+			db(),
+			ada,
+			"reset",
+			new Date(Date.now() + 1000 * 60 * 60),
+		);
 
 		expect(await deleteUser(db(), ada)).toBe("anonymized");
 
@@ -446,6 +455,12 @@ describe("deleteUser when an org lesson must survive", () => {
 			.bind(ada)
 			.first<{ n: number }>();
 		expect(sessions?.n).toBe(0);
+		// The resurrection path a surviving reset token would open - strictly
+		// easier than finding a leftover access token, since this one does
+		// not even require holding a credential issued before deletion.
+		expect(
+			await consumeVerificationToken(db(), resetToken, "reset"),
+		).toBeNull();
 	});
 
 	it("keeps the surviving lesson's feed rows", async () => {
@@ -461,12 +476,14 @@ describe("deleteUser when an org lesson must survive", () => {
 		await deleteUser(db(), ada);
 
 		// transitionLesson allocates MAX(seq)+1 for this user. Deleting these
-		// would make a later org retract reuse a sequence number.
+		// would make a later org retract reuse a sequence number. One lesson
+		// seeded above means exactly one feed row - an exact count catches a
+		// partial deletion that leaves it behind, where ">0" would not.
 		const feed = await db()
 			.prepare("SELECT COUNT(*) AS n FROM lesson_feed WHERE user_id = ?")
 			.bind(ada)
 			.first<{ n: number }>();
-		expect(feed?.n).toBeGreaterThan(0);
+		expect(feed?.n).toBe(1);
 	});
 
 	it("still refuses a sole owner, leaving nothing half-dismantled", async () => {

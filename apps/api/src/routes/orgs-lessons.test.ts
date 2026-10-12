@@ -254,10 +254,9 @@ describe("deleting the org the lesson was shared with", () => {
 
 describe("after the author's account is gone", () => {
 	it("an owner can still retract the lesson they left behind", async () => {
-		// The member authored sharedId and shared it with the org. Promote the
-		// owner's co-ownership first so deleting the member is not refused for
-		// a reason unrelated to this test - the member is a plain member here,
-		// so nothing blocks it, but assert the outcome rather than assuming.
+		// The member authored sharedId and shared it with the org. The member
+		// is a plain member here, so nothing blocks deleting them - but assert
+		// the outcome rather than assuming.
 		expect(await deleteUser(db(), member.id)).toBe("anonymized");
 
 		const response = await call(
@@ -292,6 +291,11 @@ describe("after the author's account is gone", () => {
 		await blockAuthor(db(), authorKey ?? "", "ONL-136 check", owner.id);
 
 		expect(await deleteUser(db(), member.id)).toBe("anonymized");
+
+		// Established before the absence check below, or that check would pass
+		// just as well for a lesson that no longer exists - and the lesson
+		// surviving its author is the whole point of this branch.
+		expect(await probeLessonId(db(), sharedId)).not.toBeNull();
 
 		const page = await call("/api/lessons", owner.token);
 		const body = (await page.json()) as { lessons: { id: string }[] };
