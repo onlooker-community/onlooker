@@ -1,3 +1,4 @@
+import { AuthApiError } from "@onlooker/auth-react";
 import type { User } from "../auth";
 import { apiClient, tokenStore } from "./client";
 
@@ -93,10 +94,51 @@ export function changePassword(
 	);
 }
 
-export function deleteAccount(): Promise<{ success: boolean }> {
-	return apiClient.delete<{ success: boolean }>(
-		ACCOUNT_ENDPOINTS.deleteAccount,
-	);
+/** An org whose only owner is the account asking to be deleted. */
+export type SoleOwnedOrg = { id: string; name: string };
+
+/**
+ * Deletion is not guaranteed. The API refuses with 409 `sole_owner` while the
+ * account is the last owner of an org, because an ownerless org can never be
+ * administered or moderated again from the inside.
+ *
+ * The refusal is a RESULT here rather than a rejection, which is why this does
+ * not simply return `{ success: true }`: the caller has to show which orgs are
+ * responsible, and a thrown error that callers may forget to catch is one
+ * `await deleteAccount()` away from reporting a deletion that never happened.
+ * Every other failure still rejects.
+ */
+export type DeleteAccountResult =
+	| { success: true }
+	| { success: false; reason: "sole_owner"; orgs: SoleOwnedOrg[] };
+
+export async function deleteAccount(): Promise<DeleteAccountResult> {
+	try {
+		await apiClient.delete<{ success: boolean }>(
+			ACCOUNT_ENDPOINTS.deleteAccount,
+		);
+		return { success: true };
+	} catch (error) {
+		if (!(error instanceof AuthApiError) || error.code !== "sole_owner") {
+			throw error;
+		}
+		// apps/api sends the names so the refusal is actionable - the way out is
+		// to promote another owner in each org named. Read defensively: this is
+		// the one branch where losing the list would leave somebody holding a
+		// refusal with nowhere to go, so an unrecognized shape degrades to an
+		// empty list and the caller's own copy rather than to a crash.
+		const details = error.details as { orgs?: unknown } | null | undefined;
+		const orgs = Array.isArray(details?.orgs)
+			? details.orgs.filter(
+					(org): org is SoleOwnedOrg =>
+						typeof org === "object" &&
+						org !== null &&
+						typeof (org as SoleOwnedOrg).id === "string" &&
+						typeof (org as SoleOwnedOrg).name === "string",
+				)
+			: [];
+		return { success: false, reason: "sole_owner", orgs };
+	}
 }
 
 export function resendVerificationEmail(): Promise<{ success: boolean }> {

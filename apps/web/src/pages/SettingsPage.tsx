@@ -6,6 +6,7 @@ import {
 	deleteAccount,
 	getProfile,
 	resendVerificationEmail,
+	type SoleOwnedOrg,
 	updateProfile,
 } from "../api/accountApi";
 import { auth } from "../auth";
@@ -323,6 +324,7 @@ function DeleteAccountSection({
 	const [confirming, setConfirming] = useState(false);
 	const [confirmText, setConfirmText] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [refusal, setRefusal] = useState<SoleOwnedOrg[] | null>(null);
 	const [loading, setLoading] = useState(false);
 
 	const canDelete = confirmText.trim().toLowerCase() === email.toLowerCase();
@@ -331,9 +333,19 @@ function DeleteAccountSection({
 		e.preventDefault();
 		if (!canDelete) return;
 		setError(null);
+		setRefusal(null);
 		setLoading(true);
 		try {
-			await deleteAccount();
+			const result = await deleteAccount();
+			if (!result.success) {
+				// Not an error state: nothing went wrong, the account simply
+				// cannot go yet. onDeleted() tears down the session, so reaching
+				// it here would sign somebody out of an account that still
+				// exists - and out of the orgs they need to go fix.
+				setRefusal(result.orgs);
+				setLoading(false);
+				return;
+			}
 			await onDeleted();
 		} catch (err) {
 			setError(describeError(err, "Could not delete account."));
@@ -355,6 +367,34 @@ function DeleteAccountSection({
 			) : (
 				<form onSubmit={handleDelete} noValidate>
 					{error && <FormMessage kind="error">{error}</FormMessage>}
+					{refusal && (
+						<FormMessage kind="error">
+							{refusal.length > 0 ? (
+								<>
+									An org needs an owner. Promote somebody else in{" "}
+									{/* Named rather than counted: owning several, a count
+									    would say this is blocked without saying by what. */}
+									{refusal.map((org, i) => (
+										<span key={org.id}>
+											{i > 0 && (i === refusal.length - 1 ? " and " : ", ")}
+											<strong>{org.name}</strong>
+										</span>
+									))}
+									, or delete the org if you are its only member. Then delete
+									your account.
+								</>
+							) : (
+								// The list is what makes this actionable, so without it the
+								// honest thing is to say where to look rather than to name
+								// nothing and sound broken.
+								<>
+									An org needs an owner. Check the orgs you own: promote
+									somebody else, or delete the org if you are its only member.
+									Then delete your account.
+								</>
+							)}
+						</FormMessage>
+					)}
 					<TextField
 						id="delete-confirm"
 						label={`Type your email (${email}) to confirm`}
