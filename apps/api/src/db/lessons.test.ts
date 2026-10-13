@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	accountDeletionPreview,
 	createLessonsWithFeed,
 	hasOrgSharedLessons,
 	isUniqueViolationOn,
@@ -682,5 +683,123 @@ describe("nonOrgLessonsDelete", () => {
 
 		const result = await nonOrgLessonsDelete(db(), author).run();
 		expect(result.meta.changes).toBe(0);
+	});
+});
+
+describe("accountDeletionPreview", () => {
+	it("counts public lessons and keeps org ones out of that count", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		await createLessonsWithFeed(
+			db(),
+			userId,
+			[lesson({ visibility: "public" }) as TLesson],
+			null,
+		);
+		await createLessonsWithFeed(
+			db(),
+			userId,
+			[lesson({ visibility: "org" }) as TLesson],
+			org.id,
+		);
+
+		const preview = await accountDeletionPreview(db(), userId);
+
+		expect(preview.publicLessons).toBe(1);
+		expect(preview.orgsKeeping).toEqual([
+			{ id: org.id, name: "Acme", lessons: 1 },
+		]);
+	});
+
+	it("groups each org separately, ordered by name", async () => {
+		const beta = await createOrgWithOwner(db(), "Beta", userId);
+		const acme = await createOrgWithOwner(db(), "Acme", userId);
+		await createLessonsWithFeed(
+			db(),
+			userId,
+			[lesson({ visibility: "org" }) as TLesson],
+			beta.id,
+		);
+		await createLessonsWithFeed(
+			db(),
+			userId,
+			[
+				lesson({ visibility: "org" }) as TLesson,
+				lesson({ visibility: "org" }) as TLesson,
+			],
+			acme.id,
+		);
+
+		const preview = await accountDeletionPreview(db(), userId);
+
+		// Acme first, matching soleOwnedOrgs' ORDER BY o.name (orgs.ts:417), so
+		// the two lists somebody may see minutes apart agree.
+		expect(preview.orgsKeeping).toEqual([
+			{ id: acme.id, name: "Acme", lessons: 2 },
+			{ id: beta.id, name: "Beta", lessons: 1 },
+		]);
+	});
+
+	it("leaves retracted lessons out of both counts", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const published = lesson({ visibility: "public" }) as TLesson;
+		const shared = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [published], null);
+		await createLessonsWithFeed(db(), userId, [shared], org.id);
+		// pool.ts:160 hides a retracted lesson from everybody but its author, so
+		// it is already withdrawn: counting it would overstate what deletion
+		// costs anybody else, and claiming the org keeps it would be worse.
+		await db()
+			.prepare("UPDATE lessons SET status = 'retracted' WHERE id IN (?, ?)")
+			.bind(published.id, shared.id)
+			.run();
+
+		const preview = await accountDeletionPreview(db(), userId);
+
+		expect(preview.publicLessons).toBe(0);
+		expect(preview.orgsKeeping).toEqual([]);
+	});
+
+	it("still counts a superseded lesson, which readers can still reach", async () => {
+		await createLessonsWithFeed(
+			db(),
+			userId,
+			[lesson({ visibility: "public" }) as TLesson],
+			null,
+		);
+		await db()
+			.prepare("UPDATE lessons SET status = 'superseded' WHERE user_id = ?")
+			.bind(userId)
+			.run();
+
+		expect((await accountDeletionPreview(db(), userId)).publicLessons).toBe(1);
+	});
+
+	it("counts nobody else's lessons", async () => {
+		const other = await createUser(db(), "bob@example.com", "hash", "Bob");
+		const org = await createOrgWithOwner(db(), "Acme", other.id);
+		await createLessonsWithFeed(
+			db(),
+			other.id,
+			[lesson({ visibility: "public" }) as TLesson],
+			null,
+		);
+		await createLessonsWithFeed(
+			db(),
+			other.id,
+			[lesson({ visibility: "org" }) as TLesson],
+			org.id,
+		);
+
+		const preview = await accountDeletionPreview(db(), userId);
+
+		expect(preview.publicLessons).toBe(0);
+		expect(preview.orgsKeeping).toEqual([]);
+	});
+
+	it("answers zero and empty for an account that has shared nothing", async () => {
+		expect(await accountDeletionPreview(db(), userId)).toEqual({
+			publicLessons: 0,
+			orgsKeeping: [],
+		});
 	});
 });

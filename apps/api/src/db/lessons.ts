@@ -791,3 +791,53 @@ export function deleteUserUnlessProtected(
 		)
 		.bind(userId, userId, userId);
 }
+
+/**
+ * What deleting this account would destroy, and what each org would keep.
+ *
+ * Counts only what crosses the ownership boundary. `db/pool.ts:160` hides a
+ * retracted lesson from everybody but its author, under the rule stated at
+ * `:104`, so counting one here would overstate what deletion costs anybody
+ * else, and naming an org as keeping a lesson it cannot read would be worse.
+ * `superseded` rows stay counted: the pool serves those with their status
+ * attached, so a reader holding a link still reaches them.
+ *
+ * Private lessons are deliberately absent. They are destroyed -
+ * `nonOrgLessonsDelete` above takes every non-org row - but a private lesson
+ * has no audience to lose it, and disclosure exists for content other people
+ * can see.
+ *
+ * The org predicate is `hasOrgSharedLessons`' condition verbatim and the
+ * public one narrows the complement that `nonOrgLessonsDelete` deletes, so a
+ * reader comparing the three finds the same split each time. That is the same
+ * reason those two are written as one condition negated.
+ */
+export async function accountDeletionPreview(
+	db: D1Database,
+	userId: string,
+): Promise<{
+	publicLessons: number;
+	orgsKeeping: { id: string; name: string; lessons: number }[];
+}> {
+	const published = await db
+		.prepare(
+			`SELECT COUNT(*) AS n FROM lessons
+			 WHERE user_id = ? AND visibility = 'public' AND status != 'retracted'`,
+		)
+		.bind(userId)
+		.first<{ n: number }>();
+
+	const kept = await db
+		.prepare(
+			`SELECT o.id AS id, o.name AS name, COUNT(*) AS lessons
+			   FROM lessons l JOIN orgs o ON o.id = l.org_id
+			  WHERE l.user_id = ? AND l.visibility = 'org'
+			    AND l.org_id IS NOT NULL AND l.status != 'retracted'
+			  GROUP BY o.id, o.name
+			  ORDER BY o.name`,
+		)
+		.bind(userId)
+		.all<{ id: string; name: string; lessons: number }>();
+
+	return { publicLessons: published?.n ?? 0, orgsKeeping: kept.results ?? [] };
+}
