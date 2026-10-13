@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	del: vi.fn(),
+	get: vi.fn(),
 }));
 
 vi.mock("./client", () => ({
-	apiClient: { delete: mocks.del },
+	apiClient: { delete: mocks.del, get: mocks.get },
 	tokenStore: { getRefreshToken: () => null },
 }));
 
-const { deleteAccount } = await import("./accountApi");
+const { deleteAccount, getDeletionPreview } = await import("./accountApi");
 
 // What apps/api actually sends: routes/account.ts throws
 // ApiError(409, "sole_owner", ..., { orgs }), and auth-react's request()
@@ -26,6 +27,7 @@ function refusal(details: unknown) {
 
 beforeEach(() => {
 	mocks.del.mockReset().mockResolvedValue({ success: true });
+	mocks.get.mockReset();
 });
 
 describe("deleteAccount", () => {
@@ -86,5 +88,31 @@ describe("deleteAccount", () => {
 			reason: "sole_owner",
 			orgs: [{ id: "org-1", name: "Acme" }],
 		});
+	});
+});
+
+describe("getDeletionPreview", () => {
+	it("asks the deletion-preview endpoint and returns what it answers", async () => {
+		mocks.get.mockResolvedValue({
+			publicLessons: 12,
+			orgsKeeping: [{ id: "org-1", name: "Acme", lessons: 4 }],
+		});
+
+		expect(await getDeletionPreview()).toEqual({
+			publicLessons: 12,
+			orgsKeeping: [{ id: "org-1", name: "Acme", lessons: 4 }],
+		});
+		expect(mocks.get).toHaveBeenCalledWith("/auth/account/deletion-preview");
+	});
+
+	// Not zeros. An account that has published nothing and an account whose
+	// preview failed are different facts, and a zero for the second would read
+	// as "nothing will be lost" over a request that never answered.
+	it("rejects when the request fails rather than resolving to zeros", async () => {
+		mocks.get.mockRejectedValue(
+			new AuthApiError(500, "internal_error", "Something failed"),
+		);
+
+		await expect(getDeletionPreview()).rejects.toThrow("Something failed");
 	});
 });

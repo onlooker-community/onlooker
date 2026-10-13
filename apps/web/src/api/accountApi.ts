@@ -15,6 +15,7 @@ export const ACCOUNT_ENDPOINTS = {
 	resetPassword: "/auth/reset-password",
 	changePassword: "/auth/change-password",
 	deleteAccount: "/auth/account",
+	deletionPreview: "/auth/account/deletion-preview",
 	resendVerification: "/auth/resend-verification",
 	verifyEmail: "/auth/verify-email",
 } as const;
@@ -139,6 +140,30 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
 			: [];
 		return { success: false, reason: "sole_owner", orgs };
 	}
+}
+
+/** An org that keeps the lessons this account shared with it. */
+export type OrgKeepingLessons = { id: string; name: string; lessons: number };
+
+/**
+ * What deleting this account would destroy, read before the deletion is asked
+ * for rather than discovered from a dead link afterwards.
+ *
+ * `publicLessons` counts only what somebody else can currently read: a
+ * retracted lesson is already withdrawn, so the server leaves it out of both
+ * numbers. Private lessons are destroyed too and are deliberately not counted
+ * - they have no audience to lose them.
+ *
+ * There is no total for `orgsKeeping`. A sum the server sends and a sum the
+ * names add up to are two numbers that can disagree, so the caller adds them.
+ */
+export type DeletionPreview = {
+	publicLessons: number;
+	orgsKeeping: OrgKeepingLessons[];
+};
+
+export function getDeletionPreview(): Promise<DeletionPreview> {
+	return apiClient.get<DeletionPreview>(ACCOUNT_ENDPOINTS.deletionPreview);
 }
 
 export function resendVerificationEmail(): Promise<{ success: boolean }> {
