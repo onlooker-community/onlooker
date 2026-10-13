@@ -115,4 +115,25 @@ describe("getDeletionPreview", () => {
 
 		await expect(getDeletionPreview()).rejects.toThrow("Something failed");
 	});
+
+	// A body that is not this shape must not reach the panel. The panel reads
+	// orgsKeeping.length, so an unexpected payload - an older API deploy, a
+	// proxy's JSON error page, a stubbed client in somebody else's test - would
+	// throw inside render and take the whole delete section down with it,
+	// leaving nobody able to delete their account at all. Rejecting here lands
+	// it in the panel's "couldn't check" state instead, which is the honest one.
+	it.each([
+		["a missing orgsKeeping", { publicLessons: 2 }],
+		["a missing publicLessons", { orgsKeeping: [] }],
+		["orgsKeeping that is not an array", { publicLessons: 2, orgsKeeping: {} }],
+		["a body that is not an object", "nope"],
+		["null", null],
+		["an unrelated payload", { machines: [] }],
+	])("rejects %s rather than passing it to the panel", async (_label, body) => {
+		mocks.get.mockResolvedValue(body);
+
+		await expect(getDeletionPreview()).rejects.toThrow(
+			/unexpected deletion-preview/i,
+		);
+	});
 });

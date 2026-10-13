@@ -162,8 +162,43 @@ export type DeletionPreview = {
 	orgsKeeping: OrgKeepingLessons[];
 };
 
-export function getDeletionPreview(): Promise<DeletionPreview> {
-	return apiClient.get<DeletionPreview>(ACCOUNT_ENDPOINTS.deletionPreview);
+/**
+ * Read the preview, refusing anything that is not the shape above.
+ *
+ * The panel renders `orgsKeeping.length`, so a body of another shape would
+ * throw inside render and take the whole delete section with it - leaving
+ * somebody unable to delete their account at all, which is worse than the gap
+ * this preview exists to close. Reachable without any bug here: an API deploy
+ * older than this client, a proxy answering 200 with its own JSON, or a test
+ * that stubs the client.
+ *
+ * So this validates rather than trusting its own type parameter, and rejects
+ * on a mismatch. The panel already treats a rejection as "couldn't check",
+ * which is the honest thing to say about a body it cannot read.
+ */
+export async function getDeletionPreview(): Promise<DeletionPreview> {
+	const body = await apiClient.get<unknown>(ACCOUNT_ENDPOINTS.deletionPreview);
+
+	const preview = body as Partial<DeletionPreview> | null;
+	const wellFormed =
+		typeof preview === "object" &&
+		preview !== null &&
+		typeof preview.publicLessons === "number" &&
+		Array.isArray(preview.orgsKeeping) &&
+		preview.orgsKeeping.every(
+			(org) =>
+				typeof org === "object" &&
+				org !== null &&
+				typeof org.id === "string" &&
+				typeof org.name === "string" &&
+				typeof org.lessons === "number",
+		);
+
+	if (!wellFormed) {
+		throw new Error("Unexpected deletion-preview response");
+	}
+
+	return preview as DeletionPreview;
 }
 
 export function resendVerificationEmail(): Promise<{ success: boolean }> {
