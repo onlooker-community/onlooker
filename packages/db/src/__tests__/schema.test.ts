@@ -240,6 +240,7 @@ describe("session_summaries", () => {
 		expect(columnNames(session_summaries)).toEqual([
 			"compactions",
 			"counts_by_prefix",
+			"counts_by_project",
 			"ended_at",
 			"event_count",
 			"machine_id",

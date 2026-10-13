@@ -445,6 +445,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "counts_by_project",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
 				name: "plugins",
 				type: "TEXT",
 				notnull: 1,

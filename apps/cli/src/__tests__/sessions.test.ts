@@ -214,3 +214,126 @@ describe("summarizeSessions", () => {
 		await expect(summarizeSessions([])).resolves.toEqual([]);
 	});
 });
+
+describe("summarizeSessions / counts_by_project", () => {
+	/** `run`, with a project key and basis stamped on every event. */
+	function inProject(
+		events: EventEnvelope[],
+		project: string,
+		basis: "remote" | "root" = "remote",
+	): EventEnvelope[] {
+		return events.map((event) => ({ ...event, project, project_basis: basis }));
+	}
+
+	it("counts a single-project session under its one key", async () => {
+		const events = inProject(
+			run("s1", ["session.start", ...filler(20), "session.end"]),
+			"ee2cfbe428c7",
+		);
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.counts_by_project).toEqual({
+			ee2cfbe428c7: { basis: "remote", event_count: 22 },
+		});
+	});
+
+	// THE REASON THIS COLUMN IS A MAP. Measured against lineage's ledger, 20 of
+	// 115 sessions (17.4%) touched more than one project, and one touched
+	// three. A scalar column - first-seen or modal - is silently wrong for a
+	// sixth of sessions in exactly the "which repo burns the most" number the
+	// feature exists to produce.
+	it("splits a session that spans two projects", async () => {
+		const events = [
+			...inProject(run("s1", filler(12)), "ee2cfbe428c7"),
+			...inProject(run("s1", filler(8), 20), "bc046590dad9", "root"),
+		];
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.event_count).toBe(20);
+		expect(summary.counts_by_project).toEqual({
+			ee2cfbe428c7: { basis: "remote", event_count: 12 },
+			bc046590dad9: { basis: "root", event_count: 8 },
+		});
+	});
+
+	// An empty map, never null. Every event in the log predating ecosystem
+	// 0.71.0 lands here, so this is the common case for a while yet, and a
+	// consumer should not have to branch on two kinds of nothing.
+	it("gives a session with no project dimension an empty map", async () => {
+		const events = run("s1", ["session.start", ...filler(20), "session.end"]);
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.counts_by_project).toEqual({});
+		expect(summary.counts_by_project).not.toBeNull();
+	});
+
+	// A session that gained the dimension partway through - the realistic shape
+	// of the release itself, where a running session's hooks are swapped under
+	// it. Only the attributable events are counted, and event_count still
+	// covers them all, so the two numbers deliberately disagree.
+	it("counts only the attributable events of a partially-stamped session", async () => {
+		const events = [
+			...run("s1", filler(10)),
+			...inProject(run("s1", filler(10), 20), "ee2cfbe428c7"),
+		];
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.event_count).toBe(20);
+		expect(summary.counts_by_project).toEqual({
+			ee2cfbe428c7: { basis: "remote", event_count: 10 },
+		});
+	});
+
+	// A key with no basis is not attributable: the ecosystem emitter refuses to
+	// send one (both fields or neither), so a line carrying only `project` came
+	// from something that is not the canonical emitter and should not seed a
+	// row whose basis we would have to invent.
+	it("ignores a project with no basis", async () => {
+		const events = run("s1", filler(25)).map((event) => ({
+			...event,
+			project: "ee2cfbe428c7",
+		}));
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.counts_by_project).toEqual({});
+	});
+
+	// Same guard `counts_by_prefix` carries, and for the same reason: this
+	// summarizer does not validate the 12-hex pattern, it folds whatever the
+	// log says. A `__proto__` key on a plain object literal reads back through
+	// Object.prototype instead of returning undefined, and assigning through it
+	// pollutes every object in the process for the life of the CLI run.
+	it("folds a __proto__ project key as plain data", async () => {
+		const events = inProject(run("s1", filler(25)), "__proto__");
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(Object.getPrototypeOf(summary.counts_by_project)).toBeNull();
+		expect(Reflect.get(summary.counts_by_project, "__proto__")).toEqual({
+			basis: "remote",
+			event_count: 25,
+		});
+	});
+
+	it("keeps each session's projects separate", async () => {
+		const events = [
+			...inProject(run("s1", filler(25)), "ee2cfbe428c7"),
+			...inProject(run("s2", filler(25)), "bc046590dad9", "root"),
+		];
+
+		const summaries = await summarizeSessions(events);
+		const byId = new Map(summaries.map((s) => [s.session_id, s]));
+
+		expect(byId.get("s1")?.counts_by_project).toEqual({
+			ee2cfbe428c7: { basis: "remote", event_count: 25 },
+		});
+		expect(byId.get("s2")?.counts_by_project).toEqual({
+			bc046590dad9: { basis: "root", event_count: 25 },
+		});
+	});
+});

@@ -18,9 +18,31 @@ export interface SessionSummaryInput {
 	ended_at: string | null;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	/**
+	 * Project key -> `{ basis, event_count }`, for the events of this session
+	 * that were attributable to a repository. Empty when none were, which is
+	 * every session reported by a CLI older than this column.
+	 *
+	 * Opaque keys only. A project key is a hash, never a path or a repo name,
+	 * so no directory or repository name reaches the server by this route - the
+	 * key -> display-name mapping is a separate, explicitly opt-in upload.
+	 */
+	counts_by_project: Record<string, ProjectCount>;
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+}
+
+/** One repository's share of a session. Mirrors the CLI's own ProjectCount. */
+export interface ProjectCount {
+	/**
+	 * `remote` keys are portable across machines; `root` keys are derived from
+	 * a local path, so the same remote-less repo on two machines produces two
+	 * different keys. Stored so a reader can aggregate confidently on the
+	 * former and scope or flag the latter, rather than summing them blindly.
+	 */
+	basis: "remote" | "root";
+	event_count: number;
 }
 
 /**
@@ -54,6 +76,12 @@ export async function putSessionSummaries(
 			ended_at: summary.ended_at,
 			event_count: summary.event_count,
 			counts_by_prefix: JSON.stringify(summary.counts_by_prefix),
+			// `?? {}` rather than relying on the column default: the default
+			// only applies to an INSERT that omits the column, and this row
+			// object names it explicitly, so an older CLI that posts no
+			// counts_by_project would otherwise stringify `undefined` into
+			// the literal text "undefined" and break every later JSON.parse.
+			counts_by_project: JSON.stringify(summary.counts_by_project ?? {}),
 			plugins: JSON.stringify(summary.plugins),
 			prompts: summary.prompts,
 			compactions: summary.compactions,
@@ -73,6 +101,7 @@ export async function putSessionSummaries(
 					ended_at: row.ended_at,
 					event_count: row.event_count,
 					counts_by_prefix: row.counts_by_prefix,
+					counts_by_project: row.counts_by_project,
 					plugins: row.plugins,
 					prompts: row.prompts,
 					compactions: row.compactions,
@@ -105,6 +134,7 @@ export interface SessionSummaryRow {
 	ended_at: string | null;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	counts_by_project: Record<string, ProjectCount>;
 	plugins: string[];
 	prompts: number;
 	compactions: number;
@@ -189,7 +219,8 @@ export async function listSessionSummaries(
 	const { results } = await db
 		.prepare(
 			`SELECT machine_id, session_id, started_at, ended_at, event_count,
-			        counts_by_prefix, plugins, prompts, compactions
+			        counts_by_prefix, counts_by_project, plugins, prompts,
+			        compactions
 			 FROM session_summaries
 			 WHERE ${where}
 			 ORDER BY started_at DESC, machine_id DESC, session_id DESC
@@ -203,6 +234,7 @@ export async function listSessionSummaries(
 			ended_at: string | null;
 			event_count: number;
 			counts_by_prefix: string;
+			counts_by_project: string | null;
 			plugins: string;
 			prompts: number;
 			compactions: number;
@@ -217,6 +249,16 @@ export async function listSessionSummaries(
 		ended_at: r.ended_at,
 		event_count: r.event_count,
 		counts_by_prefix: JSON.parse(r.counts_by_prefix) as Record<string, number>,
+		// Typed `string | null` and defaulted here even though the column is
+		// NOT NULL DEFAULT '{}'. The default covers rows inserted without the
+		// column, but a D1 instance that has not yet run migration 0014 returns
+		// the field as absent/null for every row, and `JSON.parse(null)` yields
+		// null rather than throwing - which would put a null into a field the
+		// browser's type says is an object. One `?? "{}"` closes both.
+		counts_by_project: JSON.parse(r.counts_by_project ?? "{}") as Record<
+			string,
+			ProjectCount
+		>,
 		plugins: JSON.parse(r.plugins) as string[],
 		prompts: r.prompts,
 		compactions: r.compactions,

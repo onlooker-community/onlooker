@@ -99,6 +99,13 @@
       "when": 1791757989597,
       "tag": "0013_kind_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1791851283443,
+      "tag": "0014_workable_serpent_society",
+      "breakpoints": true
     }
   ]
 }

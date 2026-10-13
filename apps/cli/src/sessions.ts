@@ -17,6 +17,34 @@ export interface EventEnvelope {
 	timestamp: string;
 	machine_id?: string;
 	plugin?: string;
+	/**
+	 * The repository this event is attributable to: an opaque 12-hex key, never
+	 * a path or a repo name. Byte-identical to the on-disk directory name under
+	 * `$ONLOOKER_DIR/<plugin>/<key>/`, which is what lets a hosted row join to
+	 * local artifacts.
+	 *
+	 * Absent means "not attributable", which covers both a non-git directory
+	 * and an emitter older than ecosystem 0.71.0. No sentinel distinguishes
+	 * them, because every consumer handles them identically and the second case
+	 * ages out.
+	 *
+	 * Still envelope, not payload - the safety story above is unchanged.
+	 */
+	project?: string;
+	/**
+	 * Which derivation produced `project`. `remote` (from the origin URL) is
+	 * portable across machines; `root` (from the repo path) is machine-local,
+	 * so the same remote-less repo on a laptop and a desktop yields two
+	 * different keys. A consumer aggregating per repository must treat the two
+	 * differently rather than summing them.
+	 */
+	project_basis?: "remote" | "root";
+}
+
+/** One repository's share of a session, as `counts_by_project` records it. */
+export interface ProjectCount {
+	basis: "remote" | "root";
+	event_count: number;
 }
 
 export interface SessionSummary {
@@ -28,6 +56,21 @@ export interface SessionSummary {
 	event_count: number;
 	/** Keyed by the part of `event_type` before the first dot. */
 	counts_by_prefix: Record<string, number>;
+	/**
+	 * Keyed by project key, for the events of this session that carried one.
+	 *
+	 * A map rather than a scalar because sessions genuinely span repositories:
+	 * measured against lineage's ledger, 20 of 115 sessions (17.4%) touched
+	 * more than one project and one touched three. A first-seen or modal column
+	 * would be silently wrong for a sixth of sessions in exactly the "which
+	 * repo burns the most" number this exists to produce.
+	 *
+	 * Empty when no event was attributable - never null, so a consumer has one
+	 * kind of nothing to handle. Its counts sum to `event_count` only when
+	 * every event carried a key, which is not true of a session that spans the
+	 * ecosystem 0.71.0 upgrade.
+	 */
+	counts_by_project: Record<string, ProjectCount>;
 	plugins: string[];
 	prompts: number;
 	compactions: number;
@@ -59,6 +102,7 @@ interface Accumulator {
 	last_at: string;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	counts_by_project: Record<string, ProjectCount>;
 	plugins: Set<string>;
 	prompts: number;
 	compactions: number;
@@ -109,6 +153,12 @@ export async function summarizeSessions(
 				// assignment through it pollutes every object in the process for the
 				// life of the CLI invocation. See eventlog.ts:179-185 for the same guard.
 				counts_by_prefix: Object.create(null),
+				// `Object.create(null)` for the same reason as the line above,
+				// and the reason applies just as literally here: this fold does
+				// not validate the envelope's `^[0-9a-f]{12}$` pattern, it keys
+				// on whatever the log said, so a line claiming a `__proto__`
+				// project is the same hazard as a `__proto__` event prefix.
+				counts_by_project: Object.create(null),
 				plugins: new Set(),
 				prompts: 0,
 				compactions: 0,
@@ -123,6 +173,22 @@ export async function summarizeSessions(
 		const prefix = prefixOf(event.event_type);
 		acc.counts_by_prefix[prefix] = (acc.counts_by_prefix[prefix] ?? 0) + 1;
 		if (event.plugin) acc.plugins.add(event.plugin);
+
+		// Both fields or neither, matching what the emitter will send: a key
+		// without its basis is not attributable, because nothing here could
+		// tell a portable remote-derived key from a machine-local one, and
+		// inventing a basis is what would make two machines' rows for one repo
+		// look like two repos.
+		if (event.project && event.project_basis) {
+			const existing = acc.counts_by_project[event.project];
+			if (existing) existing.event_count += 1;
+			else {
+				acc.counts_by_project[event.project] = {
+					basis: event.project_basis,
+					event_count: 1,
+				};
+			}
+		}
 
 		if (event.event_type === "session.end") acc.ended_at = event.timestamp;
 		else if (event.event_type === "session.prompt") acc.prompts += 1;
@@ -141,6 +207,7 @@ export async function summarizeSessions(
 			ended_at: acc.ended_at,
 			event_count: acc.event_count,
 			counts_by_prefix: acc.counts_by_prefix,
+			counts_by_project: acc.counts_by_project,
 			plugins: [...acc.plugins].sort(),
 			prompts: acc.prompts,
 			compactions: acc.compactions,

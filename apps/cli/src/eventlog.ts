@@ -453,7 +453,12 @@ async function* emptyEnvelopes(): AsyncGenerator<EventEnvelope> {}
  * ahead of it rather than already done.
  *
  * `payload` is never read. Only `event_type`, `session_id`, `timestamp`,
- * `machine_id` and `plugin` are pulled off each parsed line.
+ * `machine_id`, `plugin`, `project` and `project_basis` are pulled off each
+ * parsed line - all envelope fields, which is what keeps the payload-safety
+ * boundary this projection draws intact. The list is exhaustive on purpose: a
+ * field absent from it is a field `summarizeSessions` can never see, however
+ * faithfully the emitter writes it, and the fold's own tests cannot catch that
+ * because they build envelopes as object literals rather than reading a log.
  *
  * A line that is not valid JSON, or is missing a required field, is skipped
  * rather than aborting the pass: the log is appended by many independent
@@ -501,6 +506,17 @@ async function* streamEnvelopes(
 				machine_id:
 					typeof record.machine_id === "string" ? record.machine_id : undefined,
 				plugin: typeof record.plugin === "string" ? record.plugin : undefined,
+				project:
+					typeof record.project === "string" ? record.project : undefined,
+				// Narrowed to the two legal values rather than passed through as
+				// any string: this is untrusted input from a log many
+				// independent writers append to, and `project_basis` is the
+				// field a consumer branches on to decide whether a key may be
+				// aggregated across machines at all.
+				project_basis:
+					record.project_basis === "remote" || record.project_basis === "root"
+						? record.project_basis
+						: undefined,
 			};
 		}
 	} catch (error) {

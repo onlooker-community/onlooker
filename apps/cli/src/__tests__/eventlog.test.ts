@@ -621,6 +621,74 @@ describe("readEventEnvelopes / streamEnvelopes", () => {
 		const { envelopes } = await readEventEnvelopes(env);
 		expect(Symbol.asyncIterator in envelopes).toBe(true);
 	});
+
+	// This projection is where the project dimension would go to die, and the
+	// failure would be invisible: `summarizeSessions` is tested with object
+	// literals, so every summarizer test passes whether or not the field ever
+	// survives the read. Asserting it HERE, over a real JSONL line, is what
+	// pins the one hop that the fold's own tests cannot see.
+	it("carries project and project_basis off the line", async () => {
+		const env = withEvents([
+			{
+				...event("tool.file.read", "2026-09-01T00:00:00Z"),
+				project: "ee2cfbe428c7",
+				project_basis: "remote",
+			},
+		]);
+		const { envelopes } = await readEventEnvelopes(env);
+
+		const [envelope] = await collect(envelopes);
+		expect(envelope.project).toBe("ee2cfbe428c7");
+		expect(envelope.project_basis).toBe("remote");
+	});
+
+	it("carries a root-derived basis verbatim", async () => {
+		const env = withEvents([
+			{
+				...event("tool.file.read", "2026-09-01T00:00:00Z"),
+				project: "bc046590dad9",
+				project_basis: "root",
+			},
+		]);
+		const { envelopes } = await readEventEnvelopes(env);
+
+		const [envelope] = await collect(envelopes);
+		expect(envelope.project_basis).toBe("root");
+	});
+
+	// Absence is the documented value for "not attributable" - a non-git
+	// directory, or an emitter older than ecosystem 0.71.0. Every event in the
+	// log predating that release is this case, so it is the common one, not
+	// the edge: the line is still a perfectly good envelope.
+	it("yields an envelope with no project when the line carries none", async () => {
+		const env = withEvents([event("session.start", "2026-09-01T00:00:00Z")]);
+		const { envelopes } = await readEventEnvelopes(env);
+
+		const [envelope] = await collect(envelopes);
+		expect(envelope.project).toBeUndefined();
+		expect(envelope.project_basis).toBeUndefined();
+		expect(envelope.event_type).toBe("session.start");
+	});
+
+	// Same shape as the machine_id/plugin guards beside it: the log is appended
+	// by many independent writers, so a field's TYPE is not guaranteed by the
+	// envelope schema the emitter validates against. A number here must not
+	// become an object key downstream.
+	it("drops a project that is not a string, keeping the envelope", async () => {
+		const env = withEvents([
+			{
+				...event("tool.file.read", "2026-09-01T00:00:00Z"),
+				project: 12345,
+				project_basis: ["remote"],
+			},
+		]);
+		const { envelopes } = await readEventEnvelopes(env);
+
+		const [envelope] = await collect(envelopes);
+		expect(envelope.project).toBeUndefined();
+		expect(envelope.project_basis).toBeUndefined();
+		expect(envelope.event_type).toBe("tool.file.read");
+	});
 });
 
 /** A temp `$ONLOOKER_DIR` holding a `logs/hook-health.jsonl` of `lines`. */
