@@ -364,9 +364,16 @@ export const lesson_author_blocks = sqliteTable("lesson_author_blocks", {
  * local state to corrupt, and a wiped cli.json re-reports rather than orphaning
  * history.
  *
- * `counts_by_prefix` and `plugins` are JSON text. D1 has no JSON column type,
- * and the alternative - a row per prefix per session - would multiply a feed
- * that is already the largest thing a machine reports.
+ * `counts_by_prefix`, `counts_by_project` and `plugins` are JSON text. D1 has
+ * no JSON column type, and the alternative - a row per prefix per session -
+ * would multiply a feed that is already the largest thing a machine reports.
+ *
+ * `counts_by_project` is a map for a measured reason, not for symmetry with
+ * `counts_by_prefix`: 17.4% of sessions touch more than one repository, so a
+ * scalar project column would be silently wrong for a sixth of them. A row per
+ * (session, project) was the other candidate and was rejected because it
+ * changes this table's primary key and leaves session-level fields like
+ * `prompts` and `compactions` with no non-arbitrary way to split.
  *
  * Nothing here derives from an event's payload. See the design: the summarizer
  * never reads one.
@@ -387,6 +394,18 @@ export const session_summaries = sqliteTable(
 		event_count: integer("event_count").notNull(),
 		/** JSON object: prefix -> count. */
 		counts_by_prefix: text("counts_by_prefix").notNull(),
+		/**
+		 * JSON object: project key -> `{ basis, event_count }`.
+		 *
+		 * Defaulted to an empty object rather than left nullable, so the rows
+		 * written before this column existed read back as "no project was
+		 * attributable" - which is exactly what they mean - instead of forcing
+		 * every consumer to handle a second kind of nothing. Those rows are
+		 * never backfilled: the dimension did not exist when they were
+		 * summarized, and the only local source that could approximate one
+		 * covers a biased 9% of history.
+		 */
+		counts_by_project: text("counts_by_project").notNull().default("{}"),
 		/** JSON array of plugin names. */
 		plugins: text("plugins").notNull(),
 		prompts: integer("prompts").notNull().default(0),

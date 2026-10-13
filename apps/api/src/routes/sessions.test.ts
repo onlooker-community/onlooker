@@ -412,3 +412,140 @@ describe("pruneSessionSummaries", () => {
 		expect(results).toHaveLength(1);
 	});
 });
+
+describe("counts_by_project", () => {
+	const twoProjects = {
+		ee2cfbe428c7: { basis: "remote", event_count: 18 },
+		bc046590dad9: { basis: "root", event_count: 7 },
+	};
+
+	it("stores a multi-project session and reads it back parsed", async () => {
+		const access = await signup("multiproject@example.com");
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_project: twoProjects })],
+		});
+		expect(posted.status).toBe(200);
+
+		const read = await get(access);
+		const body = (await read.json()) as {
+			sessions: { counts_by_project: Record<string, unknown> }[];
+		};
+		// Parsed out of its JSON TEXT column, so a client never sees the
+		// storage representation - the same contract counts_by_prefix has.
+		expect(body.sessions[0].counts_by_project).toEqual(twoProjects);
+	});
+
+	// A CLI older than this column posts no such field. Rejecting those bodies
+	// would break every machine that has not upgraded, for a dimension whose
+	// absence already means "not attributable".
+	it("accepts a summary with no counts_by_project and stores an empty map", async () => {
+		const access = await signup("noproject@example.com");
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary()],
+		});
+		expect(posted.status).toBe(200);
+
+		const stored = await db()
+			.prepare(
+				"SELECT counts_by_project FROM session_summaries WHERE machine_id = ?",
+			)
+			.bind(machine.id)
+			.first<{ counts_by_project: string }>();
+		// The literal text "{}", not "undefined" and not NULL - a stringified
+		// `undefined` would break every later JSON.parse of this column.
+		expect(stored?.counts_by_project).toBe("{}");
+
+		const read = await get(access);
+		const body = (await read.json()) as {
+			sessions: { counts_by_project: Record<string, unknown> }[];
+		};
+		expect(body.sessions[0].counts_by_project).toEqual({});
+	});
+
+	it("rejects a basis that is neither remote nor root", async () => {
+		const access = await signup("badbasis@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					counts_by_project: {
+						ee2cfbe428c7: { basis: "worktree", event_count: 3 },
+					},
+				}),
+			],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	it("rejects a non-numeric event_count", async () => {
+		const access = await signup("badcount@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					counts_by_project: {
+						ee2cfbe428c7: { basis: "remote", event_count: "lots" },
+					},
+				}),
+			],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	it("rejects an array where the map belongs", async () => {
+		const access = await signup("arraymap@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_project: [{ basis: "remote" }] })],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	// The upsert path: a session re-reported as it grows must carry its newer
+	// project counts, not keep the first report's. counts_by_project is in the
+	// onConflictDoUpdate set for exactly this reason.
+	it("updates the project counts when a session is re-reported", async () => {
+		const access = await signup("reproject@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					counts_by_project: {
+						ee2cfbe428c7: { basis: "remote", event_count: 5 },
+					},
+				}),
+			],
+		});
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_project: twoProjects })],
+		});
+
+		const stored = await db()
+			.prepare(
+				"SELECT counts_by_project FROM session_summaries WHERE machine_id = ?",
+			)
+			.bind(machine.id)
+			.first<{ counts_by_project: string }>();
+		expect(JSON.parse(stored?.counts_by_project ?? "null")).toEqual(
+			twoProjects,
+		);
+	});
+});

@@ -19,6 +19,34 @@ const MAX_SESSIONS_BYTES = 256 * 1024;
 /** The only document shape this server knows how to store. */
 const SUPPORTED_SCHEMA_VERSION = 1;
 
+/**
+ * Whether `counts_by_project` is a map of project key -> {basis, event_count}.
+ *
+ * Absent is VALID and means an empty map. A CLI older than this column posts no
+ * such field, and rejecting those bodies would break every machine that has not
+ * upgraded yet - for a dimension whose own absence already means "not
+ * attributable". `putSessionSummaries` defaults it on write.
+ *
+ * The basis is checked against its two legal values rather than `typeof
+ * "string"`, because it is what a reader branches on to decide whether a key
+ * may be aggregated across machines. A third value would read as neither and
+ * silently drop out of both.
+ */
+function isValidCountsByProject(value: unknown): boolean {
+	if (value === undefined) return true;
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	return Object.values(value as Record<string, unknown>).every((entry) => {
+		if (typeof entry !== "object" || entry === null) return false;
+		const count = entry as Record<string, unknown>;
+		return (
+			(count.basis === "remote" || count.basis === "root") &&
+			typeof count.event_count === "number"
+		);
+	});
+}
+
 /** Whether a candidate has every field putSessionSummaries needs. */
 function isValidSummary(value: unknown): value is SessionSummaryInput {
 	if (typeof value !== "object" || value === null) return false;
@@ -36,6 +64,7 @@ function isValidSummary(value: unknown): value is SessionSummaryInput {
 		Object.values(candidate.counts_by_prefix).every(
 			(count) => typeof count === "number",
 		) &&
+		isValidCountsByProject(candidate.counts_by_project) &&
 		Array.isArray(candidate.plugins) &&
 		candidate.plugins.every((plugin) => typeof plugin === "string") &&
 		typeof candidate.prompts === "number" &&
