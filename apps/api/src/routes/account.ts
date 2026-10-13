@@ -9,6 +9,7 @@
  * - Account deletion with cascading deletes
  */
 
+import { accountDeletionPreview } from "../db/lessons.js";
 import { soleOwnedOrgs } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import {
@@ -234,6 +235,38 @@ export async function handleChangePassword(
 	await revokeAllSessionsForUserExcept(env.DB, userId, body.refreshToken);
 
 	return jsonResponse({ success: true });
+}
+
+/**
+ * GET /auth/account/deletion-preview
+ * What a deletion would destroy, so the confirm step can say so beforehand.
+ *
+ * Fetched when somebody asks to delete rather than on every settings visit.
+ * Two reads on every page load would be paid for by every visitor, almost
+ * none of whom are leaving, and the numbers would describe the moment the page
+ * loaded rather than the moment they are read.
+ *
+ * Nothing here is authoritative about what deletion will do: a lesson pushed
+ * between this call and the DELETE is counted wrongly, by one, in a
+ * disclosure nothing relies on for exactness. Making the two agree would mean
+ * reading and deleting in one transaction, which deleteUser deliberately does
+ * not do.
+ *
+ * Requires: Access token
+ * Response: { publicLessons: number, orgsKeeping: { id, name, lessons }[] }
+ * Errors: 401 (unauthorized)
+ */
+export async function handleDeletionPreview(
+	_request: Request,
+	env: WorkerEnv,
+	_params: RouteParams,
+	principal: Principal | null,
+): Promise<Response> {
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
+
+	return jsonResponse(await accountDeletionPreview(env.DB, userId));
 }
 
 /**

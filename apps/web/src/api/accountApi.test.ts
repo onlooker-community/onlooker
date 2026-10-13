@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	del: vi.fn(),
+	get: vi.fn(),
 }));
 
 vi.mock("./client", () => ({
-	apiClient: { delete: mocks.del },
+	apiClient: { delete: mocks.del, get: mocks.get },
 	tokenStore: { getRefreshToken: () => null },
 }));
 
-const { deleteAccount } = await import("./accountApi");
+const { deleteAccount, getDeletionPreview } = await import("./accountApi");
 
 // What apps/api actually sends: routes/account.ts throws
 // ApiError(409, "sole_owner", ..., { orgs }), and auth-react's request()
@@ -26,6 +27,7 @@ function refusal(details: unknown) {
 
 beforeEach(() => {
 	mocks.del.mockReset().mockResolvedValue({ success: true });
+	mocks.get.mockReset();
 });
 
 describe("deleteAccount", () => {
@@ -86,5 +88,52 @@ describe("deleteAccount", () => {
 			reason: "sole_owner",
 			orgs: [{ id: "org-1", name: "Acme" }],
 		});
+	});
+});
+
+describe("getDeletionPreview", () => {
+	it("asks the deletion-preview endpoint and returns what it answers", async () => {
+		mocks.get.mockResolvedValue({
+			publicLessons: 12,
+			orgsKeeping: [{ id: "org-1", name: "Acme", lessons: 4 }],
+		});
+
+		expect(await getDeletionPreview()).toEqual({
+			publicLessons: 12,
+			orgsKeeping: [{ id: "org-1", name: "Acme", lessons: 4 }],
+		});
+		expect(mocks.get).toHaveBeenCalledWith("/auth/account/deletion-preview");
+	});
+
+	// Not zeros. An account that has published nothing and an account whose
+	// preview failed are different facts, and a zero for the second would read
+	// as "nothing will be lost" over a request that never answered.
+	it("rejects when the request fails rather than resolving to zeros", async () => {
+		mocks.get.mockRejectedValue(
+			new AuthApiError(500, "internal_error", "Something failed"),
+		);
+
+		await expect(getDeletionPreview()).rejects.toThrow("Something failed");
+	});
+
+	// A body that is not this shape must not reach the panel. The panel reads
+	// orgsKeeping.length, so an unexpected payload - an older API deploy, a
+	// proxy's JSON error page, a stubbed client in somebody else's test - would
+	// throw inside render and take the whole delete section down with it,
+	// leaving nobody able to delete their account at all. Rejecting here lands
+	// it in the panel's "couldn't check" state instead, which is the honest one.
+	it.each([
+		["a missing orgsKeeping", { publicLessons: 2 }],
+		["a missing publicLessons", { orgsKeeping: [] }],
+		["orgsKeeping that is not an array", { publicLessons: 2, orgsKeeping: {} }],
+		["a body that is not an object", "nope"],
+		["null", null],
+		["an unrelated payload", { machines: [] }],
+	])("rejects %s rather than passing it to the panel", async (_label, body) => {
+		mocks.get.mockResolvedValue(body);
+
+		await expect(getDeletionPreview()).rejects.toThrow(
+			/unexpected deletion-preview/i,
+		);
 	});
 });

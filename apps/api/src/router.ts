@@ -20,6 +20,7 @@ import {
 	handleCreateOrg,
 	handleDeleteAccount,
 	handleDeleteOrg,
+	handleDeletionPreview,
 	handleForgotPassword,
 	handleGetInventory,
 	handleGetLesson,
@@ -182,6 +183,16 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleDeleteAccount,
+	},
+	{
+		// Two segments under /auth/account, the shape /auth/reset-password/verify
+		// already uses beside /auth/reset-password. Matching is exact on method
+		// and path, so this cannot shadow the DELETE above.
+		method: "GET",
+		path: "/auth/account/deletion-preview",
+		auth: "session",
+		cors: "app",
+		handler: handleDeletionPreview,
 	},
 	{
 		// Unauthenticated: the credential here is the verification token in the

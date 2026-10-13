@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
 	type AccountUser,
 	changePassword,
+	type DeletionPreview,
 	deleteAccount,
+	getDeletionPreview,
 	getProfile,
 	resendVerificationEmail,
 	type SoleOwnedOrg,
@@ -326,7 +328,29 @@ function DeleteAccountSection({
 	const [error, setError] = useState<string | null>(null);
 	const [refusal, setRefusal] = useState<SoleOwnedOrg[] | null>(null);
 	const [loading, setLoading] = useState(false);
+	// Four states, because "no counts yet" and "no counts at all" are different
+	// things to say. Fetched when deletion is asked for rather than on mount:
+	// almost nobody visiting settings is leaving, and a count read at page load
+	// describes a moment nobody was deciding anything in.
+	const [preview, setPreview] = useState<
+		| { kind: "idle" }
+		| { kind: "loading" }
+		| { kind: "ready"; counts: DeletionPreview }
+		| { kind: "unavailable" }
+	>({ kind: "idle" });
 
+	const askToDelete = () => {
+		setConfirming(true);
+		setPreview({ kind: "loading" });
+		getDeletionPreview()
+			.then((counts) => setPreview({ kind: "ready", counts }))
+			.catch(() => setPreview({ kind: "unavailable" }));
+	};
+
+	// Deliberately independent of `preview`. Closing your own account must not
+	// depend on a disclosure query succeeding, and the irreversible case is
+	// already guarded: deleteAccount refuses with sole_owner while an org would
+	// be left ownerless, whatever this preview said or failed to say.
 	const canDelete = confirmText.trim().toLowerCase() === email.toLowerCase();
 
 	const handleDelete = async (e: React.FormEvent) => {
@@ -361,7 +385,7 @@ function DeleteAccountSection({
 				be used.
 			</p>
 			{!confirming ? (
-				<Button onClick={() => setConfirming(true)} variant="ghost-danger">
+				<Button onClick={askToDelete} variant="ghost-danger">
 					Delete my account
 				</Button>
 			) : (
@@ -394,6 +418,59 @@ function DeleteAccountSection({
 								</>
 							)}
 						</FormMessage>
+					)}
+					{preview.kind === "loading" && (
+						<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
+							Checking what deletion will remove…
+						</p>
+					)}
+					{preview.kind === "unavailable" && (
+						// Two clauses on purpose. The first is honest about the gap;
+						// the second stops the gap reading as a refusal, which is the
+						// mistake the sole-owner message exists to prevent in the
+						// other direction.
+						<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
+							Couldn't check what deleting will remove. Your account can still
+							be deleted.
+						</p>
+					)}
+					{preview.kind === "ready" && (
+						<p style={{ marginTop: 0, color: "var(--ink-dim)" }}>
+							{preview.counts.publicLessons === 0 &&
+							preview.counts.orgsKeeping.length === 0 ? (
+								"You have no shared lessons, so nothing published will be lost."
+							) : (
+								<>
+									{preview.counts.publicLessons > 0 && (
+										<>
+											Deleting this account will destroy{" "}
+											<strong>
+												{preview.counts.publicLessons} public{" "}
+												{preview.counts.publicLessons === 1
+													? "lesson"
+													: "lessons"}
+											</strong>
+											. Anyone holding a link loses it.{" "}
+										</>
+									)}
+									{preview.counts.orgsKeeping.length > 0 && (
+										<>
+											<strong>
+												{preview.counts.orgsKeeping.reduce(
+													(n, org) => n + org.lessons,
+													0,
+												)}{" "}
+												lessons stay with their org:
+											</strong>{" "}
+											{preview.counts.orgsKeeping
+												.map((org) => `${org.name} (${org.lessons})`)
+												.join(", ")}
+											.
+										</>
+									)}
+								</>
+							)}
+						</p>
 					)}
 					<TextField
 						id="delete-confirm"

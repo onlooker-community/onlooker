@@ -6,6 +6,7 @@
 export {
 	handleChangePassword,
 	handleDeleteAccount,
+	handleDeletionPreview,
 	handleForgotPassword,
 	handleGetProfile,
 	handleResendVerification,

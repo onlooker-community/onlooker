@@ -46,6 +46,7 @@ vi.mock("../api/accountApi", () => ({
 	updateProfile: vi.fn(),
 	changePassword: vi.fn(),
 	deleteAccount: vi.fn(),
+	getDeletionPreview: vi.fn(),
 	resendVerificationEmail: vi.fn(),
 }));
 
@@ -56,6 +57,13 @@ beforeEach(() => {
 	logout.mockClear();
 	navigate.mockClear();
 	vi.mocked(api.deleteAccount).mockReset();
+	// A resolved default, so the tests that are about the refusal and the
+	// teardown do not also have to care about the preview - and so an
+	// unhandled rejection cannot be mistaken for one of their failures.
+	vi.mocked(api.getDeletionPreview).mockReset().mockResolvedValue({
+		publicLessons: 0,
+		orgsKeeping: [],
+	});
 });
 
 async function askToDelete() {
@@ -72,6 +80,26 @@ async function askToDelete() {
 	);
 	await user.type(screen.getByLabelText(/type your email/i), "ada@example.com");
 	await user.click(screen.getByRole("button", { name: /permanently delete/i }));
+}
+
+/**
+ * Stop at the revealed form, without confirming.
+ *
+ * The preview is what the panel says *before* a deletion is asked for, so
+ * these cases never reach the DELETE at all.
+ */
+async function askWhatWillHappen() {
+	const user = userEvent.setup();
+	render(
+		<MemoryRouter>
+			<RevealProvider>
+				<SettingsPage />
+			</RevealProvider>
+		</MemoryRouter>,
+	);
+	await user.click(
+		await screen.findByRole("button", { name: /delete my account/i }),
+	);
 }
 
 describe("delete account, accepted", () => {
@@ -118,5 +146,83 @@ describe("delete account, refused because the account solely owns an org", () =>
 		await screen.findByText(/Acme/);
 		expect(logout).not.toHaveBeenCalled();
 		expect(navigate).not.toHaveBeenCalled();
+	});
+});
+
+describe("what the panel says deletion will destroy", () => {
+	it("names the public count and each org that keeps its lessons", async () => {
+		vi.mocked(api.getDeletionPreview).mockResolvedValue({
+			publicLessons: 12,
+			orgsKeeping: [
+				{ id: "org-1", name: "Acme", lessons: 4 },
+				{ id: "org-2", name: "Beta", lessons: 1 },
+			],
+		});
+
+		await askWhatWillHappen();
+
+		expect(await screen.findByText(/12 public lessons/i)).toBeInTheDocument();
+		// 5 is summed on the client: the API sends no total, because a total it
+		// computes and a total the names add up to can disagree.
+		expect(
+			screen.getByText(/5 lessons stay with their org/i),
+		).toBeInTheDocument();
+		expect(screen.getByText(/Acme \(4\)/)).toBeInTheDocument();
+		expect(screen.getByText(/Beta \(1\)/)).toBeInTheDocument();
+	});
+
+	it("says plainly when there is nothing shared to lose", async () => {
+		vi.mocked(api.getDeletionPreview).mockResolvedValue({
+			publicLessons: 0,
+			orgsKeeping: [],
+		});
+
+		await askWhatWillHappen();
+
+		expect(await screen.findByText(/no shared lessons/i)).toBeInTheDocument();
+	});
+
+	it("admits it could not check, without claiming the deletion is blocked", async () => {
+		vi.mocked(api.getDeletionPreview).mockRejectedValue(
+			new Error("network down"),
+		);
+
+		await askWhatWillHappen();
+
+		expect(
+			await screen.findByText(/couldn't check what deleting will remove/i),
+		).toBeInTheDocument();
+	});
+
+	// Spec D5, and the guard worth proving by ablation. Closing your own
+	// account must not depend on a disclosure query succeeding - the
+	// irreversible case is already guarded by the sole-owner 409.
+	it("still allows deletion after a failed preview", async () => {
+		vi.mocked(api.getDeletionPreview).mockRejectedValue(
+			new Error("network down"),
+		);
+		vi.mocked(api.deleteAccount).mockResolvedValue({ success: true });
+		const user = userEvent.setup();
+		render(
+			<MemoryRouter>
+				<RevealProvider>
+					<SettingsPage />
+				</RevealProvider>
+			</MemoryRouter>,
+		);
+		await user.click(
+			await screen.findByRole("button", { name: /delete my account/i }),
+		);
+		await screen.findByText(/couldn't check what deleting will remove/i);
+
+		await user.type(
+			screen.getByLabelText(/type your email/i),
+			"ada@example.com",
+		);
+		await user.click(
+			screen.getByRole("button", { name: /permanently delete/i }),
+		);
+
+		await vi.waitFor(() => expect(api.deleteAccount).toHaveBeenCalled());
 	});
 });

@@ -15,6 +15,7 @@ export const ACCOUNT_ENDPOINTS = {
 	resetPassword: "/auth/reset-password",
 	changePassword: "/auth/change-password",
 	deleteAccount: "/auth/account",
+	deletionPreview: "/auth/account/deletion-preview",
 	resendVerification: "/auth/resend-verification",
 	verifyEmail: "/auth/verify-email",
 } as const;
@@ -139,6 +140,65 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
 			: [];
 		return { success: false, reason: "sole_owner", orgs };
 	}
+}
+
+/** An org that keeps the lessons this account shared with it. */
+export type OrgKeepingLessons = { id: string; name: string; lessons: number };
+
+/**
+ * What deleting this account would destroy, read before the deletion is asked
+ * for rather than discovered from a dead link afterwards.
+ *
+ * `publicLessons` counts only what somebody else can currently read: a
+ * retracted lesson is already withdrawn, so the server leaves it out of both
+ * numbers. Private lessons are destroyed too and are deliberately not counted
+ * - they have no audience to lose them.
+ *
+ * There is no total for `orgsKeeping`. A sum the server sends and a sum the
+ * names add up to are two numbers that can disagree, so the caller adds them.
+ */
+export type DeletionPreview = {
+	publicLessons: number;
+	orgsKeeping: OrgKeepingLessons[];
+};
+
+/**
+ * Read the preview, refusing anything that is not the shape above.
+ *
+ * The panel renders `orgsKeeping.length`, so a body of another shape would
+ * throw inside render and take the whole delete section with it - leaving
+ * somebody unable to delete their account at all, which is worse than the gap
+ * this preview exists to close. Reachable without any bug here: an API deploy
+ * older than this client, a proxy answering 200 with its own JSON, or a test
+ * that stubs the client.
+ *
+ * So this validates rather than trusting its own type parameter, and rejects
+ * on a mismatch. The panel already treats a rejection as "couldn't check",
+ * which is the honest thing to say about a body it cannot read.
+ */
+export async function getDeletionPreview(): Promise<DeletionPreview> {
+	const body = await apiClient.get<unknown>(ACCOUNT_ENDPOINTS.deletionPreview);
+
+	const preview = body as Partial<DeletionPreview> | null;
+	const wellFormed =
+		typeof preview === "object" &&
+		preview !== null &&
+		typeof preview.publicLessons === "number" &&
+		Array.isArray(preview.orgsKeeping) &&
+		preview.orgsKeeping.every(
+			(org) =>
+				typeof org === "object" &&
+				org !== null &&
+				typeof org.id === "string" &&
+				typeof org.name === "string" &&
+				typeof org.lessons === "number",
+		);
+
+	if (!wellFormed) {
+		throw new Error("Unexpected deletion-preview response");
+	}
+
+	return preview as DeletionPreview;
 }
 
 export function resendVerificationEmail(): Promise<{ success: boolean }> {

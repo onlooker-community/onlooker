@@ -400,6 +400,23 @@ async function mockAccountApi(
 		return json({ success: true });
 	}
 
+	// GET /auth/account/deletion-preview — what deletion would remove.
+	//
+	// Static on purpose. The real counts come from two queries over `lessons`,
+	// and this mock models a single org as a fixture with no lesson store behind
+	// it, so the numbers here exist to exercise the panel's states rather than
+	// to be right about any account.
+	if (
+		path === "/auth/account/deletion-preview" &&
+		(options.method ?? "GET") === "GET"
+	) {
+		requireAuth(options);
+		return json({
+			publicLessons: 2,
+			orgsKeeping: [{ id: MOCK_ORG.id, name: MOCK_ORG.name, lessons: 1 }],
+		});
+	}
+
 	// DELETE /auth/account — remove the user and end all sessions.
 	if (path === "/auth/account" && options.method === "DELETE") {
 		const { email } = requireAuth(options);

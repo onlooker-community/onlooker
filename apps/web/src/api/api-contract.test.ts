@@ -455,6 +455,36 @@ describe("the mock's account management", () => {
 			ACCOUNT_CONTRACT.loginAfterAccountDeleted,
 		);
 	});
+
+	// The one piece of ONL-136 the mock can hold up its end of: a static
+	// preview needs no ownership modeling, unlike the sole-owner 409, whose
+	// refusal the mock cannot produce at all (onlooker-jws).
+	it("answers the deletion preview in the shape the client reads", async () => {
+		const me = await account();
+
+		const res = await createMockFetch()("/auth/account/deletion-preview", {
+			headers: { Authorization: `Bearer ${me.access}` },
+		});
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			publicLessons: number;
+			orgsKeeping: { id: string; name: string; lessons: number }[];
+		};
+		expect(typeof body.publicLessons).toBe("number");
+		expect(Array.isArray(body.orgsKeeping)).toBe(true);
+		for (const org of body.orgsKeeping) {
+			expect(typeof org.id).toBe("string");
+			expect(typeof org.name).toBe("string");
+			expect(typeof org.lessons).toBe("number");
+		}
+	});
+
+	it("refuses the deletion preview without a token", async () => {
+		const res = await createMockFetch()("/auth/account/deletion-preview");
+
+		expect(res.status).toBe(401);
+	});
 });
 
 // The shared half of the email flows - what both implementations answer without
