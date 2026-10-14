@@ -1,3 +1,9 @@
+import {
+	activeCooldownMs,
+	clearLoginAttempts,
+	loginAttemptKey,
+	recordLoginFailure,
+} from "../db/login-attempts.js";
 import type { Principal } from "../db/pool.js";
 import {
 	createUser,
@@ -108,15 +114,63 @@ export async function handleLogin(
 		throw new ApiError(400, "invalid_input", "Email and password are required");
 	}
 
-	const user = await getUserByEmail(env.DB, body.email);
-	if (!user) {
+	const key = await loginAttemptKey(body.email);
+
+	/**
+	 * The refusal, built in one place so the 429's body and its header cannot
+	 * drift between the gate below and the two failure paths.
+	 *
+	 * It names no count and no window beyond the header: a refusal reporting
+	 * "three attempts remaining" would be telling an attacker how to pace
+	 * themselves.
+	 */
+	const tooMany = (waitMs: number) =>
+		new ApiError(
+			429,
+			"rate_limit_exceeded",
+			"Too many failed sign-in attempts. Try again shortly.",
+			undefined,
+			{ "Retry-After": String(Math.ceil(waitMs / 1000)) },
+		);
+
+	// Before bcrypt, deliberately. verifyPassword is ~100ms of worker CPU at
+	// cost 10, so gating after it would leave the half of the attack that costs
+	// us rather than the attacker entirely intact.
+	//
+	// Fails open, and only around this call: a D1 failure here must not lock
+	// every account out of the product, and the zone rule still caps 60 req/min
+	// per IP underneath. A catch around the whole handler would instead lose the
+	// password check, which is the one thing this must never do.
+	const waiting = await activeCooldownMs(env.DB, key).catch(() => 0);
+	if (waiting > 0) throw tooMany(waiting);
+
+	/**
+	 * Count one failure and answer with whatever it earned.
+	 *
+	 * The answer comes from this statement's own count rather than the read
+	 * above, so the fifth consecutive failure is itself refused instead of
+	 * answering 401 and refusing the sixth.
+	 *
+	 * Both callers below pass through here, so an address with no account and a
+	 * wrong password produce the same 401 and, at the threshold, the same 429.
+	 * That identity is the whole reason login_attempts keys on a hash of the
+	 * address rather than on a user id.
+	 */
+	const refuse = async (): Promise<never> => {
+		const earned = await recordLoginFailure(env.DB, key).catch(() => 0);
+		if (earned > 0) throw tooMany(earned);
 		throw new ApiError(401, "invalid_credentials", "Invalid email or password");
-	}
+	};
+
+	const user = await getUserByEmail(env.DB, body.email);
+	if (!user) return await refuse();
 
 	const validPassword = await verifyPassword(body.password, user.password_hash);
-	if (!validPassword) {
-		throw new ApiError(401, "invalid_credentials", "Invalid email or password");
-	}
+	if (!validPassword) return await refuse();
+
+	// Forget the run. Otherwise yesterday's typos add to today's, and somebody
+	// who has signed in successfully since is one mistake from a cooldown.
+	await clearLoginAttempts(env.DB, key).catch(() => {});
 
 	const expiresInMinutes = parseInt(env.TOKEN_EXPIRY_MINUTES, 10);
 	const refreshExpiresInDays = parseInt(env.REFRESH_TOKEN_EXPIRY_DAYS, 10);

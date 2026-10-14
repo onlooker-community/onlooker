@@ -426,6 +426,38 @@ else
 fi
 
 echo
+echo "source-guards: the login gate runs before bcrypt"
+
+# A refused sign-in must cost no password hash. verifyPassword is bcrypt at
+# cost 10 - roughly 100ms of worker CPU - so a gate below it would leave the
+# half of a credential-stuffing run that costs us rather than the attacker
+# entirely intact. onlooker-9s0m, design decision D2.
+#
+# Checked here rather than in a test because the Workers pool cannot see it.
+# @cloudflare/vitest-pool-workers does not apply vi.mock, so a test cannot
+# count bcrypt calls: two attempts came back zero, once through SELF.fetch
+# (the worker's own module graph) and once on a direct handler call. And
+# bcrypt.compare answers `false` for a non-hash rather than throwing, so
+# corrupting the stored hash cannot distinguish "never called" from "called
+# and declined" either. Line order is what is left, and it is the thing that
+# actually matters.
+auth_route="${ROOT}/apps/api/src/routes/auth.ts"
+gate_line="$(grep -n 'activeCooldownMs(' "${auth_route}" | head -1 | cut -d: -f1)"
+bcrypt_line="$(grep -n 'verifyPassword(' "${auth_route}" | head -1 | cut -d: -f1)"
+
+# Paired with a positive check, the house style here: a guard that silently
+# stops guarding once the thing it names is deleted is worse than no guard.
+if [[ -z "${gate_line}" || -z "${bcrypt_line}" ]]; then
+	fail "handleLogin still has both a cooldown gate and a password check" \
+		"activeCooldownMs at '${gate_line:-none}', verifyPassword at '${bcrypt_line:-none}'"
+elif (( gate_line < bcrypt_line )); then
+	pass "the cooldown gate precedes verifyPassword in handleLogin"
+else
+	fail "the cooldown gate precedes verifyPassword in handleLogin" \
+		"gate at line ${gate_line}, verifyPassword at line ${bcrypt_line}"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
