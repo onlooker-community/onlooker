@@ -121,24 +121,35 @@ Migration 0015; 0014 is current.
 CREATE TABLE login_attempts (
   key          TEXT PRIMARY KEY,
   fails        INTEGER NOT NULL,
-  locked_until TEXT,
   last_fail_at TEXT NOT NULL
 );
-CREATE INDEX login_attempts_last_fail ON login_attempts(last_fail_at);
+CREATE INDEX login_attempts_last_fail_idx ON login_attempts(last_fail_at);
 ```
 
-`key` is the hex sha256 of the lowercased, trimmed address. `locked_until` is
-NULL below the threshold and an ISO 8601 instant at or above it. The index
-exists for D5's prune, which is the only query that does not go through the
-primary key.
+`key` is the hex sha256 of the lowercased, trimmed address, produced by the
+existing `hashToken` (`apps/api/src/utils/crypto.ts:94`) — whose own comment
+says "the one hash, imported, never re-declared", so this does not introduce a
+second sha256.
+
+**There is no stored `locked_until`, deliberately.** The cooldown is a function
+of `fails` and `last_fail_at`, so storing it would be a second source of truth
+for the same fact, and keeping it accurate inside one statement would need a
+CASE ladder in SQL reproducing the doubling curve. Deriving it instead keeps
+D4's statement to a plain increment, makes the curve impossible to disagree
+with itself, and means a later change to the curve applies to records already
+written rather than leaving a generation of rows locked on the old schedule.
+
+The index exists for D5's prune, which is the only query that does not go
+through the primary key.
 
 ## The flow *(proposed)*
 
 ```
 POST /auth/login
   |
-  |-- read login_attempts by key           (one indexed point read)
-  |     locked_until in the future? -> 429 + Retry-After, STOP
+  |-- read login_attempts by key           (one primary-key point read)
+  |     cooldownFor(fails) still covers last_fail_at?
+  |                       -> 429 + Retry-After, STOP
   |                                        (before bcrypt, per D2)
   |-- getUserByEmail
   |     no user?        -> record failure, then answer by what it returned
@@ -149,8 +160,8 @@ POST /auth/login
 ```
 
 Recording a failure is D4's single statement. **The answer to a failure is
-decided by that statement's `RETURNING`, not by the read at entry:** if the
-failure it just recorded set `locked_until` in the future, the response is the
+decided by that statement's `RETURNING`, not by the read at entry:** if
+`cooldownFor` of the count it just returned is above zero, the response is the
 429, otherwise it is the 401. So the fifth consecutive failure is itself
 refused with 429 rather than answering 401 and refusing the sixth — which is
 what the approved curve means by "fail 5 → 429", and it is the difference
