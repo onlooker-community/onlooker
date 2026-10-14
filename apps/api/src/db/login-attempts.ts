@@ -104,3 +104,34 @@ export async function clearLoginAttempts(
 ): Promise<void> {
 	await db.prepare("DELETE FROM login_attempts WHERE key = ?").bind(key).run();
 }
+
+/**
+ * Drop runs old enough that no cooldown could still be active, and answer how
+ * many went.
+ *
+ * The cutoff is MAX_COOLDOWN_MS rather than each row's own cooldown: a row
+ * older than the cap can never be refusing anything whatever its count, so
+ * nothing is lost by forgetting it. Reading the curve here instead would put
+ * the policy in a second place, and would let a row with four failures - no
+ * cooldown at all - be pruned while one with ten survived.
+ *
+ * An attacker whose row is forgotten starts again from zero, which is the same
+ * position a legitimate user is in after a successful sign-in.
+ *
+ * Rides the cron the worker already declares, beside the session-summaries
+ * prune. Counting every submitted address accepts unbounded distinct keys as
+ * the price of not leaking which addresses exist; this bounds that price.
+ */
+export async function pruneLoginAttempts(
+	db: D1Database,
+	now: Date = new Date(),
+): Promise<number> {
+	const cutoff = new Date(now.getTime() - MAX_COOLDOWN_MS).toISOString();
+
+	const result = await db
+		.prepare("DELETE FROM login_attempts WHERE last_fail_at < ?")
+		.bind(cutoff)
+		.run();
+
+	return result.meta.changes;
+}

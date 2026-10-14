@@ -1,3 +1,4 @@
+import { pruneLoginAttempts } from "./db/login-attempts.js";
 import { pruneSessionSummaries } from "./db/session-summaries.js";
 import { runHeartbeat } from "./heartbeat";
 import { monitor } from "./monitoring";
@@ -19,6 +20,7 @@ import type { WorkerEnv } from "./types";
 export type ScheduledDeps = {
 	runHeartbeat: (env: WorkerEnv) => Promise<{ label: string; ok: boolean }[]>;
 	pruneSessionSummaries: (db: WorkerEnv["DB"]) => Promise<number>;
+	pruneLoginAttempts: (db: WorkerEnv["DB"]) => Promise<number>;
 	monitor: Pick<typeof monitor, "captureException">;
 	log: (line: string) => void;
 };
@@ -27,6 +29,7 @@ const realDeps: ScheduledDeps = {
 	runHeartbeat: (env) =>
 		runHeartbeat(env, { fetch: (url) => fetch(String(url)), monitor }),
 	pruneSessionSummaries,
+	pruneLoginAttempts,
 	monitor,
 	log: (line) => console.log(line),
 };
@@ -73,6 +76,23 @@ export async function runScheduled(
 		deps.monitor.captureException(
 			error instanceof Error ? error : new Error(String(error)),
 			{ tags: { kind: "session_summaries_prune" } },
+		);
+	}
+
+	// Its own try/catch rather than sharing the one above. Sharing would let a
+	// broken session-summaries prune silently stop this one, and this is the
+	// only thing bounding a table that takes a row per distinct address anybody
+	// fails a sign-in against - deliberately, so the refusal cannot be used to
+	// tell which addresses have accounts (onlooker-9s0m).
+	//
+	// scheduled.test.ts pins both the ordering and this separation.
+	try {
+		const pruned = await deps.pruneLoginAttempts(env.DB);
+		deps.log(JSON.stringify({ event: "login_attempts_pruned", pruned }));
+	} catch (error) {
+		deps.monitor.captureException(
+			error instanceof Error ? error : new Error(String(error)),
+			{ tags: { kind: "login_attempts_prune" } },
 		);
 	}
 }

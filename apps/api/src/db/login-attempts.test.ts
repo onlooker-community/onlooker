@@ -7,6 +7,7 @@ import {
 	FREE_ATTEMPTS,
 	loginAttemptKey,
 	MAX_COOLDOWN_MS,
+	pruneLoginAttempts,
 	recordLoginFailure,
 } from "./login-attempts.js";
 
@@ -129,5 +130,47 @@ describe("clearLoginAttempts", () => {
 
 		expect(await activeCooldownMs(db(), key)).toBe(0);
 		expect(await recordLoginFailure(db(), key)).toBe(0);
+	});
+});
+
+describe("pruneLoginAttempts", () => {
+	// Counting every submitted address accepts unbounded distinct keys as the
+	// price of not leaking which addresses exist. This is what keeps that
+	// price bounded.
+	it("drops runs whose cooldown can no longer be active", async () => {
+		const stale = await loginAttemptKey("stale@example.com");
+		const fresh = await loginAttemptKey("fresh@example.com");
+		const now = new Date("2026-10-14T12:00:00.000Z");
+		await recordLoginFailure(db(), stale, new Date(now.getTime() - 3_600_000));
+		await recordLoginFailure(db(), fresh, now);
+
+		expect(await pruneLoginAttempts(db(), now)).toBe(1);
+
+		const left = await db()
+			.prepare("SELECT key FROM login_attempts")
+			.all<{ key: string }>();
+		expect(left.results?.map((row) => row.key)).toEqual([fresh]);
+	});
+
+	it("keeps a row whose cooldown is still running", async () => {
+		const key = await loginAttemptKey("ada@example.com");
+		const now = new Date("2026-10-14T12:00:00.000Z");
+		for (let i = 0; i < 5; i++) await recordLoginFailure(db(), key, now);
+
+		expect(await pruneLoginAttempts(db(), now)).toBe(0);
+	});
+
+	// The cutoff is the cap rather than the curve, so a row one second inside
+	// the longest possible cooldown survives whatever its count says. Reading
+	// the curve here instead would mean a row with four failures - no cooldown
+	// at all - could be pruned while one with ten could not, which is a second
+	// place for the policy to live.
+	it("measures against the cap, not against the row's own cooldown", async () => {
+		const barely = await loginAttemptKey("barely@example.com");
+		const now = new Date("2026-10-14T12:00:00.000Z");
+		// One failure: no cooldown, but only a minute old.
+		await recordLoginFailure(db(), barely, new Date(now.getTime() - 60_000));
+
+		expect(await pruneLoginAttempts(db(), now)).toBe(0);
 	});
 });

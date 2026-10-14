@@ -22,6 +22,7 @@ function recording(
 	overrides: {
 		heartbeat?: () => Promise<{ label: string; ok: boolean }[]>;
 		prune?: () => Promise<number>;
+		pruneLogins?: () => Promise<number>;
 	} = {},
 ) {
 	const calls: string[] = [];
@@ -43,6 +44,10 @@ function recording(
 				calls.push("prune");
 				return overrides.prune ? await overrides.prune() : 3;
 			},
+			pruneLoginAttempts: async () => {
+				calls.push("prune-logins");
+				return overrides.pruneLogins ? await overrides.pruneLogins() : 2;
+			},
 			monitor: recorder.monitor,
 			// Swallowed rather than printed: these tests assert on call order
 			// and thrown-ness, and a passing run should not spray JSON through
@@ -57,12 +62,53 @@ describe("the cron handler", () => {
 	// health check; the prune is housekeeping riding the same cron. Running
 	// the housekeeping first would put a slow or failing prune in front of the
 	// check this project relies on to notice an outage.
-	it("runs the heartbeat before the prune", async () => {
+	it("runs the heartbeat before the prunes", async () => {
 		const { calls, deps } = recording();
 
 		await runScheduled(env, deps);
 
-		expect(calls).toEqual(["heartbeat", "prune"]);
+		expect(calls).toEqual(["heartbeat", "prune", "prune-logins"]);
+	});
+
+	// Each prune gets its own try/catch rather than sharing one. Sharing would
+	// mean a broken session-summaries prune silently stopping the login-attempt
+	// cleanup, which is the only thing bounding a table that takes a row per
+	// distinct address anybody fails against.
+	it("prunes login attempts even when the session prune fails", async () => {
+		const { calls, deps } = recording({
+			prune: async () => {
+				throw new Error("D1 is unavailable");
+			},
+		});
+
+		await runScheduled(env, deps);
+
+		expect(calls).toContain("prune-logins");
+	});
+
+	it("does not let a failing login-attempt prune throw out of the handler", async () => {
+		const { deps } = recording({
+			pruneLogins: async () => {
+				throw new Error("D1 is unavailable");
+			},
+		});
+
+		await expect(runScheduled(env, deps)).resolves.toBeUndefined();
+	});
+
+	it("reports a failing login-attempt prune through the monitor", async () => {
+		const { deps, recorder } = recording({
+			pruneLogins: async () => {
+				throw new Error("login_attempts is unhappy");
+			},
+		});
+
+		await runScheduled(env, deps);
+
+		expect(recorder.exceptions).toHaveLength(1);
+		expect((recorder.exceptions[0]?.error as Error).message).toBe(
+			"login_attempts is unhappy",
+		);
 	});
 
 	// The containment half, and the one that matters most. An uncaught throw
