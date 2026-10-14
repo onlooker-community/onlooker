@@ -1,3 +1,6 @@
+import type { D1Database } from "@cloudflare/workers-types";
+import { hashToken } from "../utils/crypto";
+
 /**
  * Failed-login backoff, per submitted address.
  *
@@ -33,4 +36,71 @@ export function cooldownFor(fails: number): number {
 
 	const doublings = fails - FREE_ATTEMPTS - 1;
 	return Math.min(FIRST_COOLDOWN_MS * 2 ** doublings, MAX_COOLDOWN_MS);
+}
+
+/**
+ * The key for an address: trimmed, lowercased, hashed.
+ *
+ * `hashToken` is this repository's one sha256, and its own comment asks to be
+ * imported rather than re-declared - two copies drift apart with no symptom
+ * until one changes and the other does not.
+ */
+export async function loginAttemptKey(email: string): Promise<string> {
+	return hashToken(email.trim().toLowerCase());
+}
+
+/**
+ * Milliseconds still to wait before this address may try again, or 0.
+ *
+ * One primary-key read, run before bcrypt so a refused attempt costs no hash.
+ */
+export async function activeCooldownMs(
+	db: D1Database,
+	key: string,
+	now: Date = new Date(),
+): Promise<number> {
+	const row = await db
+		.prepare("SELECT fails, last_fail_at FROM login_attempts WHERE key = ?")
+		.bind(key)
+		.first<{ fails: number; last_fail_at: string }>();
+
+	if (!row) return 0;
+
+	const elapsed = now.getTime() - new Date(row.last_fail_at).getTime();
+	return Math.max(cooldownFor(row.fails) - elapsed, 0);
+}
+
+/**
+ * Count one failure and answer the cooldown it earns, 0 while under the
+ * threshold.
+ *
+ * One statement, for the reason db/orgs.ts records for removeMembership and
+ * that #198 and #200 both followed: a read followed by a write lets two
+ * concurrent failures each see the old count and land as one.
+ */
+export async function recordLoginFailure(
+	db: D1Database,
+	key: string,
+	now: Date = new Date(),
+): Promise<number> {
+	const row = await db
+		.prepare(
+			`INSERT INTO login_attempts (key, fails, last_fail_at)
+			 VALUES (?, 1, ?)
+			 ON CONFLICT(key) DO UPDATE
+			   SET fails = fails + 1, last_fail_at = excluded.last_fail_at
+			 RETURNING fails`,
+		)
+		.bind(key, now.toISOString())
+		.first<{ fails: number }>();
+
+	return cooldownFor(row?.fails ?? 0);
+}
+
+/** Forget this address's run, which a successful sign-in earns. */
+export async function clearLoginAttempts(
+	db: D1Database,
+	key: string,
+): Promise<void> {
+	await db.prepare("DELETE FROM login_attempts WHERE key = ?").bind(key).run();
 }

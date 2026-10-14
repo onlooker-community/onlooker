@@ -183,6 +183,36 @@ export const machine_tokens = sqliteTable(
 );
 
 /**
+ * Failed sign-in attempts, keyed by a hash of the submitted address.
+ *
+ * Not by user id, deliberately. A row exists whether or not the address has an
+ * account, so the 429 the API answers at the threshold says nothing about which
+ * addresses are real. Login returns an identical 401 for an unknown address and
+ * a wrong password on purpose, and keying this table on a user would hand back
+ * the enumeration oracle that identical text exists to deny.
+ *
+ * Hashed, so the table is never a harvestable list of attempted addresses.
+ *
+ * There is no `locked_until`: the cooldown is a function of `fails` and
+ * `last_fail_at` (cooldownFor, apps/api/src/db/login-attempts.ts), and a stored
+ * deadline would be a second source of truth for the same fact - one that a
+ * change to the curve would silently leave behind.
+ */
+export const login_attempts = sqliteTable(
+	"login_attempts",
+	{
+		key: text("key").primaryKey(),
+		fails: integer("fails").notNull(),
+		last_fail_at: text("last_fail_at").notNull(),
+	},
+	(table) => ({
+		lastFailAtIdx: index("login_attempts_last_fail_at_idx").on(
+			table.last_fail_at,
+		),
+	}),
+);
+
+/**
  * The hosted lesson pool - current state, one row per lesson.
  *
  * Only the fields the server filters or orders on are lifted into columns.
