@@ -27,6 +27,38 @@ export async function verifyPassword(
 	return bcrypt.compare(password, hash);
 }
 
+/** Hashed on first use, then reused for the life of the isolate. */
+let decoy: Promise<string> | undefined;
+
+/**
+ * A hash no password matches, for verifying against when there is nothing to
+ * verify against.
+ *
+ * A sign-in attempt on an address with no account has no stored hash, so it
+ * answers without reaching bcrypt - about a hundred times faster than one that
+ * does. The bodies are identical, so the clock is what tells an attacker which
+ * addresses exist. Handing this to `verifyPassword` buys the missing path the
+ * same cost.
+ *
+ * A real hash of a value nobody knows, rather than a sentinel string:
+ * `bcrypt.compare` has no defined answer for a non-hash, while a hash of two
+ * random UUIDs declines every guess. Generated here rather than committed,
+ * because a bcrypt hash in source reads as a credential to every scanner that
+ * meets it, including this repo's own.
+ *
+ * The cache holds the promise, so a rejection would stick for the life of the
+ * isolate and fail every later sign-in rather than being retried. Left that
+ * way on purpose: the input is two generated UUIDs and `crypto.randomUUID`,
+ * `genSalt` and `hash` are all unconditionally present in a Worker, so there
+ * is no reachable rejection for a retry to help with - and this pool cannot
+ * manufacture one to test against, which would make any retry path here
+ * untested code guarding an unreachable case.
+ */
+export function decoyPasswordHash(): Promise<string> {
+	decoy ??= hashPassword(`${crypto.randomUUID()}${crypto.randomUUID()}`);
+	return decoy;
+}
+
 /**
  * Sign a JWT token
  */

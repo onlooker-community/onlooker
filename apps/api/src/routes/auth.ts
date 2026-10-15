@@ -24,6 +24,7 @@ import type {
 	WorkerEnv,
 } from "../types";
 import {
+	decoyPasswordHash,
 	generateRefreshToken,
 	hashPassword,
 	signJwt,
@@ -162,8 +163,21 @@ export async function handleLogin(
 		throw new ApiError(401, "invalid_credentials", "Invalid email or password");
 	};
 
+	// Resolved before the lookup, not inside the branch that uses it. The hash
+	// is computed once per isolate, and paying for it only where an account is
+	// missing would make the first miss cost double the first hit - a quieter
+	// version of the oracle this closes.
+	const decoy = await decoyPasswordHash();
+
 	const user = await getUserByEmail(env.DB, body.email);
-	if (!user) return await refuse();
+	if (!user) {
+		// Spend the password check anyway, on a hash nothing matches. Without
+		// it this path returns in ~1ms where a real account takes ~100ms in
+		// bcrypt, and since both answer the same 401, that gap is where account
+		// existence leaks. onlooker-9s0m.1.
+		await verifyPassword(body.password, decoy);
+		return await refuse();
+	}
 
 	const validPassword = await verifyPassword(body.password, user.password_hash);
 	if (!validPassword) return await refuse();
