@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	lesson_feed,
 	lessons,
+	login_attempts,
 	machine_tokens,
 	session_summaries,
 	sessions,
@@ -295,14 +296,16 @@ describe("session_summaries", () => {
 
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
-	// arrive with the feature that needs it, not by accident. Eleven, as of
-	// orgs/org_memberships/org_invites landing with org accounts (ONL-12).
-	it("declares only the eleven tables in use", async () => {
+	// arrive with the feature that needs it, not by accident. Twelve, as of
+	// login_attempts landing with the failed-login backoff (onlooker-9s0m);
+	// eleven before that, since orgs/org_memberships/org_invites arrived with
+	// org accounts (ONL-12).
+	it("declares only the twelve tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(11);
+		expect(tables).toHaveLength(12);
 	});
 });
 
@@ -328,5 +331,38 @@ describe("the org lesson tier's columns", () => {
 		// Null means a private-only token, which is what every token minted
 		// before this change is.
 		expect(column?.notNull).toBe(false);
+	});
+});
+
+describe("login_attempts", () => {
+	it("declares exactly the three columns the backoff reads", () => {
+		expect(columnNames(login_attempts)).toEqual([
+			"fails",
+			"key",
+			"last_fail_at",
+		]);
+	});
+
+	// A stored deadline would be a second source of truth for a fact
+	// cooldownFor already derives, and a change to the curve would silently
+	// leave rows behind on the old schedule.
+	it("stores no deadline", () => {
+		expect(columnNames(login_attempts)).not.toContain("locked_until");
+	});
+
+	it("keys on the hash, so a row costs one point read", () => {
+		const column = getTableConfig(login_attempts).columns.find(
+			(c) => c.name === "key",
+		);
+		expect(column?.primary).toBe(true);
+	});
+
+	// The prune is the one query that does not go through the primary key.
+	it("indexes the column the prune scans", () => {
+		expect(indexNames(login_attempts)).toEqual([
+			"login_attempts_last_fail_at_idx",
+		]);
+		const index = getTableConfig(login_attempts).indexes[0];
+		expect(indexColumnNames(index.config.columns)).toEqual(["last_fail_at"]);
 	});
 });

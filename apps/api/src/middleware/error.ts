@@ -66,7 +66,9 @@ export function errorHandler(
 			}),
 			{
 				status: error.status,
-				headers: { "Content-Type": "application/json" },
+				// Content-Type last: the envelope above is JSON whatever a caller
+				// passes, so a careless header map must not displace it.
+				headers: { ...error.headers, "Content-Type": "application/json" },
 			},
 		);
 	}

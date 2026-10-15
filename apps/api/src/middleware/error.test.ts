@@ -50,6 +50,31 @@ describe("errorHandler", () => {
 	});
 });
 
+describe("errorHandler on an error carrying headers", () => {
+	it("merges them onto the response", () => {
+		const res = errorHandler(
+			new ApiError(429, "rate_limit_exceeded", "Slow down", undefined, {
+				"Retry-After": "60",
+			}),
+		);
+
+		expect(res.status).toBe(429);
+		expect(res.headers.get("Retry-After")).toBe("60");
+	});
+
+	// The envelope below is JSON whatever a caller passes, so Content-Type is
+	// applied last and cannot be displaced by a careless header map.
+	it("keeps its own Content-Type", () => {
+		const res = errorHandler(
+			new ApiError(429, "rate_limit_exceeded", "Slow down", undefined, {
+				"Content-Type": "text/plain",
+			}),
+		);
+
+		expect(res.headers.get("Content-Type")).toBe("application/json");
+	});
+});
+
 // An unexpected error is one this code never described: a D1 string, a runtime
 // TypeError, whatever a dependency threw. Its message is written for whoever
 // debugs it, not for whoever provoked it, and it routinely names tables,

@@ -120,6 +120,15 @@ export class ApiError extends Error {
 		public code: string,
 		message: string,
 		public details?: unknown,
+		/**
+		 * Extra response headers, merged by errorHandler.
+		 *
+		 * Rate-limit refusals carry `Retry-After`, which is the difference
+		 * between "back off" and "back off for this long". errorHandler built
+		 * every error response with only a Content-Type, so there was no way to
+		 * say the second one.
+		 */
+		public headers?: Record<string, string>,
 	) {
 		super(message);
 		this.name = "ApiError";

@@ -173,6 +173,35 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	login_attempts: {
+		columns: [
+			{
+				name: "key",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "fails",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "last_fail_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "login_attempts_last_fail_at_idx",
+				unique: false,
+				columns: ["last_fail_at"],
+			},
+		],
+	},
 	machine_tokens: {
 		columns: [
 			{
