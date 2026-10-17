@@ -11,6 +11,7 @@ import {
 	probeLessonIds,
 	readLessonDelta,
 	retractOrgLesson,
+	transitionLesson,
 } from "./lessons.js";
 import { createOrgWithOwner } from "./orgs.js";
 import { createUser } from "./queries.js";
@@ -801,5 +802,117 @@ describe("accountDeletionPreview", () => {
 			publicLessons: 0,
 			orgsKeeping: [],
 		});
+	});
+});
+
+/** How many feed rows exist for one lesson, and the newest seq among them. */
+async function feedFor(lessonId: string): Promise<{
+	rows: number;
+	latest: number | null;
+}> {
+	const row = await db()
+		.prepare(
+			"SELECT COUNT(*) AS rows, MAX(seq) AS latest FROM lesson_feed WHERE lesson_id = ?",
+		)
+		.bind(lessonId)
+		.first<{ rows: number; latest: number | null }>();
+	return { rows: row?.rows ?? 0, latest: row?.latest ?? null };
+}
+
+describe("a transition that changes nothing", () => {
+	it("writes no second feed row and answers with the existing seq", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", userId);
+		const written = lesson({ visibility: "org" }) as TLesson;
+		await createLessonsWithFeed(db(), userId, [written], org.id);
+
+		const first = await retractOrgLesson(db(), org.id, written.id);
+		const afterFirst = await feedFor(written.id);
+
+		const second = await retractOrgLesson(db(), org.id, written.id);
+
+		// The point of the issue: the author's mirror must not learn about a
+		// retraction twice.
+		expect(second).toBe(first);
+		expect(await feedFor(written.id)).toEqual(afterFirst);
+	});
+
+	it("answers with the latest status entry, not the earliest", async () => {
+		// Distinguishes MAX(seq) from a first-row read. A lesson retracted,
+		// reactivated and retracted again has three status entries, and the one
+		// describing the state the caller asked for is the last.
+		const written = lesson() as TLesson;
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		await transitionLesson(db(), userId, written.id, "retracted", null);
+		await transitionLesson(db(), userId, written.id, "active", null);
+		const third = await transitionLesson(
+			db(),
+			userId,
+			written.id,
+			"retracted",
+			null,
+		);
+
+		const redundant = await transitionLesson(
+			db(),
+			userId,
+			written.id,
+			"retracted",
+			null,
+		);
+
+		expect(redundant).toBe(third);
+		expect((await feedFor(written.id)).latest).toBe(third);
+	});
+
+	it("still writes when only superseded_by differs", async () => {
+		// `retracted` with a superseder and `retracted` with none are different
+		// states, and only one of them is what a retract asks for.
+		const written = lesson() as TLesson;
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		await transitionLesson(db(), userId, written.id, "retracted", "01OTHER");
+		const before = await feedFor(written.id);
+
+		const seq = await transitionLesson(
+			db(),
+			userId,
+			written.id,
+			"retracted",
+			null,
+		);
+
+		expect(seq).not.toBe(before.latest);
+		expect((await feedFor(written.id)).rows).toBe(before.rows + 1);
+		const stored = await probeLessonId(db(), written.id);
+		expect(
+			(JSON.parse(stored?.body ?? "{}") as { superseded_by: string | null })
+				.superseded_by,
+		).toBeNull();
+	});
+
+	it("repairs a body whose status has drifted from its column", async () => {
+		// Before this precondition existed, a redundant call happened to fix a
+		// drifted body. Skipping on the column alone would preserve the drift
+		// instead, so the skip requires both copies to already agree.
+		const written = lesson() as TLesson;
+		await createLessonsWithFeed(db(), userId, [written]);
+		await transitionLesson(db(), userId, written.id, "retracted", null);
+
+		const drifted = await probeLessonId(db(), written.id);
+		const body = JSON.parse(drifted?.body ?? "{}") as Record<string, unknown>;
+		body.status = "active";
+		await db()
+			.prepare("UPDATE lessons SET body = ? WHERE id = ?")
+			.bind(JSON.stringify(body), written.id)
+			.run();
+
+		await transitionLesson(db(), userId, written.id, "retracted", null);
+
+		const repaired = await probeLessonId(db(), written.id);
+		expect(repaired?.status).toBe("retracted");
+		expect(
+			(JSON.parse(repaired?.body ?? "{}") as { status: string }).status,
+		).toBe("retracted");
 	});
 });

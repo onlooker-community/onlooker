@@ -296,11 +296,40 @@ export async function probeLessonId(
 }
 
 /**
+ * The seq of the newest feed entry for one lesson, or null if it has none.
+ *
+ * Scoped by user_id as well as lesson_id: `lesson_feed_lesson_id_idx` is not
+ * unique, and the feed's own key is (user_id, seq), so a question about one
+ * person's lesson must not be answered out of anybody else's stream.
+ *
+ * MAX rather than the first row. A lesson retracted, reactivated and retracted
+ * again has several status entries, and the one describing the state a caller
+ * just asked for is the latest of them.
+ */
+async function currentFeedSeq(
+	db: D1Database,
+	userId: string,
+	lessonId: string,
+): Promise<number | null> {
+	const row = await db
+		.prepare(
+			"SELECT MAX(seq) AS seq FROM lesson_feed WHERE user_id = ? AND lesson_id = ?",
+		)
+		.bind(userId, lessonId)
+		.first<{ seq: number | null }>();
+	return row?.seq ?? null;
+}
+
+/**
  * Apply a lifecycle transition, appending to the feed.
  *
  * Returns the new seq, or null when the lesson does not exist or is not this
  * user's - the caller cannot tell those apart, which keeps the route from
  * confirming that another user's lesson id exists.
+ *
+ * A transition that changes nothing writes nothing and reports the seq the
+ * state already has. See the comment on that branch for why it is decided here
+ * rather than in any of the three retract paths.
  *
  * The lesson's ORIGINAL feed row is untouched. Appending rather than moving is
  * the entire reason the feed is a separate table: moving a row vacates its old
@@ -318,6 +347,41 @@ export async function transitionLesson(
 	if (!existing || existing.user_id !== userId) return null;
 
 	const body = JSON.parse(existing.body) as Record<string, unknown>;
+
+	// Nothing to change, so nothing is written. All three retract paths arrive
+	// here - the author's own transition, retractAnyLesson for the operator and
+	// retractOrgLesson for an org owner - and before this, a redundant call
+	// from any of them appended a second lesson_feed row for a state change
+	// that did not happen, telling the author's mirror about one retraction
+	// twice (ONL-145). No second click is needed to reach it: an operator
+	// retract landing while an owner holds a loaded page leaves that page
+	// offering a control whose precondition has since stopped holding.
+	//
+	// Decided here rather than in retractOrgLesson because the three paths
+	// should agree. Checking in one of them would leave the operator path
+	// minting duplicates and leave the three disagreeing about whether a
+	// redundant retract is permitted.
+	//
+	// BOTH copies of the state have to agree before this skips. `status` is a
+	// column AND a field inside the stored body, and a redundant call used to
+	// repair a body that had drifted from its column - skipping on the column
+	// alone would quietly preserve the drift. `superseded_by` has no column at
+	// all, only the body, so it is read from there.
+	if (
+		existing.status === status &&
+		body.status === status &&
+		(body.superseded_by ?? null) === supersededBy
+	) {
+		const seq = await currentFeedSeq(db, userId, id);
+		// A lesson with no feed entry cannot be reported as idempotent: null is
+		// this function's "no such lesson" answer and the routes turn it into a
+		// 404, which would be a lie about a lesson that demonstrably exists.
+		// createLessonsWithFeed always writes one, so this is unreachable
+		// today; if it ever happens, falling through writes the entry the
+		// author's mirror is missing instead of hiding the lesson.
+		if (seq !== null) return seq;
+	}
+
 	body.status = status;
 	body.superseded_by = supersededBy;
 
