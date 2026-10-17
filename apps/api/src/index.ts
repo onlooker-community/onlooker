@@ -12,10 +12,17 @@
  * WS5 is partial rather than absent, and the split is worth knowing before
  * reading this file for a rateLimit function that is not here. Login has a
  * per-account failed-attempt backoff in worker code (db/login-attempts.ts).
- * Everything else rests on ONE Cloudflare zone rule, which lives outside this
- * repo entirely; DEPLOYMENT.md's "Rate Limiting" section is the only place its
- * expression is written down. Per-account limits beyond login and mail-send
- * throttling are still missing.
+ * Everything else rests on ONE Cloudflare zone rule, which is committed as
+ * scripts/cloudflare/ratelimit.json and applied by scripts/cloudflare/apply.sh;
+ * DEPLOYMENT.md's "Rate Limiting" section carries the reasoning. Per-account
+ * limits beyond login and mail-send throttling are still missing.
+ *
+ * An earlier version of this comment said that rule "lives outside this repo
+ * entirely" and that DEPLOYMENT.md was the only place its expression was
+ * written down. Both were true until 2026-10-17 and both were the problem:
+ * what the document described and what the zone enforced had diverged, leaving
+ * four unauthenticated /auth/* paths unmetered while the text said otherwise.
+ * See ONL-171.
  */
 
 import type {
