@@ -136,6 +136,17 @@ jobs:
       - name: Sentry alert rule tests
         run: bash scripts/sentry/apply.test.sh
 
+      # The zone's rate limiting rule is the only rate limiting the API has,
+      # and the applier's update verb REPLACES every rule in the phase - so a
+      # bug there does not fail, it quietly leaves the zone less protected than
+      # it was. These tests also pin the payload itself: that every path meant
+      # to be metered is in the expression, and that /auth/refresh is not.
+      # Until 2026-10-17 the rule lived only in the dashboard and the written
+      # description had drifted from it for weeks with nothing able to notice
+      # (ONL-171). Needs no Cloudflare credential; apply.sh is human-run.
+      - name: Cloudflare rate limit rule tests
+        run: bash scripts/cloudflare/apply.test.sh
+
       # The cron check-in script runs inside the two workflows that are this
       # project's only alarms. If it could fail its caller, Sentry having a bad
       # afternoon would look identical to production being down - and the

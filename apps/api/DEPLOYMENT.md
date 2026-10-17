@@ -317,26 +317,37 @@ zone, and one is the whole budget — the plan allows a single rule, and it is
 spent. So this is not a rule among several that can be narrowed freely; it is the
 only rate limiting the API has, at the edge or anywhere else.
 
-Its expression, which is what makes one rule cover several surfaces:
+**The rule lives in `scripts/cloudflare/ratelimit.json`**, which is canonical,
+and `scripts/cloudflare/apply.sh` is the only thing that should write it. Read
+the expression there; this section is the reasoning, not the record.
 
-```
-(http.host eq "api.onlooker.dev" and (
-  starts_with(http.request.uri.path, "/api/public/lessons/")
-  or http.request.uri.path in {"/auth/login" "/auth/signup" "/auth/forgot-password" "/auth/reset-password"}
-))
-```
+6 requests per 10 seconds, action block, 10-second mitigation, counted per
+client IP **and per datacenter** — `cf.colo.id` is in the characteristics, so
+the practical ceiling is a multiple of 6 per 10s rather than a global one.
 
-60 requests per minute per client IP, action block, one-minute duration.
+> **This section used to state a rule that did not exist.** Until 2026-10-17 it
+> described five path clauses at 60 requests per minute per client IP with a
+> one-minute duration. The zone held one clause — `/api/public/lessons/` — at
+> the rate above. So the four `/auth/*` paths named below as covered were not
+> covered, for however long that text stood, including
+> `/auth/forgot-password`. Measured against the live zone, recorded in ONL-171,
+> and the reason the expression now lives in a file that gets applied rather
+> than a paragraph that gets believed. PR #209, earlier the same day, repeated
+> the claim in this file and in `src/index.ts`; both are corrected here.
 
 **Why those paths.** Each takes no credential and costs something real.
 `/auth/forgot-password` reaches `sendEmail` on an unauthenticated request, so
 without a limit anyone can mail-bomb a known address and burn the Resend quota.
 `/auth/login` verifies a password, which is both CPU and the credential-stuffing
 surface. `/auth/signup` creates an account and sends mail. `/auth/reset-password`
-takes a token worth guessing at volume. `/api/public/lessons/:id` runs a D1 read
-per request, and nothing caches it — not the hit and not the miss, so every
-request is a real read. See **Public lesson reads** below for why, and for the
-one change that would alter it.
+takes a token worth guessing at volume. `/api/orgs/invites/verify` runs a
+SHA-256 and an indexed D1 read with no credential — token brute force is not
+the concern, since the token is 32 bytes of crypto random, but unmetered D1
+reads on an anonymous route are, which is the same reason the lessons path is
+here (ONL-140). `/api/public/lessons/:id` runs a D1 read per request, and
+nothing caches it — not the hit and not the miss, so every request is a real
+read. See **Public lesson reads** below for why, and for the one change that
+would alter it.
 
 **Why `/auth/refresh` is deliberately excluded**, despite also being
 unauthenticated: every active browser session calls it periodically, so behind a
@@ -350,9 +361,17 @@ so already behind a credential.
 expression removes the only limit that path has. The mail-sending one is the
 expensive mistake.
 
-Nothing in CI can verify any of this. If the rule is deleted the API keeps
-working, and the first symptom is a bill or a Resend reputation problem rather
-than a failure.
+**What CI does and does not check.** `scripts/cloudflare/apply.test.sh` runs on
+every PR and verifies the payload — valid, action `block`, every intended path
+present, `/auth/refresh` still absent — and that the applier refuses rather
+than overwriting a rule it does not describe. It needs no credential and never
+touches the zone.
+
+Nothing watches the **live** zone. No CI job holds a Cloudflare credential, so
+a rule deleted in the dashboard still produces no failing check, and the first
+symptom would be a bill or a Resend reputation problem. `apply.sh` reports that
+drift on demand, which is strictly better than a paragraph nobody can diff, and
+is not the same as monitoring.
 
 **A login backoff does exist now, in worker code**, and it is the one piece of
 WS5 that is not this zone rule. `handleLogin` refuses a sign-in after
@@ -365,9 +384,11 @@ submitted address so the 429 reveals nothing about which accounts exist, and
 the gate runs before bcrypt, which a source guard asserts.
 
 Still unimplemented: per-account limits on anything other than login, and
-mail-send throttling — `handleForgotPassword` reaches `sendEmail` on an
-unauthenticated request, and the zone rule caps requests per IP rather than
-mails per victim address. Tracked in `onlooker-9s0m`.
+mail-send throttling. `handleForgotPassword` reaches `sendEmail` on an
+unauthenticated request; the zone rule now meters that path per IP per
+datacenter, which caps requests from one client but not how many mails one
+victim address can be made to receive from many clients. Tracked in
+`onlooker-9s0m`.
 
 ### Public lesson reads
 
