@@ -352,9 +352,22 @@ expensive mistake.
 
 Nothing in CI can verify any of this. If the rule is deleted the API keeps
 working, and the first symptom is a bill or a Resend reputation problem rather
-than a failure. Per-account limits, a login backoff, and mail-send throttling are
-still unimplemented — `src/index.ts` has said "WS5: Rate limiting and security
-(not yet implemented)" throughout.
+than a failure.
+
+**A login backoff does exist now, in worker code**, and it is the one piece of
+WS5 that is not this zone rule. `handleLogin` refuses a sign-in after
+`FREE_ATTEMPTS` (4) failures against the same address, for a cooldown that
+doubles from one minute to a ceiling of thirty
+(`src/db/login-attempts.ts`). It counts per account rather than per IP, which
+is the dimension the zone rule cannot express — a flat per-IP ceiling just
+makes an attacker rotate addresses. The counter keys on a hash of the
+submitted address so the 429 reveals nothing about which accounts exist, and
+the gate runs before bcrypt, which a source guard asserts.
+
+Still unimplemented: per-account limits on anything other than login, and
+mail-send throttling — `handleForgotPassword` reaches `sendEmail` on an
+unauthenticated request, and the zone rule caps requests per IP rather than
+mails per victim address. Tracked in `onlooker-9s0m`.
 
 ### Public lesson reads
 

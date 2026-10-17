@@ -7,7 +7,15 @@
  * - WS2: Account management endpoints (scaffold complete, awaiting WS1)
  * - WS3: Session management and refresh flow (frontend, not backend)
  * - WS4: Protected user data (awaiting WS1 database)
- * - WS5: Rate limiting and security (not yet implemented)
+ * - WS5: Rate limiting and security (partial - see DEPLOYMENT.md)
+ *
+ * WS5 is partial rather than absent, and the split is worth knowing before
+ * reading this file for a rateLimit function that is not here. Login has a
+ * per-account failed-attempt backoff in worker code (db/login-attempts.ts).
+ * Everything else rests on ONE Cloudflare zone rule, which lives outside this
+ * repo entirely; DEPLOYMENT.md's "Rate Limiting" section is the only place its
+ * expression is written down. Per-account limits beyond login and mail-send
+ * throttling are still missing.
  */
 
 import type {
