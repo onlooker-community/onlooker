@@ -89,6 +89,10 @@ const MAX_SEQ_ATTEMPTS = 5;
  * `table` is matched as a substring, so callers pass the most specific form
  * available: "lessons.id" rather than "lessons", which would also match
  * "lesson_feed" messages in a future where a column is renamed.
+ *
+ * Its foreign-key counterpart is `isForeignKeyViolation` in db/constraints.ts,
+ * which deliberately takes no table: SQLite names one in this message and not
+ * in that one. This one stays here, beside its only caller.
  */
 export function isUniqueViolationOn(error: unknown, table: string): boolean {
 	return (

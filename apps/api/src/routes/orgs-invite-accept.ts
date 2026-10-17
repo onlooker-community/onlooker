@@ -1,3 +1,4 @@
+import { isForeignKeyViolation } from "../db/constraints.js";
 import {
 	findInviteByTokenHash,
 	type InviteRecord,
@@ -125,7 +126,33 @@ export async function handleAcceptInvite(
 	// is a success rather than a conflict: the caller asked to be in the org,
 	// and they are.
 	if (!(await getMembership(env.DB, invite.org_id, userId))) {
-		await addMembership(env.DB, invite.org_id, userId, invite.role);
+		try {
+			await addMembership(env.DB, invite.org_id, userId, invite.role);
+		} catch (error) {
+			if (!isForeignKeyViolation(error)) throw error;
+
+			// The org was deleted between markInviteAccepted above and this
+			// write. An outstanding invitation does not block org deletion -
+			// deleteOrg counts memberships, and an invitation is not one - so a
+			// sole member may delete an org with invitations outstanding, which
+			// is correct and is what makes this window reachable (ONL-147).
+			//
+			// The ordering above is not what to fix: spending the token first
+			// is what makes two concurrent accepts resolve to one membership.
+			// The foreign key already protects integrity here; this is only
+			// about what the caller is told, and a 500 told them to retry
+			// something that cannot succeed.
+			//
+			// The same bare error answers a concurrently deleted ACCOUNT, and
+			// SQLite's message names neither table, so this answer has to be
+			// true for both. It is: the invitation cannot be used either way.
+			// A message naming the org would not be.
+			throw new ApiError(
+				400,
+				"invalid_invitation",
+				"That invitation cannot be used",
+			);
+		}
 	}
 
 	return Response.json({ org_id: invite.org_id, role: invite.role });
