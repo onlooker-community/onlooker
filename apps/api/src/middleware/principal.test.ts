@@ -19,6 +19,13 @@ import { call, resetOrgTables, signup } from "../test-support/orgs.js";
  * `anonymized_at` anywhere in the authenticated request path, so the access
  * token issued before deletion kept authenticating - and kept writing - for
  * up to TOKEN_EXPIRY_MINUTES. See final-review.md finding 1.
+ *
+ * ONL-146: the same window was open for an ORDINARY deletion, for longer and
+ * less visibly. The check added above asked "is this row anonymized", which a
+ * missing row answers no, so the half of deleteUser that removes the row
+ * outright sailed through it. Both halves are covered here now, deliberately
+ * adjacent: the two paths are one intent, and a test for either alone is what
+ * let this sit open.
  */
 
 const db = () => env.DB;
@@ -93,6 +100,50 @@ describe("an anonymized account's leftover access token", () => {
 			method: "POST",
 			body: JSON.stringify({ name: "no credential" }),
 		});
+
+		expect(response.status).toBe(401);
+	});
+});
+
+/**
+ * Sign up an account that DELETES rather than anonymizes: no org, no shared
+ * lesson, so deleteUser removes the row outright. Returns the access token
+ * issued before the deletion.
+ */
+async function deletedAccountToken(): Promise<string> {
+	const departing = await signup("departing@example.com");
+
+	expect(await deleteUser(db(), departing.id)).toBe("deleted");
+
+	return departing.token;
+}
+
+describe("a deleted account's leftover access token", () => {
+	it("cannot mint a machine token", async () => {
+		const token = await deletedAccountToken();
+
+		// Same property as the anonymized case above, and it was open for
+		// every ordinary deletion until ONL-146: a machine token has no
+		// expiry, so minting one afterward is a standing credential for an
+		// account that no longer exists.
+		const response = await call("/api/machines", token, {
+			method: "POST",
+			body: JSON.stringify({ name: "stolen window" }),
+		});
+
+		expect(response.status).toBe(401);
+	});
+
+	it("cannot read the account's orgs", async () => {
+		const token = await deletedAccountToken();
+
+		// The exact request ONL-146 measured against production on
+		// 2026-10-11, which answered `200 {"orgs":[]}`. An empty list is not a
+		// refusal, which is what made this easy to mistake for harmless - the
+		// reasoning recorded in resolvePrincipal was that every downstream read
+		// would fail on its own, and a read scoped to a vanished user_id does
+		// not fail, it matches nothing.
+		const response = await call("/api/orgs", token);
 
 		expect(response.status).toBe(401);
 	});

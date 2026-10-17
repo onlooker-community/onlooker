@@ -11,9 +11,17 @@ import { BASE, TEST_PASSWORD } from "./lessons.js";
 export interface SignedUpUser {
 	id: string;
 	token: string;
+	/**
+	 * The refresh token signup handed back.
+	 *
+	 * Needed by suites that assert what a session survives: the access token
+	 * cannot be withdrawn, so the refresh token is the half of the pair that
+	 * deletion actually ends.
+	 */
+	refreshToken: string;
 }
 
-/** Create an account through the real signup route; return its id and access token. */
+/** Create an account through the real signup route; return its id and both tokens. */
 export async function signup(
 	email: string,
 	name = "Ada",
@@ -32,9 +40,14 @@ export async function signup(
 
 	const body = (await response.json()) as {
 		token: string;
+		refreshToken: string;
 		user: { id: string };
 	};
-	return { id: body.user.id, token: body.token };
+	return {
+		id: body.user.id,
+		token: body.token,
+		refreshToken: body.refreshToken,
+	};
 }
 
 /** A JSON request. Pass null for `token` to call anonymously. */

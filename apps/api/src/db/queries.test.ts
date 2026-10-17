@@ -349,7 +349,13 @@ describe("deleteUser", () => {
 
 	// The schema cascades sessions from users. Asserted because it is the whole
 	// reason deletion does not need to sweep them itself - if the foreign key
-	// ever loses ON DELETE CASCADE, a deleted account keeps working sessions.
+	// ever loses ON DELETE CASCADE, a deleted account could go on RENEWING.
+	//
+	// Renewing is all this protects, and saying so precisely matters: the
+	// access token already issued is a signed JWT this cascade does not touch.
+	// What stops that one is resolvePrincipal refusing a departed account
+	// (ONL-146), asserted in middleware/principal.test.ts and
+	// routes/account-deletion.test.ts. A green test here says nothing about it.
 	it("takes the user's sessions with it", async () => {
 		const { id } = await createUser(db(), "d2@example.com", "hash");
 		await storeRefreshToken(

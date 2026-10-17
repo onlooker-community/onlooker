@@ -1,5 +1,5 @@
 import type { Principal } from "../db/pool.js";
-import { isAnonymizedAccount } from "../db/queries.js";
+import { isDepartedAccount } from "../db/queries.js";
 import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
 import { requireAuth } from "./auth.js";
@@ -31,15 +31,25 @@ export type RouteCors = "app" | "any";
  * principal was allowed.
  *
  * "session" and "operator" each pay one indexed primary-key read here, for
- * `refuseAnonymized`. Accepted because the alternative is an open window: an
- * anonymized `users` row survives as an org lesson's anchor (ONL-136), so
- * without this a session token issued before anonymization keeps authenticating
- * - and keeps WRITING - for up to TOKEN_EXPIRY_MINUTES. Deletion's older,
- * unconditional path needed no such check, because there the row was simply
- * gone and every read or write downstream failed on its own. This is the one
- * place both modes route through, so it is also the one place that pays for
- * it - a handler reusing this principal never reads the row a second time on
- * its account.
+ * `refuseDeparted`. Accepted because the alternative is an open window: a
+ * token is a signed JWT that no write can withdraw, so without this a session
+ * token issued before the account went away keeps authenticating - and keeps
+ * WRITING - for up to TOKEN_EXPIRY_MINUTES.
+ *
+ * BOTH ways an account departs are refused here, and for a while only one was.
+ * ONL-136 added this check for the anonymize path, where the `users` row
+ * survives as an org lesson's anchor, on the reasoning that an outright
+ * deletion needed no check because the row was gone and every read or write
+ * downstream would fail on its own. That reasoning was wrong about reads: a
+ * read scoped to a vanished user_id matches nothing and answers 200 with an
+ * empty list, which is not a failure. Measured against production on
+ * 2026-10-11, `GET /api/orgs` answered `200 {"orgs":[]}` to a deleted
+ * account's token (ONL-146). So the same lookup now concludes "gone" for a
+ * missing row too - one query, two causes, one answer.
+ *
+ * This is the one place both modes route through, so it is also the one place
+ * that pays for it - a handler reusing this principal never reads the row a
+ * second time on its account.
  */
 export async function resolvePrincipal(
 	request: Request,
@@ -52,22 +62,25 @@ export async function resolvePrincipal(
 
 		case "session": {
 			const { userId } = await requireAuth(request, env);
-			await refuseAnonymized(env, userId);
+			await refuseDeparted(env, userId);
 			return { userId };
 		}
 
 		case "machine":
-			// No row check here. A machine token is its own row in
-			// machine_tokens, and deleteUser's anonymize batch deletes every
-			// one for the account in the same transaction that sets
-			// anonymized_at - so a token surviving to this point was minted
-			// after anonymization, which the "session" case above now
-			// refuses at the source.
+			// No row check here, and it covers both departures. A machine token
+			// is its own row in machine_tokens: the anonymize batch deletes
+			// every one for the account in the same transaction that sets
+			// anonymized_at, and an outright deletion takes them by
+			// ON DELETE CASCADE (packages/db schema, machine_tokens.user_id).
+			// Either way the credential is gone rather than merely stale, so
+			// requireMachineToken below finds nothing to accept. A token
+			// surviving to this point was minted after the account departed,
+			// which the "session" case above refuses at the source.
 			return { userId: (await requireMachineToken(request, env)).userId };
 
 		case "operator": {
 			const { userId } = await requireAuth(request, env);
-			await refuseAnonymized(env, userId);
+			await refuseDeparted(env, userId);
 			if (!operatorIds(env).includes(userId)) {
 				// 404-shaped on purpose. Reached only after requireAuth above
 				// already succeeded, so a credential-less caller never gets
@@ -83,7 +96,7 @@ export async function resolvePrincipal(
 }
 
 /**
- * Refuses a principal whose account has been anonymized.
+ * Refuses a principal whose account is gone - deleted or anonymized.
  *
  * Same shape as `requireAuth`'s own refusal for a credential it will not
  * accept - 401 `invalid_token` - rather than a new error code, so a client
@@ -92,8 +105,8 @@ export async function resolvePrincipal(
  * from "the signature did not check out", which is the same non-disclosure
  * `requireAuth` already gives a bad JWT.
  */
-async function refuseAnonymized(env: WorkerEnv, userId: string): Promise<void> {
-	if (await isAnonymizedAccount(env.DB, userId)) {
+async function refuseDeparted(env: WorkerEnv, userId: string): Promise<void> {
+	if (await isDepartedAccount(env.DB, userId)) {
 		throw new ApiError(401, "invalid_token", "Invalid or expired token");
 	}
 }

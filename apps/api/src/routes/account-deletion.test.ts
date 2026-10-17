@@ -193,3 +193,54 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 		expect(await getUserById(db(), ada.id)).not.toBeNull();
 	});
 });
+
+describe("what a deleted account's credentials can do afterward", () => {
+	// Nothing, by either route out of deleteUser, and the mechanism is pinned
+	// at the middleware in middleware/principal.test.ts. These two cover the
+	// answer the CALLER gets, through the real delete endpoint, because that is
+	// the thing ONL-146 measured against production: a 200 where the system's
+	// own documentation implied 401.
+	it("stops authenticating, and cannot refresh", async () => {
+		const response = await deleteAccount(ada.token);
+		expect(response.status).toBe(200);
+
+		// Both halves of the pair, in one test on purpose. The access token
+		// stops because resolvePrincipal reads the row; the refresh token stops
+		// because sessions cascade. Asserting only the second is what the
+		// cascade test in db/queries.test.ts does, and on its own it cannot
+		// tell a closed window from an open one.
+		const after = await call("/api/orgs", ada.token);
+		expect(after.status).toBe(401);
+
+		const refresh = await call("/auth/refresh", null, {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: ada.refreshToken }),
+		});
+		expect(refresh.status).toBe(401);
+	});
+
+	it("stops authenticating after an anonymizing deletion too", async () => {
+		// The other branch of deleteUser. An account holding an org-shared
+		// lesson is anonymized rather than deleted - the users row survives as
+		// the lesson's anchor - so this path was already refused by ONL-136
+		// while the branch above was not. Kept beside it so the two cannot
+		// drift apart again.
+		//
+		// bob owns the org, so ada is a member rather than a sole owner and the
+		// delete is not refused with 409 - it takes the anonymize path instead.
+		const orgId = await createOrg(bob.token, "Globex");
+		await addMembership(db(), orgId, ada.id, "member");
+		await createLessonsWithFeed(
+			db(),
+			ada.id,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+
+		const response = await deleteAccount(ada.token);
+		expect(response.status).toBe(200);
+
+		const after = await call("/api/orgs", ada.token);
+		expect(after.status).toBe(401);
+	});
+});

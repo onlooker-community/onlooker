@@ -19,6 +19,14 @@ Sections marked *(measured)* were read from this repository on 2026-10-17 and
 name the file and line, so a reader can check rather than trust. Sections
 marked *(proposed)* are this document's own recommendations.
 
+**D1, D2 and D3 were CORRECTED mid-implementation on 2026-10-17** and the
+originals are kept below, struck through, because the way they were wrong is
+the useful part. They rested on "closing this costs a `users` read per
+authenticated request." The session path was already doing that read. The
+first test written against the anonymize path failed immediately and exposed
+it. A decision that reads as a cost trade-off is worth re-checking against the
+code whenever the cost is the only argument for it.
+
 ## What is there today *(measured)*
 
 **The 15-minute window is a recorded decision, not an oversight.**
@@ -39,6 +47,27 @@ ONL-146 is that same question asked about deletion rather than logout.
 **`requireAuth` reads no database.** `apps/api/src/middleware/auth.ts:21-43`
 builds its principal from the JWT payload alone — `userId: payload.sub` — so
 nothing about a signed, unexpired token depends on its subject still existing.
+
+**But the authenticated request path does, and this is the measurement the
+original D1 missed.** `requireAuth` is not the whole path.
+`resolvePrincipal` (`apps/api/src/middleware/principal.ts:53-57`) wraps it for
+every `auth: "session"` route — 30 of them — and every `auth: "operator"` route
+— 4 — and calls `refuseAnonymized`, which reads the `users` row. Its own doc
+comment says so: "This is the one place both modes route through, so it is also
+the one place that pays for it."
+
+So a per-request row read was already happening, and
+`isAnonymizedAccount` (`db/queries.ts:423-433`) is what decided its verdict:
+
+```ts
+return row?.anonymized_at != null;
+```
+
+A **missing** row makes that `false`. Its doc comment chose this deliberately —
+"False for a userId with no row at all. That is a different question" — which
+is why an anonymized account was refused 401 while a hard-deleted one was
+waved through for fifteen minutes. One intent, two outcomes, decided by which
+branch `deleteUser` happened to take.
 
 **Deletion does not always delete.** `deleteUser`
 (`apps/api/src/db/queries.ts:303`) returns `"deleted" | "anonymized" |
@@ -98,64 +127,69 @@ the same shape cannot be copied verbatim.
 
 ## Decisions *(approved)*
 
-### D1. The deletion window stays open, and the documentation stops over-promising
+### D1. The window closes *(revised)*
 
-`requireAuth` gains no database read. The 15-minute access-token lifetime
-remains the bound, consistent with the decision already recorded for logout in
-`packages/api-contract`.
+A departed account's access token stops working immediately, for both branches
+of `deleteUser`. `isAnonymizedAccount` becomes `isDepartedAccount` and concludes
+"gone" for a missing row as well as an anonymized one, so the check
+`resolvePrincipal` already performs now covers both.
 
-The reasoning that settled logout applies unchanged here: the alternative is a
-per-request lookup forever, and the window is already bounded and cannot be
-renewed (refresh tokens cascade with the user). ONL-146's own impact statement
-is that reads scoped to a vanished `user_id` return empty and writes fail closed
-on foreign keys, so what remains is the gap itself — a 200 where the system's
-own documentation implies 401. The fix is to the documentation.
+**Cost: one query, unchanged.** The read was already being paid for on every
+session- and operator-authenticated request. Only what it concludes changes.
 
-Rejected: **checking the subject in `requireAuth`.** One indexed read per
-authenticated request, with the predicate `exists AND anonymized_at IS NULL`,
-would close it immediately. It was declined on cost — six call sites already
-read the user row (`account.ts:89`, `:134`, `:166`, `:382`,
-`orgs-invite-accept.ts:96`, `auth.ts:308`), so avoiding a double read would mean
-threading the row through the principal and changing its shape, and
-`onlooker-wi9ftq.1.8` exists because two machine routes verify a credential
-twice.
+This satisfies ONL-146's primary done-when — "a deleted account's access stops
+immediately" — rather than its documentation fallback.
 
-Rejected: **binding `TOKEN_REVOCATION`.** It is the named extension point, and
-using it costs a KV read on every authenticated request — precisely the trade
-`packages/api-contract:199-202` weighed and declined — plus a KV namespace the
-API does not have.
+<details>
+<summary>The original D1, which said the window stays open — and why it was wrong</summary>
 
-### D2. The anonymize wrinkle is recorded where the next person will look
+> `requireAuth` gains no database read. The 15-minute access-token lifetime
+> remains the bound, consistent with the decision already recorded for logout.
+> Rejected: checking the subject in `requireAuth` — one indexed read per
+> authenticated request. It was declined on cost, since six call sites already
+> read the user row, so avoiding a double read would mean threading the row
+> through the principal and changing its shape.
 
-The `SESSION_LIFECYCLE` preamble and `ENVIRONMENT_VARIABLES.md:327-332` both
-describe a denylist as the thing that would close the window. Neither mentions
-that the anonymize path keeps the `users` row, so a reader who revisits the
-trade and reaches for an existence check ships a half-fix that passes its own
-tests. The note goes beside the existing `TOKEN_REVOCATION` text, in both
-places, naming the predicate.
+Every sentence about cost was false, and all of it was checkable before the
+decision was made. `resolvePrincipal` had been reading the row on every session
+request since ONL-136. "Avoiding a double read" was already solved there — its
+comment says a handler reusing the principal never reads the row again.
 
-### D3. The mock stays stricter, and the divergence is written down
+The decision was approved on the strength of an argument nobody had verified,
+including me. What caught it was writing the test first: the anonymize case
+asserted a 200 and got a 401, which is a fact that cannot be argued with.
 
-The mock's 401 is the behavior ONL-146 describes as desirable, and the API's
-200 is the behavior D1 keeps. Teaching the mock to match would mean accepting a
-deleted user's token for the rest of the dev session, because the mock has no
-clock and cannot express "valid for 15 more minutes" — a worse lie in the other
-direction.
+</details>
 
-So the divergence is deliberate and recorded, in the contract next to
-`SESSION_LIFECYCLE` where this family of decisions already lives, with a comment
-at the mock's delete branch pointing to it. Recording a known divergence in
-writing is the pattern `scripts/sentry/unapplied.txt` established: "a written
-admission, which is the point: the reason has to survive review."
+### D2. The predicate's two causes get one answer *(revised)*
 
-Rejected: **a contract case pinning a shared status code.** There isn't one to
-pin — the two implementations are correct for different reasons, and a case
-asserting either number would make one of them fail for no benefit.
+The original D2 had this exactly backwards. It warned that an existence check
+"closes it for hard deletes and silently misses every anonymized account." The
+truth is the reverse: the anonymize path was already closed, and the hard delete
+was the half slipping through.
 
-Rejected: **giving the mock a 15-minute tombstone.** Expressible — the mock can
-read the clock — but it makes mock behavior time-dependent, which is how a
-dev-mode fixture turns into a flaky test, in exchange for simulating a window no
-developer is waiting out.
+What is worth recording is the shape of the bug rather than a warning about a
+fix nobody will now write: **one lookup, two ways to be gone, and a predicate
+that only admitted one of them.** `row?.anonymized_at != null` collapses "no
+such row" into "a row that is live", and that collapse was the whole defect. The
+comment on `isDepartedAccount` says so, and `middleware/principal.test.ts` keeps
+both causes adjacent so they cannot drift apart again.
+
+The `SESSION_LIFECYCLE` preamble and `ENVIRONMENT_VARIABLES.md` get the scoping
+correction instead: a denylist is what you need to withdraw a token from an
+account that is still **live**, which is logout's case. It was never what a
+departed account needed.
+
+### D3. Withdrawn — there is no divergence to record *(revised)*
+
+The original D3 proposed recording a deliberate mock/API divergence: the mock
+401s after deletion, the API answered 200. With D1 revised, both answer 401, so
+`apps/web/src/api/mockApi.ts` needs no change and no written admission.
+
+Worth keeping from it: the mock was **right** and the API was wrong, and no
+contract case could see it because none makes an authenticated call after a
+deletion. The mock being stricter than the API is a signal worth reading as a
+bug report, not as drift to be documented away.
 
 ### D4. A redundant transition is idempotent, decided in `transitionLesson`
 
@@ -241,18 +275,30 @@ decision is only about what the caller is told.
   drifted body is still repaired; the operator and author paths behave the same
   way as the org path.
 
-### ONL-146 — PR 3
+### ONL-146 — PR 3 *(revised)*
 
-* Rewrite `account.ts:291-294` to say what cascades, what does not, and for how
-  long, pointing at `SESSION_LIFECYCLE`.
-* Add the anonymize-predicate note to the `SESSION_LIFECYCLE` preamble and to
-  `ENVIRONMENT_VARIABLES.md:327-332`.
-* Record the mock divergence in the contract; comment the mock's delete branch
-  to point at it.
-* A test asserting the window as a property: after `deleteUser`, a previously
-  valid access token still authenticates, and the refresh token does not. The
-  existing `queries.test` cascade assertion stays, with its claim narrowed to
-  what it actually protects.
+* `isAnonymizedAccount` → `isDepartedAccount`, concluding "gone" for a missing
+  row as well as an anonymized one. One caller, so the rename is cheap and the
+  narrow name would otherwise lie. `refuseAnonymized` → `refuseDeparted`.
+* Rewrite the reasoning in `resolvePrincipal`'s doc comment. It said an outright
+  deletion needed no check "because there the row was simply gone and every read
+  or write downstream failed on its own" — which is wrong about reads: a read
+  scoped to a vanished `user_id` matches nothing and answers 200.
+* Extend the `machine` branch comment to cover both departures —
+  `machine_tokens.user_id` is `ON DELETE CASCADE`, so a hard delete takes those
+  credentials too, which is why that branch still needs no row check.
+* Rewrite `account.ts:291-294` and `queries.test.ts:350-352`: both implied the
+  cascade ends the caller's access. It ends *renewal*; the access token is ended
+  by `resolvePrincipal`.
+* Scoping correction in the `SESSION_LIFECYCLE` preamble and
+  `ENVIRONMENT_VARIABLES.md:327-332`: a denylist is for withdrawing a live
+  account's token, not a departed account's.
+* Tests: the hard-delete half added to `middleware/principal.test.ts` beside the
+  anonymize half it already covered, and `account-deletion.test.ts` asserting
+  what the caller gets from the real endpoint for both branches. Proved by
+  ablation — restoring `row?.anonymized_at != null` fails exactly the three new
+  cases and nothing else.
+* No change to `apps/web/src/api/mockApi.ts`. See D3.
 
 ## Not in scope
 

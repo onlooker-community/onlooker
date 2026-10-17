@@ -333,6 +333,14 @@ today, and `TOKEN_REVOCATION` marks where one would attach if the trade is ever
 revisited. See `apps/api/src/routes/auth.ts` and `SESSION_LIFECYCLE` in
 `packages/api-contract`.
 
+Scope that claim carefully before reaching for this binding. It is true of
+**logout**, where the account still exists and there is nothing to look up. It
+is **not** the reason a departed account's token would keep working: the
+session path already reads the `users` row on every request, so a deleted or
+anonymized account is refused there without any denylist (ONL-146,
+`apps/api/src/middleware/principal.ts`). A denylist here would be for
+withdrawing a token from an account that is still live.
+
 Adding a KV namespace means creating it, declaring it per environment, and
 writing the code that reads it — not filling in the placeholder ids that used to
 sit here.

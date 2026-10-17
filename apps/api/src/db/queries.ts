@@ -405,9 +405,9 @@ export async function deleteUser(
 }
 
 /**
- * Whether `userId` names an account that has been anonymized - kept as the
- * anchor for an org lesson, stripped of identity and credentials, but not
- * gone from `users` the way an ordinary deletion leaves it.
+ * Whether `userId` names an account that is gone - deleted outright, or
+ * anonymized and kept as the anchor for an org lesson, stripped of identity
+ * and credentials.
  *
  * `resolvePrincipal` calls this once per session- or operator-authenticated
  * request; see its own comment for why that cost is accepted. This is the
@@ -415,12 +415,20 @@ export async function deleteUser(
  * shape `deleteUser`'s own post-batch re-read above already uses, rather than
  * a second one somewhere else.
  *
- * False for a userId with no row at all. That is a different question -
- * "does this account still exist" - and the handlers that need an answer to
- * it already ask (getUserById, getPasswordHash); this answers only whether an
- * EXISTING row has been anonymized.
+ * TRUE FOR A MISSING ROW AS WELL, which is the whole point of the name: both
+ * ways an account can depart answer the same question for a credential. This
+ * returned false for a missing row until ONL-146, on the reasoning that "does
+ * this account still exist" was a different question the handlers that needed
+ * it already asked (getUserById, getPasswordHash). The authenticated request
+ * path turned out to need the union, and asking for it narrowly is what left a
+ * hard-deleted account's access token working for up to TOKEN_EXPIRY_MINUTES
+ * while an anonymized one was refused - two outcomes for one intent, decided
+ * by which branch deleteUser happened to take.
+ *
+ * One query either way. The row read was already being paid for on every
+ * session-authenticated request, so widening what it concludes costs nothing.
  */
-export async function isAnonymizedAccount(
+export async function isDepartedAccount(
 	db: D1Database,
 	userId: string,
 ): Promise<boolean> {
@@ -429,7 +437,10 @@ export async function isAnonymizedAccount(
 		.bind(userId)
 		.first<{ anonymized_at: string | null }>();
 
-	return row?.anonymized_at != null;
+	// Distinguishes "no such row" from "a row whose anonymized_at is NULL".
+	// `row?.anonymized_at != null` collapses those two, and collapsing them is
+	// exactly the defect: the first means gone, the second means live.
+	return row === null || row.anonymized_at !== null;
 }
 
 /**

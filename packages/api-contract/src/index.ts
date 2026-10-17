@@ -202,6 +202,22 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
  *   protection for nothing. TOKEN_REVOCATION in WorkerEnv is where a denylist
  *   would go if that trade ever changes.
  *
+ *   DELETION IS NOT THAT WINDOW, and the distinction is easy to lose. Logging
+ *   out leaves an account that still exists, so there is nothing to look up and
+ *   the residual window above stands. An account that has DEPARTED is a
+ *   different question, and the session path is already asking it: it reads the
+ *   `users` row on every request to refuse an anonymized account, so refusing a
+ *   deleted one costs nothing beyond what that read already pays. ONL-146 found
+ *   the two halves disagreeing - a deleted account's token authenticated for
+ *   fifteen minutes while an anonymized account's was refused - and the cause
+ *   was a predicate that answered "no" for a missing row, not a cost anybody
+ *   had weighed. Both are refused now, in resolvePrincipal.
+ *
+ *   So the reasoning to carry forward is narrower than it first looks: a
+ *   stateless token cannot be withdrawn WITHOUT A LOOKUP. Where a lookup is
+ *   already happening, "we cannot withdraw it" stops being true, and the
+ *   question becomes what that lookup should conclude.
+ *
  * Both runners drive these as an ordered flow rather than single requests, since
  * each step depends on the last. The numbers live here so the decision has one
  * home; the mechanics differ per side because the mock and SELF are reached
