@@ -317,6 +317,23 @@ zone, and one is the whole budget — the plan allows a single rule, and it is
 spent. So this is not a rule among several that can be narrowed freely; it is the
 only rate limiting the API has, at the edge or anywhere else.
 
+**"One rule" means one, and that is checkable rather than assumed.** Reading
+`GET /zones/{zone}/rulesets/phases/http_ratelimit/entrypoint` is the complete
+answer, including for the *previous-version* rate limiting product that this
+account predates. Cloudflare upgraded every rule created in that version to the
+new one automatically and serves the results through the Rulesets API in this
+same phase — they appear tagged "Previous version" in the dashboard — and the
+old `/zones/{zone}/rate_limits` API "stopped being supported on 2025-06-15 and
+is no longer available". That endpoint answers `403 Authentication error` to the
+Zone WAF token, which is not a gap: the one rule this phase holds was created
+2026-09-28, after that cutoff, so it cannot be a migrated legacy rule. There is
+nothing metering this zone that the read above does not show. Checked
+2026-10-17 for ONL-171.
+
+The zone also carries no `http_request_firewall_custom` ruleset, so no custom
+WAF rule meters these paths either. Only Cloudflare-managed rulesets
+(Normalization, Managed Free, DDoS L7) sit alongside the rate limiting one.
+
 **The rule lives in `scripts/cloudflare/ratelimit.json`**, which is canonical,
 and `scripts/cloudflare/apply.sh` is the only thing that should write it. Read
 the expression there; this section is the reasoning, not the record.
