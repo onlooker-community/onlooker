@@ -290,8 +290,17 @@ export async function handleDeleteAccount(
 
 	// Sessions and verification tokens both cascade from users, so this takes
 	// them with it - queries.test asserts that rather than trusting it, because
-	// the day the constraint changes is the day a deleted account keeps a
-	// working session.
+	// the day the constraint changes is the day a deleted account can go on
+	// RENEWING.
+	//
+	// Renewing is the whole of what the cascade buys, and the wording here used
+	// to imply more. A session is a refresh token; the ACCESS token the caller
+	// is holding is a signed JWT that no write can withdraw, so for fifteen
+	// minutes after this returned 200 it kept authenticating - measured against
+	// production, `GET /api/orgs` answered `200 {"orgs":[]}` (ONL-146). What
+	// closes that is resolvePrincipal refusing a departed account, which costs
+	// nothing extra because it was already reading the row for the anonymize
+	// case. Both halves are asserted in routes/account-deletion.test.ts.
 	//
 	// Not unconditional any more. org_memberships cascades from users too, so
 	// this was the one way to leave an org with zero owners - a state no route
