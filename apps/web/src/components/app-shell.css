@@ -1,0 +1,92 @@
+/*
+ * The header's narrow layout.
+ *
+ * The app's second breakpoint, and it shares the first one's reasoning
+ * verbatim - see pages/lessons.css, which explains why this cannot be an
+ * inline style or a useMediaQuery hook: the jsdom these tests run against
+ * implements no matchMedia, so such a hook would throw in every test that
+ * renders the shell, which is every page test there is.
+ *
+ * NARROW IS THE DEFAULT and wide is the override, the same direction
+ * lessons.css takes, so the two layouts are one stylesheet rather than two
+ * that can disagree.
+ *
+ * What this is for: eight sections at --text-data-md, each with an icon and
+ * 1px letter-spacing, wrapped into four ragged rows on a 390px screen and
+ * took 209px of a 844px phone before any page content - a quarter of the
+ * screen, on every page, with PROFILE stranded alone on a row and the
+ * sign-out block floating right on another. See ONL-176.
+ *
+ * Vitest does not process CSS, so none of this applies under test. That is
+ * correct and worth stating rather than discovering: what the shell tests
+ * assert is that every section is present and linked, which is true in both
+ * layouts.
+ */
+
+/*
+ * This element has NO inline style, and that is a requirement rather than a
+ * preference: an inline style beats a stylesheet rule short of !important, so
+ * the `flexWrap: "wrap"` that used to live on the nav silently defeated the
+ * `nowrap` below. The nav went on wrapping into four rows at 390px and the
+ * stylesheet looked like it had never loaded. Both layouts live here now;
+ * putting any of them back in the style object re-breaks the narrow one.
+ *
+ * display and gap are therefore here too, not because they vary - they do not
+ * - but because splitting an element's layout across two places is what
+ * produced that bug.
+ */
+.app-nav {
+	display: flex;
+	gap: 1.25rem;
+	align-items: center;
+	/*
+	 * Its own row, so the logo and the user block share the one above it.
+	 * Without this the nav sits between them and the sign-out block -
+	 * marginLeft: auto - is pushed onto a row of its own, right-aligned
+	 * against nothing.
+	 */
+	flex: 1 0 100%;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	/*
+	 * The strip scrolls; the page must not. Without this a long nav widens
+	 * the header, which widens the document, and the whole page gains a
+	 * horizontal scrollbar to serve one row.
+	 */
+	max-width: 100%;
+	/*
+	 * Room for the scrollbar where one is drawn, so it does not sit on top of
+	 * the labels. Overlay scrollbars (macOS, iOS) ignore this and cost
+	 * nothing.
+	 */
+	padding-bottom: 0.25rem;
+	scrollbar-width: thin;
+}
+
+/*
+ * Nothing in the strip may shrink: a flex item's default min-width is auto,
+ * so without this the labels would compress toward their longest word and
+ * wrap mid-strip rather than scrolling.
+ */
+.app-nav > a {
+	flex: none;
+}
+
+@media (min-width: 60rem) {
+	/*
+	 * Back to what the header did before: an ordinary wrapping item sized to
+	 * its content, sitting between the logo and the user block.
+	 */
+	.app-nav {
+		flex: 0 1 auto;
+		flex-wrap: wrap;
+		overflow-x: visible;
+		padding-bottom: 0;
+		/*
+		 * Back to baseline alignment: the wide header aligns its own children
+		 * with align-items: center, and the nav sitting among them does not
+		 * need to impose anything on its links.
+		 */
+		align-items: initial;
+	}
+}
