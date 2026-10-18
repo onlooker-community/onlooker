@@ -64,14 +64,33 @@ export default function SessionsSummary({ rollup }: { rollup: Rollup }) {
 						alignItems: "center",
 						gap: "var(--space-3)",
 						padding: "0.2rem 0",
+						// Without this the row cannot fit a phone. The label and the
+						// track below are rigid - 12rem and 8rem - and with two 12px
+						// gaps they claim 344px before the counts get a single pixel,
+						// so on anything narrower the counts span was squeezed to a
+						// sliver and wrapped its own text instead: "5 sessions · 44m"
+						// became three stacked lines reading "5", "sessions", "· 44m".
+						// Wrapping moves the whole span to its own line instead of
+						// crushing it. See ONL-174.
+						flexWrap: "wrap",
 					}}
 				>
-					<span style={{ flex: "none", minWidth: "12rem" }}>{day.day}</span>
+					{/*
+					 * `0 1 12rem` rather than `none` + `minWidth`. The basis is what
+					 * aligns every bar into a column at full width - the entire point
+					 * of this panel is comparing them - and it is identical to the old
+					 * fixed width whenever the row has room. The difference is only at
+					 * widths narrower than the label itself, where `none` would
+					 * overflow the panel and this shrinks and wraps the date instead.
+					 */}
+					<span style={{ flex: "0 1 12rem" }}>{day.day}</span>
 					<span
 						aria-hidden="true"
 						style={{
-							flex: "none",
-							width: "8rem",
+							// Shrinkable for the same reason, and safe: the fill inside
+							// is a percentage of this track, so a narrower track scales
+							// every bar by the same factor and leaves them comparable.
+							flex: "0 1 8rem",
 							height: "0.5rem",
 							// No background here on purpose: PALETTE.track is
 							// --panel, the same fill this Panel sits on, so a
