@@ -1061,9 +1061,9 @@ describe("stream conditionality", () => {
 	// librarian included, whose `lessons/` has never existed there. That is
 	// the successful-looking silence this command exists to remove.
 	it("does not certify a stream whose output has never been written", async () => {
-		// librarian's headline case. Its hook fires every session, it emits
-		// nothing at its lesson-write site so it has no `writeEvents` to name,
-		// and `lessons/` has never appeared. `recording` would be a clean bill
+		// librarian's headline case. Its hook fires every session, it names no
+		// `writeEvents` (its one lesson event is too rare for its silence to
+		// mean anything), and `lessons/` has never appeared. `recording` would be a clean bill
 		// on a machine whose output is known to be missing.
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
@@ -2643,8 +2643,9 @@ describe("surveyStreams", () => {
 
 	// librarian's own shape: events present, output never written, and no
 	// amount of firing reads `stopped`, because no hook and no event this
-	// table records is write evidence for it - the verification pass confirmed
-	// there is nothing to name, since its lesson writers emit nothing at all.
+	// table records is write evidence for it. `librarian.lesson.promoted` does
+	// mark a write, but it is too rare for its silence to count (see the
+	// entry).
 	//
 	// It reaches `unknown` by a different route than historian just above.
 	// historian HAS a write signal that has never fired; librarian has none to
@@ -2654,8 +2655,8 @@ describe("surveyStreams", () => {
 	//
 	// This is as close as the table gets to the empty-lesson-pool case
 	// librarian's entry describes: surfaced (`unknown` exits 1) but never a
-	// confident `stopped`. A lesson-write event upstream is what would change
-	// that.
+	// confident `stopped`. What would change that is a count of sessions in
+	// which a jury actually ran, not another event name.
 	it("reports librarian unknown rather than stopped now that its write hook is no longer trusted", async () => {
 		const { cwd, home, configDir, env } = machine({
 			plugins: ["librarian"],
