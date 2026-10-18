@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
 import { useReveal } from "../reveal";
+import "./app-shell.css";
 import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
@@ -27,6 +28,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const { dismiss } = useReveal();
+	const navRef = useRef<HTMLElement>(null);
+
+	// Bring the current section into view in the narrow layout's scrolling
+	// strip. Without it, landing on a later section - Profile is eighth of
+	// eight - shows a strip that begins at Lessons with nothing on screen
+	// saying where you are, and the aria-current and underline marking it are
+	// both off to the right.
+	//
+	// OPTIONAL CALL, and that is load-bearing rather than defensive style:
+	// jsdom does not implement scrollIntoView, so a direct call throws in
+	// every test that renders the shell, which is every page test in the
+	// suite. The same reason app-shell.css cannot be a useMediaQuery hook.
+	//
+	// Harmless above the breakpoint, where the nav does not scroll: scrolling
+	// an element already fully in view moves nothing. Cheaper than reading a
+	// media query to find out.
+	useEffect(() => {
+		const current = navRef.current?.querySelector('[aria-current="page"]');
+		current?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+	}, []);
 
 	// The page heading comes from SECTIONS rather than from the page, which is
 	// the whole of the fix for onlooker-eqb. Two of the five shell routes named
@@ -93,10 +114,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
 					Onlooker
 				</span>
 
-				<nav
-					aria-label="Sections"
-					style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}
-				>
+				{/*
+				 * NO INLINE STYLE, deliberately: app-shell.css owns this element's
+				 * layout entirely, both layouts of it. An inline style beats a
+				 * stylesheet rule short of !important, so leaving `flexWrap: "wrap"`
+				 * here silently defeated the narrow rule - the nav kept wrapping
+				 * into four rows at 390px and the stylesheet looked like it had
+				 * failed to load. It is the specificity trap lessons.css documents
+				 * for its own overrides, arrived at from the other direction.
+				 *
+				 * The class is the whole interface. See app-shell.css for why a
+				 * breakpoint cannot live in a style object here at all.
+				 */}
+				<nav ref={navRef} className="app-nav" aria-label="Sections">
 					{SECTIONS.map((section) => (
 						// NavLink, not Link: it sets aria-current="page" on the
 						// active one, which is the only thing telling a screen
