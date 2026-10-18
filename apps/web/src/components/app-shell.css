@@ -1,92 +1,111 @@
 /*
- * The header's narrow layout.
+ * The header's two layouts.
  *
- * The app's second breakpoint, and it shares the first one's reasoning
- * verbatim - see pages/lessons.css, which explains why this cannot be an
- * inline style or a useMediaQuery hook: the jsdom these tests run against
- * implements no matchMedia, so such a hook would throw in every test that
- * renders the shell, which is every page test there is.
+ * The app's second breakpoint, sharing the first one's reasoning verbatim -
+ * see pages/lessons.css, which explains why this cannot be an inline style or
+ * a useMediaQuery hook: the jsdom these tests run against implements no
+ * matchMedia, so such a hook would throw in every test that renders the shell,
+ * which is every page test there is.
  *
- * NARROW IS THE DEFAULT and wide is the override, the same direction
- * lessons.css takes, so the two layouts are one stylesheet rather than two
- * that can disagree.
+ * NARROW IS THE DEFAULT and wide is the override, the direction lessons.css
+ * takes, so the two layouts are one stylesheet rather than two that disagree.
  *
- * What this is for: eight sections at --text-data-md, each with an icon and
- * 1px letter-spacing, wrapped into four ragged rows on a 390px screen and
- * took 209px of a 844px phone before any page content - a quarter of the
- * screen, on every page, with PROFILE stranded alone on a row and the
- * sign-out block floating right on another. See ONL-176.
+ * THE NAV ELEMENTS CARRY NO INLINE STYLE, and that is a requirement rather
+ * than tidiness. An inline style beats a stylesheet rule short of !important,
+ * so a `display: flex` left on a group here would defeat the `display: none`
+ * below and the groups would show at every width - which is exactly how the
+ * previous version of this file failed, silently, looking like it had never
+ * loaded. ONL-176 and ONL-178.
  *
  * Vitest does not process CSS, so none of this applies under test. That is
- * correct and worth stating rather than discovering: what the shell tests
- * assert is that every section is present and linked, which is true in both
- * layouts.
+ * correct rather than a gap: what the shell tests assert is that every section
+ * is present and linked, which is true in both layouts.
  */
 
 /*
- * This element has NO inline style, and that is a requirement rather than a
- * preference: an inline style beats a stylesheet rule short of !important, so
- * the `flexWrap: "wrap"` that used to live on the nav silently defeated the
- * `nowrap` below. The nav went on wrapping into four rows at 390px and the
- * stylesheet looked like it had never loaded. Both layouts live here now;
- * putting any of them back in the style object re-breaks the narrow one.
- *
- * display and gap are therefore here too, not because they vary - they do not
- * - but because splitting an element's layout across two places is what
- * produced that bug.
+ * Aligned with <main>, not the viewport. main is maxWidth 1100px with 1.5rem
+ * of padding, so matching both puts the wordmark and the nav on the same
+ * vertical lines as the page content underneath rather than floating wider
+ * than everything they label.
  */
-.app-nav {
+.app-header-inner {
+	max-width: 1100px;
+	margin: 0 auto;
+	padding: 0 1.5rem;
+}
+
+.app-nav-bar {
 	display: flex;
-	gap: 1.25rem;
 	align-items: center;
 	/*
-	 * Its own row, so the logo and the user block share the one above it.
-	 * Without this the nav sits between them and the sign-out block -
-	 * marginLeft: auto - is pushed onto a row of its own, right-aligned
-	 * against nothing.
+	 * Three children, space-between: the wordmark lands centred only when the
+	 * groups are of similar width, which is the same approximation the design
+	 * this follows makes. Below the breakpoint the groups are gone and this
+	 * puts the wordmark left and the toggle right, which is the arrangement
+	 * that reads correctly on a phone anyway.
 	 */
-	flex: 1 0 100%;
-	flex-wrap: nowrap;
-	overflow-x: auto;
-	/*
-	 * The strip scrolls; the page must not. Without this a long nav widens
-	 * the header, which widens the document, and the whole page gains a
-	 * horizontal scrollbar to serve one row.
-	 */
-	max-width: 100%;
-	/*
-	 * Room for the scrollbar where one is drawn, so it does not sit on top of
-	 * the labels. Overlay scrollbars (macOS, iOS) ignore this and cost
-	 * nothing.
-	 */
-	padding-bottom: 0.25rem;
-	scrollbar-width: thin;
+	justify-content: space-between;
+	gap: 1.5rem;
+}
+
+/* Hidden below the breakpoint; the toggle and its panel stand in for them. */
+.app-nav-group {
+	display: none;
+}
+
+.app-nav-toggle {
+	display: inline-flex;
+	align-items: center;
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--teal);
+	cursor: pointer;
+	font-family: var(--font-data);
+	font-size: var(--text-data-md);
+	letter-spacing: 1px;
+	text-transform: uppercase;
 }
 
 /*
- * Nothing in the strip may shrink: a flex item's default min-width is auto,
- * so without this the labels would compress toward their longest word and
- * wrap mid-strip rather than scrolling.
+ * The expanded panel. Rendered only while open - see AppShell - so this
+ * styles something that is absent rather than hidden the rest of the time.
  */
-.app-nav > a {
-	flex: none;
+.app-menu {
+	display: grid;
+	gap: var(--space-4);
+	padding: var(--space-4) 0 var(--space-3);
+}
+
+.app-menu-rule {
+	/*
+	 * The divider the reference draws between its sections and its account
+	 * links, in this app's own 2px weight rather than a hairline.
+	 */
+	border: none;
+	border-top: 2px solid var(--ink-dim);
+	margin: 0;
+}
+
+.app-menu-user {
+	color: var(--ink-dim);
+	font-size: 0.85rem;
 }
 
 @media (min-width: 60rem) {
+	.app-nav-group {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+	}
+
 	/*
-	 * Back to what the header did before: an ordinary wrapping item sized to
-	 * its content, sitting between the logo and the user block.
+	 * The groups do the navigating above the breakpoint, so the control that
+	 * stands in for them has nothing to do. Hidden rather than unrendered
+	 * because its state is what the panel below reads, and a control that
+	 * unmounts at a width would drop that state on a resize.
 	 */
-	.app-nav {
-		flex: 0 1 auto;
-		flex-wrap: wrap;
-		overflow-x: visible;
-		padding-bottom: 0;
-		/*
-		 * Back to baseline alignment: the wide header aligns its own children
-		 * with align-items: center, and the nav sitting among them does not
-		 * need to impose anything on its links.
-		 */
-		align-items: initial;
+	.app-nav-toggle {
+		display: none;
 	}
 }

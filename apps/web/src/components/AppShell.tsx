@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
 import { useReveal } from "../reveal";
@@ -6,12 +6,69 @@ import "./app-shell.css";
 import { Icon } from "./Icon";
 import { PALETTE } from "./palette";
 import SessionExpiryBanner from "./SessionExpiryBanner";
-import { SECTIONS, sectionFor } from "./sections";
+import { ACCOUNT_SECTION_PATHS, SECTIONS, sectionFor } from "./sections";
 
 // Re-exported because shell-headings.test.tsx drives its cases off
 // `SECTIONS` imported from here. The list itself lives in ./sections so the
 // path matcher beside it can be tested without mounting React.
 export { SECTIONS };
+
+// What the product does, and who you are. Derived from SECTIONS rather than
+// stored as two lists, so adding a section still means editing one place and
+// the heading lookup keeps seeing every one of them. See ONL-178.
+const ACCOUNT_SECTIONS = SECTIONS.filter((s) =>
+	ACCOUNT_SECTION_PATHS.includes(s.to),
+);
+const PRODUCT_SECTIONS = SECTIONS.filter(
+	(s) => !ACCOUNT_SECTION_PATHS.includes(s.to),
+);
+
+/**
+ * A nav link, in the bar and in the expanded menu alike.
+ *
+ * One function rather than two copies: the two layouts differ in where the
+ * links sit, never in what a link looks like, and a second copy is how the
+ * active treatment ends up applied in one place and not the other.
+ */
+const sectionLink = ({ isActive }: { isActive: boolean }) => ({
+	display: "inline-flex",
+	alignItems: "center",
+	gap: "var(--space-1)",
+	// An accent, not a plate - this is ink on the header's ground, and
+	// accents are the tokens that shift with the theme to stay readable.
+	color: isActive ? PALETTE.accent : PALETTE.muted,
+	fontFamily: "var(--font-data)",
+	fontSize: "var(--text-data-md)",
+	letterSpacing: "1px",
+	textTransform: "uppercase" as const,
+	textDecoration: "none",
+	// Underline rather than color alone, so the current section is not
+	// signaled only by hue.
+	borderBottom: isActive
+		? `2px solid ${PALETTE.accent}`
+		: "2px solid transparent",
+	paddingBottom: "0.15rem",
+	whiteSpace: "nowrap" as const,
+});
+
+/**
+ * Sign out, in both layouts.
+ *
+ * Quiet on purpose. ui.tsx's Button is a filled plate, which is right for
+ * Retract and Revoke and far too loud for a control that sits on every page
+ * and is rarely the thing anyone came to do.
+ */
+const quietControl = {
+	background: "none",
+	border: "none",
+	padding: 0,
+	color: PALETTE.accent,
+	cursor: "pointer",
+	fontFamily: "var(--font-data)",
+	fontSize: "var(--text-data-md)",
+	letterSpacing: "1px",
+	textTransform: "uppercase" as const,
+};
 
 // The chrome around every authenticated route. Before this, the only
 // navigation in the app was an ad-hoc <nav> inside DashboardPage, which
@@ -28,26 +85,40 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const { dismiss } = useReveal();
-	const navRef = useRef<HTMLElement>(null);
+	const [expanded, setExpanded] = useState(false);
+	const toggleRef = useRef<HTMLButtonElement>(null);
 
-	// Bring the current section into view in the narrow layout's scrolling
-	// strip. Without it, landing on a later section - Profile is eighth of
-	// eight - shows a strip that begins at Lessons with nothing on screen
-	// saying where you are, and the aria-current and underline marking it are
-	// both off to the right.
+	// Close on navigation, or the menu stays open over the page it just
+	// opened. The panel only exists below the breakpoint, where it covers the
+	// content, so leaving it up means tapping a section and seeing the menu
+	// again rather than the thing you asked for.
 	//
-	// OPTIONAL CALL, and that is load-bearing rather than defensive style:
-	// jsdom does not implement scrollIntoView, so a direct call throws in
-	// every test that renders the shell, which is every page test in the
-	// suite. The same reason app-shell.css cannot be a useMediaQuery hook.
-	//
-	// Harmless above the breakpoint, where the nav does not scroll: scrolling
-	// an element already fully in view moves nothing. Cheaper than reading a
-	// media query to find out.
+	// Keyed on pathname rather than on the click, so a section reached any
+	// other way - a link in the page, the back button - closes it too. The
+	// pathname is the whole dependency: `expanded` is what this sets, and
+	// depending on it would re-run the effect on every open.
 	useEffect(() => {
-		const current = navRef.current?.querySelector('[aria-current="page"]');
-		current?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
-	}, []);
+		setExpanded(false);
+	}, [location.pathname]);
+
+	// Escape closes it and focus goes back to the control that opened it.
+	// Without the second half, closing leaves focus on a button that no longer
+	// exists in the accessibility tree and the next Tab starts from the top of
+	// the document.
+	//
+	// The reference this header follows does neither - it sets aria-expanded
+	// and leaves the rest to an animation library. This is the chrome around
+	// every authenticated route, so it is worth more than that.
+	useEffect(() => {
+		if (!expanded) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setExpanded(false);
+			toggleRef.current?.focus();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [expanded]);
 
 	// The page heading comes from SECTIONS rather than from the page, which is
 	// the whole of the fix for onlooker-eqb. Two of the five shell routes named
@@ -86,11 +157,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 		<div style={{ minHeight: "100vh", fontFamily: "var(--font-body)" }}>
 			<header
 				style={{
-					display: "flex",
-					alignItems: "center",
-					gap: "1.5rem",
-					flexWrap: "wrap",
-					padding: "0.75rem 1.5rem",
+					padding: "0.75rem 0",
 					background: "var(--panel)",
 					// ink-dim rather than edge: this rule divides the header's
 					// --panel fill from the page's --ground, and edge only
@@ -98,107 +165,124 @@ export default function AppShell({ children }: { children: ReactNode }) {
 					borderBottom: `2px solid ${PALETTE.border}`,
 				}}
 			>
-				<span
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: "var(--space-1)",
-						fontFamily: "var(--font-display)",
-						fontSize: "var(--text-display-md)",
-						letterSpacing: "2px",
-						textTransform: "uppercase",
-					}}
-				>
-					{/* Eye: the logo and the active state, in the brand doc's own mapping. */}
-					<Icon name="Eye" />
-					Onlooker
-				</span>
+				<div className="app-header-inner">
+					{/*
+					 * The bar, and every element in it that app-shell.css addresses
+					 * carries NO inline layout - see that file's header for why. The
+					 * styles that remain here are color and type, which do not vary
+					 * with width.
+					 */}
+					<nav className="app-nav-bar" aria-label="Sections">
+						<div className="app-nav-group">
+							{PRODUCT_SECTIONS.map((section) => (
+								<NavLink key={section.to} to={section.to} style={sectionLink}>
+									{/* Decorative: the visible label right beside it carries
+									    the meaning, same as StatusBadge's icon. */}
+									<Icon name={section.icon} />
+									{section.label}
+								</NavLink>
+							))}
+						</div>
 
-				{/*
-				 * NO INLINE STYLE, deliberately: app-shell.css owns this element's
-				 * layout entirely, both layouts of it. An inline style beats a
-				 * stylesheet rule short of !important, so leaving `flexWrap: "wrap"`
-				 * here silently defeated the narrow rule - the nav kept wrapping
-				 * into four rows at 390px and the stylesheet looked like it had
-				 * failed to load. It is the specificity trap lessons.css documents
-				 * for its own overrides, arrived at from the other direction.
-				 *
-				 * The class is the whole interface. See app-shell.css for why a
-				 * breakpoint cannot live in a style object here at all.
-				 */}
-				<nav ref={navRef} className="app-nav" aria-label="Sections">
-					{SECTIONS.map((section) => (
-						// NavLink, not Link: it sets aria-current="page" on the
-						// active one, which is the only thing telling a screen
-						// reader which of four identical links you are on.
-						<NavLink
-							key={section.to}
-							to={section.to}
-							style={({ isActive }) => ({
-								display: "inline-flex",
+						<span
+							style={{
+								display: "flex",
 								alignItems: "center",
 								gap: "var(--space-1)",
-								// An accent, not a plate - this is ink on the
-								// header's ground, and accents are the tokens
-								// that shift with the theme to stay readable.
-								color: isActive ? PALETTE.accent : PALETTE.muted,
-								fontFamily: "var(--font-data)",
-								fontSize: "var(--text-data-md)",
-								letterSpacing: "1px",
+								fontFamily: "var(--font-display)",
+								fontSize: "var(--text-display-md)",
+								letterSpacing: "2px",
 								textTransform: "uppercase",
-								textDecoration: "none",
-								// Underline rather than color alone, so the
-								// current section is not signaled only by hue.
-								borderBottom: isActive
-									? `2px solid ${PALETTE.accent}`
-									: "2px solid transparent",
-								paddingBottom: "0.15rem",
-							})}
+								flex: "none",
+							}}
 						>
-							{/* Decorative: the visible label right beside it carries
-							    the meaning, same as StatusBadge's icon. */}
-							<Icon name={section.icon} />
-							{section.label}
-						</NavLink>
-					))}
-				</nav>
-
-				<div
-					style={{
-						marginLeft: "auto",
-						display: "flex",
-						alignItems: "center",
-						gap: "0.75rem",
-					}}
-				>
-					{user ? (
-						<span style={{ color: PALETTE.muted, fontSize: "0.85rem" }}>
-							{user.name || user.email}
+							{/* Eye: the logo and the active state, in the brand doc's own mapping. */}
+							<Icon name="Eye" />
+							Onlooker
 						</span>
-					) : null}
+
+						<div className="app-nav-group">
+							{ACCOUNT_SECTIONS.map((section) => (
+								<NavLink key={section.to} to={section.to} style={sectionLink}>
+									<Icon name={section.icon} />
+									{section.label}
+								</NavLink>
+							))}
+							{user ? (
+								<span style={{ color: PALETTE.muted, fontSize: "0.85rem" }}>
+									{user.name || user.email}
+								</span>
+							) : null}
+							<button type="button" onClick={handleLogout} style={quietControl}>
+								Sign out
+							</button>
+						</div>
+
+						{/*
+						 * Text rather than a glyph. The brand's icon set holds no
+						 * hamburger and no close, and UNPLATED_ICONS in packages/brand
+						 * is an enforcement surface - an unplated icon has to be listed
+						 * there and clear a contrast floor on all four theme grounds,
+						 * which 19 of the set cannot. The Sign out button beside this
+						 * one is already a text-only control in exactly this style.
+						 */}
+						<button
+							ref={toggleRef}
+							type="button"
+							className="app-nav-toggle"
+							aria-expanded={expanded}
+							aria-controls="app-menu"
+							onClick={() => setExpanded((open) => !open)}
+						>
+							{expanded ? "Close" : "Menu"}
+						</button>
+					</nav>
+
 					{/*
-					  Quiet on purpose. ui.tsx's Button is a filled plate, which
-					  is right for Retract and Revoke and far too loud for a
-					  control that sits on every page and is rarely the thing
-					  anyone came to do.
-					*/}
-					<button
-						type="button"
-						onClick={handleLogout}
-						style={{
-							background: "none",
-							border: "none",
-							padding: 0,
-							color: PALETTE.accent,
-							cursor: "pointer",
-							fontFamily: "var(--font-data)",
-							fontSize: "var(--text-data-md)",
-							letterSpacing: "1px",
-							textTransform: "uppercase",
-						}}
-					>
-						Sign out
-					</button>
+					 * Rendered only while open rather than hidden with CSS. Hiding it
+					 * would leave a second copy of every link in the document at all
+					 * times - in the accessibility tree, and in the getByRole queries
+					 * the shell tests already make, where it would turn every
+					 * single-match query into an ambiguous one.
+					 *
+					 * Its own label: two navs are in the document while this is open,
+					 * and two landmarks sharing a name is worse than either name.
+					 */}
+					{expanded ? (
+						<nav id="app-menu" className="app-menu" aria-label="All sections">
+							<div style={{ display: "grid", gap: "var(--space-4)" }}>
+								{PRODUCT_SECTIONS.map((section) => (
+									<NavLink key={section.to} to={section.to} style={sectionLink}>
+										<Icon name={section.icon} />
+										{section.label}
+									</NavLink>
+								))}
+							</div>
+
+							<hr className="app-menu-rule" />
+
+							<div style={{ display: "grid", gap: "var(--space-4)" }}>
+								{ACCOUNT_SECTIONS.map((section) => (
+									<NavLink key={section.to} to={section.to} style={sectionLink}>
+										<Icon name={section.icon} />
+										{section.label}
+									</NavLink>
+								))}
+								{user ? (
+									<span className="app-menu-user">
+										{user.name || user.email}
+									</span>
+								) : null}
+								<button
+									type="button"
+									onClick={handleLogout}
+									style={{ ...quietControl, justifySelf: "start" }}
+								>
+									Sign out
+								</button>
+							</div>
+						</nav>
+					) : null}
 				</div>
 			</header>
 
