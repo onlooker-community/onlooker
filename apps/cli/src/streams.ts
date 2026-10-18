@@ -1151,30 +1151,37 @@ export const STREAMS: readonly StreamEntry[] = [
 		// decline without writing to `lessons/`. This is the same shape as
 		// assayer and archivist, one layer deeper.
 		//
-		// No writeEvents either, and here the reason is simpler than
-		// anywhere else in the table: librarian emits nothing about
-		// `lessons/`. Its types name three other things - the scan
-		// (`librarian.scan.started`/`.complete`, librarian-session-end.sh:135
-		// and :506, the latter emitted on every scan including `outcome:
-		// "empty"`), the proposal store (`librarian.candidate.proposed` at
-		// :434, `librarian.candidate.dropped` at seven sites, and
-		// `librarian.proposal.accepted`/`.rejected` and `.tombstone.created`
-		// from librarian-cli.sh, all writing `proposals/` rather than
-		// `lessons/`), and the artifact browser (`onlooker.artifact.ready` at
-		// :425, pointing at `artifacts/`, and shared with three other plugins
-		// besides). The `lessons/` writers themselves - librarian-lesson-
-		// storage.sh, -transform.sh, -promote.sh - contain no `librarian_emit`
-		// call at all. There is no event to name, not a doubtful one.
+		// No writeEvents either. There is a lesson-write event now, and it
+		// passes the first half of `writeEvents`'s test and fails the
+		// second. `librarian.lesson.promoted` (ONL-7, schema 2.28.0) is
+		// emitted right after the terminal record is stamped
+		// (librarian-lesson-promote.sh:329), so it does mean a write. But
+		// it fires only when a jury finishes a lesson, as `approved` or
+		// `rejected`, and a healthy librarian almost never gets that far.
+		// Measured on the dogfood machine 2026-10-18: 784 scans since
+		// 2026-10-01, 668 of them `skipped` with no new artifacts, and not
+		// one `librarian.lesson.promoted` in the whole log. Naming it here
+		// was simulated against that log, and it turned librarian from
+		// `recording` into `stopped` ("lessons last changed ... 6 sessions
+		// ago") on a librarian behaving exactly as designed. That is the
+		// false alarm `onlooker-kqc4`'s withdrawn design produced, reached
+		// by the route that design said would avoid it.
 		//
-		// So librarian's own headline case, the empty lesson pool this table
-		// exists to catch, is `unknown`-grade detection rather than
-		// `stopped`-grade: a session firing with `lessons/` never created
-		// reads `unknown` ("cannot tell 'nothing to write yet' from
-		// 'broken'"), never a confident `stopped`. Still surfaced - `unknown`
-		// exits 1, same as `stopped` does - just without evidence that would
-		// let this table say so with certainty. A real, accepted trade, not a
-		// silent regression, and the fix is upstream: a lesson-write event
-		// would settle it in one line.
+		// Most `lessons/` writes have no event at all. The transform's
+		// pregate appends to `declined.jsonl` (librarian-lesson-storage.sh:158)
+		// without emitting, and those appends are what keep `lessons/`
+		// moving: 172 lines across six project keys, against one lesson
+		// ever reaching `approved/`. The other types name other things -
+		// the scan (`librarian.scan.*`), the proposal store
+		// (`librarian.candidate.*`, `librarian.proposal.*`), and the
+		// artifact browser (`onlooker.artifact.ready`, shared with three
+		// other plugins).
+		//
+		// So librarian is judged on liveness, plus the never-written branch
+		// for a `lessons/` that does not exist yet, which reads `unknown`
+		// rather than `stopped`. Making this entry accusable needs a
+		// denominator of sessions in which a jury actually ran, not just
+		// another event name.
 	},
 	{
 		plugin: "lineage",
