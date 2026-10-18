@@ -171,3 +171,51 @@ export function rollupSessions(
 		complete: !hasMore,
 	};
 }
+
+/** A session's event counts, split into what a row shows and what it does not. */
+export interface Shape {
+	/** "18 memory · 7 historian · 3 session" - the largest `limit` counts. */
+	shown: string;
+	/** "2 bursar · 1 scribe" - everything else, for the `+N more` title. */
+	hidden: string;
+	/** How many prefixes `hidden` names. Zero when everything fit. */
+	hiddenCount: number;
+}
+
+/**
+ * The largest `limit` event-type counts, and the tail they displaced.
+ *
+ * Replaces an earlier `shapeOf` that joined EVERY prefix into one string. A
+ * busy session carries nine of them, which rendered as a run-on line the same
+ * weight as the session's own time and duration - the longest thing in the
+ * row and the least scannable, so it read as noise. See ONL-173.
+ *
+ * The tail is returned rather than discarded because these numbers appear
+ * nowhere else in the app: before this, the page showed all of them, and a
+ * truncation that simply dropped the rest would be the only place they ever
+ * existed. components/SessionRow.tsx hangs it off the `+N more` title.
+ *
+ * Sorted by count descending with the prefix name as a tiebreaker, which is
+ * `shapeOf`'s own rule kept intact: object key order is however `JSON.parse`
+ * happened to produce it, so without the tiebreaker two sessions with
+ * identical counts could render in different orders within one list.
+ */
+export function topShape(counts: Record<string, number>, limit: number): Shape {
+	const ordered = Object.entries(counts).sort(
+		([aName, aCount], [bName, bCount]) =>
+			bCount !== aCount ? bCount - aCount : aName.localeCompare(bName),
+	);
+
+	const say = (entries: [string, number][]) =>
+		entries
+			.map(([prefix, count]) => `${count.toLocaleString()} ${prefix}`)
+			.join(" · ");
+
+	const tail = ordered.slice(limit);
+
+	return {
+		shown: say(ordered.slice(0, limit)),
+		hidden: say(tail),
+		hiddenCount: tail.length,
+	};
+}

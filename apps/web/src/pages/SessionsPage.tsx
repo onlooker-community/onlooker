@@ -4,6 +4,7 @@ import { listMachines, type Machine } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
+import SessionRow, { SHAPE_LIMIT } from "../components/SessionRow";
 import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
@@ -14,6 +15,7 @@ import {
 	groupSessionsByDay,
 	plural,
 	rollupSessions,
+	topShape,
 } from "../lib/sessionRollup";
 
 // A person's own read of the CLI sessions their machines have reported -
@@ -29,18 +31,17 @@ function durationOf(startedAt: string, endedAt: string | null): string {
 }
 
 /**
- * "6,311 tool · 100 session · 81 skill" - the design's own example. Sorted by
- * count descending, largest first, with the prefix name as a tiebreaker so
- * two sessions with the same counts render identically rather than however
- * `JSON.parse` happened to order the object's keys.
+ * What a row says about volume, after its time and duration.
+ *
+ * Joined here rather than rendered as separate spans because they are one
+ * fact - how much was asked of this session - and splitting them would put
+ * two gaps in the metrics column that the eye reads as columns of their own.
  */
-function shapeOf(counts: Record<string, number>): string {
-	return Object.entries(counts)
-		.sort(([aName, aCount], [bName, bCount]) =>
-			bCount !== aCount ? bCount - aCount : aName.localeCompare(bName),
-		)
-		.map(([prefix, count]) => `${count.toLocaleString()} ${prefix}`)
-		.join(" · ");
+function factsOf(session: SessionSummary): string {
+	const prompts = plural(session.prompts, "prompt");
+	return session.compactions
+		? `${prompts} · ${plural(session.compactions, "compaction")}`
+		: prompts;
 }
 
 /**
@@ -268,54 +269,48 @@ export default function SessionsPage() {
 			    structurally identical rather than independently maintained. */}
 			{groupSessionsByDay(sessions).map((group) => (
 				<Panel key={group.day} title={group.day} icon="Monitor">
-					{group.sessions.map((session) => (
-						<div
-							// `session_id` alone is not unique across the feed - it spans
-							// every machine this account has, and two machines can each
-							// mint their own session id independently.
-							key={`${session.machine_id}:${session.session_id}`}
-							// Lets tests count the rows actually rendered rather than
-							// trust a fixture's own length - see sessions-page.test.tsx's
-							// header-totals test.
-							data-testid="session-row"
-							style={{
-								display: "flex",
-								flexWrap: "wrap",
-								gap: "var(--space-3)",
-								padding: "0.35rem 0",
-							}}
-						>
-							<span style={{ color: "var(--ink-dim)", flex: "none" }}>
-								{timeOf(session.started_at)}
-							</span>
-							{/*
-							 * Omitted rather than blank while the machines read is in
-							 * flight or failed. The two reads are independent, so rows can
-							 * render before this one lands; an empty span would still take
-							 * its gap and leave a hole that reads as a missing value
-							 * rather than as one not yet known.
-							 */}
-							{machinesCheck.kind === "known" ? (
-								<span style={{ flex: "none" }}>
-									{machineName(machinesCheck.machines, session.machine_id)}
-								</span>
-							) : null}
-							<span style={{ flex: "none" }}>
-								{durationOf(session.started_at, session.ended_at)}
-							</span>
-							<span style={{ flex: "none" }}>
-								{plural(session.prompts, "prompt")}
-							</span>
-							{session.compactions ? (
-								<span style={{ flex: "none" }}>
-									{plural(session.compactions, "compaction")}
-								</span>
-							) : null}
-							<span style={{ color: PALETTE.muted }}>
-								{shapeOf(session.counts_by_prefix)}
-							</span>
-						</div>
-					))}
+					{group.sessions.map((session, index) => {
+						const name =
+							machinesCheck.kind === "known"
+								? machineName(machinesCheck.machines, session.machine_id)
+								: null;
+
+						// Repeated only where it carries information. A
+						// single-machine account otherwise prints the same word
+						// down the whole feed, which is a column of noise between
+						// the time and the metrics. The first row of a day always
+						// says it, so no panel ever opens without naming the
+						// machine its sessions came from - the comparison is
+						// within this group rather than across the feed for
+						// exactly that reason.
+						const previous = index > 0 ? group.sessions[index - 1] : null;
+						const repeats =
+							previous !== null && previous.machine_id === session.machine_id;
+
+						const shape = topShape(session.counts_by_prefix, SHAPE_LIMIT);
+
+						return (
+							<SessionRow
+								// `session_id` alone is not unique across the feed - it
+								// spans every machine this account has, and two machines
+								// can each mint their own session id independently.
+								key={`${session.machine_id}:${session.session_id}`}
+								time={timeOf(session.started_at)}
+								// Null while the machines read is in flight or failed, and
+								// again when the name would only repeat the row above. The
+								// row renders identically for all three, which is why one
+								// nullable value carries them rather than a flag per case.
+								machineName={repeats ? null : name}
+								duration={durationOf(session.started_at, session.ended_at)}
+								running={session.ended_at === null}
+								facts={factsOf(session)}
+								shown={shape.shown}
+								hidden={shape.hidden}
+								hiddenCount={shape.hiddenCount}
+								last={index === group.sessions.length - 1}
+							/>
+						);
+					})}
 				</Panel>
 			))}
 
