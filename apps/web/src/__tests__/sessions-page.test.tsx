@@ -415,10 +415,15 @@ describe("/sessions summary header", () => {
 				</MemoryRouter>,
 			);
 		});
-		const row = screen.getByText(/6,311 tool/i).closest("div");
-		expect(row).not.toBeNull();
-		expect(within(row as HTMLElement).getByText(/5 prompts/)).toBeTruthy();
-		expect(within(row as HTMLElement).getByText(/1 compaction/)).toBeTruthy();
+		// By testid rather than `getByText(/6,311 tool/).closest("div")`. The
+		// old query inferred the row from one of its children, so it depended
+		// on the breakdown and the metrics sharing a single element - and broke
+		// the moment ONL-173 gave the row two lines, without anything being
+		// wrong. The testid is what this assertion actually means by "a row".
+		const row = screen.getByTestId("session-row");
+		expect(within(row).getByText(/5 prompts/)).toBeTruthy();
+		expect(within(row).getByText(/1 compaction/)).toBeTruthy();
+		expect(within(row).getByText(/6,311 tool/i)).toBeTruthy();
 	});
 
 	it("renders no header when there are no sessions", async () => {
@@ -492,6 +497,153 @@ describe("/sessions summary header", () => {
 		expect(mocks.listSessions).toHaveBeenLastCalledWith({
 			cursor: "c1",
 			limit: 200,
+		});
+	});
+
+	// ONL-173. Before this, every row printed the machine name, so a
+	// single-machine account - the common case - rendered the same word down
+	// the entire feed between the time and the metrics.
+	describe("the machine name, repeated only where it informs", () => {
+		const TWO_MACHINES = {
+			machines: [
+				...ONE_MACHINE.machines,
+				{
+					id: "m2",
+					name: "desktop",
+					created_at: "2026-08-01T00:00:00Z",
+					last_used_at: "2026-09-01T00:00:00Z",
+					revoked_at: null,
+					inventory_at: null,
+					plugin_count: null,
+				},
+			],
+		};
+
+		/** Three sessions on ONE day: same machine twice, then a different one. */
+		const ONE_DAY_TWO_MACHINES = {
+			sessions: [
+				{
+					session_id: "a",
+					machine_id: "m1",
+					started_at: "2026-09-16T12:00:00Z",
+					ended_at: "2026-09-16T12:05:00Z",
+					event_count: 10,
+					counts_by_prefix: { tool: 10 },
+					plugins: [],
+					prompts: 1,
+					compactions: 0,
+				},
+				{
+					session_id: "b",
+					machine_id: "m1",
+					started_at: "2026-09-16T11:00:00Z",
+					ended_at: "2026-09-16T11:05:00Z",
+					event_count: 10,
+					counts_by_prefix: { tool: 10 },
+					plugins: [],
+					prompts: 1,
+					compactions: 0,
+				},
+				{
+					session_id: "c",
+					machine_id: "m2",
+					started_at: "2026-09-16T10:00:00Z",
+					ended_at: "2026-09-16T10:05:00Z",
+					event_count: 10,
+					counts_by_prefix: { tool: 10 },
+					plugins: [],
+					prompts: 1,
+					compactions: 0,
+				},
+			],
+			cursor: null,
+			has_more: false,
+		};
+
+		it("names the machine on the first row, drops the repeat, and says it again when it changes", async () => {
+			mocks.listSessions.mockResolvedValue(ONE_DAY_TWO_MACHINES);
+			mocks.listMachines.mockResolvedValue(TWO_MACHINES);
+			renderAppAt("/sessions");
+
+			await screen.findByText(/12:00/);
+			const rows = screen.getAllByTestId("session-row");
+			expect(rows).toHaveLength(3);
+
+			// Asserted per row rather than by counting occurrences across the
+			// page: "work laptop appears once" would also pass if it appeared
+			// on the wrong row.
+			expect(within(rows[0]).queryByText("work laptop")).not.toBeNull();
+			expect(within(rows[1]).queryByText("work laptop")).toBeNull();
+			expect(within(rows[2]).queryByText("desktop")).not.toBeNull();
+		});
+
+		it("names it again on the next day, so no panel opens without one", async () => {
+			// The comparison is within a day group, not across the feed. Were
+			// it across, the second day's first row would inherit the previous
+			// day's last machine and print nothing.
+			mocks.listSessions.mockResolvedValue(TWO_DAYS);
+			mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+			renderAppAt("/sessions");
+
+			await screen.findByText(/10:00/);
+			const rows = screen.getAllByTestId("session-row");
+			expect(rows).toHaveLength(2);
+			expect(within(rows[0]).queryByText("work laptop")).not.toBeNull();
+			expect(within(rows[1]).queryByText("work laptop")).not.toBeNull();
+		});
+	});
+
+	describe("the breakdown's hidden tail", () => {
+		const NINE_PREFIXES = {
+			sessions: [
+				{
+					session_id: "s1",
+					machine_id: "m1",
+					started_at: "2026-09-16T10:00:00Z",
+					ended_at: "2026-09-16T10:42:00Z",
+					event_count: 35,
+					counts_by_prefix: {
+						memory: 18,
+						historian: 7,
+						session: 3,
+						bursar: 2,
+						curator: 2,
+						scribe: 1,
+					},
+					plugins: [],
+					prompts: 1,
+					compactions: 0,
+				},
+			],
+			cursor: null,
+			has_more: false,
+		};
+
+		it("shows the top three and keeps the rest in a title", async () => {
+			mocks.listSessions.mockResolvedValue(NINE_PREFIXES);
+			renderAppAt("/sessions");
+
+			const row = await screen.findByTestId("session-row");
+			expect(
+				within(row).getByText(/18 memory · 7 historian · 3 session/),
+			).toBeTruthy();
+
+			// The tail is recoverable rather than discarded: these counts
+			// appear nowhere else in the app, and the page used to show all of
+			// them. Asserted on the title because that is the only place the
+			// hidden ones survive.
+			const more = within(row).getByText(/\+3 more/);
+			expect(more.getAttribute("title")).toBe(
+				"2 bursar · 2 curator · 1 scribe",
+			);
+		});
+
+		it("says nothing about a tail when every count fits", async () => {
+			mocks.listSessions.mockResolvedValue(ONE_SESSION);
+			renderAppAt("/sessions");
+
+			const row = await screen.findByTestId("session-row");
+			expect(within(row).queryByText(/more$/)).toBeNull();
 		});
 	});
 });
