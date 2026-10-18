@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { type ActivityEvent, listActivity } from "../api/lessonsApi";
 import { LoadMore } from "../components/LoadMore";
+import { PALETTE } from "../components/palette";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { dayKey, timeOf } from "../lib/dayKey";
@@ -129,20 +130,45 @@ export default function ActivityPage() {
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
 			{days.map((group) => (
 				<Panel key={group.day} title={group.day} icon="Book">
-					{group.events.map((event) => (
+					{group.events.map((event, index) => (
+						/*
+						 * Two lines, the claim first. Before this the row was one flat
+						 * flex line - time, kind, claim - with every child the same
+						 * weight and no separator, so consecutive events ran together
+						 * and a long claim wrapped beneath the time and kind with
+						 * nothing saying where one event ended. The sessions feed had
+						 * the same shape until ONL-173; this was the last page with
+						 * it. See ONL-177.
+						 *
+						 * The CLAIM leads because it is what identifies the event -
+						 * the time is already narrowed to this day by the Panel these
+						 * rows sit in, which makes it the most tertiary thing on the
+						 * row rather than the anchor it used to be positioned as.
+						 */
 						<div
 							key={event.seq}
+							data-testid="activity-row"
 							style={{
-								display: "flex",
-								gap: "var(--space-3)",
-								padding: "0.35rem 0",
+								padding: "var(--space-3) 0",
+								// Matching MachinesPage, OrgsPage, LessonsPage and now
+								// the sessions feed. The last row omits it rather than
+								// doubling against Panel's own edge.
+								borderBottom:
+									index === group.events.length - 1
+										? "none"
+										: `2px solid ${PALETTE.border}`,
 							}}
 						>
-							<span style={{ color: "var(--ink-dim)", flex: "none" }}>
-								{timeOf(event.at)}
-							</span>
-							<span style={{ flex: "none" }}>{describeKind(event.kind)}</span>
 							<Link to={`/lessons/${event.lesson_id}`}>{event.claim}</Link>
+							<div
+								style={{
+									marginTop: "0.15rem",
+									color: PALETTE.muted,
+									fontSize: "0.9em",
+								}}
+							>
+								{timeOf(event.at)} · {describeKind(event.kind)}
+							</div>
 						</div>
 					))}
 				</Panel>
