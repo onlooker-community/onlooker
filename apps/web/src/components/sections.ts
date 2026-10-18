@@ -35,6 +35,23 @@ export const SECTIONS = [
 ] as const satisfies readonly { to: string; label: string; icon: IconName }[];
 
 /**
+ * Which sections the header treats as account rather than product.
+ *
+ * A presentation split, derived here rather than by reordering SECTIONS or
+ * giving it a `group` field. SECTIONS is also what `sectionFor` matches paths
+ * against and what shell-headings.test.tsx drives its cases from, so its order
+ * and shape answer questions that have nothing to do with where a link sits in
+ * the header - and a reorder for layout's sake would quietly change both.
+ *
+ * The split follows the design this header was taken from, which puts what the
+ * product does on one side and who you are on the other. See ONL-178.
+ */
+export const ACCOUNT_SECTION_PATHS: readonly string[] = [
+	"/settings",
+	"/profile",
+];
+
+/**
  * Which section a path belongs to, or undefined for a path outside the shell.
  *
  * Exact match or a `to`-plus-slash prefix, so /lessons/:id resolves to Lessons.

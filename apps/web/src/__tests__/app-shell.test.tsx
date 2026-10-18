@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RevealProvider } from "../reveal";
@@ -163,3 +169,82 @@ describe("AppShell", () => {
 // was hoisted off AppShell onto InertWhileRevealed, so it would also cover the
 // routes AppShell does not render (onlooker-zq1). The behavior did not go
 // away, only its owner.
+
+// ONL-178. The header became a split bar - product links left, wordmark
+// centre, account right - that collapses below 60rem behind a Menu toggle.
+// None of the widths are testable here: jsdom processes no CSS, so both
+// groups and the toggle are always in the document and the breakpoint does
+// nothing. What IS testable is the disclosure contract, which is the part
+// that was argued against in ONL-176 on the grounds that it costs state,
+// focus management and an aria-expanded contract. This is that cost, paid.
+describe("the header's menu toggle", () => {
+	const toggle = () => screen.getByRole("button", { name: /menu|close/i });
+
+	it("starts closed, and says so", () => {
+		renderShell();
+
+		expect(toggle().getAttribute("aria-expanded")).toBe("false");
+		// Rendered only when open, so it is absent rather than hidden - which
+		// is what keeps a second copy of every link out of the queries the
+		// rest of this file makes.
+		expect(document.getElementById("app-menu")).toBeNull();
+	});
+
+	it("opens to a panel the button owns, carrying every section", () => {
+		renderShell();
+		fireEvent.click(toggle());
+
+		expect(toggle().getAttribute("aria-expanded")).toBe("true");
+
+		const menu = document.getElementById("app-menu");
+		expect(menu).not.toBeNull();
+		// aria-controls is the tie between the two, and a panel id that did
+		// not match would leave the button pointing at nothing.
+		expect(toggle().getAttribute("aria-controls")).toBe("app-menu");
+
+		// Every section, not just the product ones: the collapsed layout is
+		// the ONLY way to reach Settings and Profile at that width.
+		for (const label of [
+			"Lessons",
+			"Machines",
+			"Activity",
+			"Sessions",
+			"Orgs",
+			"Settings",
+			"Profile",
+		]) {
+			expect(
+				within(menu as HTMLElement).getByRole("link", {
+					name: new RegExp(label, "i"),
+				}),
+			).toBeTruthy();
+		}
+	});
+
+	it("closes on Escape and hands focus back to the button", () => {
+		renderShell();
+		fireEvent.click(toggle());
+		expect(document.getElementById("app-menu")).not.toBeNull();
+
+		fireEvent.keyDown(document, { key: "Escape" });
+
+		expect(document.getElementById("app-menu")).toBeNull();
+		// The second half, and the one that is easy to omit: without it focus
+		// sits on an element that is no longer in the accessibility tree and
+		// the next Tab restarts from the top of the document.
+		expect(document.activeElement).toBe(toggle());
+	});
+
+	it("closes when a section is opened from it", () => {
+		renderShell();
+		fireEvent.click(toggle());
+
+		const menu = document.getElementById("app-menu") as HTMLElement;
+		fireEvent.click(within(menu).getByRole("link", { name: /machines/i }));
+
+		// Otherwise the menu stays up over the page it just opened, and the
+		// tap reads as having done nothing.
+		expect(document.getElementById("app-menu")).toBeNull();
+		expect(toggle().getAttribute("aria-expanded")).toBe("false");
+	});
+});
