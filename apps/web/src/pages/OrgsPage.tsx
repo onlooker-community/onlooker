@@ -126,7 +126,34 @@ export default function OrgsPage() {
 				</form>
 			</Panel>
 
-			<div style={{ marginTop: "1.5rem", display: "grid", gap: "1.5rem" }}>
+			{/*
+			 * minmax(0, 1fr) rather than the implicit `auto` track, and it is the
+			 * whole fix for this page scrolling sideways on a phone.
+			 *
+			 * A grid item's min-width defaults to auto, which floors its track at
+			 * the item's MIN-CONTENT width - so a track that is nominally 1fr
+			 * refuses to shrink past whatever its widest unshrinkable content
+			 * needs. The panels below hold member rows built from the shared
+			 * `row` style: display:flex with no wrap, a name/email span that does
+			 * shrink (minWidth: 0, flex: 1) and two controls that do not - a role
+			 * select and a Remove button. Their combined minimum made each panel
+			 * 365px inside a 311px cell at a 390px viewport, and the overflow
+			 * reached the document: 397px of content in a 390px window.
+			 *
+			 * minmax(0, …) sets the track's floor to zero instead, which lets the
+			 * panel shrink and the row's own text wrap. Measured before and after
+			 * at 390px: 397 to 375. Desktop is untouched, where 1fr was never the
+			 * constraint. See ONL-179, and ONL-174 for the same shape of bug
+			 * reached through fixed rem widths rather than through grid.
+			 */}
+			<div
+				style={{
+					marginTop: "1.5rem",
+					display: "grid",
+					gap: "1.5rem",
+					gridTemplateColumns: "minmax(0, 1fr)",
+				}}
+			>
 				{loadError ? null : orgs === null ? (
 					<Loading label="Loading your orgs…" />
 				) : orgs.length === 0 ? (
@@ -345,7 +372,21 @@ function MemberList({
 		<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
 			{members.map((member) => (
 				<li key={member.user_id} style={row}>
-					<span style={{ minWidth: 0, flex: 1 }}>
+					{/*
+					 * overflowWrap, because an email has no break opportunity in it.
+					 * This span shrinks correctly - minWidth 0, flex 1 - down to 67px
+					 * at a 390px viewport, but "ada@example.com" is 119px of
+					 * unbreakable text, so it spilled 52px over the role control and
+					 * the Remove button beside it. The page did not scroll for it;
+					 * it just looked broken. ONL-179.
+					 *
+					 * `anywhere` rather than restructuring the row. Giving the span a
+					 * real flex-basis and letting the row wrap reads better - the
+					 * address stays on one line - but it takes the row from 62px to
+					 * 109px at that width and changes the layout at every width, for
+					 * a problem that only exists at the narrow end.
+					 */}
+					<span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>
 						<span style={{ display: "block" }}>
 							{member.name ?? member.email}
 						</span>
@@ -558,7 +599,8 @@ function PendingInvitesList({
 		<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
 			{invites.map((invite) => (
 				<li key={invite.id} style={row}>
-					<span style={{ minWidth: 0, flex: 1 }}>
+					{/* Same unbreakable address, same spill. See the member row above. */}
+					<span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>
 						{invite.email} <Chip>{invite.role}</Chip>
 					</span>
 					<RevokeInviteControl
