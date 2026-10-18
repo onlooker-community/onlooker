@@ -11,7 +11,7 @@
 // formatted date, so there's no established pattern to match here.
 process.env.TZ = "UTC";
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -374,5 +374,54 @@ describe("/activity when the last page retires the button", () => {
 		await act(async () => {
 			landPageTwo(PAGE_TWO);
 		});
+	});
+});
+
+// ONL-177. The rows were one flat flex line - time, kind, claim, all the same
+// weight, no separator - so consecutive events ran together and a long claim
+// wrapped under the time with nothing marking where one event ended. The
+// sessions feed had this shape until ONL-173; this was the last page with it.
+describe("/activity rows", () => {
+	it("gives each event its own row carrying its claim and when it happened", async () => {
+		mocks.listActivity.mockResolvedValue(POPULATED);
+		renderAppAt("/activity");
+
+		await screen.findByText(/Cache node_modules/);
+		const rows = screen.getAllByTestId("activity-row");
+		expect(rows).toHaveLength(POPULATED.events.length);
+
+		// Per row rather than per page: "the claim is on screen and the time is
+		// on screen" would pass with them in different rows, which is the exact
+		// confusion the separator exists to prevent.
+		expect(
+			within(rows[0])
+				.getByText(/Cache node_modules/)
+				.getAttribute("href"),
+		).toBe("/lessons/l3");
+		expect(within(rows[0]).getByText(/Published/)).toBeTruthy();
+	});
+
+	// The separator is a real branch - `index === length - 1` - not decoration,
+	// so it is worth pinning. It is an inline style, which jsdom does render
+	// into `element.style`, unlike the stylesheet rules it ignores entirely.
+	it("separates consecutive rows and stops before the panel's own edge", async () => {
+		mocks.listActivity.mockResolvedValue(POPULATED);
+		renderAppAt("/activity");
+
+		await screen.findByText(/Cache node_modules/);
+		const rows = screen.getAllByTestId("activity-row");
+
+		// POPULATED puts seq 3 and seq 2 on one day and seq 1 on another, so
+		// the first day has two rows: one bordered, one not.
+		//
+		// Asserted as the absence of a visible rule rather than the string
+		// "none": jsdom parses `border-bottom: none` as the shorthand it is and
+		// serializes it back as "", so toBe("none") fails against a correct
+		// render. What matters either way is that no line is drawn.
+		expect(rows[0].style.borderBottom).toContain("2px solid");
+		expect(rows[1].style.borderBottom).not.toContain("solid");
+
+		// And the lone row of the second day borders nothing either.
+		expect(rows[2].style.borderBottom).not.toContain("solid");
 	});
 });
