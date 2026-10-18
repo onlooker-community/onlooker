@@ -7,6 +7,7 @@ import {
 	formatRange,
 	groupSessionsByDay,
 	rollupSessions,
+	topShape,
 } from "../lib/sessionRollup";
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -243,5 +244,71 @@ describe("groupSessionsByDay", () => {
 			"later",
 			"earlier",
 		]);
+	});
+});
+
+describe("topShape", () => {
+	it("orders by count, largest first", () => {
+		const shape = topShape({ session: 3, tool: 100, skill: 81 }, 3);
+
+		expect(shape.shown).toBe("100 tool · 81 skill · 3 session");
+	});
+
+	it("breaks ties by name, so equal counts render deterministically", () => {
+		// Object key order is whatever JSON.parse produced. Without the
+		// tiebreaker two sessions with identical counts could render in
+		// different orders in the same list.
+		const shape = topShape({ zebra: 2, apple: 2, mango: 2 }, 3);
+
+		expect(shape.shown).toBe("2 apple · 2 mango · 2 zebra");
+	});
+
+	it("keeps the largest `limit` and reports the rest", () => {
+		const shape = topShape(
+			{ memory: 18, historian: 7, session: 3, bursar: 2, scribe: 1 },
+			3,
+		);
+
+		expect(shape.shown).toBe("18 memory · 7 historian · 3 session");
+		expect(shape.hiddenCount).toBe(2);
+		expect(shape.hidden).toBe("2 bursar · 1 scribe");
+	});
+
+	it("hides nothing when the counts fit", () => {
+		const shape = topShape({ tool: 6311, session: 100 }, 3);
+
+		expect(shape.shown).toBe("6,311 tool · 100 session");
+		expect(shape.hiddenCount).toBe(0);
+		expect(shape.hidden).toBe("");
+	});
+
+	// The partition property, asserted rather than assumed: whatever the
+	// limit, every prefix appears exactly once across the two strings. A
+	// truncation that dropped an entry or double-counted one would still
+	// produce a plausible-looking `shown`.
+	it("partitions the input, dropping and duplicating nothing", () => {
+		const counts = { a: 9, b: 8, c: 7, d: 6, e: 5 };
+
+		for (const limit of [1, 2, 3, 4, 5, 6]) {
+			const shape = topShape(counts, limit);
+			const names = `${shape.shown} · ${shape.hidden}`
+				.split(" · ")
+				.filter((part) => part.length > 0)
+				.map((part) => part.split(" ")[1]);
+
+			expect(names.slice().sort()).toEqual(["a", "b", "c", "d", "e"]);
+		}
+	});
+
+	it("thousands are grouped, because a six-thousand-event session is common", () => {
+		expect(topShape({ tool: 6311 }, 3).shown).toBe("6,311 tool");
+	});
+
+	it("answers empty for a session with no counts", () => {
+		const shape = topShape({}, 3);
+
+		expect(shape.shown).toBe("");
+		expect(shape.hidden).toBe("");
+		expect(shape.hiddenCount).toBe(0);
 	});
 });
