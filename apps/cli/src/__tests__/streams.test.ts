@@ -1259,7 +1259,9 @@ describe("stream conditionality", () => {
 			"lineage",
 		);
 		expect(v?.kind).toBe("stopped");
-		expect(v?.kind === "stopped" && v.detail).toContain("5 sessions ago");
+		expect(v?.kind === "stopped" && v.detail).toContain(
+			"5 of this repo's sessions ago",
+		);
 	});
 
 	it("does not call a stream stopped for sessions its own trigger never fired in", async () => {
@@ -3211,8 +3213,61 @@ describe("surveyStreams", () => {
 		expect(verdict?.kind).not.toBe("stopped");
 		expect(verdict?.kind).toBe("unknown");
 		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
-			"8 sessions ago, none of which had to trigger it",
+			"8 of this repo's sessions ago, none of which had to trigger it",
 		);
+	});
+
+	// ONL-106, which read as two halves of one sentence computed off
+	// different runs. Replayed against the real logs at the report's own
+	// instant, it was not: inspector's newer firings (02:05) sat in a session
+	// that started in another repo, so in this one neither the stamp nor the
+	// count may move for them - and neither did. What misled was the line
+	// reading as machine-wide, so the count names its scope.
+	it("keeps another repo's newer run out of both the stamp and the count", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 9,
+			hooks: [
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-08-28T00:00:01Z",
+					status: "success",
+					session_id: "opp-0",
+				},
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-09-06T00:00:01Z",
+					status: "success",
+					session_id: "elsewhere",
+				},
+			],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-09-06T00:00:00.000Z",
+					session_id: "elsewhere",
+					payload: { working_directory: "/some/other/repo" },
+				},
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-09-06T00:00:02Z",
+					session_id: "elsewhere",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("unknown");
+		const detail = verdict?.kind === "unknown" ? verdict.detail : "";
+		expect(detail).toMatch(/^last sign of life 2026-08-28\b/);
+		expect(detail).toContain("8 of this repo's sessions ago");
 	});
 
 	// The counterfactual, on the same arithmetic: nine opportunities, one
@@ -3261,7 +3316,7 @@ describe("surveyStreams", () => {
 		const verdict = verdictFor(survey, "counsel");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"8 sessions ago",
+			"8 of this repo's sessions ago",
 		);
 	});
 

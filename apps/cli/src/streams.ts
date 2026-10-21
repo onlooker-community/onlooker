@@ -1977,6 +1977,7 @@ export async function surveyStreams(opts: {
 			events,
 			hooks,
 			now,
+			root !== null,
 		),
 	}));
 
@@ -2101,6 +2102,7 @@ function judge(
 	events: Awaited<ReturnType<typeof scanEvents>>,
 	hooks: Awaited<ReturnType<typeof scanHooks>>,
 	now: Date,
+	inRepo: boolean,
 ): Verdict {
 	if (entry === undefined) return { kind: "no-rule" };
 
@@ -2118,7 +2120,7 @@ function judge(
 		};
 	}
 
-	const verdict = computeVerdict(entry, fresh, events, hooks, now);
+	const verdict = computeVerdict(entry, fresh, events, hooks, now, inRepo);
 
 	// A stale symlink - a relocated checkout leaving `<old-key> -> <moved
 	// checkout>` behind, say - makes `unreadable` true without changing
@@ -2159,7 +2161,19 @@ function computeVerdict(
 	events: Awaited<ReturnType<typeof scanEvents>>,
 	hooks: Awaited<ReturnType<typeof scanHooks>>,
 	now: Date,
+	inRepo: boolean,
 ): Verdict {
+	// Every count below is of this repo's own sessions - `scanEvents` builds
+	// `sessionStarts` only for sessions rooted here, and `scanHooks` is scoped
+	// to the same set - and the detail says so. ONL-106 was filed against
+	// `last sign of life 2026-09-25 22:38, 16 sessions ago` by someone who
+	// read it as machine-wide and found newer runs elsewhere on the machine;
+	// those runs belonged to another repo's session and were correctly left
+	// out. Outside a repo there is nothing to scope by and every count is 0,
+	// so the qualifier would be false there and is dropped.
+	const sessions = (n: number) =>
+		inRepo ? `${n} of this repo's sessions` : `${n} sessions`;
+
 	// Unreadable sources never yield a clean bill - the promise this module
 	// makes everywhere. Checked before anything else so no branch below can
 	// certify a stream off evidence we could not actually read.
@@ -2318,7 +2332,7 @@ function computeVerdict(
 	if (lastLife === "") {
 		return {
 			kind: "unknown",
-			detail: `no sign of life yet across ${window} sessions - a fresh enable looks the same`,
+			detail: `no sign of life yet across ${sessions(window)} - a fresh enable looks the same`,
 		};
 	}
 
@@ -2331,7 +2345,7 @@ function computeVerdict(
 	if (window < SESSION_STALL_THRESHOLD) {
 		return {
 			kind: "unknown",
-			detail: `last sign of life ${stampFor(lastLife, now)}, and only ${window} sessions to judge from`,
+			detail: `last sign of life ${stampFor(lastLife, now)}, and only ${sessions(window)} to judge from`,
 		};
 	}
 
@@ -2355,12 +2369,12 @@ function computeVerdict(
 		if (entry.firesEverySession !== true) {
 			return {
 				kind: "unknown",
-				detail: `last sign of life ${stampFor(lastLife, now)}, ${sinceLife} sessions ago, none of which had to trigger it`,
+				detail: `last sign of life ${stampFor(lastLife, now)}, ${sessions(sinceLife)} ago, none of which had to trigger it`,
 			};
 		}
 		return {
 			kind: "stopped",
-			detail: `last sign of life ${stampFor(lastLife, now)}, ${sinceLife} sessions ago`,
+			detail: `last sign of life ${stampFor(lastLife, now)}, ${sessions(sinceLife)} ago`,
 		};
 	}
 
@@ -2476,7 +2490,7 @@ function computeVerdict(
 	if (sinceWrite >= SESSION_STALL_THRESHOLD) {
 		return {
 			kind: "stopped",
-			detail: `${moved}, ${sinceWrite} sessions ago, while the stream kept running`,
+			detail: `${moved}, ${sessions(sinceWrite)} ago, while the stream kept running`,
 		};
 	}
 
