@@ -43,6 +43,32 @@ describe("POST /lessons", () => {
 		expect(results[0].seq).toBe(1);
 	});
 
+	// ONL-108. A commit-mined lesson has no session; the pool stores it.
+	it("stores a lesson that names no session", async () => {
+		const base = lesson();
+		const response = await push(machineToken, [
+			{ ...base, evidence: { ...base.evidence, session_ids: [] } },
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string }>;
+		};
+		expect(results[0].outcome).toBe("created");
+	});
+
+	it("still refuses an empty session id", async () => {
+		const base = lesson();
+		const response = await push(machineToken, [
+			{ ...base, evidence: { ...base.evidence, session_ids: [""] } },
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("invalid");
+		expect(results[0].error).toContain("session_ids");
+	});
+
 	// A re-push is the hot path, not a rare one: a mirror re-encounters lessons
 	// it already holds constantly.
 	it("treats an identical re-push as a no-op", async () => {
