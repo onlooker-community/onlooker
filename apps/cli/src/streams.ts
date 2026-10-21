@@ -2535,6 +2535,11 @@ export function doctorLines(survey: StreamSurvey): string[] {
 		lines.push(
 			`Expected: ${count} plugin${count === 1 ? "" : "s"} enabled from onlooker-community${keys}`,
 		);
+		// Directly under the count it qualifies, not with the notes at the
+		// bottom: every line between here and there rests on it.
+		if (survey.enablement.caveat !== undefined) {
+			lines.push(`Caution:  ${survey.enablement.caveat}`);
+		}
 	}
 
 	// Sorted here as well as in readEnablement: this renderer is exported and
@@ -2550,7 +2555,16 @@ export function doctorLines(survey: StreamSurvey): string[] {
 
 	if (survey.footer.length > 0) {
 		lines.push("");
-		lines.push("Not enabled here, but holding data on this machine:");
+		// With a guessed user layer, a stream enabled in the settings doctor
+		// could not find lands here, so the heading must not assert it.
+		const guessed =
+			survey.enablement.kind === "found" &&
+			survey.enablement.caveat !== undefined;
+		lines.push(
+			guessed
+				? "Not enabled here, as far as doctor could tell, but holding data on this machine:"
+				: "Not enabled here, but holding data on this machine:",
+		);
 		for (const { plugin, detail: text } of [...survey.footer].sort((a, b) =>
 			a.plugin.localeCompare(b.plugin),
 		)) {

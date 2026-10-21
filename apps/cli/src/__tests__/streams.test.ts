@@ -3655,6 +3655,28 @@ describe("doctorLines", () => {
 		expect(lines).toContain("archivist");
 	});
 
+	// A guessed user layer makes the expected set a floor, and the footer
+	// is where that bites: a stream enabled in the settings doctor could not
+	// find lands there, where a fresh date reads as "not mine" rather than
+	// as a stream nobody is judging.
+	it("prints a guessed user layer under the expected set and qualifies the footer", () => {
+		const lines = doctorLines(
+			surveyOf({
+				enablement: {
+					kind: "found",
+					plugins: ["lineage"],
+					source: "/repo/.claude/settings.json",
+					caveat: "user settings were guessed",
+				},
+				footer: [{ plugin: "bursar", detail: "last wrote 2026-10-21" }],
+			}),
+		);
+		expect(lines[1]).toBe("Caution:  user settings were guessed");
+		expect(lines.join("\n")).toMatch(
+			/Not enabled here, as far as doctor could tell/,
+		);
+	});
+
 	// Demoting the unreadable count out of `faults` only stops it pinning the
 	// exit code; it must not stop a person seeing it. Rendered under its own
 	// label so the output distinguishes what a reader may want to look at

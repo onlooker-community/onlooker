@@ -521,5 +521,61 @@ describe("readEnabledMap without CLAUDE_CONFIG_DIR", () => {
 		const map = readEnabledMap({ cwd: home, home, env: {} });
 
 		expect(map.kind).toBe("found");
+		if (map.kind !== "found") return;
+		expect(map.caveat).toBeUndefined();
+	});
+
+	// The misread ONL-105 measured: run from a person's own shell, with no
+	// CLAUDE_CONFIG_DIR, on a machine whose $HOME/.claude exists but is not
+	// the config directory in use. The user layer reads cleanly - just from
+	// the wrong place - and the project layer alone produced a confident
+	// expected set of 8 where 14 were enabled. Still judged, because the
+	// project layer is real; flagged, because the user layer is a guess.
+	it("flags the user layer as a guess when another config directory exists", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-multi-"));
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			JSON.stringify({ enabledPlugins: { "other@elsewhere": true } }),
+		);
+		mkdirSync(join(home, ".claude-personal"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude-personal", "settings.json"),
+			JSON.stringify({ enabledPlugins: { "bursar@onlooker-community": true } }),
+		);
+		const repo = markRepo(mkdtempSync(join(tmpdir(), "onlooker-repo-")));
+		writeSettings(repo, "settings.json", {
+			enabledPlugins: { "lineage@onlooker-community": true },
+		});
+
+		const enablement = readEnablement({ cwd: repo, home, env: {} });
+
+		expect(enablement.kind).toBe("found");
+		if (enablement.kind !== "found") return;
+		expect(enablement.plugins).toEqual(["lineage"]);
+		expect(enablement.caveat).toMatch(/CLAUDE_CONFIG_DIR/);
+		expect(enablement.caveat).toContain("~/.claude-personal");
+	});
+
+	it("does not flag a user layer CLAUDE_CONFIG_DIR resolved", () => {
+		const home = mkdtempSync(join(tmpdir(), "onlooker-multi-"));
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(join(home, ".claude", "settings.json"), "{}");
+		const personal = join(home, ".claude-personal");
+		mkdirSync(personal, { recursive: true });
+		writeFileSync(
+			join(personal, "settings.json"),
+			JSON.stringify({ enabledPlugins: { "bursar@onlooker-community": true } }),
+		);
+
+		const enablement = readEnablement({
+			cwd: home,
+			home,
+			env: { CLAUDE_CONFIG_DIR: personal },
+		});
+
+		expect(enablement.kind).toBe("found");
+		if (enablement.kind !== "found") return;
+		expect(enablement.caveat).toBeUndefined();
 	});
 });

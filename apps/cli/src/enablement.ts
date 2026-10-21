@@ -16,7 +16,7 @@ const MARKETPLACE = "@onlooker-community";
  */
 export type Enablement =
 	| { kind: "unknown"; reason: string }
-	| { kind: "found"; plugins: string[]; source: string };
+	| { kind: "found"; plugins: string[]; source: string; caveat?: string };
 
 /** Nearest ancestor of `startDir` containing `relPath`, or null. */
 export function findUp(startDir: string, relPath: string): string | null {
@@ -227,10 +227,25 @@ export function configDirCandidates(home: string): string[] {
  *
  * Values are preserved as written rather than reduced to the enabled set:
  * `false` is a decision someone made and reads differently from absence.
+ *
+ * `caveat` is set when the user layer came from the `$HOME/.claude` default
+ * while another directory under home also looks like a config directory.
+ * The merge is still real - the project layer is - but the user layer may be
+ * the wrong one, so the set is a floor rather than the whole answer. Not
+ * `unknown`, because refusing would hide every verdict the project layer
+ * does support; not silent, because that is ONL-105: run from a shell with
+ * no `CLAUDE_CONFIG_DIR`, a machine whose `~/.claude` held one unrelated
+ * plugin reported 8 expected where 14 were enabled, and filed six live
+ * streams under "not enabled here".
  */
 export type EnabledMap =
 	| { kind: "unknown"; reason: string }
-	| { kind: "found"; enabled: Record<string, boolean>; source: string };
+	| {
+			kind: "found";
+			enabled: Record<string, boolean>;
+			source: string;
+			caveat?: string;
+	  };
 
 export function readEnabledMap(opts: {
 	cwd: string;
@@ -320,7 +335,25 @@ export function readEnabledMap(opts: {
 	const enabled: Record<string, boolean> = {};
 	for (const [name, on] of Object.entries(merged)) enabled[name] = on === true;
 
-	return { kind: "found", enabled, source: sources.join(", ") };
+	const source = sources.join(", ");
+	if (resolved.source === "default") {
+		const others = configDirCandidates(home).filter(
+			(dir) => dir !== join("~", ".claude"),
+		);
+		if (others.length > 0) {
+			return {
+				kind: "found",
+				enabled,
+				source,
+				// "looked for" rather than "read from": the same caveat covers a
+				// `~/.claude` that does not exist, when only the project layer
+				// produced this set.
+				caveat: `CLAUDE_CONFIG_DIR is not set, so user settings were looked for in ${join("~", ".claude")}, but ${others.join(", ")} ${others.length === 1 ? "also looks like a config directory" : "also look like config directories"}. Set CLAUDE_CONFIG_DIR to judge against the right one.`,
+			};
+		}
+	}
+
+	return { kind: "found", enabled, source };
 }
 
 export function readEnablement(opts: {
@@ -340,5 +373,7 @@ export function readEnablement(opts: {
 		// list gets the same order and no renderer has to remember to sort.
 		.sort((a, b) => a.localeCompare(b));
 
-	return { kind: "found", plugins, source: map.source };
+	return map.caveat === undefined
+		? { kind: "found", plugins, source: map.source }
+		: { kind: "found", plugins, source: map.source, caveat: map.caveat };
 }
