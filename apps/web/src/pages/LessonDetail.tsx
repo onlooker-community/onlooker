@@ -583,9 +583,13 @@ export default function LessonDetail() {
 						<p style={{ margin: 0 }}>{evidence.resolution}</p>
 						<p style={{ margin: "0.35rem 0 0", color: PALETTE.muted }}>
 							<When iso={evidence.observed_at} />
-							{" · "}
-							{evidence.session_ids.length} session
-							{evidence.session_ids.length === 1 ? "" : "s"}
+							{evidence.session_ids.length > 0 && (
+								<>
+									{" · "}
+									{evidence.session_ids.length} session
+									{evidence.session_ids.length === 1 ? "" : "s"}
+								</>
+							)}
 							{" · "}
 							{evidence.artifact_ids.length} artifact
 							{evidence.artifact_ids.length === 1 ? "" : "s"}

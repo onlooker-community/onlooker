@@ -407,6 +407,34 @@ describe("the detail pane", () => {
 		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
 		expect(mocks.getLesson).not.toHaveBeenCalled();
 	});
+
+	// The line under "What was observed": when, how many sessions, how many
+	// artifacts. A commit-mined lesson has no session (ONL-108), and "0
+	// sessions" would read as missing data rather than as how it was made.
+	const observedLine = (resolution: string) =>
+		screen.getByText(resolution).nextElementSibling?.textContent ?? "";
+
+	it("counts the sessions behind a lesson", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		expect(observedLine(VITE.evidence.resolution)).toMatch(
+			/1 session · 1 artifact$/,
+		);
+	});
+
+	it("says nothing about sessions for a lesson mined from a commit", async () => {
+		const MINED = {
+			...VITE,
+			evidence: { ...VITE.evidence, session_ids: [] as string[] },
+		};
+		withPool([MINED]);
+		await at(`/lessons/${MINED.id}`);
+		await screen.findByRole("heading", { name: MINED.claim });
+		const line = observedLine(MINED.evidence.resolution);
+		expect(line).not.toMatch(/session/);
+		expect(line).toMatch(/ · 1 artifact$/);
+	});
 });
 
 describe("retract", () => {
