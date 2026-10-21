@@ -291,7 +291,12 @@ jobs:
   # ============================================================================
   publish-contract:
     name: Publish lesson contract
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # GitHub-hosted, unlike every other job here. npm refuses a provenance
+    # bundle from a self-hosted runner (E422 "Only github-hosted runners are
+    # supported when publishing with provenance"), and Blacksmith runners
+    # report as self-hosted. The Blacksmith migration (#186) moved this job
+    # too; nothing published until 2.1.0, so it went unnoticed.
+    runs-on: ubuntu-latest
     needs: test
     # Merges to main only. Never publish from a pull request.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -303,7 +308,9 @@ jobs:
       # naming this repository and this workflow file.
       id-token: write
     steps:
-      - uses: useblacksmith/checkout@v1
+      # The upstream action: useblacksmith/checkout reads a Blacksmith-side git
+      # mirror that a GitHub-hosted runner doesn't have.
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
