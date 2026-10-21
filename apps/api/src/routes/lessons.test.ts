@@ -46,7 +46,10 @@ describe("POST /lessons", () => {
 	// ONL-108. A commit-mined lesson has no session; the pool stores it.
 	it("stores a lesson that names no session", async () => {
 		const base = lesson();
-		const sessionLessDraft = { ...base, evidence: { ...base.evidence, session_ids: [] } };
+		const sessionLessDraft = {
+			...base,
+			evidence: { ...base.evidence, session_ids: [] },
+		};
 		const response = await push(machineToken, [sessionLessDraft]);
 
 		const { results } = (await response.json()) as {
