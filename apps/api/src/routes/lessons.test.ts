@@ -43,6 +43,51 @@ describe("POST /lessons", () => {
 		expect(results[0].seq).toBe(1);
 	});
 
+	// ONL-108. A commit-mined lesson has no session; the pool stores it.
+	it("stores a lesson that names no session", async () => {
+		const base = lesson();
+		const sessionLessDraft = {
+			...base,
+			evidence: { ...base.evidence, session_ids: [] },
+		};
+		const response = await push(machineToken, [sessionLessDraft]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string }>;
+		};
+		expect(results[0].outcome).toBe("created");
+
+		// Round trip: read back the stored lesson and verify session_ids is empty.
+		const readResponse = await SELF.fetch(`${BASE}/lessons?since=0&limit=10`, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${machineToken}`,
+			},
+		});
+
+		expect(readResponse.status).toBe(200);
+		const { lessons } = (await readResponse.json()) as {
+			lessons: Array<{ seq: number; lesson: unknown }>;
+		};
+		expect(lessons).toHaveLength(1);
+		const stored = lessons[0].lesson as Record<string, unknown>;
+		const storedEvidence = stored.evidence as Record<string, unknown>;
+		expect(storedEvidence.session_ids).toEqual([]);
+	});
+
+	it("still refuses an empty session id", async () => {
+		const base = lesson();
+		const response = await push(machineToken, [
+			{ ...base, evidence: { ...base.evidence, session_ids: [""] } },
+		]);
+
+		const { results } = (await response.json()) as {
+			results: Array<{ outcome: string; error: string }>;
+		};
+		expect(results[0].outcome).toBe("invalid");
+		expect(results[0].error).toContain("session_ids");
+	});
+
 	// A re-push is the hot path, not a rare one: a mirror re-encounters lessons
 	// it already holds constantly.
 	it("treats an identical re-push as a no-op", async () => {
