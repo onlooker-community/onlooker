@@ -1259,7 +1259,47 @@ describe("stream conditionality", () => {
 			"lineage",
 		);
 		expect(v?.kind).toBe("stopped");
-		expect(v?.kind === "stopped" && v.detail).toContain("5 sessions ago");
+		expect(v?.kind === "stopped" && v.detail).toContain(
+			"5 of this repo's sessions ago",
+		);
+	});
+
+	// ONL-70. A stopped writer's first suspect is a hook that is erroring, and
+	// the firing count alone cannot rule that out - the real bursar outage
+	// logged 71 successes out of 73 while writing nothing. Counted from the
+	// same instant the verdict names, so "since" means since that stamp.
+	it("says how many of a stopped writer's firings succeeded since it last wrote", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-01-15T00:00:00Z",
+				],
+			],
+			hooks: [
+				["opp-1", "2026-09-01", "success"],
+				["opp-2", "2026-09-02", "success"],
+				["opp-3", "2026-09-03", "failure"],
+				["opp-4", "2026-09-04", "success"],
+				["opp-5", "2026-09-05", "success"],
+			].map(([session, date, status]) => ({
+				hook: "lineage-post-tool-use",
+				timestamp: `${date}T11:00:00Z`,
+				status,
+				session_id: session,
+			})),
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("stopped");
+		expect(v?.kind === "stopped" && v.detail).toContain(
+			"its hooks fired 5 times since, 4 succeeded",
+		);
 	});
 
 	it("does not call a stream stopped for sessions its own trigger never fired in", async () => {
@@ -1742,6 +1782,12 @@ describe("surveyStreams", () => {
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"ecosystem event",
+		);
+		// The write axis here is an event, not a file, so an mtime cannot be
+		// the cutoff. opp-0's tracker fired a second BEFORE the last event
+		// landed and is not "since"; the five after it are.
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"its hooks fired 5 times since, 5 succeeded",
 		);
 	});
 
@@ -3211,8 +3257,61 @@ describe("surveyStreams", () => {
 		expect(verdict?.kind).not.toBe("stopped");
 		expect(verdict?.kind).toBe("unknown");
 		expect(verdict?.kind === "unknown" && verdict.detail).toContain(
-			"8 sessions ago, none of which had to trigger it",
+			"8 of this repo's sessions ago, none of which had to trigger it",
 		);
+	});
+
+	// ONL-106, which read as two halves of one sentence computed off
+	// different runs. Replayed against the real logs at the report's own
+	// instant, it was not: inspector's newer firings (02:05) sat in a session
+	// that started in another repo, so in this one neither the stamp nor the
+	// count may move for them - and neither did. What misled was the line
+	// reading as machine-wide, so the count names its scope.
+	it("keeps another repo's newer run out of both the stamp and the count", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["inspector"],
+			opportunities: 9,
+			hooks: [
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-08-28T00:00:01Z",
+					status: "success",
+					session_id: "opp-0",
+				},
+				{
+					hook: "inspector-post-write",
+					timestamp: "2026-09-06T00:00:01Z",
+					status: "success",
+					session_id: "elsewhere",
+				},
+			],
+			events: [
+				{
+					event_type: "session.start",
+					timestamp: "2026-09-06T00:00:00.000Z",
+					session_id: "elsewhere",
+					payload: { working_directory: "/some/other/repo" },
+				},
+				{
+					event_type: "inspector.check.passed",
+					timestamp: "2026-09-06T00:00:02Z",
+					session_id: "elsewhere",
+					payload: {},
+				},
+			],
+		});
+		const survey = await surveyStreams({
+			cwd,
+			home,
+			configDir,
+			env,
+			now: NOW,
+		});
+		const verdict = verdictFor(survey, "inspector");
+		expect(verdict?.kind).toBe("unknown");
+		const detail = verdict?.kind === "unknown" ? verdict.detail : "";
+		expect(detail).toMatch(/^last sign of life 2026-08-28\b/);
+		expect(detail).toContain("8 of this repo's sessions ago");
 	});
 
 	// The counterfactual, on the same arithmetic: nine opportunities, one
@@ -3261,7 +3360,7 @@ describe("surveyStreams", () => {
 		const verdict = verdictFor(survey, "counsel");
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
-			"8 sessions ago",
+			"8 of this repo's sessions ago",
 		);
 	});
 
@@ -3653,6 +3752,28 @@ describe("doctorLines", () => {
 		).join("\n");
 		expect(lines).toContain("Not enabled here");
 		expect(lines).toContain("archivist");
+	});
+
+	// A guessed user layer makes the expected set a floor, and the footer
+	// is where that bites: a stream enabled in the settings doctor could not
+	// find lands there, where a fresh date reads as "not mine" rather than
+	// as a stream nobody is judging.
+	it("prints a guessed user layer under the expected set and qualifies the footer", () => {
+		const lines = doctorLines(
+			surveyOf({
+				enablement: {
+					kind: "found",
+					plugins: ["lineage"],
+					source: "/repo/.claude/settings.json",
+					caveat: "user settings were guessed",
+				},
+				footer: [{ plugin: "bursar", detail: "last wrote 2026-10-21" }],
+			}),
+		);
+		expect(lines[1]).toBe("Caution:  user settings were guessed");
+		expect(lines.join("\n")).toMatch(
+			/Not enabled here, as far as doctor could tell/,
+		);
 	});
 
 	// Demoting the unreadable count out of `faults` only stops it pinning the

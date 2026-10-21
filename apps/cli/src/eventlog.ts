@@ -594,15 +594,12 @@ export interface HookScan {
 	 * sign of life, and it is recorded before the `since` filter, so the
 	 * cutoff never moves it.
 	 *
-	 * `firedSince` and `okSince` are RETAINED UNREAD pending `onlooker-d7g`.
-	 * They were the numerator of the firing-count rule the unified verdict
-	 * replaced with an opportunity count, and no verdict consults either one
-	 * now. `onlooker-d7g` owns the choice between surfacing them - "fired 73
-	 * times, 71 succeeded, produced no output" is a materially stronger
-	 * sentence than "fired 73 times", because it forecloses the reader's
-	 * first guess that the hook was erroring - and dropping them from this
-	 * interface. Deciding it here, inside an unrelated dead-code sweep,
-	 * would settle that bead by default rather than on its merits.
+	 * `firedSince` and `okSince` no longer decide any verdict - the unified
+	 * rule counts opportunities instead - but a write-axis `stopped` detail
+	 * prints them: "its hooks fired 73 times since, 71 succeeded" forecloses
+	 * the reader's first guess, that the hook was erroring (ONL-70). They are
+	 * only as honest as the `since` cutoff the caller passes, which is why
+	 * `streams.ts` derives it from the same instant the detail names.
 	 */
 	hooks: Record<string, { firedSince: number; okSince: number; last: string }>;
 	unreadable: number;
