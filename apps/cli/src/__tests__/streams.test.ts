@@ -1264,6 +1264,44 @@ describe("stream conditionality", () => {
 		);
 	});
 
+	// ONL-70. A stopped writer's first suspect is a hook that is erroring, and
+	// the firing count alone cannot rule that out - the real bursar outage
+	// logged 71 successes out of 73 while writing nothing. Counted from the
+	// same instant the verdict names, so "since" means since that stamp.
+	it("says how many of a stopped writer's firings succeeded since it last wrote", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["lineage"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			files: [
+				[
+					join("lineage", "aaaaaaaaaaaa", "changes.jsonl"),
+					"2026-01-15T00:00:00Z",
+				],
+			],
+			hooks: [
+				["opp-1", "2026-09-01", "success"],
+				["opp-2", "2026-09-02", "success"],
+				["opp-3", "2026-09-03", "failure"],
+				["opp-4", "2026-09-04", "success"],
+				["opp-5", "2026-09-05", "success"],
+			].map(([session, date, status]) => ({
+				hook: "lineage-post-tool-use",
+				timestamp: `${date}T11:00:00Z`,
+				status,
+				session_id: session,
+			})),
+		});
+		const v = verdictFor(
+			await surveyStreams({ cwd, home, configDir, env, now: NOW }),
+			"lineage",
+		);
+		expect(v?.kind).toBe("stopped");
+		expect(v?.kind === "stopped" && v.detail).toContain(
+			"its hooks fired 5 times since, 4 succeeded",
+		);
+	});
+
 	it("does not call a stream stopped for sessions its own trigger never fired in", async () => {
 		// The bug this narrower denominator exists to remove, measured on the
 		// real machine: lineage read `STOPPED` because its ledger had not moved
@@ -1744,6 +1782,12 @@ describe("surveyStreams", () => {
 		expect(verdict?.kind).toBe("stopped");
 		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
 			"ecosystem event",
+		);
+		// The write axis here is an event, not a file, so an mtime cannot be
+		// the cutoff. opp-0's tracker fired a second BEFORE the last event
+		// landed and is not "since"; the five after it are.
+		expect(verdict?.kind === "stopped" && verdict.detail).toContain(
+			"its hooks fired 5 times since, 5 succeeded",
 		);
 	});
 

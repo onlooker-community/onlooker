@@ -1913,19 +1913,16 @@ export async function surveyStreams(opts: {
 	const enabled = enablement.kind === "found" ? enablement.plugins : [];
 	const known = new Map(STREAMS.map((s) => [s.plugin, s]));
 
-	// Mtimes first, so the hook scan can count firings *since* each output
-	// last moved in one pass rather than retaining every timestamp.
+	// Each entry's last write first, so the hook scan can count firings
+	// *since* it in one pass rather than retaining every timestamp.
 	//
 	// The `since` map is the cutoff for `HookScan`'s `firedSince`/`okSince`,
-	// and no verdict reads either one anymore - the unified rule counts
-	// opportunities from a last-seen instant instead. Both counters, and
-	// therefore this map, are held pending `onlooker-d7g`, which owns the
-	// choice between surfacing them in a `stopped` verdict's detail ("fired
-	// 73 times, 71 succeeded, produced no output" forecloses the reader's
-	// first guess, that the hook was erroring) and dropping them from
-	// `HookScan`. Nothing else in the scan depends on the cutoff: a hook's
-	// `last` is recorded before the `since` filter runs, so liveness is
-	// unaffected either way.
+	// which a write-axis `stopped` detail prints as "its hooks fired 73 times
+	// since, 71 succeeded" (ONL-70) - foreclosing the reader's first guess,
+	// that the hook was erroring. The cutoff is `writeAxis`'s `lastWrite`,
+	// the instant that detail names, not the output mtime alone. Nothing
+	// else in the scan depends on it: a hook's `last` is recorded before the
+	// `since` filter runs, so liveness is unaffected.
 	const freshness = new Map<string, ReturnType<typeof outputFreshness>>();
 	const since: Record<string, string> = {};
 	for (const plugin of enabled) {
@@ -1942,8 +1939,11 @@ export async function surveyStreams(opts: {
 			? perProjectFreshness(entry, env, events.projectKeys)
 			: outputFreshness(entry, env);
 		freshness.set(plugin, fresh);
-		if (fresh.mtime === null) continue;
-		for (const hook of entry.hooks) since[hook] = fresh.mtime;
+		// The same instant the verdict will name, so a stopped detail's
+		// "fired N times since" counts from the stamp printed beside it.
+		const { lastWrite } = writeAxis(entry, fresh, events);
+		if (lastWrite === undefined || lastWrite === "") continue;
+		for (const hook of entry.hooks) since[hook] = lastWrite;
 	}
 
 	// `sessionIds` scopes hook firings to this repo's own sessions, the same
@@ -2145,6 +2145,102 @@ function judge(
 }
 
 /**
+ * When this entry's downstream last moved, where that is even askable.
+ *
+ * Defined only where a write signal exists. Where none does, output mtime is
+ * NOT a substitute: a week-old scribe `.md` means nothing was worth
+ * distilling, and treating its age as evidence is the false alarm this whole
+ * rule exists to remove.
+ *
+ * Its own function because two places need the identical instant:
+ * `computeVerdict`, which names it in the detail, and `surveyStreams`, which
+ * hands it to `scanHooks` as the cutoff for `firedSince`/`okSince` before any
+ * verdict exists. That cutoff used to be the output mtime alone, which is
+ * wrong for an entry whose write axis is an event - and absent entirely for
+ * an `output: null` one - so "fired N times since" would have counted from a
+ * different instant than the one printed beside it.
+ */
+function writeAxis(
+	entry: StreamEntry,
+	fresh: ReturnType<typeof outputFreshness> | undefined,
+	events: Awaited<ReturnType<typeof scanEvents>>,
+): {
+	lastWrite: string | undefined;
+	/**
+	 * Whether this entry's own EVENTS are the downstream being judged, rather
+	 * than a file on disk.
+	 *
+	 * Tracked as a flag rather than re-derived from `entry.output === null`
+	 * further down, because the two are not the same question and reading one
+	 * for the other is a real bug: warden is `output: null` and names no
+	 * `writeEvents`, so its events are NOT its downstream, and stripping them
+	 * from liveness on the strength of `output` alone leaves it with no axis
+	 * at all - a warden that emitted this morning reads as never having run.
+	 */
+	eventsAreTheWriteAxis: boolean;
+} {
+	const writeHooks = entry.writeHooks ?? [];
+	const writeEvents = entry.writeEvents ?? [];
+
+	if (entry.output === null) {
+		// An `output: null` stream writes no files by design, so its EVENTS
+		// are its downstream - the substitution the old `output === null`
+		// branch made, preserved here rather than lost to the unified rule.
+		// Without it ecosystem's real failure shape goes undetected: its
+		// trackers died on the outage date while its hooks kept firing, and
+		// a liveness axis that counted those hooks would read `recording`
+		// forever.
+		//
+		// So for these entries the axes SPLIT: `alive` is hooks only (the
+		// caller recomputes it to exclude events), and events play output's
+		// part here.
+		//
+		// The axis is `writeEvents` - the named types - and NOT every prefix
+		// in `events`, which is what this branch read until the circularity
+		// on the event side was found. An opportunity requires a
+		// `session.start` event, because that is what `sessionStarts` is
+		// built from, and `session` is one of ecosystem's own tracked
+		// prefixes. A prefix-wide `lastWrite` is therefore always at least as
+		// new as the newest opportunity, `opportunitiesSince` is pinned at 0
+		// by construction, and ecosystem can never reach `stopped` on the one
+		// axis that exists to catch its 2026-08-07 tracker outage - the
+		// incident this whole rule was built for. Naming the types instead
+		// lets the table leave the denominator's own signal out of the set it
+		// is judged against.
+		//
+		// `writeHooks` no longer gates this. It asserted "this hook's firing
+		// implies an emission was due," which is a claim about the trigger,
+		// not about the downstream - and compass's was simply false
+		// (`compass-bash-gate` fires on every Bash call, emits only on a
+		// write-pattern match, and hook-health's EXIT trap logs the firing
+		// either way). An entry that names no `writeEvents` now has no
+		// downstream axis at all and rests on liveness, which is the
+		// conservative direction taken everywhere else here: liveness cannot
+		// produce a false `stopped`, and a wrong write axis can.
+		if (writeEvents.length === 0) {
+			return { lastWrite: undefined, eventsAreTheWriteAxis: false };
+		}
+		let lastWrite = "";
+		for (const type of writeEvents) {
+			lastWrite = newerOf(lastWrite, events.lastByType[type] ?? "");
+		}
+		return { lastWrite, eventsAreTheWriteAxis: true };
+	}
+
+	if (writeHooks.length === 0 && writeEvents.length === 0) {
+		return { lastWrite: undefined, eventsAreTheWriteAxis: false };
+	}
+	let lastWrite = fresh?.mtime ?? "";
+	for (const type of writeEvents) {
+		lastWrite = newerOf(lastWrite, events.lastByType[type] ?? "");
+	}
+	// A write hook's own last firing is not a write - only how many
+	// opportunities have passed since the last known write is evidence, and
+	// that is what the stall check consumes. Deliberately not folded in here.
+	return { lastWrite, eventsAreTheWriteAxis: false };
+}
+
+/**
  * The whole rule, as two quantities and one denominator.
  *
  * `alive` asks whether the plugin ran at all; `lastWrite` asks whether its
@@ -2220,79 +2316,7 @@ function computeVerdict(
 	}
 
 	// --- lastWrite: did the downstream move, where that is even askable? -
-	// Defined only where a write signal exists. Where none does, output
-	// mtime is NOT a substitute: a week-old scribe `.md` means nothing was
-	// worth distilling, and treating its age as evidence is the false alarm
-	// this whole change exists to remove.
-	const writeHooks = entry.writeHooks ?? [];
-	const writeEvents = entry.writeEvents ?? [];
-
-	/**
-	 * Whether this entry's own EVENTS are the downstream being judged, rather
-	 * than a file on disk.
-	 *
-	 * Tracked as a flag rather than re-derived from `entry.output === null`
-	 * further down, because the two are not the same question and reading one
-	 * for the other is a real bug: warden is `output: null` and names no
-	 * `writeEvents`, so its events are NOT its downstream, and stripping them
-	 * from liveness on the strength of `output` alone leaves it with no axis
-	 * at all - a warden that emitted this morning reads as never having run.
-	 */
-	let eventsAreTheWriteAxis = false;
-
-	let lastWrite: string | undefined;
-	if (entry.output === null) {
-		// An `output: null` stream writes no files by design, so its EVENTS
-		// are its downstream - the substitution the old `output === null`
-		// branch made, preserved here rather than lost to the unified rule.
-		// Without it ecosystem's real failure shape goes undetected: its
-		// trackers died on the outage date while its hooks kept firing, and
-		// a liveness axis that counted those hooks would read `recording`
-		// forever.
-		//
-		// So for these entries the axes SPLIT: `alive` is hooks only (below
-		// it is recomputed to exclude events), and events play output's part
-		// here.
-		//
-		// The axis is `writeEvents` - the named types - and NOT every prefix
-		// in `events`, which is what this branch read until the circularity
-		// on the event side was found. An opportunity requires a
-		// `session.start` event, because that is what `sessionStarts` is
-		// built from, and `session` is one of ecosystem's own tracked
-		// prefixes. A prefix-wide `lastWrite` is therefore always at least as
-		// new as the newest opportunity, `opportunitiesSince` is pinned at 0
-		// by construction, and ecosystem can never reach `stopped` on the one
-		// axis that exists to catch its 2026-08-07 tracker outage - the
-		// incident this whole rule was built for. Naming the types instead
-		// lets the table leave the denominator's own signal out of the set it
-		// is judged against.
-		//
-		// `writeHooks` no longer gates this. It asserted "this hook's firing
-		// implies an emission was due," which is a claim about the trigger,
-		// not about the downstream - and compass's was simply false
-		// (`compass-bash-gate` fires on every Bash call, emits only on a
-		// write-pattern match, and hook-health's EXIT trap logs the firing
-		// either way). An entry that names no `writeEvents` now has no
-		// downstream axis at all and rests on liveness, which is the
-		// conservative direction taken everywhere else here: liveness cannot
-		// produce a false `stopped`, and a wrong write axis can.
-		if (writeEvents.length > 0) {
-			eventsAreTheWriteAxis = true;
-			lastWrite = "";
-			for (const type of writeEvents) {
-				lastWrite = newerOf(lastWrite, events.lastByType[type] ?? "");
-			}
-		}
-	} else if (writeHooks.length > 0 || writeEvents.length > 0) {
-		lastWrite = fresh?.mtime ?? "";
-		for (const type of writeEvents) {
-			lastWrite = newerOf(lastWrite, events.lastByType[type] ?? "");
-		}
-		// A write hook's own last firing is not a write - only how many
-		// opportunities have passed since the last known write is evidence,
-		// and that is what the stall check below consumes. Deliberately not
-		// folded in here.
-	}
+	const { lastWrite, eventsAreTheWriteAxis } = writeAxis(entry, fresh, events);
 
 	// Where the events are the downstream being judged, they cannot also serve
 	// as proof of life - that would compare a signal against itself and never
@@ -2488,9 +2512,24 @@ function computeVerdict(
 		: `${outputLabel(entry)} last changed ${stampFor(lastWrite, now)}`;
 
 	if (sinceWrite >= SESSION_STALL_THRESHOLD) {
+		// How many of those firings succeeded, because a stopped writer's
+		// first suspect is a hook that is erroring and a bare count cannot
+		// rule it out: the bursar outage this rule was built on logged 71
+		// successes out of 73 while writing nothing. `scanHooks` counted
+		// these from `lastWrite` itself - see `writeAxis`.
+		let fired = 0;
+		let ok = 0;
+		for (const hook of entry.hooks) {
+			fired += hooks.hooks[hook]?.firedSince ?? 0;
+			ok += hooks.hooks[hook]?.okSince ?? 0;
+		}
+		const firings =
+			fired > 0
+				? `; its hooks fired ${fired} time${fired === 1 ? "" : "s"} since, ${ok} succeeded`
+				: "";
 		return {
 			kind: "stopped",
-			detail: `${moved}, ${sessions(sinceWrite)} ago, while the stream kept running`,
+			detail: `${moved}, ${sessions(sinceWrite)} ago, while the stream kept running${firings}`,
 		};
 	}
 
