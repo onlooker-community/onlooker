@@ -31,8 +31,19 @@ describe("ZEvidence", () => {
 		);
 	});
 
-	it("requires at least one session id", () => {
-		expect(ZEvidence.safeParse({ ...valid, session_ids: [] }).success).toBe(
+	// A lesson mined from a commit has no session that honestly produced it:
+	// on a squash-merged repo the commit on main is made by GitHub. Its
+	// receipts are the artifact, the project and the time (ONL-108).
+	it("accepts no session ids, for a lesson mined from a commit", () => {
+		expect(ZEvidence.parse({ ...valid, session_ids: [] })).toEqual({
+			...valid,
+			session_ids: [],
+		});
+	});
+
+	// The placeholder ONL-82 removed must not come back as an empty string.
+	it("rejects an empty session id", () => {
+		expect(ZEvidence.safeParse({ ...valid, session_ids: [""] }).success).toBe(
 			false,
 		);
 	});
