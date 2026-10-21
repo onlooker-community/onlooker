@@ -15,6 +15,8 @@
 - `session_ids: []` is valid. `session_ids: [""]` stays invalid, everywhere (ONL-82).
 - Lesson contract version: 2.0.1 → **2.1.0**. CLI version: 2.7.0 → **2.8.0** (a version bump, not the `cli-batch` label).
 - The ecosystem PR does not merge until the onlooker PR is deployed to production.
+- Rollout order: API deployed → CLI 2.8.0 released and installed on every machine that runs `onlooker sync` → ecosystem PR merged and librarian installed → replay. A CLI at 2.7.0 or older that pulls a session-less lesson marks it `invalid`, skips it, and advances its cursor past it (`apps/cli/src/pull.ts:102-131`), so that machine never receives the lesson, even after upgrading.
+- Locate ecosystem code by content, not by the line numbers below; they drift (measured 2026-10-20: the transform stitch had moved to `:370`, `librarian_cli_lessons_reconsider` to `:720`). Rebase on `main` as it stands when Part 2 starts.
 - Every new test is proven by ablation: revert the fix it covers, watch it fail, restore.
 - Edit tracked files with the Edit/Write tools, not `sed -i` or heredocs (onlooker CLAUDE.md, lineage).
 - Commits go through `/git-workflow:commit`. American English.
@@ -236,9 +238,9 @@ Expected: all pass. Any failure blocks the PR. Report it with its output rather 
 
 - [ ] **Step 3: Commit** via `/git-workflow:commit`. Suggested subject: `chore(cli): release 2.8.0 with the session-less lesson contract`. `Refs ONL-108`.
 
-- [ ] **Step 4: Open the PR** via `/git-workflow:pr`. The body names the deploy ordering: the ecosystem PR must not merge before this one is in production. Use `Refs ONL-108`, not `Fixes`, because the issue closes with the ecosystem half.
+- [ ] **Step 4: Open the PR** via `/git-workflow:pr`. The body names the full rollout order from Global Constraints, including that CLI 2.8.0 must be installed on every syncing machine before librarian emits a session-less lesson. Use `Refs ONL-108`, not `Fixes`, because the issue closes with the ecosystem half.
 
-- [ ] **Step 5: After merge,** confirm the production deploy succeeded (the "Deploy to Production" job) before starting Part 2.
+- [ ] **Step 5: After merge,** confirm the production deploy succeeded (the "Deploy to Production" job) before starting Part 2. Then confirm CLI 2.8.0 is released and `onlooker --version` reports 2.8.0 on every machine that runs `onlooker sync`.
 
 ---
 
@@ -574,7 +576,7 @@ Expected: all pass. The existing `"reports nothing to do when no no_versions dec
 Run: `npm test && npm run test:shellcheck && npm run lint:lesson-schema && npm run lint:references`
 Expected: all pass. Report any failure with its output.
 
-- [ ] **Step 2: Open the PR** via `/git-workflow:pr`, with `Fixes ONL-108`. The body states that the onlooker contract PR (link it) is already in production.
+- [ ] **Step 2: Open the PR** via `/git-workflow:pr`, with `Fixes ONL-108`. The body states that the onlooker contract PR (link it) is already in production and that CLI 2.8.0 is installed on every syncing machine. Do not merge until both hold.
 
 - [ ] **Step 3: After merge,** follow the four install steps (release PR merged → local clone fetched → plugin updated → process restarted). Confirm the installed librarian version contains the change before replaying.
 
@@ -586,4 +588,4 @@ for f in ~/.onlooker/librarian/*/lessons/declined.jsonl; do
 done
 ```
 
-With approval, run per project directory: `lessons reconsider --reason schema_invalid --limit 10`, then `lessons reconsider --limit 10` (no_versions). Record the outcomes as a comment on ONL-108.
+With approval, run per project directory: `lessons reconsider --reason schema_invalid --limit 10`, then `lessons reconsider --limit 10` (no_versions). Record the outcomes as a comment on ONL-108. A replayed artifact can decline again for a reason this change doesn't touch (ONL-110's transform prompt raised empty-`stack` `schema_invalid` declines), so report new declines by reason rather than counting every replay as an ONL-108 recovery.
