@@ -83,3 +83,86 @@ export function visibleWidth(text: string): number {
 export function pad(text: string, width: number): string {
 	return text + " ".repeat(Math.max(0, width - visibleWidth(text)));
 }
+
+/** The same strings as `Verdict["kind"]` in `streams.ts`, on purpose. */
+export type BadgeState = "recording" | "unknown" | "stopped" | "no-rule";
+
+const BADGES: Record<
+	BadgeState,
+	{ glyph: string; word: string; style: Style }
+> = {
+	recording: { glyph: "●", word: "recording", style: ok },
+	unknown: { glyph: "○", word: "unknown", style: warn },
+	// Upper case earns its shout: this is the one line someone scanning the
+	// output has to catch, and it is surrounded by lower-case rows. Bold red
+	// on top, for the same reason.
+	stopped: {
+		glyph: "✕",
+		word: "STOPPED",
+		style: (t, s) => bold(t, bad(t, s)),
+	},
+	"no-rule": { glyph: "·", word: "no rule", style: muted },
+};
+
+const ORDER: BadgeState[] = ["recording", "unknown", "stopped", "no-rule"];
+
+/** `● recording` and two spaces: the widest badge plus a gap. */
+export const BADGE_WIDTH = 13;
+
+export function badge(theme: Theme, state: BadgeState): string {
+	const { glyph, word, style } = BADGES[state];
+	return pad(style(theme, `${glyph} ${word}`), BADGE_WIDTH);
+}
+
+/**
+ * Doctor's last line. Lower-case `stopped` here: the count is a summary,
+ * and the row it summarizes already shouted.
+ */
+export function tally(
+	theme: Theme,
+	counts: Partial<Record<BadgeState, number>>,
+): string {
+	return ORDER.filter((state) => (counts[state] ?? 0) > 0)
+		.map((state) => {
+			const { glyph, word, style } = BADGES[state];
+			return style(theme, `${glyph} ${counts[state]} ${word.toLowerCase()}`);
+		})
+		.join("  ");
+}
+
+/**
+ * Fit `text` into the columns right of `column`, breaking on spaces.
+ *
+ * The first piece continues the caller's line. Each later piece is a line of
+ * its own, with `╰` two columns left of the text it continues. Below 20
+ * columns of room the result would be a ribbon of single words, which is
+ * harder to read than one long line, so nothing wraps.
+ */
+export function wrap(
+	text: string,
+	column: number,
+	width: number,
+	style: (s: string) => string = (s) => s,
+): string[] {
+	const room = width - column;
+	if (!Number.isFinite(room) || room < 20 || text.length <= room) {
+		return [style(text)];
+	}
+	const pieces: string[] = [];
+	let current = "";
+	for (const word of text.split(" ")) {
+		if (current === "") current = word;
+		else if (current.length + 1 + word.length <= room) current += ` ${word}`;
+		else {
+			pieces.push(current);
+			current = word;
+		}
+	}
+	pieces.push(current);
+	const indent = " ".repeat(column - 2);
+	return pieces.map((piece, i) =>
+		i === 0
+			? style(piece)
+			: `${indent}${style(`${i === 1 ? "╰" : " "} ${piece}`)}`,
+	);
+}
