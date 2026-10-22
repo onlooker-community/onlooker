@@ -42,10 +42,12 @@ One new file, `apps/cli/src/ui.ts`, no new dependencies, roughly 120 lines.
 
 `resolveTheme(env, stream)` returns `{ color: boolean; width: number }`.
 
-- `color` is true only when the stream is a TTY, `NO_COLOR` is unset (any
-  value, including empty, disables it, per no-color.org), and `TERM` is not
-  `dumb`. `FORCE_COLOR` set to anything other than `0` turns it on regardless.
-- `width` is the stream's `columns`, or 80 when it has none.
+- `color` is true only when the stream is a TTY, `NO_COLOR` is unset or
+  empty (per no-color.org, only a non-empty value disables), and `TERM` is
+  not `dumb`. `FORCE_COLOR` set to anything other than `0` turns it on
+  regardless, and `FORCE_COLOR=0` turns it off.
+- `width` is the stream's `columns` on a TTY, and unbounded otherwise. Piped
+  output is never wrapped, so a line someone greps for stays one line.
 
 `cli.ts` resolves the theme once for stdout and once for stderr and passes it
 to each command. Commands do not read `process.stdout` or `process.env`
@@ -82,10 +84,13 @@ part of the layout and appear in plain mode too.
 - `ok`, `warn`, `bad`, `muted`, `accent`, `bold`, `underline`: plain wrappers.
 - `visibleWidth(s)`: length with SGR sequences stripped, so `padEnd`-style
   alignment stays correct when color is on.
-- `wrap(theme, text, column, width)`: breaks `text` on spaces to fit
-  `width - column`. Continuation lines start at `column - 2` with `╰ ` for the
-  first and two spaces for the rest. A single word longer than the space is
-  left whole rather than split.
+- `wrap(text, column, width, style)`: breaks `text` on spaces to fit
+  `width - column`, applying `style` to each piece. Continuation lines start
+  at `column - 2` with `╰ ` for the first and two spaces for the rest. A
+  single word longer than the space is left whole rather than split, and
+  with fewer than 20 columns of room nothing wraps at all.
+- `tally(theme, counts)`: the doctor summary line, built from the same glyphs
+  and colors as `badge`.
 
 ### Spinner
 
@@ -119,7 +124,8 @@ These rules apply to every command:
   about why STOPPED is upper case moves with it.
 - The footer heading keeps both of its wordings and is violet. Footer rows
   keep plugin + muted detail and get no badge, because they are not verdicts.
-- `Fault:` lines become `✕ Fault: …` in bad.
+- `Fault:` lines become `✕ Fault: …` in bad, still aligned with `Note:`.
+- `Note:` lines keep their label in violet and their text muted.
 - New last line, the tally: `● 13 recording  ○ 1 unknown  ✕ 1 stopped`,
   listing only the states with a nonzero count, each in its badge color.
   Nothing is printed when there are no verdicts.
@@ -136,13 +142,19 @@ These rules apply to every command:
 ### sync
 
 - The summary line is prefixed `✓` in ok when the push succeeded.
-- `Inventory not reported:`, `Sessions not reported:` and `Received nothing:`
-  lines are prefixed `○` in warn with the reason muted.
+- `Inventory not reported:` and `Sessions not reported:` lines, and a
+  `Received nothing:` caused by a gap or a failure, are prefixed `○` in warn.
+- The idle `Received nothing: the pool holds nothing this machine does not.`
+  is muted with no glyph. `describePull` exists to keep a healthy idle
+  machine from reading like a failure, and a warning glyph would undo that.
 - The push runs inside `withSpinner(…, "syncing lessons…")`.
 
 ### link
 
-- The token prompt gains an accent `›` before its existing text.
+- The token prompt is left alone. `suppressEcho` in `prompt.ts` redraws the
+  prompt by matching its exact text, and the no-echo fallback writes
+  `Machine token: ` literally. That code shipped a token leak once (2.0.0),
+  and a cosmetic `›` is not worth touching it.
 - Success becomes `✓ Linked to <url>.` with the URL underlined, then
   `Run \`onlooker sync\` to push lessons.` on its own muted line.
 
