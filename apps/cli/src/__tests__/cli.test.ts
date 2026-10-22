@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Failure } from "../api";
-import { run } from "../cli";
+import { run, usage } from "../cli";
 import { doctor } from "../commands/doctor";
 import { sync } from "../commands/sync";
+import { PLAIN, stripSgr } from "../ui";
 
 // Wraps the real `sync` rather than replacing it, so the last test in this file
 // can exercise the genuine wiring while the rest inject the failure they need.
@@ -22,7 +23,7 @@ vi.mock("../commands/doctor", () => ({ doctor: vi.fn() }));
 
 const mockedSync = vi.mocked(sync);
 const mockedDoctor = vi.mocked(doctor);
-const invoke = (...args: string[]) => run(["node", "onlooker", ...args]);
+const invoke = (...args: string[]) => run(["node", "onlooker", ...args], {});
 
 let out: string[] = [];
 let err: string[] = [];
@@ -141,5 +142,46 @@ describe("run", () => {
 			if (previous === undefined) delete process.env.ONLOOKER_DIR;
 			else process.env.ONLOOKER_DIR = previous;
 		}
+	});
+});
+
+describe("presentation", () => {
+	it("opens a command's report with the header pill", async () => {
+		mockedSync.mockResolvedValueOnce("✓ Synced 2 lessons: 2 new.");
+		await invoke("sync");
+		expect(out.join("\n")).toBe(
+			" ONLOOKER  sync\n\n✓ Synced 2 lessons: 2 new.",
+		);
+	});
+
+	it("marks an error on stderr without changing its words", async () => {
+		mockedSync.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+		await invoke("sync");
+		expect(err.join("\n")).toBe("✕ EACCES: permission denied");
+	});
+
+	it("strips styling a thrown message carried, when stderr is plain", async () => {
+		mockedSync.mockRejectedValueOnce(
+			new Error("\u001b[38;5;214m○\u001b[0m Inventory not reported: offline"),
+		);
+		await invoke("sync");
+		expect(err.join("\n")).toBe("✕ ○ Inventory not reported: offline");
+	});
+
+	it("prints usage under the pill with every command aligned", async () => {
+		await invoke("--help");
+		const text = out.join("\n");
+		expect(text.split("\n")[0]).toBe(
+			" ONLOOKER  push approved lessons to app.onlooker.dev",
+		);
+		expect(text).toContain("  onlooker link     connect this machine");
+		expect(text).toContain(
+			"  onlooker playbook which mirrored lessons apply here",
+		);
+	});
+
+	it("colors usage only when the theme says so", () => {
+		expect(usage(PLAIN)).not.toContain("\u001b[");
+		expect(stripSgr(usage({ color: true, width: 80 }))).toBe(usage(PLAIN));
 	});
 });
