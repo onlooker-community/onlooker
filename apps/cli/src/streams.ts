@@ -4,6 +4,19 @@ import { onlookerDir } from "./config";
 import { type Enablement, readEnablement, repoRoot } from "./enablement";
 import type { EventScan, HookScan } from "./eventlog";
 import { scanEvents, scanHooks } from "./eventlog";
+import {
+	BADGE_WIDTH,
+	bad,
+	badge,
+	heading,
+	label,
+	muted,
+	PLAIN,
+	type Theme,
+	tally,
+	warn,
+	wrap,
+} from "./ui";
 
 /**
  * How many opportunities - sessions of this repo's that ran the hook
@@ -2549,32 +2562,22 @@ function computeVerdict(
  */
 const DETAIL_COLUMN = 15;
 
-function label(verdict: Verdict): string {
-	switch (verdict.kind) {
-		case "recording":
-			return "recording";
-		// Upper case earns its shout: this is the one line someone scanning
-		// the output has to catch, and it is surrounded by lower-case rows.
-		case "stopped":
-			return "STOPPED";
-		case "unknown":
-			return "unknown";
-		case "no-rule":
-			return "no rule";
-	}
-}
-
 function detail(verdict: Verdict): string {
 	return verdict.kind === "no-rule"
 		? "this CLI has no health rule for it"
 		: verdict.detail;
 }
 
-export function doctorLines(survey: StreamSurvey): string[] {
+export function doctorLines(
+	survey: StreamSurvey,
+	theme: Theme = PLAIN,
+): string[] {
 	const lines: string[] = [];
 
 	if (survey.enablement.kind === "unknown") {
-		lines.push(`Expected: unknown - ${survey.enablement.reason}`);
+		lines.push(
+			`${label(theme, "Expected:")} ${warn(theme, "unknown")} - ${survey.enablement.reason}`,
+		);
 	} else {
 		const count = survey.enablement.plugins.length;
 		// This machine's own footer is routinely two keys, not one - one
@@ -2586,12 +2589,14 @@ export function doctorLines(survey: StreamSurvey): string[] {
 				? ` - key${survey.projectKeys.length === 1 ? "" : "s"} ${survey.projectKeys.join(", ")}`
 				: "";
 		lines.push(
-			`Expected: ${count} plugin${count === 1 ? "" : "s"} enabled from onlooker-community${keys}`,
+			`${label(theme, "Expected:")} ${count} plugin${count === 1 ? "" : "s"} enabled from onlooker-community${muted(theme, keys)}`,
 		);
 		// Directly under the count it qualifies, not with the notes at the
 		// bottom: every line between here and there rests on it.
 		if (survey.enablement.caveat !== undefined) {
-			lines.push(`Caution:  ${survey.enablement.caveat}`);
+			lines.push(
+				`${label(theme, "Caution:")}  ${warn(theme, survey.enablement.caveat)}`,
+			);
 		}
 	}
 
@@ -2602,8 +2607,14 @@ export function doctorLines(survey: StreamSurvey): string[] {
 	);
 	if (sorted.length > 0) lines.push("");
 	for (const { plugin, verdict } of sorted) {
-		const left = `  ${plugin.padEnd(DETAIL_COLUMN - 2)}${label(verdict).padEnd(11)}`;
-		lines.push(`${left}${detail(verdict)}`);
+		const left = `  ${plugin.padEnd(DETAIL_COLUMN - 2)}${badge(theme, verdict.kind)}`;
+		const [first, ...rest] = wrap(
+			detail(verdict),
+			DETAIL_COLUMN + BADGE_WIDTH,
+			theme.width,
+			(s) => muted(theme, s),
+		);
+		lines.push(`${left}${first}`, ...rest);
 	}
 
 	if (survey.footer.length > 0) {
@@ -2614,20 +2625,25 @@ export function doctorLines(survey: StreamSurvey): string[] {
 			survey.enablement.kind === "found" &&
 			survey.enablement.caveat !== undefined;
 		lines.push(
-			guessed
-				? "Not enabled here, as far as doctor could tell, but holding data on this machine:"
-				: "Not enabled here, but holding data on this machine:",
+			heading(
+				theme,
+				guessed
+					? "Not enabled here, as far as doctor could tell, but holding data on this machine:"
+					: "Not enabled here, but holding data on this machine:",
+			),
 		);
 		for (const { plugin, detail: text } of [...survey.footer].sort((a, b) =>
 			a.plugin.localeCompare(b.plugin),
 		)) {
-			lines.push(`  ${plugin.padEnd(DETAIL_COLUMN - 2)}${text}`);
+			lines.push(`  ${plugin.padEnd(DETAIL_COLUMN - 2)}${muted(theme, text)}`);
 		}
 	}
 
 	if (survey.faults.length > 0) {
 		lines.push("");
-		for (const fault of survey.faults) lines.push(`Fault:    ${fault}`);
+		// Ten columns, like `Note:     `, so faults and notes still line up.
+		for (const fault of survey.faults)
+			lines.push(`${bad(theme, "✕ Fault:")}  ${fault}`);
 	}
 
 	// Its own label, aligned with `Fault:`, rather than folded in with them.
@@ -2636,8 +2652,17 @@ export function doctorLines(survey: StreamSurvey): string[] {
 	// line is the reason the command exited 1.
 	if (survey.notes.length > 0) {
 		lines.push("");
-		for (const note of survey.notes) lines.push(`Note:     ${note}`);
+		for (const note of survey.notes)
+			lines.push(`${label(theme, "Note:")}     ${muted(theme, note)}`);
 	}
+
+	// The only sentence this renderer has that the plain report did not: a
+	// count, so the whole verdict reads at a glance before the rows do.
+	const counts: Partial<Record<Verdict["kind"], number>> = {};
+	for (const { verdict } of sorted)
+		counts[verdict.kind] = (counts[verdict.kind] ?? 0) + 1;
+	const summary = tally(theme, counts);
+	if (summary !== "") lines.push("", summary);
 
 	return lines;
 }

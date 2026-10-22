@@ -22,6 +22,7 @@ import {
 	stampFor,
 	surveyStreams,
 } from "../streams";
+import { stripSgr, type Theme } from "../ui";
 
 /**
  * A fresh `$ONLOOKER_DIR`, cleaned up automatically at the end of whichever
@@ -3806,7 +3807,7 @@ describe("doctorLines", () => {
 			}),
 		);
 		const verdictLine = verdictLines.find((l) => l.includes("cartographer"));
-		expect(verdictLine).toMatch(/cartographer\s+recording/);
+		expect(verdictLine).toMatch(/cartographer\s+● recording/);
 
 		const footerLines = doctorLines(
 			surveyOf({
@@ -3840,7 +3841,7 @@ describe("doctorLines", () => {
 			}),
 		);
 		const line = lines.find((l) => l.includes(syntheticName));
-		expect(line).toMatch(new RegExp(`${syntheticName}\\s+recording`));
+		expect(line).toMatch(new RegExp(`${syntheticName}\\s+● recording`));
 	});
 
 	// This machine's own footer is routinely two project keys, both
@@ -3857,6 +3858,89 @@ describe("doctorLines", () => {
 		const one = doctorLines(surveyOf({ projectKeys: ["6a7678979e31"] }))[0];
 		expect(one).toContain("key 6a7678979e31");
 		expect(one).not.toContain("keys 6a7678979e31");
+	});
+
+	const COLOR: Theme = { color: true, width: Number.POSITIVE_INFINITY };
+
+	const everything = () =>
+		surveyOf({
+			enablement: {
+				kind: "found",
+				plugins: ["bursar", "echo", "lineage", "mystery"],
+				source: "/repo/.claude/settings.json",
+				caveat: "user settings were guessed",
+			},
+			projectKeys: ["6a7678979e31"],
+			verdicts: [
+				{
+					plugin: "lineage",
+					verdict: {
+						kind: "recording",
+						detail: "lineage/* last changed 2026-10-22 15:28",
+					},
+				},
+				{
+					plugin: "echo",
+					verdict: {
+						kind: "unknown",
+						detail:
+							"last sign of life 2026-10-12, 140 of this repo's sessions ago, none of which had to trigger it",
+					},
+				},
+				{
+					plugin: "bursar",
+					verdict: {
+						kind: "stopped",
+						detail: "bursar-session-end fired 71 times",
+					},
+				},
+				{ plugin: "mystery", verdict: { kind: "no-rule" } },
+			],
+			footer: [{ plugin: "governor", detail: "last wrote 2026-09-07" }],
+			faults: ["the event log could not be read"],
+			notes: ["2 event log line(s) could not be parsed"],
+		});
+
+	it("gives each verdict a badge and ends on a tally", () => {
+		const lines = doctorLines(everything());
+		expect(lines).toContain(
+			"  lineage      ● recording  lineage/* last changed 2026-10-22 15:28",
+		);
+		expect(lines.find((l) => l.includes("bursar"))).toContain("✕ STOPPED");
+		expect(lines.find((l) => l.includes("mystery"))).toContain(
+			"· no rule    this CLI has no health rule for it",
+		);
+		expect(lines.at(-1)).toBe(
+			"● 1 recording  ○ 1 unknown  ✕ 1 stopped  · 1 no rule",
+		);
+	});
+
+	it("marks a fault without disturbing its alignment with notes", () => {
+		const lines = doctorLines(everything());
+		expect(lines).toContain("✕ Fault:  the event log could not be read");
+		expect(lines).toContain(
+			"Note:     2 event log line(s) could not be parsed",
+		);
+	});
+
+	it("prints no tally when there are no verdicts", () => {
+		const lines = doctorLines(surveyOf({}));
+		expect(lines.join("\n")).not.toMatch(/[●○✕·] \d/);
+	});
+
+	it("wraps a long detail under its column on a narrow terminal", () => {
+		const lines = doctorLines(everything(), { color: false, width: 60 });
+		const at = lines.findIndex((l) => l.startsWith("  echo"));
+		expect(lines[at].length).toBeLessThanOrEqual(60);
+		expect(lines[at + 1]).toMatch(/^ {26}╰ /);
+	});
+
+	// The rule ui.ts exists to keep: color is emphasis, never words.
+	it("says exactly the same words with color on", () => {
+		expect(doctorLines(everything(), COLOR).map(stripSgr)).toEqual(
+			doctorLines(everything()),
+		);
+		expect(doctorLines(everything(), COLOR).join("")).toContain("\u001b[");
 	});
 });
 
