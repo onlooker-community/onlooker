@@ -33,7 +33,7 @@ export function resolveTheme(
 	// no-color.org: only a non-empty NO_COLOR disables.
 	const color =
 		forced !== undefined
-			? forced !== "0"
+			? forced !== "0" && forced !== "false"
 			: tty && !env.NO_COLOR && env.TERM !== "dumb";
 	return {
 		color,
@@ -174,7 +174,8 @@ const FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
  *
  * `theme` is stderr's, not stdout's: `onlooker doctor | less` should still
  * spin on the terminal, and `onlooker doctor 2>log` should not write frames
- * into the log. The line is cleared in `finally`, so a throw leaves neither a
+ * into the log. It needs both color and a terminal: FORCE_COLOR colors text
+ * bound for a log, but animation would only litter it. The line is cleared in `finally`, so a throw leaves neither a
  * stray frame in front of the error nor a live interval keeping the process
  * up.
  */
@@ -182,9 +183,9 @@ export async function withSpinner<T>(
 	theme: Theme,
 	text: string,
 	work: () => Promise<T>,
-	out: { write(chunk: string): unknown } = process.stderr,
+	out: { write(chunk: string): unknown; isTTY?: boolean } = process.stderr,
 ): Promise<T> {
-	if (!theme.color) return work();
+	if (!theme.color || out.isTTY !== true) return work();
 	let frame = 0;
 	const draw = () => {
 		out.write(

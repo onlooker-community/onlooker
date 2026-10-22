@@ -60,6 +60,9 @@ describe("resolveTheme", () => {
 			true,
 		);
 		expect(resolveTheme({ FORCE_COLOR: "0" }, tty).color).toBe(false);
+		expect(resolveTheme({ FORCE_COLOR: "false" }, tty).color).toBe(false);
+		// An empty value forces color on, as it does in Node.
+		expect(resolveTheme({ FORCE_COLOR: "" }, {}).color).toBe(true);
 	});
 });
 
@@ -218,8 +221,18 @@ describe("withSpinner", () => {
 
 	const sink = () => {
 		const chunks: string[] = [];
-		return { chunks, out: { write: (c: string) => chunks.push(c) } };
+		return {
+			chunks,
+			out: { isTTY: true, write: (c: string) => chunks.push(c) },
+		};
 	};
+
+	it("draws nothing into a non-terminal even with color forced", async () => {
+		const chunks: string[] = [];
+		const out = { write: (c: string) => chunks.push(c) };
+		expect(await withSpinner(COLOR, "working…", async () => 7, out)).toBe(7);
+		expect(chunks).toEqual([]);
+	});
 
 	it("draws nothing at all without color", async () => {
 		const { chunks, out } = sink();
