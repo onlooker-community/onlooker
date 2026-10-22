@@ -17,7 +17,7 @@ import {
 	withSpinner,
 } from "./ui";
 
-// No argument-parsing library. Three commands and no flags do not justify one,
+// No argument-parsing library. Five commands and one flag do not justify one,
 // and a switch is easier to read than the framework would be.
 const COMMANDS: Array<[name: string, does: string]> = [
 	["link", "connect this machine with a token from the Machines page"],

@@ -180,6 +180,9 @@ export async function sync({
 	const inventoryNote = await reportInventory(client, env);
 	const sessionsNote = await reportSessions(client, env);
 
+	const notice = (note: string | null) =>
+		note === null ? null : `${warn(theme, "○")} ${note}`;
+
 	/**
 	 * Every exit runs through here, and receiving happens on the way out.
 	 *
@@ -188,8 +191,6 @@ export async function sync({
 	 * to push: while the pool is empty that is every machine, and a machine
 	 * with nothing to send is exactly the one that most needs to receive.
 	 */
-	const notice = (note: string | null) =>
-		note === null ? null : `${warn(theme, "○")} ${note}`;
 	const withNote = async (message: string): Promise<string> => {
 		const received = describePull(await pull({ client, env }), theme);
 		return [message, received, notice(inventoryNote), notice(sessionsNote)]
