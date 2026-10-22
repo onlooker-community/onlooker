@@ -194,6 +194,13 @@ describe("wrap", () => {
 		expect(wrap(text, 28, 40)).toEqual([text]);
 	});
 
+	it("does not throw for a column at the left edge", () => {
+		expect(wrap("aaaa bbbb cccc dddd eeee ffff", 1, 22)).toEqual([
+			"aaaa bbbb cccc dddd",
+			"╰ eeee ffff",
+		]);
+	});
+
 	it("styles each piece, hook included", () => {
 		const lines = wrap("aaaa bbbb cccc dddd eeee", 10, 30, (s) =>
 			muted(COLOR, s),

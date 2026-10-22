@@ -159,7 +159,7 @@ export function wrap(
 		}
 	}
 	pieces.push(current);
-	const indent = " ".repeat(column - 2);
+	const indent = " ".repeat(Math.max(0, column - 2));
 	return pieces.map((piece, i) =>
 		i === 0
 			? style(piece)
