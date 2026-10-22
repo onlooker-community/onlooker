@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	accent,
 	BADGE_WIDTH,
@@ -20,6 +20,7 @@ import {
 	underline,
 	visibleWidth,
 	warn,
+	withSpinner,
 	wrap,
 } from "../ui";
 
@@ -207,5 +208,59 @@ describe("wrap", () => {
 		);
 		expect(lines[0]).toBe(muted(COLOR, "aaaa bbbb cccc dddd"));
 		expect(lines[1]).toBe(`        ${muted(COLOR, "╰ eeee")}`);
+	});
+});
+
+describe("withSpinner", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const sink = () => {
+		const chunks: string[] = [];
+		return { chunks, out: { write: (c: string) => chunks.push(c) } };
+	};
+
+	it("draws nothing at all without color", async () => {
+		const { chunks, out } = sink();
+		expect(await withSpinner(PLAIN, "working…", async () => 42, out)).toBe(42);
+		expect(chunks).toEqual([]);
+	});
+
+	it("animates while the work runs, then clears its line", async () => {
+		vi.useFakeTimers();
+		const { chunks, out } = sink();
+		let finish: (v: string) => void = () => {};
+		const pending = withSpinner(
+			COLOR,
+			"working…",
+			() => new Promise<string>((r) => (finish = r)),
+			out,
+		);
+		await vi.advanceTimersByTimeAsync(240);
+		expect(chunks.length).toBeGreaterThanOrEqual(3);
+		expect(stripSgr(chunks[0])).toBe("\r⣾ working…");
+		expect(stripSgr(chunks[1])).toBe("\r⣽ working…");
+		finish("done");
+		expect(await pending).toBe("done");
+		expect(chunks.at(-1)).toBe(`\r${ESC}[2K`);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("clears its line and stops when the work throws", async () => {
+		vi.useFakeTimers();
+		const { chunks, out } = sink();
+		await expect(
+			withSpinner(
+				COLOR,
+				"working…",
+				async () => {
+					throw new Error("boom");
+				},
+				out,
+			),
+		).rejects.toThrow("boom");
+		expect(chunks.at(-1)).toBe(`\r${ESC}[2K`);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });

@@ -166,3 +166,37 @@ export function wrap(
 			: `${indent}${style(`${i === 1 ? "╰" : " "} ${piece}`)}`,
 	);
 }
+
+const FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+
+/**
+ * Run `work` with a Bubbles-style dot spinner on stderr.
+ *
+ * `theme` is stderr's, not stdout's: `onlooker doctor | less` should still
+ * spin on the terminal, and `onlooker doctor 2>log` should not write frames
+ * into the log. The line is cleared in `finally`, so a throw leaves neither a
+ * stray frame in front of the error nor a live interval keeping the process
+ * up.
+ */
+export async function withSpinner<T>(
+	theme: Theme,
+	text: string,
+	work: () => Promise<T>,
+	out: { write(chunk: string): unknown } = process.stderr,
+): Promise<T> {
+	if (!theme.color) return work();
+	let frame = 0;
+	const draw = () => {
+		out.write(
+			`\r${accent(theme, FRAMES[frame++ % FRAMES.length])} ${muted(theme, text)}`,
+		);
+	};
+	draw();
+	const timer = setInterval(draw, 80);
+	try {
+		return await work();
+	} finally {
+		clearInterval(timer);
+		out.write(`\r${ESC}[2K`);
+	}
+}
