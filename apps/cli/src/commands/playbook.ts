@@ -4,6 +4,7 @@ import { ZLesson } from "@onlooker-community/lesson-contract";
 import { judge, type Verdict } from "../playbook";
 import { migrateLegacyPool, mirrorDir } from "../pool";
 import { resolveStack } from "../stack";
+import { accent, heading, muted, PLAIN, type Theme } from "../ui";
 import { changedFiles } from "../worktree";
 
 interface Entry {
@@ -25,9 +26,11 @@ export async function playbook(opts: {
 	env?: NodeJS.ProcessEnv;
 	cwd?: string;
 	json?: boolean;
+	theme?: Theme;
 }): Promise<string> {
 	const env = opts.env ?? process.env;
 	const cwd = opts.cwd ?? process.cwd();
+	const theme = opts.theme ?? PLAIN;
 
 	// First, so a machine that pulled before the rename is not quietly reading
 	// an empty new directory beside its populated old one.
@@ -116,16 +119,19 @@ export async function playbook(opts: {
 		return lines.join("\n");
 	}
 
-	section(lines, "About what you are changing", changedGroup);
-	section(lines, "Applies to this project", appliesGroup);
-	section(lines, "Cannot tell", cannotTell);
-	section(lines, "Excluded", excluded);
+	section(lines, "About what you are changing", changedGroup, theme);
+	section(lines, "Applies to this project", appliesGroup, theme);
+	section(lines, "Cannot tell", cannotTell, theme);
+	section(lines, "Excluded", excluded, theme);
 
 	if (invalid.length > 0) {
 		lines.push(
 			"",
-			`${invalid.length} mirrored file(s) the contract refuses:`,
-			...invalid.map((line) => `  ${line}`),
+			heading(
+				theme,
+				`${invalid.length} mirrored file(s) the contract refuses:`,
+			),
+			...invalid.map((line) => `  ${muted(theme, line)}`),
 		);
 	}
 
@@ -155,11 +161,16 @@ function reasonOf(verdict: Verdict): string {
 	return verdict.reason;
 }
 
-function section(lines: string[], heading: string, entries: Entry[]): void {
+function section(
+	lines: string[],
+	title: string,
+	entries: Entry[],
+	theme: Theme,
+): void {
 	if (entries.length === 0) return;
-	lines.push("", `${heading} (${entries.length}):`);
+	lines.push("", heading(theme, `${title} (${entries.length}):`));
 	for (const entry of entries) {
-		lines.push(`  ${entry.id}  ${entry.claim}`);
-		lines.push(`    ${reasonOf(entry.verdict)}`);
+		lines.push(`  ${accent(theme, entry.id)}  ${entry.claim}`);
+		lines.push(`    ${muted(theme, reasonOf(entry.verdict))}`);
 	}
 }
