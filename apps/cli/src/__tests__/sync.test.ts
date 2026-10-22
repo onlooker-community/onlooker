@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { sync } from "../commands/sync";
 import { writeConfig } from "../config";
+import { stripSgr } from "../ui";
 
 const FIXTURE_PATH = join(__dirname, "fixtures", "lesson.json");
 
@@ -919,5 +920,36 @@ describe("sync receives as well as pushes", () => {
 		expect(message).toMatch(/nothing to sync/i);
 		expect(message).toMatch(/received 1 lesson/i);
 		expect(lessonPushes(fetchImpl)).toHaveLength(0);
+	});
+});
+
+describe("sync styling", () => {
+	const COLOR = { color: true, width: Number.POSITIVE_INFINITY };
+
+	it("marks a successful push with a check", async () => {
+		const env = linked();
+		withLessons(env, 2);
+		const message = await sync({ env, fetchImpl: accepts() });
+		expect(message.split("\n")[0]).toMatch(/^✓ Synced 2 lessons/);
+	});
+
+	it("does not dress a healthy idle pull as a warning", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const message = await sync({ env, fetchImpl: accepts() });
+		expect(message).toContain(
+			"Received nothing: the pool holds nothing this machine does not.",
+		);
+		expect(message).not.toContain("○ Received nothing");
+	});
+
+	// The rule ui.ts exists to keep: color is emphasis, never words.
+	it("says exactly the same words with color on", async () => {
+		const env = linked();
+		withLessons(env, 2);
+		const plain = await sync({ env, fetchImpl: accepts() });
+		const colored = await sync({ env, fetchImpl: accepts(), theme: COLOR });
+		expect(colored).not.toBe(plain);
+		expect(stripSgr(colored)).toBe(plain);
 	});
 });

@@ -7,10 +7,12 @@ import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 import { type PullOutcome, pull } from "../pull";
 import { summarizeSessions } from "../sessions";
+import { muted, ok, PLAIN, type Theme, warn } from "../ui";
 
 export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
 	fetchImpl?: typeof fetch;
+	theme?: Theme;
 }
 
 /**
@@ -118,7 +120,7 @@ async function reportSessions(
  * received. "Nothing arrived" is what a healthy idle machine says too, and the
  * three must not read alike.
  */
-function describePull(outcome: PullOutcome): string {
+function describePull(outcome: PullOutcome, theme: Theme): string {
 	switch (outcome.kind) {
 		case "received": {
 			const total = outcome.created + outcome.updated + outcome.unchanged;
@@ -127,15 +129,17 @@ function describePull(outcome: PullOutcome): string {
 					? "Received nothing: the pool holds nothing this machine does not."
 					: `Received ${total} lesson${total === 1 ? "" : "s"}: ${outcome.created} new, ${outcome.updated} updated, ${outcome.unchanged} unchanged.`;
 			return outcome.invalid.length === 0
-				? line
+				? total === 0
+					? muted(theme, line)
+					: line
 				: `${line} ${outcome.invalid.length} refused by the contract and skipped: ${outcome.invalid.join("; ")}`;
 		}
 		case "gap":
 			// Both sequences named, because the number that is missing is the
 			// only actionable thing about this.
-			return `Received nothing: the pool skipped ${outcome.expected} and answered with ${outcome.got}. Nothing was written, and the cursor stayed at ${outcome.cursor}.`;
+			return `${warn(theme, "○")} Received nothing: the pool skipped ${outcome.expected} and answered with ${outcome.got}. Nothing was written, and the cursor stayed at ${outcome.cursor}.`;
 		default:
-			return `Received nothing: ${outcome.reason}`;
+			return `${warn(theme, "○")} Received nothing: ${outcome.reason}`;
 	}
 }
 
@@ -152,6 +156,7 @@ function describePull(outcome: PullOutcome): string {
 export async function sync({
 	env = process.env,
 	fetchImpl,
+	theme = PLAIN,
 }: SyncDeps): Promise<string> {
 	const config = readConfig(env);
 	if (!config.machineToken) {
@@ -183,9 +188,11 @@ export async function sync({
 	 * to push: while the pool is empty that is every machine, and a machine
 	 * with nothing to send is exactly the one that most needs to receive.
 	 */
+	const notice = (note: string | null) =>
+		note === null ? null : `${warn(theme, "○")} ${note}`;
 	const withNote = async (message: string): Promise<string> => {
-		const received = describePull(await pull({ client, env }));
-		return [message, received, inventoryNote, sessionsNote]
+		const received = describePull(await pull({ client, env }), theme);
+		return [message, received, notice(inventoryNote), notice(sessionsNote)]
 			.filter((line): line is string => line !== null)
 			.join("\n");
 	};
@@ -374,5 +381,5 @@ export async function sync({
 		});
 	}
 
-	return await withNote(summary);
+	return await withNote(`${ok(theme, "✓")} ${summary}`);
 }
