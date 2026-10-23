@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { status } from "../commands/status";
 import { writeConfig } from "../config";
+import { stripSgr } from "../ui";
 
 const FIXTURE = join(__dirname, "fixtures", "lesson.json");
 const ok = () =>
@@ -240,5 +241,23 @@ describe("status", () => {
 
 		const message = await status({ env, fetchImpl: ok() });
 		expect(message).toMatch(/^Pipeline: no lesson pipeline has run here$/m);
+	});
+
+	// The rule ui.ts exists to keep: color is emphasis, never words.
+	it("says exactly the same words with color on", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", machineToken: "tok" },
+			env,
+		);
+		const plain = await status({ env, fetchImpl: ok() });
+		const colored = await status({
+			env,
+			fetchImpl: ok(),
+			theme: { color: true, width: Number.POSITIVE_INFINITY },
+		});
+		expect(colored).not.toBe(plain);
+		expect(stripSgr(colored)).toBe(plain);
+		expect(colored).toContain("\u001b[38;5;78maccepted");
 	});
 });

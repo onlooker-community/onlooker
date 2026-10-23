@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { playbook } from "../commands/playbook";
+import { stripSgr } from "../ui";
 
 const FIXTURE = JSON.parse(
 	readFileSync(join(__dirname, "fixtures", "lesson.json"), "utf8"),
@@ -162,5 +163,34 @@ describe("playbook", () => {
 
 		expect(out).toMatch(/Moved/);
 		expect(out).toMatch(/mirror/);
+	});
+
+	it("says exactly the same words with color on, and never colors JSON", async () => {
+		const env = mirrored([
+			{
+				...FIXTURE,
+				id: IDS[1],
+				applies_to: {
+					...FIXTURE.applies_to,
+					file_patterns: ["nothing/here.ts"],
+				},
+			},
+			{
+				...FIXTURE,
+				id: IDS[2],
+				applies_to: { ...FIXTURE.applies_to, stack: ["not-installed"] },
+			},
+		]);
+		const cwd = project({ vite: "5.2.1" });
+		const COLOR = { color: true, width: Number.POSITIVE_INFINITY };
+
+		const plain = await playbook({ env, cwd });
+		const colored = await playbook({ env, cwd, theme: COLOR });
+		expect(colored).not.toBe(plain);
+		expect(stripSgr(colored)).toBe(plain);
+
+		const json = await playbook({ env, cwd, json: true, theme: COLOR });
+		expect(json).not.toContain("\u001b[");
+		expect(() => JSON.parse(json)).not.toThrow();
 	});
 });

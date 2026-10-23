@@ -1,11 +1,13 @@
 import { createClient } from "../api";
 import { readConfig, writeConfig } from "../config";
+import { muted, ok, PLAIN, type Theme, underline } from "../ui";
 
 export interface LinkDeps {
 	env?: NodeJS.ProcessEnv;
 	/** Injected so tests never touch a TTY. `main.ts` supplies the real one. */
 	prompt: () => Promise<string>;
 	fetchImpl?: typeof fetch;
+	theme?: Theme;
 }
 
 /**
@@ -20,6 +22,7 @@ export async function link({
 	env = process.env,
 	prompt,
 	fetchImpl,
+	theme = PLAIN,
 }: LinkDeps): Promise<string> {
 	const token = (await prompt()).trim();
 	if (!token) throw new Error("No token entered. Nothing was changed.");
@@ -32,5 +35,5 @@ export async function link({
 	writeConfig({ ...config, machineToken: token }, env);
 	// Deliberately does not echo the token: it is shown once, and repeating it
 	// into the scrollback undoes the care the one-time reveal takes.
-	return `Linked to ${config.apiBaseUrl}. Run \`onlooker sync\` to push lessons.`;
+	return `${ok(theme, "✓")} Linked to ${underline(theme, config.apiBaseUrl)}.\n${muted(theme, "Run `onlooker sync` to push lessons.")}`;
 }

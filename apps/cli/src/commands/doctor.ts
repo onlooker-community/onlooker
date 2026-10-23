@@ -1,4 +1,5 @@
 import { doctorLines, exitCodeFor, surveyStreams } from "../streams";
+import type { Theme } from "../ui";
 
 export interface DoctorDeps {
 	/** Where to start looking for `.claude/settings.json` and the repo root. */
@@ -8,6 +9,8 @@ export interface DoctorDeps {
 	/** Overrides the resolved CLAUDE_CONFIG_DIR. Tests only. */
 	configDir?: string;
 	env?: NodeJS.ProcessEnv;
+	/** How to style the report. Plain unless `cli.ts` found a terminal. */
+	theme?: Theme;
 }
 
 /**
@@ -26,5 +29,8 @@ export async function doctor(
 		configDir: deps.configDir,
 		env: deps.env,
 	});
-	return { text: doctorLines(survey).join("\n"), code: exitCodeFor(survey) };
+	return {
+		text: doctorLines(survey, deps.theme).join("\n"),
+		code: exitCodeFor(survey),
+	};
 }

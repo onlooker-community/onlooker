@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { link } from "../commands/link";
 import { readConfig } from "../config";
+import { stripSgr } from "../ui";
 
 const env = () => ({
 	ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-link-")),
@@ -58,5 +59,28 @@ describe("link", () => {
 			fetchImpl: ok(),
 		});
 		expect(message).not.toContain("sensitive-value");
+	});
+
+	it("confirms with a check and puts the next step on its own line", async () => {
+		const message = await link({
+			env: env(),
+			prompt: async () => "t",
+			fetchImpl: ok(),
+		});
+		expect(message).toBe(
+			"✓ Linked to https://api.onlooker.dev.\nRun `onlooker sync` to push lessons.",
+		);
+	});
+
+	it("says exactly the same words with color on", async () => {
+		const deps = { prompt: async () => "t", fetchImpl: ok() };
+		const plain = await link({ env: env(), ...deps });
+		const colored = await link({
+			env: env(),
+			...deps,
+			theme: { color: true, width: Number.POSITIVE_INFINITY },
+		});
+		expect(stripSgr(colored)).toBe(plain);
+		expect(colored).toContain("\u001b[4mhttps://api.onlooker.dev");
 	});
 });
