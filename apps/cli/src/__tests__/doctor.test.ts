@@ -54,6 +54,31 @@ describe("doctor", () => {
 		).resolves.toBeDefined();
 	});
 
+	// ONL-65. A tap brew does not trust is one `brew upgrade` skips without
+	// failing, so the machine quietly stays on an old CLI.
+	it("reports Homebrew trust for a Homebrew install, and exits 1 when brew would refuse", async () => {
+		const machine = bareMachine();
+		// No plugins enabled, so no stream verdict can set the exit code.
+		writeFileSync(
+			join(machine.cwd, ".claude", "settings.json"),
+			JSON.stringify({ enabledPlugins: {} }),
+		);
+		const baseline = await doctor({
+			...machine,
+			binPath: "/Users/someone/src/onlooker/apps/cli/dist/onlooker.mjs",
+		});
+		expect(baseline.text).not.toMatch(/homebrew/i);
+		// Healthy without the brew check, so the 1 below is the brew check's.
+		expect(baseline.code).toBe(0);
+
+		const brewed = await doctor({
+			...machine,
+			binPath: "/opt/homebrew/Cellar/onlooker/2.10.2/libexec/dist/onlooker.mjs",
+		});
+		expect(brewed.text).toMatch(/brew upgrade will skip onlooker/i);
+		expect(brewed.code).toBe(1);
+	});
+
 	it("exits 1 when it cannot tell what should be running", async () => {
 		const empty = mkdtempSync(join(tmpdir(), "onlooker-doc-unknown-"));
 		const result = await doctor({
