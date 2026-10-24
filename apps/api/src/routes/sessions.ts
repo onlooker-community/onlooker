@@ -10,9 +10,13 @@ import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
 /**
- * Generous against a week of heavy use - 72 sessions at a few hundred bytes -
- * and bounded so a machine credential cannot write an unbounded blob into D1.
- * The same reasoning, and the same shape, as MAX_INVENTORY_BYTES.
+ * Bounded so a machine credential cannot write an unbounded blob into D1. The
+ * same reasoning, and the same shape, as MAX_INVENTORY_BYTES.
+ *
+ * This was sized against "72 sessions a week", and a real week was 582 -
+ * 305,939 bytes, measured 2026-10-23 (ONL-188). The CLI now splits its report
+ * to fit, at half this cap, so this bounds one request rather than one week.
+ * scripts/source-guards.test.sh holds the CLI's budget below it.
  */
 const MAX_SESSIONS_BYTES = 256 * 1024;
 

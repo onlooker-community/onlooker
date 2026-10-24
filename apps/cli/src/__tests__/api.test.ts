@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { classify, createClient } from "../api";
+import {
+	chunkSessionReport,
+	classify,
+	createClient,
+	sessionReportBody,
+} from "../api";
+import type { SessionSummary } from "../sessions";
 
 const URL_ = "https://api.onlooker.dev/lessons";
 
@@ -111,6 +117,95 @@ describe("createClient", () => {
 		]);
 		const [, init] = fetchImpl.mock.calls[0];
 		expect(JSON.parse(init.body)).toEqual({ lessons: [{ id: "x" }] });
+	});
+});
+
+/** A session summary whose plugin list pads it to roughly `pad` bytes. */
+const summary = (session_id: string, pad = 0): SessionSummary => ({
+	session_id,
+	machine_id: null,
+	started_at: "2026-10-23T10:00:00.000Z",
+	ended_at: null,
+	event_count: 25,
+	counts_by_prefix: { tool: 25 },
+	counts_by_project: {},
+	plugins: pad > 0 ? ["x".repeat(pad)] : [],
+	prompts: 1,
+	compactions: 0,
+});
+
+const bytes = (text: string) => new TextEncoder().encode(text).length;
+
+// ONL-188. The API refuses any sessions body over 256 KiB, and a week on a
+// busy machine is 582 sessions and ~300 KB. One request for the whole window
+// meant no session was reported at all.
+describe("chunkSessionReport", () => {
+	it("keeps every chunk's wire body within the budget", () => {
+		const summaries = Array.from({ length: 50 }, (_, i) =>
+			summary(`s${i}`, 200),
+		);
+
+		const chunks = chunkSessionReport(summaries, 2_000);
+
+		expect(chunks.length).toBeGreaterThan(1);
+		for (const chunk of chunks) {
+			expect(bytes(sessionReportBody(chunk))).toBeLessThanOrEqual(2_000);
+		}
+	});
+
+	// Measured against the bytes actually sent, not an estimate: a budget
+	// that undercounts lets a chunk through that the API then refuses.
+	it("fills a chunk to the budget exactly when it can", () => {
+		const summaries = [summary("a"), summary("b"), summary("c")];
+		const twoFit = bytes(sessionReportBody(summaries.slice(0, 2)));
+
+		const chunks = chunkSessionReport(summaries, twoFit);
+
+		expect(chunks.map((c) => c.length)).toEqual([2, 1]);
+	});
+
+	it("keeps every session, in order", () => {
+		const summaries = Array.from({ length: 30 }, (_, i) =>
+			summary(`s${i}`, 100),
+		);
+
+		const chunks = chunkSessionReport(summaries, 1_000);
+
+		expect(chunks.flat()).toEqual(summaries);
+	});
+
+	// One session larger than the budget still goes, alone. Dropping it
+	// would be silent; holding up the rest behind it would be worse.
+	it("sends a session larger than the budget on its own", () => {
+		const summaries = [summary("a"), summary("huge", 5_000), summary("b")];
+
+		const chunks = chunkSessionReport(summaries, 1_000);
+
+		expect(chunks.map((c) => c.map((s) => s.session_id))).toEqual([
+			["a"],
+			["huge"],
+			["b"],
+		]);
+	});
+
+	it("makes no chunk from nothing", () => {
+		expect(chunkSessionReport([], 1_000)).toEqual([]);
+	});
+
+	it("is the body reportSessions sends", async () => {
+		let sent = "";
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (_url: string, init: { body: string }) => {
+				sent = init.body;
+				return { ok: true, status: 200, json: async () => ({ stored: 1 }) };
+			});
+
+		await createClient("https://api.test", "tok", fetchImpl).reportSessions([
+			summary("a"),
+		]);
+
+		expect(sent).toBe(sessionReportBody([summary("a")]));
 	});
 });
 
