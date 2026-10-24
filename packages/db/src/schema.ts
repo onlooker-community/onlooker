@@ -394,9 +394,10 @@ export const lesson_author_blocks = sqliteTable("lesson_author_blocks", {
  * local state to corrupt, and a wiped cli.json re-reports rather than orphaning
  * history.
  *
- * `counts_by_prefix`, `counts_by_project` and `plugins` are JSON text. D1 has
- * no JSON column type, and the alternative - a row per prefix per session -
- * would multiply a feed that is already the largest thing a machine reports.
+ * `counts_by_prefix`, `counts_by_type`, `counts_by_project` and `plugins` are
+ * JSON text. D1 has no JSON column type, and the alternative - a row per
+ * prefix per session - would multiply a feed that is already the largest thing
+ * a machine reports.
  *
  * `counts_by_project` is a map for a measured reason, not for symmetry with
  * `counts_by_prefix`: 17.4% of sessions touch more than one repository, so a
@@ -424,6 +425,15 @@ export const session_summaries = sqliteTable(
 		event_count: integer("event_count").notNull(),
 		/** JSON object: prefix -> count. */
 		counts_by_prefix: text("counts_by_prefix").notNull(),
+		/**
+		 * JSON object: full event type -> count (ONL-128).
+		 *
+		 * What `counts_by_prefix` cannot say: whether a plugin that ran did
+		 * anything. Defaulted to an empty object for the reason
+		 * `counts_by_project` is - rows from before the column read back as
+		 * "no types recorded", and are not backfilled.
+		 */
+		counts_by_type: text("counts_by_type").notNull().default("{}"),
 		/**
 		 * JSON object: project key -> `{ basis, event_count }`.
 		 *

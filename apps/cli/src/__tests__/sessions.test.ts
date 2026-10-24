@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_THRESHOLD,
 	type EventEnvelope,
+	MAX_TYPES_PER_SESSION,
 	summarizeSessions,
 } from "../sessions";
 
@@ -335,5 +336,102 @@ describe("summarizeSessions / counts_by_project", () => {
 		expect(byId.get("s2")?.counts_by_project).toEqual({
 			bc046590dad9: { basis: "root", event_count: 25 },
 		});
+	});
+});
+
+// ONL-128. `curator: 15027` read as a busy, healthy plugin while curator
+// scanned 8,225 times and emitted zero findings. The prefix is where that
+// signal died, so the full type has to survive the fold.
+describe("summarizeSessions / counts_by_type", () => {
+	it("keys every event by its full type", async () => {
+		const events = run("s1", [
+			"session.start",
+			...filler(20),
+			"curator.scan.started",
+			"curator.scan.complete",
+			"curator.scan.started",
+			"session.end",
+		]);
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.counts_by_type).toEqual({
+			"session.start": 1,
+			"tool.shell.exec": 20,
+			"curator.scan.started": 2,
+			"curator.scan.complete": 1,
+			"session.end": 1,
+		});
+	});
+
+	// The issue's promise: existing views keep working because the prefix
+	// counts are derivable from the type counts.
+	it("rolls up to exactly counts_by_prefix", async () => {
+		const events = run("s1", [
+			...filler(20),
+			"tool.file.edit",
+			"lineage.change.recorded",
+			"librarian.candidate.dropped",
+		]);
+
+		const [summary] = await summarizeSessions(events);
+
+		const rolled: Record<string, number> = {};
+		for (const [type, count] of Object.entries(summary.counts_by_type)) {
+			const prefix = type.split(".")[0];
+			rolled[prefix] = (rolled[prefix] ?? 0) + count;
+		}
+		expect(rolled).toEqual({ ...summary.counts_by_prefix });
+	});
+
+	// A type is envelope, not payload, but only while it is a registered name.
+	// The log is appended by many independent writers and the fold does not
+	// check the schema's list, so a type that does not look like one stays
+	// out of the map rather than carrying whatever text a writer put there.
+	it("leaves a type that is not shaped like a registered name out of the map", async () => {
+		const events = run("s1", [
+			...filler(20),
+			"Tool.Shell.Exec",
+			"has space.in.it",
+			"nodot",
+			`plugin.${"x".repeat(64)}`,
+		]);
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(summary.counts_by_type).toEqual({ "tool.shell.exec": 20 });
+		// Still counted everywhere else: the event happened.
+		expect(summary.event_count).toBe(24);
+		expect(summary.counts_by_prefix.nodot).toBe(1);
+	});
+
+	// `constructor.trap` is a well-shaped name, so it is keyed - and has to be
+	// keyed as plain data, for the reason counts_by_prefix carries the guard.
+	it("keys a constructor-named type as plain data", async () => {
+		const events = run("s1", [...filler(20), "constructor.trap"]);
+
+		const [summary] = await summarizeSessions(events);
+
+		expect(Object.getPrototypeOf(summary.counts_by_type)).toBeNull();
+		expect(Reflect.get(summary.counts_by_type, "constructor.trap")).toBe(1);
+	});
+
+	// The busiest session on the measuring machine had 41 distinct types. The
+	// cap is for the writer that mints a new type per event, which would
+	// otherwise grow one row past the API's body limit on its own.
+	it("keys at most MAX_TYPES_PER_SESSION distinct types, first seen first", async () => {
+		const types = Array.from(
+			{ length: MAX_TYPES_PER_SESSION + 10 },
+			(_, i) => `plugin.type${i}`,
+		);
+		const events = run("s1", [...types, "plugin.type0"]);
+
+		const [summary] = await summarizeSessions(events);
+
+		const keys = Object.keys(summary.counts_by_type);
+		expect(keys).toHaveLength(MAX_TYPES_PER_SESSION);
+		expect(keys).not.toContain(`plugin.type${MAX_TYPES_PER_SESSION}`);
+		// A type already keyed keeps counting after the cap is reached.
+		expect(summary.counts_by_type["plugin.type0"]).toBe(2);
 	});
 });

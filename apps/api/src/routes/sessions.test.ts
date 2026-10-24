@@ -549,3 +549,114 @@ describe("counts_by_project", () => {
 		);
 	});
 });
+
+// ONL-128. The full type is what tells a plugin doing its job from one
+// running and producing nothing, which the prefix cannot.
+describe("counts_by_type", () => {
+	const curatorTypes = {
+		"curator.scan.started": 12,
+		"curator.scan.complete": 12,
+		"tool.shell.exec": 1,
+	};
+
+	it("stores the type counts and reads them back parsed", async () => {
+		const access = await signup("bytype@example.com");
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_type: curatorTypes })],
+		});
+		expect(posted.status).toBe(200);
+
+		const read = await get(access);
+		const body = (await read.json()) as {
+			sessions: { counts_by_type: Record<string, number> }[];
+		};
+		expect(body.sessions[0].counts_by_type).toEqual(curatorTypes);
+	});
+
+	// Every CLI before this column posts no such field, and must keep working.
+	it("accepts a summary with no counts_by_type and stores an empty map", async () => {
+		const access = await signup("notype@example.com");
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary()],
+		});
+		expect(posted.status).toBe(200);
+
+		const stored = await db()
+			.prepare(
+				"SELECT counts_by_type FROM session_summaries WHERE machine_id = ?",
+			)
+			.bind(machine.id)
+			.first<{ counts_by_type: string }>();
+		expect(stored?.counts_by_type).toBe("{}");
+
+		const read = await get(access);
+		const body = (await read.json()) as {
+			sessions: { counts_by_type: Record<string, number> }[];
+		};
+		expect(body.sessions[0].counts_by_type).toEqual({});
+	});
+
+	// The CLI keys only registered-looking names, so a key that is not one came
+	// from something else, and storing it would store whatever text it holds.
+	it.each([
+		["a key that is not a dotted lowercase name", { "has space.x": 1 }],
+		["a key longer than 64 characters", { [`plugin.${"x".repeat(64)}`]: 1 }],
+		["a count that is not a number", { "tool.shell.exec": "lots" }],
+		["a count that is not a whole number", { "tool.shell.exec": 1.5 }],
+		["a negative count", { "tool.shell.exec": -1 }],
+		["an array where the map belongs", ["tool.shell.exec"]],
+	])("rejects %s", async (_label, counts_by_type) => {
+		const access = await signup(`badtype-${_label.length}@example.com`);
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_type })],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	it("rejects more distinct types than one session can have", async () => {
+		const access = await signup("toomanytypes@example.com");
+		const machine = await mint(access, "laptop");
+		const counts_by_type = Object.fromEntries(
+			Array.from({ length: 129 }, (_, i) => [`plugin.type${i}`, 1]),
+		);
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_type })],
+		});
+
+		expect(response.status).toBe(400);
+	});
+
+	it("updates the type counts when a session is re-reported", async () => {
+		const access = await signup("retype@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_type: { "curator.scan.started": 1 } })],
+		});
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ counts_by_type: curatorTypes })],
+		});
+
+		const stored = await db()
+			.prepare(
+				"SELECT counts_by_type FROM session_summaries WHERE machine_id = ?",
+			)
+			.bind(machine.id)
+			.first<{ counts_by_type: string }>();
+		expect(JSON.parse(stored?.counts_by_type ?? "null")).toEqual(curatorTypes);
+	});
+});

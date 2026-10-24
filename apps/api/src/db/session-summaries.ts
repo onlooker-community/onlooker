@@ -19,6 +19,12 @@ export interface SessionSummaryInput {
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
 	/**
+	 * Full event type -> count (ONL-128). Absent from every CLI older than
+	 * this field, and stored as an empty map then. The route has already held
+	 * each key to the registered-name pattern.
+	 */
+	counts_by_type?: Record<string, number>;
+	/**
 	 * Project key -> `{ basis, event_count }`, for the events of this session
 	 * that were attributable to a repository. Empty when none were, which is
 	 * every session reported by a CLI older than this column.
@@ -76,6 +82,8 @@ export async function putSessionSummaries(
 			ended_at: summary.ended_at,
 			event_count: summary.event_count,
 			counts_by_prefix: JSON.stringify(summary.counts_by_prefix),
+			// `?? {}` for the reason spelled out on counts_by_project below.
+			counts_by_type: JSON.stringify(summary.counts_by_type ?? {}),
 			// `?? {}` rather than relying on the column default: the default
 			// only applies to an INSERT that omits the column, and this row
 			// object names it explicitly, so an older CLI that posts no
@@ -101,6 +109,7 @@ export async function putSessionSummaries(
 					ended_at: row.ended_at,
 					event_count: row.event_count,
 					counts_by_prefix: row.counts_by_prefix,
+					counts_by_type: row.counts_by_type,
 					counts_by_project: row.counts_by_project,
 					plugins: row.plugins,
 					prompts: row.prompts,
@@ -134,6 +143,7 @@ export interface SessionSummaryRow {
 	ended_at: string | null;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	counts_by_type: Record<string, number>;
 	counts_by_project: Record<string, ProjectCount>;
 	plugins: string[];
 	prompts: number;
@@ -219,8 +229,8 @@ export async function listSessionSummaries(
 	const { results } = await db
 		.prepare(
 			`SELECT machine_id, session_id, started_at, ended_at, event_count,
-			        counts_by_prefix, counts_by_project, plugins, prompts,
-			        compactions
+			        counts_by_prefix, counts_by_type, counts_by_project, plugins,
+			        prompts, compactions
 			 FROM session_summaries
 			 WHERE ${where}
 			 ORDER BY started_at DESC, machine_id DESC, session_id DESC
@@ -234,6 +244,7 @@ export async function listSessionSummaries(
 			ended_at: string | null;
 			event_count: number;
 			counts_by_prefix: string;
+			counts_by_type: string | null;
 			counts_by_project: string | null;
 			plugins: string;
 			prompts: number;
@@ -249,6 +260,12 @@ export async function listSessionSummaries(
 		ended_at: r.ended_at,
 		event_count: r.event_count,
 		counts_by_prefix: JSON.parse(r.counts_by_prefix) as Record<string, number>,
+		// `?? "{}"` for the reason given on counts_by_project, with migration
+		// 0016 in place of 0014.
+		counts_by_type: JSON.parse(r.counts_by_type ?? "{}") as Record<
+			string,
+			number
+		>,
 		// Typed `string | null` and defaulted here even though the column is
 		// NOT NULL DEFAULT '{}'. The default covers rows inserted without the
 		// column, but a D1 instance that has not yet run migration 0014 returns

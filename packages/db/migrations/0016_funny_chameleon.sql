@@ -1,0 +1,1 @@
+ALTER TABLE `session_summaries` ADD `counts_by_type` text DEFAULT '{}' NOT NULL;
