@@ -18,10 +18,56 @@
  * owns the arithmetic.
  */
 
+import type { Shape } from "../lib/sessionRollup";
 import { PALETTE } from "./palette";
 
 /** How many event types line two names before it starts counting instead. */
 export const SHAPE_LIMIT = 3;
+
+/**
+ * How many repositories the repository line names. Two, not three: a key is
+ * twelve characters of hex against an event type's one word, and 83% of
+ * sessions touch only one repository anyway.
+ */
+export const REPO_LIMIT = 2;
+
+/**
+ * One evidence line: the largest counts, then the tail in a title.
+ *
+ * Shared by the event breakdown and the repository line so the two cannot
+ * drift into different ways of saying "and N more".
+ */
+function Breakdown({ shape, testId }: { shape: Shape; testId?: string }) {
+	return (
+		<div
+			data-testid={testId}
+			style={{
+				marginTop: "0.15rem",
+				paddingLeft: "var(--space-3)",
+				color: PALETTE.muted,
+				fontSize: "0.9em",
+			}}
+		>
+			{shape.shown}
+			{shape.hiddenCount > 0 ? (
+				<>
+					{" · "}
+					{/*
+					 * The tail lives in a title rather than being dropped: these
+					 * counts appear nowhere else in the app, and before this the
+					 * page showed every one of them. A title is a recovery path,
+					 * not an affordance - invisible on touch, inconsistently
+					 * announced - which is the accepted cost of not giving every
+					 * row an expandable control.
+					 */}
+					<span title={shape.hidden} style={{ cursor: "help" }}>
+						+{shape.hiddenCount} more
+					</span>
+				</>
+			) : null}
+		</div>
+	);
+}
 
 export default function SessionRow({
 	time,
@@ -32,6 +78,7 @@ export default function SessionRow({
 	shown,
 	hidden,
 	hiddenCount,
+	repos,
 	last,
 }: {
 	time: string;
@@ -56,6 +103,12 @@ export default function SessionRow({
 	shown: string;
 	hidden: string;
 	hiddenCount: number;
+	/**
+	 * Events per repository, as project keys. An empty `shown` renders no
+	 * line at all: a session that carried no key has nothing true to say
+	 * here, and "no repository" on every pre-2.7.0 row would be noise.
+	 */
+	repos: Shape;
 	/** The last row in a day panel skips its border, which Panel supplies. */
 	last: boolean;
 }) {
@@ -115,34 +168,8 @@ export default function SessionRow({
 				</span>
 			</div>
 
-			{shown ? (
-				<div
-					style={{
-						marginTop: "0.15rem",
-						paddingLeft: "var(--space-3)",
-						color: PALETTE.muted,
-						fontSize: "0.9em",
-					}}
-				>
-					{shown}
-					{hiddenCount > 0 ? (
-						<>
-							{" · "}
-							{/*
-							 * The tail lives in a title rather than being dropped: these
-							 * counts appear nowhere else in the app, and before this the
-							 * page showed every one of them. A title is a recovery path,
-							 * not an affordance - invisible on touch, inconsistently
-							 * announced - which is the accepted cost of not giving every
-							 * row an expandable control.
-							 */}
-							<span title={hidden} style={{ cursor: "help" }}>
-								+{hiddenCount} more
-							</span>
-						</>
-					) : null}
-				</div>
-			) : null}
+			{shown ? <Breakdown shape={{ shown, hidden, hiddenCount }} /> : null}
+			{repos.shown ? <Breakdown shape={repos} testId="session-repos" /> : null}
 		</div>
 	);
 }

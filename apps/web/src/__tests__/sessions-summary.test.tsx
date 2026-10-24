@@ -105,6 +105,7 @@ describe("SessionsSummary", () => {
 						ended_at: "2026-09-24T10:30:00Z",
 						event_count: 10,
 						counts_by_prefix: { tool: 10 },
+						counts_by_project: {},
 						plugins: [],
 						prompts: 1,
 						compactions: 1,

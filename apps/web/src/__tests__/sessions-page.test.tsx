@@ -112,6 +112,7 @@ const ONE_SESSION = {
 			ended_at: "2026-09-16T10:42:00Z",
 			event_count: 6492,
 			counts_by_prefix: { tool: 6311, session: 100, skill: 81 },
+			counts_by_project: {},
 			plugins: ["lineage"],
 			prompts: 5,
 			compactions: 1,
@@ -133,6 +134,7 @@ const TWO_DAYS = {
 			ended_at: "2026-09-16T10:42:00Z",
 			event_count: 30,
 			counts_by_prefix: { tool: 25, session: 5 },
+			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
 			compactions: 0,
@@ -144,6 +146,7 @@ const TWO_DAYS = {
 			ended_at: "2026-09-15T09:20:00Z",
 			event_count: 25,
 			counts_by_prefix: { tool: 20, session: 5 },
+			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
 			compactions: 0,
@@ -457,6 +460,7 @@ describe("/sessions summary header", () => {
 			ended_at: "2026-09-17T10:20:00Z",
 			event_count: 20,
 			counts_by_prefix: { tool: 20 },
+			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
 			compactions: 0,
@@ -529,6 +533,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T12:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
 					compactions: 0,
@@ -540,6 +545,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T11:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
 					compactions: 0,
@@ -551,6 +557,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T10:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
 					compactions: 0,
@@ -610,6 +617,7 @@ describe("/sessions summary header", () => {
 						curator: 2,
 						scribe: 1,
 					},
+					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
 					compactions: 0,
@@ -645,5 +653,130 @@ describe("/sessions summary header", () => {
 			const row = await screen.findByTestId("session-row");
 			expect(within(row).queryByText(/more$/)).toBeNull();
 		});
+	});
+});
+
+describe("/sessions per repository", () => {
+	// Shaped after a real production session (0250bcb5, 2026-10-24): four
+	// repositories in one session, one of them root-derived. Plus a second,
+	// single-repository session, and one from before the CLI recorded any.
+	const MULTI_REPO = {
+		sessions: [
+			{
+				session_id: "s3",
+				machine_id: "m1",
+				started_at: "2026-09-16T12:00:00Z",
+				ended_at: "2026-09-16T12:10:00Z",
+				event_count: 41,
+				counts_by_prefix: { memory: 41 },
+				counts_by_project: {
+					"6a7678979e31": { basis: "remote", event_count: 41 },
+				},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+			{
+				session_id: "s2",
+				machine_id: "m1",
+				started_at: "2026-09-16T10:00:00Z",
+				ended_at: "2026-09-16T10:42:00Z",
+				event_count: 223,
+				counts_by_prefix: { tool: 90, inspector: 53, memory: 80 },
+				counts_by_project: {
+					ee2cfbe428c7: { basis: "remote", event_count: 181 },
+					"54460a64b16d": { basis: "remote", event_count: 35 },
+					"9701ec23092a": { basis: "remote", event_count: 2 },
+					a2241956835d: { basis: "root", event_count: 1 },
+				},
+				plugins: [],
+				prompts: 3,
+				compactions: 0,
+			},
+			{
+				session_id: "s1",
+				machine_id: "m1",
+				started_at: "2026-09-16T09:00:00Z",
+				ended_at: "2026-09-16T09:20:00Z",
+				event_count: 25,
+				counts_by_prefix: { tool: 25 },
+				counts_by_project: {},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+		],
+		cursor: null,
+		has_more: false,
+	};
+
+	it("breaks a multi-repository session down on its row", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const rows = await screen.findAllByTestId("session-row");
+		const repos = within(rows[1]).getByTestId("session-repos");
+		expect(repos.textContent).toMatch(/181 ee2cfbe428c7 · 35 54460a64b16d/);
+
+		// The tail survives in a title, as the event breakdown's does.
+		const more = within(repos).getByText(/\+2 more/);
+		expect(more.getAttribute("title")).toBe("2 9701ec23092a · 1 a2241956835d");
+	});
+
+	it("says nothing about repositories on a row that carried none", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const rows = await screen.findAllByTestId("session-row");
+		expect(within(rows[2]).queryByTestId("session-repos")).toBeNull();
+	});
+
+	it("rolls the loaded sessions up per repository", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const panel = await screen.findByTestId("repositories-summary");
+		const rows = within(panel).getAllByTestId("repository-row");
+		expect(rows.map((r) => r.textContent)).toEqual([
+			expect.stringMatching(/ee2cfbe428c7.*1 session · 181 events/),
+			expect.stringMatching(/6a7678979e31.*1 session · 41 events/),
+			expect.stringMatching(/54460a64b16d.*1 session · 35 events/),
+			expect.stringMatching(/9701ec23092a.*1 session · 2 events/),
+			expect.stringMatching(/a2241956835d.*1 session · 1 event$/),
+		]);
+	});
+
+	// A root key hashes a local path, so it names a repository only on the
+	// machine that reported it. The row has to say which machine, or it reads
+	// as portable as every other key.
+	it("names the machine a root-derived key belongs to", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const panel = await screen.findByTestId("repositories-summary");
+		const root = within(panel)
+			.getAllByTestId("repository-row")
+			.find((r) => r.textContent?.includes("a2241956835d"));
+		expect(root?.textContent).toMatch(/work laptop only/);
+	});
+
+	it("says how many loaded sessions it could not place", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const panel = await screen.findByTestId("repositories-summary");
+		expect(
+			within(panel).queryByText(/1 session carried no repository/),
+		).not.toBeNull();
+	});
+
+	// Every row predates the column: nothing to roll up, and a panel that
+	// only says "nothing here" is noise above the feed.
+	it("renders no panel when no session carried a repository", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		renderAppAt("/sessions");
+
+		await screen.findByTestId("session-row");
+		expect(screen.queryByTestId("repositories-summary")).toBeNull();
 	});
 });

@@ -41,9 +41,30 @@ export interface SessionSummary {
 	ended_at: string | null;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	/**
+	 * Project key -> this session's events in that repository (ONL-184).
+	 *
+	 * The key is an opaque 12-hex hash, never a path or a name, and the web
+	 * app has no way to turn it into one yet - so it is shown as-is. Empty for
+	 * a session that carried no key: every CLI older than 2.7.0, and any
+	 * session run outside a git repository. Never absent: the API defaults the
+	 * column on read, see listSessionSummaries in apps/api.
+	 */
+	counts_by_project: Record<string, ProjectCount>;
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+}
+
+/** One repository's share of a session. Mirrors apps/api's ProjectCount. */
+export interface ProjectCount {
+	/**
+	 * `remote` keys come from the origin URL and name the same repository on
+	 * every machine. `root` keys hash a local path, so they are only
+	 * meaningful on the machine that reported them - see rollupProjects.
+	 */
+	basis: "remote" | "root";
+	event_count: number;
 }
 
 /**
