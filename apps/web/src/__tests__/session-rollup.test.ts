@@ -6,6 +6,7 @@ import {
 	formatDurationMs,
 	formatRange,
 	groupSessionsByDay,
+	rollupProjects,
 	rollupSessions,
 	topShape,
 } from "../lib/sessionRollup";
@@ -18,6 +19,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 		ended_at: "2026-09-24T10:30:00Z",
 		event_count: 100,
 		counts_by_prefix: { tool: 100 },
+		counts_by_project: {},
 		plugins: [],
 		prompts: 3,
 		compactions: 0,
@@ -310,5 +312,120 @@ describe("topShape", () => {
 		expect(shape.shown).toBe("");
 		expect(shape.hidden).toBe("");
 		expect(shape.hiddenCount).toBe(0);
+	});
+});
+
+describe("rollupProjects", () => {
+	it("totals sessions and events per repository", () => {
+		const result = rollupProjects([
+			session({
+				session_id: "a",
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 40 },
+				},
+			}),
+			session({
+				session_id: "b",
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 10 },
+				},
+			}),
+		]);
+
+		expect(result.projects).toEqual([
+			{
+				key: "aaaaaaaaaaaa",
+				basis: "remote",
+				machineId: null,
+				sessions: 2,
+				events: 50,
+			},
+		]);
+	});
+
+	// 17.4% of sessions span more than one repository - the reason
+	// counts_by_project is a map. Such a session is a session in each.
+	it("counts a multi-repository session once toward each repository", () => {
+		const result = rollupProjects([
+			session({
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 181 },
+					bbbbbbbbbbbb: { basis: "remote", event_count: 35 },
+				},
+			}),
+		]);
+
+		expect(result.projects.map((p) => [p.key, p.sessions, p.events])).toEqual([
+			["aaaaaaaaaaaa", 1, 181],
+			["bbbbbbbbbbbb", 1, 35],
+		]);
+	});
+
+	// A remote-derived key is portable: the same repository on two machines
+	// is one key, and one repository. A root-derived key is machine-local -
+	// it hashes a path - so the same key on two machines is not evidence of
+	// the same repository, and merging them would invent one.
+	it("merges remote keys across machines and keeps root keys per machine", () => {
+		const result = rollupProjects([
+			session({
+				session_id: "a",
+				machine_id: "m1",
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 5 },
+					cccccccccccc: { basis: "root", event_count: 7 },
+				},
+			}),
+			session({
+				session_id: "b",
+				machine_id: "m2",
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 5 },
+					cccccccccccc: { basis: "root", event_count: 3 },
+				},
+			}),
+		]);
+
+		expect(
+			result.projects.map((p) => [p.key, p.machineId, p.sessions, p.events]),
+		).toEqual([
+			["aaaaaaaaaaaa", null, 2, 10],
+			["cccccccccccc", "m1", 1, 7],
+			["cccccccccccc", "m2", 1, 3],
+		]);
+	});
+
+	it("orders by events, then key, so equal counts render stably", () => {
+		const result = rollupProjects([
+			session({
+				counts_by_project: {
+					bbbbbbbbbbbb: { basis: "remote", event_count: 5 },
+					aaaaaaaaaaaa: { basis: "remote", event_count: 5 },
+					cccccccccccc: { basis: "remote", event_count: 9 },
+				},
+			}),
+		]);
+
+		expect(result.projects.map((p) => p.key)).toEqual([
+			"cccccccccccc",
+			"aaaaaaaaaaaa",
+			"bbbbbbbbbbbb",
+		]);
+	});
+
+	// Every session from a CLI older than 2.7.0, and every session run
+	// outside a git repository. Counted rather than dropped, so the panel can
+	// say how much of the feed it cannot place.
+	it("counts sessions that carried no repository", () => {
+		const result = rollupProjects([
+			session({ session_id: "a" }),
+			session({
+				session_id: "b",
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 1 },
+				},
+			}),
+		]);
+
+		expect(result.unattributed).toBe(1);
 	});
 });

@@ -172,6 +172,88 @@ export function rollupSessions(
 	};
 }
 
+/** One repository's share of the loaded sessions. */
+export interface ProjectRollup {
+	/** The opaque 12-hex project key. */
+	key: string;
+	basis: "remote" | "root";
+	/**
+	 * The machine a `root` key belongs to, and null for a `remote` one. A root
+	 * key hashes a local path, so it only identifies a repository on the
+	 * machine that derived it - see rollupProjects.
+	 */
+	machineId: string | null;
+	/** Sessions that touched this repository at all. */
+	sessions: number;
+	/** Events attributed to this repository, across those sessions. */
+	events: number;
+}
+
+export interface ProjectsRollup {
+	/** Most events first, then by key, then by machine. */
+	projects: ProjectRollup[];
+	/** Loaded sessions whose `counts_by_project` was empty. */
+	unattributed: number;
+}
+
+/**
+ * Per-repository totals across the loaded sessions (ONL-184).
+ *
+ * A session that spans several repositories counts once toward each, so the
+ * `sessions` column does not sum to the number of sessions loaded - 17.4% of
+ * sessions span more than one, which is why the CLI records a map.
+ *
+ * The grouping is where `basis` matters. A `remote` key is derived from the
+ * origin URL and is the same on every machine, so it merges across machines.
+ * A `root` key hashes the repository's local path: one key on two machines
+ * says only that two paths hashed alike, not that they are one repository.
+ * So root keys are grouped by (machine, key) instead, and a row says which
+ * machine it belongs to. Merging them would invent a repository; splitting
+ * remote ones by machine would hide that it is one.
+ */
+export function rollupProjects(sessions: SessionSummary[]): ProjectsRollup {
+	const groups = new Map<string, ProjectRollup>();
+	let unattributed = 0;
+
+	for (const session of sessions) {
+		const entries = Object.entries(session.counts_by_project);
+		if (entries.length === 0) {
+			unattributed += 1;
+			continue;
+		}
+
+		for (const [key, { basis, event_count }] of entries) {
+			const machineId = basis === "root" ? session.machine_id : null;
+			// `\n` cannot appear in a hex key or a machine id, so the joined
+			// identity cannot collide - the same delimiter the sessions cursor
+			// uses for the same reason.
+			const identity = `${basis}\n${machineId ?? ""}\n${key}`;
+			const existing = groups.get(identity);
+			if (existing) {
+				existing.sessions += 1;
+				existing.events += event_count;
+			} else {
+				groups.set(identity, {
+					key,
+					basis,
+					machineId,
+					sessions: 1,
+					events: event_count,
+				});
+			}
+		}
+	}
+
+	const projects = [...groups.values()].sort(
+		(a, b) =>
+			b.events - a.events ||
+			a.key.localeCompare(b.key) ||
+			(a.machineId ?? "").localeCompare(b.machineId ?? ""),
+	);
+
+	return { projects, unattributed };
+}
+
 /** A session's event counts, split into what a row shows and what it does not. */
 export interface Shape {
 	/** "18 memory · 7 historian · 3 session" - the largest `limit` counts. */

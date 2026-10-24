@@ -4,7 +4,8 @@ import { listMachines, type Machine } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
-import SessionRow, { SHAPE_LIMIT } from "../components/SessionRow";
+import RepositoriesSummary from "../components/RepositoriesSummary";
+import SessionRow, { REPO_LIMIT, SHAPE_LIMIT } from "../components/SessionRow";
 import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
@@ -14,6 +15,7 @@ import {
 	formatDurationMs,
 	groupSessionsByDay,
 	plural,
+	rollupProjects,
 	rollupSessions,
 	topShape,
 } from "../lib/sessionRollup";
@@ -260,6 +262,15 @@ export default function SessionsPage() {
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
 			<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
+			<RepositoriesSummary
+				rollup={rollupProjects(sessions)}
+				complete={!hasMore}
+				machineName={(id) =>
+					machinesCheck.kind === "known"
+						? machineName(machinesCheck.machines, id)
+						: null
+				}
+			/>
 
 			{/* Same grouping rollupSessions's own day totals use - see
 			    groupSessionsByDay's doc comment in sessionRollup.ts for why a
@@ -288,6 +299,14 @@ export default function SessionsPage() {
 							previous !== null && previous.machine_id === session.machine_id;
 
 						const shape = topShape(session.counts_by_prefix, SHAPE_LIMIT);
+						const repos = topShape(
+							Object.fromEntries(
+								Object.entries(session.counts_by_project).map(
+									([key, { event_count }]) => [key, event_count],
+								),
+							),
+							REPO_LIMIT,
+						);
 
 						return (
 							<SessionRow
@@ -307,6 +326,7 @@ export default function SessionsPage() {
 								shown={shape.shown}
 								hidden={shape.hidden}
 								hiddenCount={shape.hiddenCount}
+								repos={repos}
 								last={index === group.sessions.length - 1}
 							/>
 						);
