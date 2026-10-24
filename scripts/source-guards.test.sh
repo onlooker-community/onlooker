@@ -458,6 +458,34 @@ else
 fi
 
 echo
+echo "source-guards: the CLI's session chunks fit the API's cap"
+
+# ONL-188. The CLI splits its session report so that no body exceeds the
+# API's MAX_SESSIONS_BYTES, and a single over-cap body is refused outright -
+# no session reported at all. The two numbers live in different workspaces,
+# and neither app's suite can see the other's, so this is the only place a
+# raised CLI budget or a lowered API cap gets caught before production does.
+#
+# Each constant is read as the arithmetic it is written as (`128 * 1024`).
+# Anything that is not plain integer arithmetic fails the extraction rather
+# than reaching $(( )).
+const_expr() {
+	sed -nE "s/^(export )?const $1 = ([0-9 *]+);\$/\\2/p" "$2" | head -1
+}
+cli_budget="$(const_expr MAX_SESSION_REPORT_BYTES "${ROOT}/apps/cli/src/api.ts")"
+api_cap="$(const_expr MAX_SESSIONS_BYTES "${ROOT}/apps/api/src/routes/sessions.ts")"
+
+if [[ -z "${cli_budget}" || -z "${api_cap}" ]]; then
+	fail "both session byte limits are still plain integer constants" \
+		"CLI '${cli_budget:-none}', API '${api_cap:-none}'"
+elif (( cli_budget < api_cap )); then
+	pass "the CLI's session chunk budget ($(( cli_budget ))) is under the API's cap ($(( api_cap )))"
+else
+	fail "the CLI's session chunk budget is under the API's cap" \
+		"CLI $(( cli_budget )) >= API $(( api_cap ))"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1

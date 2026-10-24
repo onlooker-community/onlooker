@@ -1,5 +1,10 @@
 import type { TLesson } from "@onlooker-community/lesson-contract";
-import { type ApiClient, ApiError, createClient } from "../api";
+import {
+	type ApiClient,
+	ApiError,
+	chunkSessionReport,
+	createClient,
+} from "../api";
 import { readConfig } from "../config";
 import { readEventEnvelopes } from "../eventlog";
 import { collectInventory } from "../inventory";
@@ -101,12 +106,25 @@ async function reportSessions(
 	}
 	if (summaries.length === 0) return null;
 
-	try {
-		await client.reportSessions(summaries);
-		return null;
-	} catch (error) {
-		return `Sessions not reported: ${(error as Error).message}`;
+	// Several requests rather than one (ONL-188): a busy week is larger than
+	// the API takes in a single body, and one refused body reported nothing.
+	// Stops at the first refusal, because whatever refused one chunk - a
+	// revoked token, an outage - will refuse the next. What already landed
+	// stays landed: the server upserts by (machine, session), so the next
+	// sync resends the whole window at no cost and fills in the rest.
+	let sent = 0;
+	for (const chunk of chunkSessionReport(summaries)) {
+		try {
+			await client.reportSessions(chunk);
+		} catch (error) {
+			const reason = (error as Error).message;
+			return sent === 0
+				? `Sessions not reported: ${reason}`
+				: `Sessions partly reported: ${sent} of ${summaries.length} sent before the API refused the rest: ${reason}`;
+		}
+		sent += chunk.length;
 	}
+	return null;
 }
 
 /**

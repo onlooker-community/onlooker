@@ -111,6 +111,61 @@ export interface DeltaResponse {
 	has_more: boolean;
 }
 
+/**
+ * The most a single session report may weigh on the wire.
+ *
+ * Half of the API's `MAX_SESSIONS_BYTES` (256 KiB, apps/api/src/routes/
+ * sessions.ts), so a session that grows a field between here and there still
+ * fits. A source guard holds this below the API's cap: the two live in
+ * different workspaces, and nothing else would notice one moving alone.
+ */
+export const MAX_SESSION_REPORT_BYTES = 128 * 1024;
+
+/** The exact body `reportSessions` sends, so a chunk is measured as sent. */
+export function sessionReportBody(summaries: SessionSummary[]): string {
+	return JSON.stringify({ schema_version: 1, sessions: summaries });
+}
+
+/**
+ * Split a session report into bodies the API will accept (ONL-188).
+ *
+ * The API refuses a body over its cap outright, so one request for a busy
+ * week reported nothing at all - measured 2026-10-23 at 582 sessions and
+ * 305,939 bytes against 262,144. Sizes are counted in encoded bytes of the
+ * real body, not estimated: an undercount lets through a chunk the API then
+ * refuses.
+ *
+ * A session larger than the budget on its own still goes, alone. Dropping it
+ * would be silent, and holding the rest back behind it would cost every other
+ * session for the sake of one.
+ */
+export function chunkSessionReport(
+	summaries: SessionSummary[],
+	maxBytes: number = MAX_SESSION_REPORT_BYTES,
+): SessionSummary[][] {
+	const encoder = new TextEncoder();
+	// `JSON.stringify` of the envelope with an empty array, plus each
+	// summary's own bytes and one comma between neighbors, is exactly the
+	// stringified chunk: the serializer adds no whitespace.
+	const envelope = encoder.encode(sessionReportBody([])).length;
+
+	const chunks: SessionSummary[][] = [];
+	let chunk: SessionSummary[] = [];
+	let size = envelope;
+	for (const summary of summaries) {
+		const own = encoder.encode(JSON.stringify(summary)).length;
+		if (chunk.length > 0 && size + own + 1 > maxBytes) {
+			chunks.push(chunk);
+			chunk = [];
+			size = envelope;
+		}
+		size += chunk.length === 0 ? own : own + 1;
+		chunk.push(summary);
+	}
+	if (chunk.length > 0) chunks.push(chunk);
+	return chunks;
+}
+
 export interface ApiClient {
 	/** Cheapest call a machine token can make, and it has no side effects. */
 	verify(): Promise<void>;
@@ -122,7 +177,10 @@ export interface ApiClient {
 	 * module is transport and has no opinion about the document's shape.
 	 */
 	reportInventory(inventory: unknown): Promise<void>;
-	/** Report this machine's recent session summaries. */
+	/**
+	 * Report session summaries in one request. Callers split a large report
+	 * with `chunkSessionReport` first; this sends whatever it is given.
+	 */
 	reportSessions(summaries: SessionSummary[]): Promise<void>;
 	/** One window of the machine-side delta, oldest first. */
 	readDelta(since: number, limit: number): Promise<DeltaResponse>;
@@ -188,7 +246,7 @@ export function createClient(
 			// does not need inventory's replace-the-whole-thing semantics.
 			await call("/machine/sessions", {
 				method: "POST",
-				body: JSON.stringify({ schema_version: 1, sessions: summaries }),
+				body: sessionReportBody(summaries),
 			});
 		},
 	};

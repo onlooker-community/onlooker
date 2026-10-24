@@ -793,6 +793,68 @@ describe("sync reports session summaries", () => {
 		expect(sent.sessions[0].session_id).toBe("big");
 	});
 
+	/** `count` sessions of 25 events each, so every one clears the threshold. */
+	const manySessions = (count: number) =>
+		Array.from({ length: count }, (_, i) => sessionEvents(`s${i}`, 25)).flat();
+
+	// ONL-188. A busy week is more than the API takes in one body: 582
+	// sessions and ~300 KB, against a 256 KiB cap. Sent as one request, the
+	// whole report was refused and no session reached the feed at all.
+	it("splits a large report across requests, each under the API's cap", async () => {
+		const env = linked();
+		withEventLog(env, manySessions(800));
+		const fetchImpl = routed();
+
+		const message = await sync({ env, fetchImpl });
+
+		const reports = sessionReports(fetchImpl);
+		expect(reports.length).toBeGreaterThan(1);
+		const sent = reports.map(([, init]) => init.body);
+		for (const body of sent) {
+			expect(new TextEncoder().encode(body).length).toBeLessThan(256 * 1024);
+		}
+		const ids = sent.flatMap((body) =>
+			(JSON.parse(body).sessions as Array<{ session_id: string }>).map(
+				(s) => s.session_id,
+			),
+		);
+		expect(new Set(ids).size).toBe(800);
+		expect(message).not.toMatch(/sessions not reported/i);
+	});
+
+	// The server upserts by (machine, session), so the chunks that landed are
+	// stored and the next sync resends the rest for free. Saying "not
+	// reported" would undersell what happened; saying nothing would hide it.
+	it("says how much was reported when a later chunk is refused", async () => {
+		const env = linked();
+		withEventLog(env, manySessions(800));
+		const base = routed();
+		let reportsSeen = 0;
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (url: unknown, init: { body: string }) => {
+				if (String(url).endsWith("/machine/sessions") && ++reportsSeen > 1) {
+					return {
+						ok: false,
+						status: 413,
+						json: async () => ({
+							error: {
+								code: "sessions_too_large",
+								message: "Too many sessions at once",
+							},
+						}),
+					};
+				}
+				return base(url, init);
+			});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/sessions partly reported/i);
+		expect(message).toMatch(/of 800/);
+		expect(message).toMatch(/too many sessions at once/i);
+	});
+
 	// The log is appended to by many plugins. One bad writer must not stop the
 	// pass, or a single malformed line silently ends session reporting for good.
 	it("skips a malformed line and summarizes the rest", async () => {
