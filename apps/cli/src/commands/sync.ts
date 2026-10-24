@@ -110,7 +110,8 @@ async function reportSessions(
 }
 
 /**
- * One line about what arrived, or about why nothing did.
+ * One line about what arrived, or about why nothing did, and one more for
+ * anything held.
  *
  * Never silent, for the same reason the inventory note is never silent: a
  * mirror that quietly stops updating while the command exits 0 is the
@@ -119,20 +120,28 @@ async function reportSessions(
  * A gap and a failure both name what happened rather than reporting zero
  * received. "Nothing arrived" is what a healthy idle machine says too, and the
  * three must not read alike.
+ *
+ * The held line repeats every run until the lessons arrive. The API accepted
+ * them, so they exist and this machine does not have them; saying so once and
+ * then going quiet would be the silence again.
  */
 function describePull(outcome: PullOutcome, theme: Theme): string {
 	switch (outcome.kind) {
 		case "received": {
 			const total = outcome.created + outcome.updated + outcome.unchanged;
+			const waited =
+				outcome.released === 0
+					? ""
+					: ` ${outcome.released} of them held from an earlier sync.`;
 			const line =
 				total === 0
 					? "Received nothing: the pool holds nothing this machine does not."
-					: `Received ${total} lesson${total === 1 ? "" : "s"}: ${outcome.created} new, ${outcome.updated} updated, ${outcome.unchanged} unchanged.`;
-			return outcome.invalid.length === 0
-				? total === 0
-					? muted(theme, line)
-					: line
-				: `${line} ${outcome.invalid.length} refused by the contract and skipped: ${outcome.invalid.join("; ")}`;
+					: `Received ${total} lesson${total === 1 ? "" : "s"}: ${outcome.created} new, ${outcome.updated} updated, ${outcome.unchanged} unchanged.${waited}`;
+			if (outcome.held.length === 0) {
+				return total === 0 ? muted(theme, line) : line;
+			}
+			const count = outcome.held.length;
+			return `${line}\n${warn(theme, "○")} ${count} lesson${count === 1 ? "" : "s"} held: this CLI's lesson contract is older than the pool's (${outcome.held.join("; ")}). Upgrade the CLI to receive ${count === 1 ? "it" : "them"}.`;
 		}
 		case "gap":
 			// Both sequences named, because the number that is missing is the

@@ -893,6 +893,63 @@ describe("sync receives as well as pushes", () => {
 		expect(message).toMatch(/received nothing/i);
 	});
 
+	// The API validated it, so a refusal here means this CLI is the older
+	// side. Upgrading is the only thing that brings the lesson in.
+	it("says a held lesson is waiting on an upgrade", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		const fetchImpl = routed({
+			pull: {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					lessons: [
+						{
+							seq: 1,
+							lesson: {
+								...FIXTURE,
+								id: "01KZ45MKAM734ZS7JK24D2DK0S",
+								counter_observations: [],
+							},
+						},
+					],
+					cursor: 1,
+					has_more: false,
+				}),
+			},
+		});
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/1 lesson held/i);
+		expect(message).toMatch(/seq 1/);
+		expect(message).toMatch(/upgrade the cli/i);
+	});
+
+	it("says when a held lesson finally arrives", async () => {
+		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
+		// The retry reads the window below seq 1; the main loop then reads
+		// from the cursor, past it, and finds nothing new.
+		const retry = routed({ pull: arriving(1, "01KZ45MKAM734ZS7JK24D2DK0S") });
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (url: unknown, init: { body: string }) =>
+				String(url).includes("since=0")
+					? retry(url, init)
+					: routed()(url, init),
+			);
+		mkdirSync(join(env.ONLOOKER_DIR as string, "mirror"), { recursive: true });
+		writeFileSync(
+			join(env.ONLOOKER_DIR as string, "mirror", "cursor.json"),
+			JSON.stringify({ seq: 1, held: [1] }),
+		);
+
+		const message = await sync({ env, fetchImpl });
+
+		expect(message).toMatch(/received 1 lesson/i);
+		expect(message).toMatch(/1 of them held/i);
+		expect(message).not.toMatch(/upgrade/i);
+	});
+
 	it("names both sequences when the pool skips one", async () => {
 		const env = withPlugins(linked(), ["librarian@onlooker-community"]);
 		const fetchImpl = routed({

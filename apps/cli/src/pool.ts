@@ -41,23 +41,52 @@ export function cursorPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
- * The highest sequence this machine has durably written, or 0.
+ * How far this machine has mirrored, and what it passed without keeping.
+ *
+ * `held` is every seq at or below `seq` whose lesson this CLI's contract
+ * refused. The cursor moves past those rows so one of them cannot wedge the
+ * mirror, and this list is the only thing still pointing back at them. The two
+ * live in one file so a single atomic write moves both: a cursor written
+ * without its held list would pass a lesson and forget it in the same step.
+ */
+export interface Cursor {
+	seq: number;
+	held: number[];
+}
+
+/**
+ * The stored cursor, or `{ seq: 0, held: [] }` before the first pull.
  *
  * A missing file is the first-run case and means "send me everything".
  * Anything else - malformed JSON, a seq that is not an integer, a permissions
  * problem - throws. Quietly falling back to 0 would re-download the pool and
  * report a corrupt file as a fresh machine, which is the same
  * successful-looking silence this codebase keeps finding.
+ *
+ * A missing `held` reads as empty, because every cursor written before
+ * ONL-182 is a bare `{ seq }` and those machines held nothing. A `held` that
+ * is present but unreadable throws like a bad seq: dropping it would stop
+ * asking for those lessons without saying so.
  */
-export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
+export function readCursor(env: NodeJS.ProcessEnv = process.env): Cursor {
 	const path = cursorPath(env);
-	if (!existsSync(path)) return 0;
+	if (!existsSync(path)) return { seq: 0, held: [] };
 
-	const parsed = JSON.parse(readFileSync(path, "utf8")) as { seq?: unknown };
+	const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+		seq?: unknown;
+		held?: unknown;
+	};
 	if (typeof parsed.seq !== "number" || !Number.isInteger(parsed.seq)) {
 		throw new Error(`${path} does not hold an integer seq`);
 	}
-	return parsed.seq;
+	const held = parsed.held ?? [];
+	if (
+		!Array.isArray(held) ||
+		!held.every((seq) => typeof seq === "number" && Number.isInteger(seq))
+	) {
+		throw new Error(`${path} holds a held list that is not integer seqs`);
+	}
+	return { seq: parsed.seq, held };
 }
 
 /**
@@ -68,11 +97,14 @@ export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
  * file means a corrupt write costs the token too.
  */
 export function writeCursor(
-	seq: number,
+	cursor: Cursor,
 	env: NodeJS.ProcessEnv = process.env,
 ): void {
 	mkdirSync(mirrorDir(env), { recursive: true });
-	atomicWrite(cursorPath(env), `${JSON.stringify({ seq }, null, 2)}\n`);
+	atomicWrite(
+		cursorPath(env),
+		`${JSON.stringify({ seq: cursor.seq, held: cursor.held }, null, 2)}\n`,
+	);
 }
 
 export type PoolWrite = "created" | "updated" | "unchanged";

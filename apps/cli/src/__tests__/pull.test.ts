@@ -37,6 +37,15 @@ const lesson = (id: string, claim = FIXTURE.claim) => ({
 	claim,
 });
 
+/**
+ * A lesson valid under a contract newer than the one this CLI bundles.
+ *
+ * The API validates every lesson against ZLesson before it is written, so a
+ * row the CLI refuses is one the server's contract accepted. A field this
+ * CLI's strict object has never heard of is the shape that takes.
+ */
+const newer = (id: string) => ({ ...lesson(id), counter_observations: [] });
+
 interface Page {
 	lessons: Array<{ seq: number; lesson: unknown }>;
 	has_more: boolean;
@@ -56,6 +65,31 @@ const windows = (...pages: Page[]) => {
 		}),
 	};
 };
+
+/**
+ * A client answering from a feed the way the API does: rows above `since`, in
+ * seq order, `limit` at a time.
+ *
+ * The retry path asks for one seq by reading the window that starts just
+ * below it, so a stub answering fixed pages in call order cannot stand in for
+ * the server there.
+ */
+const feed = (rows: Record<number, unknown>) => ({
+	readDelta: vi
+		.fn()
+		.mockImplementation(async (since: number, limit: number) => {
+			const above = Object.keys(rows)
+				.map(Number)
+				.filter((seq) => seq > since)
+				.sort((a, b) => a - b);
+			const page = above.slice(0, limit);
+			return {
+				lessons: page.map((seq) => ({ seq, lesson: rows[seq] })),
+				cursor: page.at(-1) ?? since,
+				has_more: above.length > limit,
+			};
+		}),
+});
 
 /**
  * Lesson files only, ignoring cursor.json.
@@ -83,12 +117,12 @@ describe("pull", () => {
 
 		expect(outcome).toMatchObject({ kind: "received", created: 2, cursor: 2 });
 		expect(stored(e)).toHaveLength(2);
-		expect(readCursor(e)).toBe(2);
+		expect(readCursor(e).seq).toBe(2);
 	});
 
 	it("starts from the stored cursor, not from zero", async () => {
 		const e = env();
-		writeCursor(5, e);
+		writeCursor({ seq: 5, held: [] }, e);
 		const client = windows({ lessons: [], has_more: false });
 
 		await pull({ client, env: e });
@@ -117,7 +151,7 @@ describe("pull", () => {
 	// everything is fine.
 	it("leaves the cursor unmoved when writing a window fails", async () => {
 		const e = env();
-		writeCursor(3, e);
+		writeCursor({ seq: 3, held: [] }, e);
 		// The cursor stays readable and every new write fails: the directory
 		// is made read-only, so reading cursor.json still works while creating
 		// a lesson file does not.
@@ -157,7 +191,7 @@ describe("pull", () => {
 		// The first window was written, so its progress survives. Without
 		// per-window advancement a long first pull could never finish over a
 		// flaky link - every attempt would discard everything it fetched.
-		expect(readCursor(e)).toBe(1);
+		expect(readCursor(e).seq).toBe(1);
 	});
 
 	// seq is dense - COALESCE(MAX(seq),0)+1 behind a unique index, collisions
@@ -181,7 +215,7 @@ describe("pull", () => {
 			got: 3,
 			cursor: 0,
 		});
-		expect(readCursor(e)).toBe(0);
+		expect(readCursor(e).seq).toBe(0);
 	});
 
 	it("writes nothing from a window that contains a gap", async () => {
@@ -203,7 +237,7 @@ describe("pull", () => {
 
 	it("detects a gap against the stored cursor, not only within a window", async () => {
 		const e = env();
-		writeCursor(10, e);
+		writeCursor({ seq: 10, held: [] }, e);
 		const client = windows({
 			lessons: [{ seq: 12, lesson: lesson(ids[0]) }],
 			has_more: false,
@@ -218,7 +252,7 @@ describe("pull", () => {
 	// exists to expose, and would look like a slow but healthy run.
 	it("does not restart from zero after a gap", async () => {
 		const e = env();
-		writeCursor(10, e);
+		writeCursor({ seq: 10, held: [] }, e);
 		const client = windows({
 			lessons: [{ seq: 12, lesson: lesson(ids[0]) }],
 			has_more: false,
@@ -230,11 +264,11 @@ describe("pull", () => {
 		expect(client.readDelta).toHaveBeenCalledWith(10, expect.any(Number));
 	});
 
-	it("reports a lesson the contract refuses rather than writing it", async () => {
+	it("holds a lesson the contract refuses rather than writing it", async () => {
 		const e = env();
 		const client = windows({
 			lessons: [
-				{ seq: 1, lesson: { id: "not-a-ulid", claim: "x" } },
+				{ seq: 1, lesson: newer(ids[0]) },
 				{ seq: 2, lesson: lesson(ids[1]) },
 			],
 			has_more: false,
@@ -244,11 +278,12 @@ describe("pull", () => {
 
 		expect(outcome).toMatchObject({ kind: "received", created: 1 });
 		if (outcome.kind !== "received") return;
-		expect(outcome.invalid).toHaveLength(1);
+		expect(outcome.held).toHaveLength(1);
+		expect(outcome.held[0]).toMatch(/^seq 1: /);
 		// The valid lesson beside it still landed, and the cursor still moved.
 		// One row the contract refuses must not wedge the mirror behind it
 		// forever - that would be a permanent outage caused by one bad record.
-		expect(readCursor(e)).toBe(2);
+		expect(readCursor(e)).toEqual({ seq: 2, held: [1] });
 	});
 
 	it("counts an unchanged re-send as unchanged", async () => {
@@ -261,7 +296,7 @@ describe("pull", () => {
 			env: e,
 		});
 
-		writeCursor(0, e);
+		writeCursor({ seq: 0, held: [] }, e);
 		const outcome = await pull({
 			client: windows({
 				lessons: [{ seq: 1, lesson: lesson(ids[0]) }],
@@ -303,7 +338,7 @@ describe("pull", () => {
 
 	it("is a no-op when nothing is waiting", async () => {
 		const e = env();
-		writeCursor(4, e);
+		writeCursor({ seq: 4, held: [] }, e);
 		const client = windows({ lessons: [], has_more: false });
 
 		const outcome = await pull({ client, env: e });
@@ -313,7 +348,7 @@ describe("pull", () => {
 
 	it("fails rather than restarting when the cursor cannot be read", async () => {
 		const e = env();
-		writeCursor(5, e);
+		writeCursor({ seq: 5, held: [] }, e);
 		writeFileSync(join(mirrorDir(e), "cursor.json"), "{ not json");
 		const client = windows({ lessons: [], has_more: false });
 
@@ -322,5 +357,87 @@ describe("pull", () => {
 		expect(outcome.kind).toBe("failed");
 		// Nothing was requested, because we do not know where to start from.
 		expect(client.readDelta).not.toHaveBeenCalled();
+	});
+});
+
+// ONL-182. The cursor passes a held lesson, so the main loop never sees it
+// again. Without a retry, a machine on an older CLI loses every lesson pushed
+// from a newer one for good, and upgrading does not bring them back.
+describe("pull retries held lessons", () => {
+	it("receives a held lesson once the contract accepts it", async () => {
+		const e = env();
+		writeCursor({ seq: 2, held: [1] }, e);
+		// The same row, now readable: what an upgraded CLI sees.
+		const client = feed({ 1: lesson(ids[0]), 2: lesson(ids[1]) });
+
+		const outcome = await pull({ client, env: e });
+
+		expect(client.readDelta).toHaveBeenCalledWith(0, 1);
+		expect(outcome).toMatchObject({
+			kind: "received",
+			created: 1,
+			released: 1,
+			held: [],
+			cursor: 2,
+		});
+		expect(stored(e)).toEqual([`${ids[0]}.json`]);
+		expect(readCursor(e)).toEqual({ seq: 2, held: [] });
+	});
+
+	it("keeps holding a lesson the contract still refuses", async () => {
+		const e = env();
+		writeCursor({ seq: 2, held: [1] }, e);
+		const client = feed({ 1: newer(ids[0]), 2: lesson(ids[1]) });
+
+		const outcome = await pull({ client, env: e });
+
+		expect(outcome).toMatchObject({ kind: "received", released: 0 });
+		if (outcome.kind !== "received") return;
+		expect(outcome.held).toHaveLength(1);
+		expect(stored(e)).toEqual([]);
+		expect(readCursor(e)).toEqual({ seq: 2, held: [1] });
+	});
+
+	// A deleted lesson takes its feed rows with it, so a held seq can vanish.
+	// The window below it then answers with a later row, which is not the one
+	// held and is not written from here: the main loop already handled it.
+	it("lets go of a held seq the pool no longer has", async () => {
+		const e = env();
+		writeCursor({ seq: 2, held: [1] }, e);
+		const client = feed({ 2: lesson(ids[1]) });
+
+		const outcome = await pull({ client, env: e });
+
+		expect(outcome).toMatchObject({ kind: "received", released: 0, held: [] });
+		expect(stored(e)).toEqual([]);
+		expect(readCursor(e)).toEqual({ seq: 2, held: [] });
+	});
+
+	it("keeps every held seq when a retry request fails", async () => {
+		const e = env();
+		writeCursor({ seq: 2, held: [1] }, e);
+		const client = {
+			readDelta: vi.fn().mockRejectedValue(new Error("network died")),
+		};
+
+		const outcome = await pull({ client, env: e });
+
+		expect(outcome.kind).toBe("failed");
+		expect(readCursor(e)).toEqual({ seq: 2, held: [1] });
+	});
+
+	// A re-fetched window passes a held row a second time. One lesson is one
+	// entry, however often it is refused.
+	it("holds a seq once however often it is refused", async () => {
+		const e = env();
+		writeCursor({ seq: 0, held: [1] }, e);
+		const client = feed({ 1: newer(ids[0]) });
+
+		const outcome = await pull({ client, env: e });
+
+		expect(outcome).toMatchObject({ kind: "received", cursor: 1 });
+		if (outcome.kind !== "received") return;
+		expect(outcome.held).toHaveLength(1);
+		expect(readCursor(e)).toEqual({ seq: 1, held: [1] });
 	});
 });

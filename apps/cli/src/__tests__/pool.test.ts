@@ -44,13 +44,31 @@ describe("readCursor", () => {
 	// A machine that has never pulled starts at the beginning rather than
 	// skipping whatever already exists - 0 means "send me everything".
 	it("is 0 before anything has been pulled", () => {
-		expect(readCursor(env())).toBe(0);
+		expect(readCursor(env())).toEqual({ seq: 0, held: [] });
 	});
 
 	it("round-trips through writeCursor", () => {
 		const e = env();
-		writeCursor(42, e);
-		expect(readCursor(e)).toBe(42);
+		writeCursor({ seq: 42, held: [17, 31] }, e);
+		expect(readCursor(e)).toEqual({ seq: 42, held: [17, 31] });
+	});
+
+	// Every cursor written before ONL-182 is a bare { seq }. Holding nothing
+	// is exactly what those machines did.
+	it("reads a cursor with no held list as holding nothing", () => {
+		const e = env();
+		writeCursor({ seq: 9, held: [] }, e);
+		writeFileSync(cursorPath(e), JSON.stringify({ seq: 9 }));
+		expect(readCursor(e)).toEqual({ seq: 9, held: [] });
+	});
+
+	// A held list we cannot read is lessons this machine would stop asking
+	// for, so it fails the same way an unreadable seq does.
+	it("throws when the held list is not a list of integers", () => {
+		const e = env();
+		writeCursor({ seq: 9, held: [] }, e);
+		writeFileSync(cursorPath(e), JSON.stringify({ seq: 9, held: ["4"] }));
+		expect(() => readCursor(e)).toThrow();
 	});
 
 	// A cursor we cannot read is not a cursor of 0. Restarting from the
@@ -58,14 +76,14 @@ describe("readCursor", () => {
 	// machine and hides that something damaged it.
 	it("throws rather than resetting when the cursor file is unreadable", () => {
 		const e = env();
-		writeCursor(7, e);
+		writeCursor({ seq: 7, held: [] }, e);
 		writeFileSync(cursorPath(e), "{ not json");
 		expect(() => readCursor(e)).toThrow();
 	});
 
 	it("throws when the cursor file holds something that is not an integer", () => {
 		const e = env();
-		writeCursor(7, e);
+		writeCursor({ seq: 7, held: [] }, e);
 		writeFileSync(cursorPath(e), JSON.stringify({ seq: "twelve" }));
 		expect(() => readCursor(e)).toThrow();
 	});
@@ -178,7 +196,7 @@ describe("migrateLegacyPool", () => {
 
 		expect(note).toMatch(/pool/);
 		expect(note).toMatch(/mirror/);
-		expect(readCursor(e)).toBe(9);
+		expect(readCursor(e).seq).toBe(9);
 		expect(existsSync(legacy)).toBe(false);
 	});
 
@@ -192,10 +210,10 @@ describe("migrateLegacyPool", () => {
 	it("leaves both alone when mirror already exists", () => {
 		const e = env();
 		mkdirSync(join(e.ONLOOKER_DIR as string, "pool"), { recursive: true });
-		writeCursor(3, e);
+		writeCursor({ seq: 3, held: [] }, e);
 
 		expect(migrateLegacyPool(e)).toMatch(/both/i);
 		expect(existsSync(join(e.ONLOOKER_DIR as string, "pool"))).toBe(true);
-		expect(readCursor(e)).toBe(3);
+		expect(readCursor(e).seq).toBe(3);
 	});
 });
