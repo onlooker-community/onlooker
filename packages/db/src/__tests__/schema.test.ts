@@ -242,6 +242,7 @@ describe("session_summaries", () => {
 			"compactions",
 			"counts_by_prefix",
 			"counts_by_project",
+			"counts_by_type",
 			"ended_at",
 			"event_count",
 			"machine_id",

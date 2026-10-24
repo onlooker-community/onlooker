@@ -128,6 +128,7 @@ const summary = (session_id: string, pad = 0): SessionSummary => ({
 	ended_at: null,
 	event_count: 25,
 	counts_by_prefix: { tool: 25 },
+	counts_by_type: { "tool.shell.exec": 25 },
 	counts_by_project: {},
 	plugins: pad > 0 ? ["x".repeat(pad)] : [],
 	prompts: 1,

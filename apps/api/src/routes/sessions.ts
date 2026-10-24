@@ -51,6 +51,44 @@ function isValidCountsByProject(value: unknown): boolean {
 	});
 }
 
+/**
+ * What a registered event type looks like. Identical to the CLI's
+ * EVENT_TYPE_PATTERN in apps/cli/src/sessions.ts, which decides what it keys;
+ * scripts/source-guards.test.sh keeps the two the same.
+ */
+const EVENT_TYPE_PATTERN = /^(?=.{1,64}$)[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$/;
+
+/** The CLI's MAX_TYPES_PER_SESSION. More than this came from something else. */
+const MAX_TYPES_PER_SESSION = 128;
+
+/**
+ * Whether `counts_by_type` is a map of event type -> whole count (ONL-128).
+ *
+ * Absent is VALID and means an empty map, for the reason it is for
+ * `counts_by_project`: every CLI older than this column posts no such field.
+ *
+ * The keys are held to the pattern rather than to `typeof "string"`. A type is
+ * envelope rather than payload only while it is a registered name, and the
+ * CLI keys nothing else - so a key that is not one is text from somewhere
+ * else, and this is the last place to refuse to store it.
+ */
+function isValidCountsByType(value: unknown): boolean {
+	if (value === undefined) return true;
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const entries = Object.entries(value as Record<string, unknown>);
+	return (
+		entries.length <= MAX_TYPES_PER_SESSION &&
+		entries.every(
+			([type, count]) =>
+				EVENT_TYPE_PATTERN.test(type) &&
+				Number.isInteger(count) &&
+				(count as number) >= 0,
+		)
+	);
+}
+
 /** Whether a candidate has every field putSessionSummaries needs. */
 function isValidSummary(value: unknown): value is SessionSummaryInput {
 	if (typeof value !== "object" || value === null) return false;
@@ -68,6 +106,7 @@ function isValidSummary(value: unknown): value is SessionSummaryInput {
 		Object.values(candidate.counts_by_prefix).every(
 			(count) => typeof count === "number",
 		) &&
+		isValidCountsByType(candidate.counts_by_type) &&
 		isValidCountsByProject(candidate.counts_by_project) &&
 		Array.isArray(candidate.plugins) &&
 		candidate.plugins.every((plugin) => typeof plugin === "string") &&

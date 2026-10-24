@@ -57,6 +57,21 @@ export interface SessionSummary {
 	/** Keyed by the part of `event_type` before the first dot. */
 	counts_by_prefix: Record<string, number>;
 	/**
+	 * Keyed by the full `event_type` (ONL-128).
+	 *
+	 * The prefix alone cannot tell a plugin doing its job from one running and
+	 * producing nothing: `curator: 15027` was 8,225 scans started, 6,802
+	 * completed, and zero findings, ever. The type is what says which.
+	 *
+	 * Still envelope, not payload - a type names what happened, never to what -
+	 * but only while it is a registered name, and this fold does not have the
+	 * schema's list. So a type is keyed only when it matches EVENT_TYPE_PATTERN,
+	 * and only the first MAX_TYPES_PER_SESSION of them. An event left out of
+	 * the map is still in `event_count` and `counts_by_prefix`, so the counts
+	 * here sum to those only when every type was well-shaped.
+	 */
+	counts_by_type: Record<string, number>;
+	/**
 	 * Keyed by project key, for the events of this session that carried one.
 	 *
 	 * A map rather than a scalar because sessions genuinely span repositories:
@@ -89,6 +104,30 @@ export interface SessionSummary {
  */
 export const DEFAULT_THRESHOLD = 20;
 
+/**
+ * What a registered event type looks like: lowercase dotted segments, at
+ * least two of them, at most 64 characters in all.
+ *
+ * Every one of the 85 types in a 168MB log matched it, the longest at 30
+ * characters (measured 2026-10-24). Anything else is a writer that did not go
+ * through the schema, and its type is not keyed - see `counts_by_type`.
+ *
+ * The API holds stored keys to the same pattern; scripts/source-guards.test.sh
+ * keeps the two identical.
+ */
+export const EVENT_TYPE_PATTERN =
+	/^(?=.{1,64}$)[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$/;
+
+/**
+ * A hundred and twenty-eight distinct types per session.
+ *
+ * Three times the busiest session measured (41 distinct types, 37,618
+ * sessions, 2026-10-24). It bounds a writer that mints a fresh type per event,
+ * which would otherwise make one summary bigger than the API takes in a
+ * request. Types already keyed keep counting past it.
+ */
+export const MAX_TYPES_PER_SESSION = 128;
+
 /** The part of an event type before the first dot, per eventlog.ts. */
 function prefixOf(eventType: string): string {
 	const dot = eventType.indexOf(".");
@@ -102,6 +141,8 @@ interface Accumulator {
 	last_at: string;
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
+	counts_by_type: Record<string, number>;
+	type_count: number;
 	counts_by_project: Record<string, ProjectCount>;
 	plugins: Set<string>;
 	prompts: number;
@@ -153,6 +194,9 @@ export async function summarizeSessions(
 				// assignment through it pollutes every object in the process for the
 				// life of the CLI invocation. See eventlog.ts:179-185 for the same guard.
 				counts_by_prefix: Object.create(null),
+				// Same guard: `constructor.trap` is a well-shaped type.
+				counts_by_type: Object.create(null),
+				type_count: 0,
 				// `Object.create(null)` for the same reason as the line above,
 				// and the reason applies just as literally here: this fold does
 				// not validate the envelope's `^[0-9a-f]{12}$` pattern, it keys
@@ -172,6 +216,18 @@ export async function summarizeSessions(
 
 		const prefix = prefixOf(event.event_type);
 		acc.counts_by_prefix[prefix] = (acc.counts_by_prefix[prefix] ?? 0) + 1;
+
+		const typeCount = acc.counts_by_type[event.event_type];
+		if (typeCount !== undefined) {
+			acc.counts_by_type[event.event_type] = typeCount + 1;
+		} else if (
+			acc.type_count < MAX_TYPES_PER_SESSION &&
+			EVENT_TYPE_PATTERN.test(event.event_type)
+		) {
+			acc.counts_by_type[event.event_type] = 1;
+			acc.type_count += 1;
+		}
+
 		if (event.plugin) acc.plugins.add(event.plugin);
 
 		// Both fields or neither, matching what the emitter will send: a key
@@ -207,6 +263,7 @@ export async function summarizeSessions(
 			ended_at: acc.ended_at,
 			event_count: acc.event_count,
 			counts_by_prefix: acc.counts_by_prefix,
+			counts_by_type: acc.counts_by_type,
 			counts_by_project: acc.counts_by_project,
 			plugins: [...acc.plugins].sort(),
 			prompts: acc.prompts,

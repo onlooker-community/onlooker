@@ -486,6 +486,48 @@ else
 fi
 
 echo
+echo "source-guards: the CLI and API agree on what an event type looks like"
+
+# ONL-128. The CLI keys a session's counts by event type only for types that
+# match EVENT_TYPE_PATTERN, and the API refuses a body holding any other key.
+# If the API's pattern is ever narrower than the CLI's, a type the CLI keys
+# gets a whole chunk of sessions refused; if it is wider, the API stops being
+# a check at all. Same for the per-session cap. So both must stay identical.
+#
+# The literal may sit on the declaration's own line or, once biome wraps a
+# long one, alone on the next, so the line after the declaration is joined on.
+regex_literal() {
+	grep -A1 -E "^(export )?const $1 =" "$2" | head -2 | tr -d '\n\t' |
+		sed -nE "s/^(export )?const $1 = ?(\\/.*\\/);\$/\\2/p"
+}
+cli_sessions="${ROOT}/apps/cli/src/sessions.ts"
+api_sessions="${ROOT}/apps/api/src/routes/sessions.ts"
+cli_pattern="$(regex_literal EVENT_TYPE_PATTERN "${cli_sessions}")"
+api_pattern="$(regex_literal EVENT_TYPE_PATTERN "${api_sessions}")"
+cli_types="$(const_expr MAX_TYPES_PER_SESSION "${cli_sessions}")"
+api_types="$(const_expr MAX_TYPES_PER_SESSION "${api_sessions}")"
+
+if [[ -z "${cli_pattern}" || -z "${api_pattern}" ]]; then
+	fail "both EVENT_TYPE_PATTERNs are still one-line regex literals" \
+		"CLI '${cli_pattern:-none}', API '${api_pattern:-none}'"
+elif [[ "${cli_pattern}" == "${api_pattern}" ]]; then
+	pass "the CLI and API hold event types to the same pattern"
+else
+	fail "the CLI and API hold event types to the same pattern" \
+		"CLI ${cli_pattern}, API ${api_pattern}"
+fi
+
+if [[ -z "${cli_types}" || -z "${api_types}" ]]; then
+	fail "both MAX_TYPES_PER_SESSION are still plain integer constants" \
+		"CLI '${cli_types:-none}', API '${api_types:-none}'"
+elif (( cli_types == api_types )); then
+	pass "the CLI and API cap a session at the same $(( cli_types )) types"
+else
+	fail "the CLI and API cap a session at the same number of types" \
+		"CLI $(( cli_types )), API $(( api_types ))"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
