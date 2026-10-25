@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listRoutes } from "../router";
 import type { WorkerEnv } from "../types";
 import { preflightResponse, withCors } from "./cors";
 
@@ -229,6 +230,27 @@ describe("withCors", () => {
 });
 
 describe("preflightResponse", () => {
+	// The allow list is kept by hand, apart from the routes, and fell behind
+	// them once: PUT /api/project-labels shipped refused by every browser,
+	// because no PUT route had been preflighted before (ONL-201). The worker
+	// suite and the shared contract call the API directly and never
+	// preflight, so nothing else here would notice.
+	it("allows every method a route answers to", () => {
+		const allowed = (
+			preflightResponse(
+				request(PRODUCTION, "OPTIONS"),
+				env(PRODUCTION),
+			).headers.get("Access-Control-Allow-Methods") ?? ""
+		)
+			.split(",")
+			.map((method) => method.trim());
+
+		const methods = new Set(listRoutes().map((route) => route.method));
+		for (const method of methods) {
+			expect(allowed, `${method} is not in the preflight`).toContain(method);
+		}
+	});
+
 	it("tells an allowed origin what it may send", () => {
 		const res = preflightResponse(
 			request(PRODUCTION, "OPTIONS"),
