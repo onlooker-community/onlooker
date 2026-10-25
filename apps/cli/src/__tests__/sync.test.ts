@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { sync } from "../commands/sync";
 import { writeConfig } from "../config";
+import { parseLesson } from "../lessons";
+import { lessonDigest, readPushed } from "../pushed";
 import { stripSgr } from "../ui";
 
 const FIXTURE_PATH = join(__dirname, "fixtures", "lesson.json");
@@ -379,6 +381,104 @@ describe("sync", () => {
 		await expect(sync({ env, fetchImpl })).rejects.toThrow(
 			/conflict|different/i,
 		);
+	});
+
+	// What the pool confirmed it holds, so `status` can stop calling a lesson
+	// that is already there "ready to sync" (ONL-202).
+	describe("the pushed record", () => {
+		const ID = "01KZ45MKAM734ZS7JK24D2DK0R";
+		const digestOf = (env: NodeJS.ProcessEnv) => {
+			const record = readPushed(env);
+			return record.kind === "found" ? record.lessons[ID] : undefined;
+		};
+		const fixtureDigest = () => {
+			const parsed = parseLesson(FIXTURE_PATH);
+			if (!parsed.ok) throw new Error(parsed.error);
+			return lessonDigest(parsed.lesson);
+		};
+
+		it("records a lesson the pool created, under the API it synced to", async () => {
+			const env = linked();
+			withLessons(env, 1);
+			await sync({ env, fetchImpl: pushes([{ outcome: "created" }]) });
+			expect(readPushed(env)).toEqual({
+				kind: "found",
+				apiBaseUrl: "https://api.onlooker.dev",
+				lessons: { [ID]: fixtureDigest() },
+			});
+		});
+
+		it("records a lesson the pool already held", async () => {
+			const env = linked();
+			withLessons(env, 1);
+			await sync({ env, fetchImpl: pushes([{ outcome: "noop" }]) });
+			expect(digestOf(env)).toBe(fixtureDigest());
+		});
+
+		it.each([
+			"conflict",
+			"invalid",
+			"error",
+		])("does not record a lesson the pool answered %s", async (outcome) => {
+			const env = linked();
+			withLessons(env, 1);
+			await expect(
+				sync({ env, fetchImpl: pushes([{ outcome }]) }),
+			).rejects.toThrow();
+			expect(digestOf(env)).toBeUndefined();
+		});
+
+		// Replaced, not merged: this run's answers are the whole truth, and a
+		// lesson the pool stopped confirming must not stay "synced" here.
+		it("drops a lesson this sync could not confirm", async () => {
+			const env = linked();
+			withLessons(env, 1);
+			await sync({ env, fetchImpl: pushes([{ outcome: "created" }]) });
+			await expect(
+				sync({ env, fetchImpl: pushes([{ outcome: "conflict" }]) }),
+			).rejects.toThrow();
+			expect(digestOf(env)).toBeUndefined();
+		});
+
+		// Two files carrying one id with different content: the pool answers
+		// for the id, and nothing says which copy it meant.
+		it("records nothing for an id whose copies disagree", async () => {
+			const env = linked();
+			withLessons(env, 1);
+			const lesson = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+			writeFileSync(
+				join(
+					env.ONLOOKER_DIR as string,
+					"librarian",
+					"4c1de90ab372",
+					"lessons",
+					"approved",
+					"edited.json",
+				),
+				JSON.stringify({ ...lesson, claim: `${lesson.claim} (edited)` }),
+			);
+			await expect(
+				sync({
+					env,
+					fetchImpl: pushes([{ outcome: "noop" }, { outcome: "conflict" }]),
+				}),
+			).rejects.toThrow();
+			expect(digestOf(env)).toBeUndefined();
+		});
+
+		// The push landed. Failing the run over local bookkeeping would tell
+		// someone to retry a sync that worked.
+		it("still succeeds when the record cannot be written, and says so", async () => {
+			const env = linked();
+			withLessons(env, 1);
+			mkdirSync(join(env.ONLOOKER_DIR as string, "pushed.json"));
+			const message = await sync({
+				env,
+				fetchImpl: pushes([{ outcome: "created" }]),
+			});
+			expect(message).toMatch(/Synced 1 lesson/);
+			expect(message).toMatch(/status cannot tell/i);
+		});
 	});
 
 	/** Writes a file the lesson contract will refuse. */

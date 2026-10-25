@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { status } from "../commands/status";
 import { writeConfig } from "../config";
+import { parseLesson } from "../lessons";
+import { lessonDigest, pushedPath, writePushed } from "../pushed";
 import { stripSgr } from "../ui";
 
 const FIXTURE = join(__dirname, "fixtures", "lesson.json");
@@ -107,8 +109,113 @@ describe("status", () => {
 		cpSync(FIXTURE, join(dir, "a.json"));
 		writeFileSync(join(dir, "b.json"), "{}");
 		const message = await status({ env, fetchImpl: ok() });
-		expect(message).toMatch(/1 approved lesson ready/);
+		expect(message).toMatch(/1 approved lesson,/);
 		expect(message).toMatch(/1 that cannot be read/);
+	});
+
+	// `sync` sends every approved lesson every run, so a count of files said
+	// nothing about what was waiting: right after "0 new, 1 already in the
+	// pool", status still said "1 approved lesson ready to sync" (ONL-202).
+	describe("against what the pool confirmed", () => {
+		const API = "https://api.onlooker.dev";
+		const SECOND = "01KZ45MKAM734ZS7JK24D2DK0S";
+
+		function approved(env: NodeJS.ProcessEnv): string {
+			writeConfig({ apiBaseUrl: API, machineToken: "tok" }, env);
+			const dir = join(
+				env.ONLOOKER_DIR as string,
+				"librarian",
+				"k",
+				"lessons",
+				"approved",
+			);
+			mkdirSync(dir, { recursive: true });
+			cpSync(FIXTURE, join(dir, "a.json"));
+			return dir;
+		}
+
+		const fixture = () => {
+			const parsed = parseLesson(FIXTURE);
+			if (!parsed.ok) throw new Error(parsed.error);
+			return parsed.lesson;
+		};
+
+		const lessonsLine = async (env: NodeJS.ProcessEnv) =>
+			(await status({ env, fetchImpl: ok() }))
+				.split("\n")
+				.find((line) => line.startsWith("Lessons:"));
+
+		it("says every approved lesson is in the pool after a clean sync", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			approved(env);
+			writePushed(API, { [fixture().id]: lessonDigest(fixture()) }, env);
+			expect(await lessonsLine(env)).toMatch(
+				/1 approved lesson, all in the pool$/,
+			);
+		});
+
+		it("counts a lesson the pool has not confirmed as not yet synced", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			const dir = approved(env);
+			writeFileSync(
+				join(dir, "b.json"),
+				JSON.stringify({ ...fixture(), id: SECOND }),
+			);
+			writePushed(API, { [fixture().id]: lessonDigest(fixture()) }, env);
+			expect(await lessonsLine(env)).toMatch(
+				/2 approved lessons, 1 not yet synced$/,
+			);
+		});
+
+		// The pool answers "conflict" for an edited lesson, so it is not synced
+		// just because its id was.
+		it("counts a lesson edited since it synced as not yet synced", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			approved(env);
+			writePushed(
+				API,
+				{
+					[fixture().id]: lessonDigest({
+						...fixture(),
+						claim: "what it said before",
+					}),
+				},
+				env,
+			);
+			expect(await lessonsLine(env)).toMatch(/1 not yet synced$/);
+		});
+
+		// No record is not "nothing synced": every machine upgrading to this
+		// version has synced lessons and no record yet.
+		it("does not guess before any sync has recorded", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			approved(env);
+			expect(await lessonsLine(env)).toMatch(
+				/1 approved lesson, not yet checked against the pool$/,
+			);
+		});
+
+		it("does not count a sync to a different API", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			approved(env);
+			writePushed(
+				"https://api-staging.onlooker.dev",
+				{ [fixture().id]: lessonDigest(fixture()) },
+				env,
+			);
+			expect(await lessonsLine(env)).toMatch(
+				/not yet checked against the pool$/,
+			);
+		});
+
+		it("survives a corrupt record and says it cannot tell", async () => {
+			const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+			approved(env);
+			writeFileSync(pushedPath(env), "{not json");
+			expect(await lessonsLine(env)).toMatch(
+				/1 approved lesson, unknown how many are synced - .*pushed\.json could not be read/,
+			);
+		});
 	});
 
 	// `lessons.ts` models these as two outcomes because they are two different

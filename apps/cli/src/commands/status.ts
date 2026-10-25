@@ -2,6 +2,7 @@ import { ApiError, createClient } from "../api";
 import { configPath, readConfig } from "../config";
 import { discoverApproved, parseLesson } from "../lessons";
 import { pipelineLines, surveyPipeline } from "../pipeline";
+import { lessonDigest, readPushed } from "../pushed";
 import {
 	accent,
 	bad,
@@ -113,7 +114,11 @@ export async function status({
 		// Parseable lessons, not files. `sync` counts what it can actually send,
 		// and a status that advertises lessons `sync` will refuse is worse than
 		// no count at all - it makes the two commands look like they disagree.
-		const ready = found.files.filter((file) => parseLesson(file).ok).length;
+		const lessons = found.files.flatMap((file) => {
+			const parsed = parseLesson(file);
+			return parsed.ok ? [parsed.lesson] : [];
+		});
+		const ready = lessons.length;
 		const unparseable = found.files.length - ready;
 		// Two different failures, kept apart. `unparseable` is a file that was
 		// read and is not a lesson; `found.unreadable` is a project directory
@@ -126,10 +131,36 @@ export async function status({
 				? `${found.unreadable.length} project${found.unreadable.length === 1 ? "" : "s"} that could not be listed`
 				: "",
 		].filter(Boolean);
+		// Measured against what the pool last confirmed, not assumed from the
+		// count. `sync` sends every approved lesson every run, so the files
+		// alone never said what was waiting: "ready to sync" stayed true right
+		// after a sync that found them all already in the pool (ONL-202).
+		const pushed = readPushed(env);
+		let synced: string;
+		if (ready === 0) {
+			synced = "";
+		} else if (pushed.kind === "unreadable") {
+			synced = `, ${warn(theme, "unknown")} how many are synced - ${pushed.path} could not be read`;
+		} else if (
+			pushed.kind === "none" ||
+			pushed.apiBaseUrl !== config.apiBaseUrl
+		) {
+			// No record is not "nothing synced": every machine that upgrades
+			// to this version has synced lessons and no record yet.
+			synced = ", not yet checked against the pool";
+		} else {
+			const waiting = lessons.filter(
+				(lesson) => pushed.lessons[lesson.id] !== lessonDigest(lesson),
+			).length;
+			synced =
+				waiting === 0
+					? ", all in the pool"
+					: `, ${bold(theme, String(waiting))} not yet synced`;
+		}
 		lines.push(
 			field(
 				"Lessons:",
-				`${ready > 0 ? bold(theme, String(ready)) : ready} approved lesson${ready === 1 ? "" : "s"} ready to sync` +
+				`${ready} approved lesson${ready === 1 ? "" : "s"}${synced}` +
 					(caveats.length > 0 ? `, ${caveats.join(", ")}` : ""),
 			),
 		);
