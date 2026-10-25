@@ -469,6 +469,38 @@ describe("deleteUser when an org lesson must survive", () => {
 		).toBeNull();
 	});
 
+	// The one table a cascade will not clean up here: anonymizing keeps the
+	// users row, and project_labels.machine_id is no foreign key. A label is
+	// the user's own name for a repository, which is exactly what
+	// anonymization exists to remove.
+	it("removes the user's repository labels on the anonymize path", async () => {
+		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
+		await addMembership(db(), orgId, bob, "owner");
+		await createLessonsWithFeed(
+			db(),
+			ada,
+			[lesson({ visibility: "org" }) as TLesson],
+			orgId,
+		);
+		const laptop = await createMachineToken(db(), ada, "laptop", null);
+		await db()
+			.prepare(
+				`INSERT INTO project_labels (user_id, project_key, machine_id, source, label)
+				 VALUES (?, '6a7678979e31', '', 'user', 'client-acme'),
+				        (?, '54460a64b16d', ?, 'user', 'scratch'),
+				        (?, '6a7678979e31', '', 'user', 'bobs')`,
+			)
+			.bind(ada, ada, laptop.id, bob)
+			.run();
+
+		expect(await deleteUser(db(), ada)).toBe("anonymized");
+
+		const labels = await db()
+			.prepare("SELECT user_id FROM project_labels")
+			.all<{ user_id: string }>();
+		expect(labels.results.map((row) => row.user_id)).toEqual([bob]);
+	});
+
 	it("keeps the surviving lesson's feed rows", async () => {
 		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
 		await addMembership(db(), orgId, bob, "owner");

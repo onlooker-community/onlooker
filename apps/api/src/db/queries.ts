@@ -380,6 +380,12 @@ export async function deleteUser(
 		db
 			.prepare(`DELETE FROM session_summaries WHERE user_id = ? ${landed}`)
 			.bind(userId, userId),
+		// Explicit, because nothing cascades here: this path keeps the users
+		// row, and project_labels.machine_id is no foreign key. A label is the
+		// user's own name for a repository.
+		db
+			.prepare(`DELETE FROM project_labels WHERE user_id = ? ${landed}`)
+			.bind(userId, userId),
 		db
 			.prepare(`DELETE FROM org_memberships WHERE user_id = ? ${landed}`)
 			.bind(userId, userId),
