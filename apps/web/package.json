@@ -15,6 +15,7 @@
 	},
 	"dependencies": {
 		"@onlooker-community/lesson-contract": "workspace:*",
+		"@onlooker-community/schema": "3.3.1",
 		"@onlooker/api-contract": "workspace:*",
 		"@onlooker/auth-react": "workspace:*",
 		"@onlooker/brand": "workspace:*",

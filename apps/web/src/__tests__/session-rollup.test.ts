@@ -19,6 +19,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 		ended_at: "2026-09-24T10:30:00Z",
 		event_count: 100,
 		counts_by_prefix: { tool: 100 },
+		counts_by_type: {},
 		counts_by_project: {},
 		plugins: [],
 		prompts: 3,
