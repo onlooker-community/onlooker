@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import {
+	type LabelMap,
+	labelIdentity,
+	listLabels,
+	setLabel,
+} from "../api/labelsApi";
 import { listMachines, type Machine } from "../api/machinesApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
@@ -93,6 +99,29 @@ function machineName(machines: Machine[], machineId: string): string {
 	return machines.find((m) => m.id === machineId)?.name ?? "unknown machine";
 }
 
+/**
+ * A session's events per repository, under the user's names where they
+ * gave one (ONL-189).
+ *
+ * Summed rather than overwritten when two keys share a name: someone who
+ * named an https clone and an ssh clone of one repository the same has said
+ * they are one, and the line should not drop half the events to disagree.
+ */
+function reposOf(
+	session: SessionSummary,
+	labels: LabelMap,
+): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const [key, { basis, event_count }] of Object.entries(
+		session.counts_by_project,
+	)) {
+		const machineId = basis === "root" ? session.machine_id : null;
+		const name = labels.get(labelIdentity(key, machineId)) ?? key;
+		counts[name] = (counts[name] ?? 0) + event_count;
+	}
+	return counts;
+}
+
 export default function SessionsPage() {
 	const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
 	const [machinesCheck, setMachinesCheck] = useState<MachinesCheck>({
@@ -105,6 +134,10 @@ export default function SessionsPage() {
 	const [moreError, setMoreError] = useState<string | null>(null);
 	const [ended, setEnded] = useState(false);
 	const [hasMore, setHasMore] = useState(false);
+	// Empty until read, and empty if the read fails: every key then shows as
+	// itself, which is what this page showed before names existed. Not worth
+	// an error state of its own - nothing on the page is wrong without them.
+	const [labels, setLabels] = useState<LabelMap>(new Map());
 
 	// A second, independent read, kept apart from the sessions fetch rather
 	// than folded into one Promise.all: a failure here says nothing about
@@ -166,10 +199,33 @@ export default function SessionsPage() {
 				setLoadError(describeError(error, "Could not load your sessions."));
 			});
 		void checkMachines(() => active);
+		listLabels()
+			.then((loaded) => {
+				if (active) setLabels(loaded);
+			})
+			.catch(() => {
+				// Deliberately quiet; see the state's own comment.
+			});
 		return () => {
 			active = false;
 		};
 	}, [checkMachines]);
+
+	// Applies what the server stored - trimmed - rather than what was typed,
+	// and only once it is stored: a refused name never shows as if it took.
+	const rename = async (
+		project: { key: string; machineId: string | null },
+		label: string | null,
+	) => {
+		const stored = await setLabel(project.key, project.machineId, label);
+		setLabels((current) => {
+			const next = new Map(current);
+			const identity = labelIdentity(project.key, project.machineId);
+			if (stored === null) next.delete(identity);
+			else next.set(identity, stored);
+			return next;
+		});
+	};
 
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
@@ -271,6 +327,10 @@ export default function SessionsPage() {
 						? machineName(machinesCheck.machines, id)
 						: null
 				}
+				nameOf={(project) =>
+					labels.get(labelIdentity(project.key, project.machineId)) ?? null
+				}
+				onRename={rename}
 			/>
 
 			{/* Same grouping rollupSessions's own day totals use - see
@@ -300,14 +360,7 @@ export default function SessionsPage() {
 							previous !== null && previous.machine_id === session.machine_id;
 
 						const shape = topShape(session.counts_by_prefix, SHAPE_LIMIT);
-						const repos = topShape(
-							Object.fromEntries(
-								Object.entries(session.counts_by_project).map(
-									([key, { event_count }]) => [key, event_count],
-								),
-							),
-							REPO_LIMIT,
-						);
+						const repos = topShape(reposOf(session, labels), REPO_LIMIT);
 
 						return (
 							<SessionRow

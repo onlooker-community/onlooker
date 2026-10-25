@@ -13,6 +13,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { labelIdentity } from "../api/labelsApi";
 import SessionsPage from "../pages/SessionsPage";
 
 vi.mock("../auth", () => ({
@@ -32,6 +33,16 @@ vi.mock("../auth", () => ({
 const mocks = vi.hoisted(() => ({
 	listSessions: vi.fn(),
 	listMachines: vi.fn(),
+	listLabels: vi.fn(),
+	setLabel: vi.fn(),
+}));
+
+// importOriginal so labelIdentity stays real: the page and these tests must
+// agree on how a label is keyed, and a stub would let them disagree silently.
+vi.mock("../api/labelsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/labelsApi")>()),
+	listLabels: mocks.listLabels,
+	setLabel: mocks.setLabel,
 }));
 
 vi.mock("../api/sessionsApi", () => ({
@@ -162,6 +173,12 @@ const TWO_DAYS = {
 beforeEach(() => {
 	mocks.listSessions.mockReset().mockResolvedValue(ONE_SESSION);
 	mocks.listMachines.mockReset().mockResolvedValue(ONE_MACHINE);
+	mocks.listLabels.mockReset().mockResolvedValue(new Map());
+	mocks.setLabel
+		.mockReset()
+		.mockImplementation(async (_key, _machine, label: string | null) =>
+			label === null ? null : label.trim(),
+		);
 });
 
 const { default: App } = await import("../App");
@@ -803,6 +820,202 @@ describe("/sessions per repository", () => {
 
 		await screen.findByTestId("session-row");
 		expect(screen.queryByTestId("repositories-summary")).toBeNull();
+	});
+
+	describe("named by the user (ONL-189)", () => {
+		function repoRow(panel: HTMLElement, text: string): HTMLElement {
+			const row = within(panel)
+				.getAllByTestId("repository-row")
+				.find((r) => r.textContent?.includes(text));
+			if (!row) throw new Error(`no repository row mentions ${text}`);
+			return row;
+		}
+
+		it("shows a name in place of its key, keeping the key in a title", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.listLabels.mockResolvedValue(
+				new Map([[labelIdentity("6a7678979e31", null), "onlooker"]]),
+			);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			const name = await within(panel).findByText("onlooker");
+			expect(name.getAttribute("title")).toBe("6a7678979e31");
+
+			const rows = await screen.findAllByTestId("session-row");
+			expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
+				"repo: 41 onlooker",
+			);
+		});
+
+		// Two clones named alike have been called one repository; the line
+		// adds them rather than letting one overwrite the other.
+		it("sums keys the user gave the same name", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.listLabels.mockResolvedValue(
+				new Map([
+					[labelIdentity("ee2cfbe428c7", null), "onlooker"],
+					[labelIdentity("54460a64b16d", null), "onlooker"],
+				]),
+			);
+			renderAppAt("/sessions");
+
+			const rows = await screen.findAllByTestId("session-row");
+			await waitFor(() =>
+				expect(
+					within(rows[1]).getByTestId("session-repos").textContent,
+				).toMatch(/^repos: 216 onlooker · 2 9701ec23092a/),
+			);
+		});
+
+		// The same key on another machine is another repository.
+		it("names a root key only on its own machine", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.listLabels.mockResolvedValue(
+				new Map([[labelIdentity("a2241956835d", "m2"), "elsewhere"]]),
+			);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			await waitFor(() => expect(mocks.listLabels).toHaveBeenCalled());
+			expect(repoRow(panel, "a2241956835d").textContent).not.toMatch(
+				/elsewhere/,
+			);
+		});
+
+		it("still shows every key when the names cannot be read", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.listLabels.mockRejectedValue(new Error("offline"));
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			expect(within(panel).getAllByTestId("repository-row")).toHaveLength(5);
+		});
+
+		it("renames a remote key in place", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			fireEvent.click(
+				within(panel).getByRole("button", {
+					name: "Rename repository 6a7678979e31",
+				}),
+			);
+			const input = within(panel).getByRole("textbox", {
+				name: "Name for 6a7678979e31",
+			});
+			fireEvent.change(input, { target: { value: " onlooker " } });
+			fireEvent.keyDown(input, { key: "Enter" });
+
+			await within(panel).findByText("onlooker");
+			expect(mocks.setLabel).toHaveBeenCalledWith(
+				"6a7678979e31",
+				null,
+				" onlooker ",
+			);
+			// The session line reads the same name, without a reload.
+			const rows = await screen.findAllByTestId("session-row");
+			expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
+				"repo: 41 onlooker",
+			);
+		});
+
+		it("renames a root key under its machine", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			fireEvent.click(
+				within(panel).getByRole("button", {
+					name: "Rename repository a2241956835d",
+				}),
+			);
+			fireEvent.change(
+				within(panel).getByRole("textbox", { name: "Name for a2241956835d" }),
+				{ target: { value: "scratch" } },
+			);
+			fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
+
+			await within(panel).findByText("scratch");
+			expect(mocks.setLabel).toHaveBeenCalledWith(
+				"a2241956835d",
+				"m1",
+				"scratch",
+			);
+		});
+
+		it("clears a name back to the key", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.listLabels.mockResolvedValue(
+				new Map([[labelIdentity("6a7678979e31", null), "onlooker"]]),
+			);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			fireEvent.click(
+				await within(panel).findByRole("button", {
+					name: "Rename repository onlooker",
+				}),
+			);
+			fireEvent.click(within(panel).getByRole("button", { name: "Clear" }));
+
+			await waitFor(() =>
+				expect(repoRow(panel, "6a7678979e31").textContent).not.toMatch(
+					/onlooker/,
+				),
+			);
+			expect(mocks.setLabel).toHaveBeenCalledWith("6a7678979e31", null, null);
+		});
+
+		it("cancels on Escape without saving", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			fireEvent.click(
+				within(panel).getByRole("button", {
+					name: "Rename repository 6a7678979e31",
+				}),
+			);
+			const input = within(panel).getByRole("textbox", {
+				name: "Name for 6a7678979e31",
+			});
+			fireEvent.change(input, { target: { value: "never mind" } });
+			fireEvent.keyDown(input, { key: "Escape" });
+
+			expect(within(panel).queryByRole("textbox")).toBeNull();
+			expect(mocks.setLabel).not.toHaveBeenCalled();
+		});
+
+		// What the server refused is said, and the typed name is kept so it can
+		// be fixed rather than retyped.
+		it("keeps the editor open and says why when a save fails", async () => {
+			mocks.listSessions.mockResolvedValue(MULTI_REPO);
+			mocks.setLabel.mockRejectedValue(new Error("label must not be empty"));
+			renderAppAt("/sessions");
+
+			const panel = await screen.findByTestId("repositories-summary");
+			fireEvent.click(
+				within(panel).getByRole("button", {
+					name: "Rename repository 6a7678979e31",
+				}),
+			);
+			const input = within(panel).getByRole("textbox", {
+				name: "Name for 6a7678979e31",
+			});
+			fireEvent.change(input, { target: { value: "x‮" } });
+			fireEvent.keyDown(input, { key: "Enter" });
+
+			expect(await within(panel).findByRole("alert")).not.toBeNull();
+			expect(
+				(
+					within(panel).getByRole("textbox", {
+						name: "Name for 6a7678979e31",
+					}) as HTMLInputElement
+				).value,
+			).toBe("x‮");
+		});
 	});
 });
 

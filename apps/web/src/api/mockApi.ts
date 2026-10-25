@@ -1,6 +1,7 @@
 import { AuthApiError, decodeJwtPayload } from "@onlooker/auth-react";
 import type { User } from "../auth";
 import type { UserProfile } from "../types/api";
+import type { ProjectLabel } from "./labelsApi";
 import type { OrgRole } from "./orgsApi";
 import {
 	AUTH_ENDPOINTS,
@@ -823,6 +824,81 @@ function machinesOf(email: string): MockMachine[] {
 }
 
 /**
+ * Per-account repository names (ONL-189), keyed by email like MACHINES.
+ *
+ * Unlike the sessions feed, a browser is the only writer here, so the mock
+ * can hold real state - which is what lets the rename flow be exercised in
+ * development at all.
+ */
+const LABELS = new Map<string, ProjectLabel[]>();
+
+function labelsOf(email: string): ProjectLabel[] {
+	const existing = LABELS.get(email);
+	if (existing) return existing;
+	const fresh: ProjectLabel[] = [];
+	LABELS.set(email, fresh);
+	return fresh;
+}
+
+/** Mirrors handlePutProjectLabel in apps/api, validation included. */
+function putMockLabel(
+	email: string,
+	options: RequestInit,
+): { project_key: string; machine_id: string | null; label: string | null } {
+	const body = readBody<{
+		project_key?: unknown;
+		machine_id?: unknown;
+		label?: unknown;
+	}>(options);
+
+	const key = body.project_key;
+	if (typeof key !== "string" || !/^[0-9a-f]{12}$/.test(key)) {
+		throw new AuthApiError(
+			400,
+			"invalid_project_key",
+			"project_key must be 12 lowercase hex characters",
+		);
+	}
+	const machineId = body.machine_id;
+	if (machineId !== null && typeof machineId !== "string") {
+		throw new AuthApiError(
+			400,
+			"invalid_machine_id",
+			"machine_id must be a machine's id, or null for a remote key",
+		);
+	}
+	if (
+		machineId !== null &&
+		!machinesOf(email).some((machine) => machine.id === machineId)
+	) {
+		throw new AuthApiError(404, "not_found", "No such machine");
+	}
+
+	const labels = labelsOf(email);
+	const index = labels.findIndex(
+		(l) => l.project_key === key && l.machine_id === machineId,
+	);
+	if (body.label === null) {
+		if (index >= 0) labels.splice(index, 1);
+		return { project_key: key, machine_id: machineId, label: null };
+	}
+
+	const raw = body.label;
+	if (
+		typeof raw !== "string" ||
+		/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u.test(raw) ||
+		raw.trim() === "" ||
+		new TextEncoder().encode(raw.trim()).length > 200
+	) {
+		throw new AuthApiError(400, "invalid_label", "That label is not allowed");
+	}
+	const stored = { project_key: key, machine_id: machineId, label: raw.trim() };
+	if (index >= 0) labels[index] = stored;
+	else labels.push(stored);
+	return stored;
+}
+
+/**
  * Plugins named by a reported document, or null when there is nothing to
  * count. Mirrors `pluginCount` in apps/api: null for unreported and for
  * unreadable alike, because zero would be a claim about the machine.
@@ -1152,6 +1228,19 @@ export async function mockDataApi(
 		}
 		machine.revoked_at = new Date().toISOString();
 		return json({ success: true });
+	}
+
+	if (
+		poolPath === "/api/project-labels" &&
+		(options.method ?? "GET") === "GET"
+	) {
+		const { email } = requireAuth(options);
+		return json({ labels: labelsOf(email) });
+	}
+
+	if (poolPath === "/api/project-labels" && options.method === "PUT") {
+		const { email } = requireAuth(options);
+		return json(putMockLabel(email, options));
 	}
 
 	// `path`, not `poolPath`: the invite-verify branch reads its token straight
