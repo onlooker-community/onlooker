@@ -45,9 +45,19 @@ const EVIDENCE_STYLE = {
 	fontSize: "0.9em",
 } as const;
 
-function Breakdown({ shape, testId }: { shape: Shape; testId?: string }) {
+function Breakdown({
+	shape,
+	testId,
+	label,
+}: {
+	shape: Shape;
+	testId?: string;
+	/** Names what the counts are of, for a line that is not about plugins. */
+	label?: string;
+}) {
 	return (
 		<div data-testid={testId} style={EVIDENCE_STYLE}>
+			{label ? `${label}: ` : null}
 			{shape.shown}
 			{shape.hiddenCount > 0 ? (
 				<>
@@ -89,6 +99,21 @@ function Activity({ activity }: { activity: PluginActivity }) {
 			: null,
 	].filter((part) => part !== null);
 
+	// The per-type counts are present and every one of them was the harness.
+	// Said rather than left blank, because a row that ends after line one
+	// reads as missing data, and this is a finding (ONL-196).
+	if (
+		!activity.produced.shown &&
+		quiet.length === 0 &&
+		activity.failed.length === 0
+	) {
+		return (
+			<div data-testid="session-no-plugins" style={EVIDENCE_STYLE}>
+				no plugin activity
+			</div>
+		);
+	}
+
 	return (
 		<>
 			{activity.produced.shown ? (
@@ -126,6 +151,7 @@ export default function SessionRow({
 	hiddenCount,
 	activity,
 	repos,
+	repoCount,
 	last,
 }: {
 	time: string;
@@ -161,6 +187,11 @@ export default function SessionRow({
 	 * here, and "no repository" on every pre-2.7.0 row would be noise.
 	 */
 	repos: Shape;
+	/**
+	 * How many repositories `repos` covers, shown and hidden, so the label can
+	 * say "repo" or "repos" without parsing the line it labels.
+	 */
+	repoCount: number;
 	/** The last row in a day panel skips its border, which Panel supplies. */
 	last: boolean;
 }) {
@@ -225,7 +256,16 @@ export default function SessionRow({
 			) : shown ? (
 				<Breakdown shape={{ shown, hidden, hiddenCount }} />
 			) : null}
-			{repos.shown ? <Breakdown shape={repos} testId="session-repos" /> : null}
+			{repos.shown ? (
+				<Breakdown
+					shape={repos}
+					testId="session-repos"
+					// Labeled because it sits under the plugin lines in the same
+					// style, and "95 6a7678979e31" otherwise reads as one more
+					// plugin count (ONL-196).
+					label={repoCount === 1 ? "repo" : "repos"}
+				/>
+			) : null}
 		</div>
 	);
 }
