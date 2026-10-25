@@ -310,14 +310,18 @@ describe("project_labels", () => {
 
 	// Source is in the key so a label the CLI uploads (ONL-197) sits beside
 	// the user's own instead of overwriting it.
-	it("is keyed on (user_id, project_key, machine_id, source)", () => {
+	//
+	// In name order, the order drizzle-kit writes a composite key in. Any
+	// other declared order makes expected-schema.ts disagree with the
+	// migration it describes (ONL-199).
+	it("is keyed on (machine_id, project_key, source, user_id)", () => {
 		const pks = getTableConfig(project_labels).primaryKeys;
 		expect(pks).toHaveLength(1);
 		expect(indexColumnNames(pks[0].columns)).toEqual([
-			"user_id",
-			"project_key",
 			"machine_id",
+			"project_key",
 			"source",
+			"user_id",
 		]);
 	});
 

@@ -435,7 +435,7 @@ export const EXPECTED_SCHEMA = {
 				name: "user_id",
 				type: "TEXT",
 				notnull: 1,
-				pk: 1,
+				pk: 4,
 			},
 			{
 				name: "project_key",
@@ -447,13 +447,13 @@ export const EXPECTED_SCHEMA = {
 				name: "machine_id",
 				type: "TEXT",
 				notnull: 1,
-				pk: 3,
+				pk: 1,
 			},
 			{
 				name: "source",
 				type: "TEXT",
 				notnull: 1,
-				pk: 4,
+				pk: 3,
 			},
 			{
 				name: "label",
