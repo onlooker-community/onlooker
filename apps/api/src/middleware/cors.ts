@@ -19,7 +19,10 @@ import { TRACE_HEADERS } from "../monitoring";
 import type { WorkerEnv } from "../types";
 import type { RouteCors } from "./principal.js";
 
-const ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
+// Every method a route answers to. cors.test.ts checks this against the
+// route table: PUT was missing once, and the first browser PUT failed every
+// preflight in production (ONL-201).
+const ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 // The trace headers are what let a request traced in apps/web continue into
 // this worker as one trace. Left off this list, the browser's preflight fails
 // and the call is dropped - tracing would break the request it was observing.
