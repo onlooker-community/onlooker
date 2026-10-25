@@ -169,6 +169,26 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			init: { method: "GET" },
 			status: 401,
 		},
+		{
+			name: "project labels, no token",
+			path: "/api/project-labels",
+			init: { method: "GET" },
+			status: 401,
+		},
+		{
+			name: "project label write, no token",
+			path: "/api/project-labels",
+			init: {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_key: "6a7678979e31",
+					machine_id: null,
+					label: "onlooker",
+				}),
+			},
+			status: 401,
+		},
 		...ORG_LIFECYCLE,
 	];
 }
@@ -542,6 +562,68 @@ export function authenticatedCases(): ContractCase[] {
 			// nothing over threshold) happens above this envelope, not in it.
 			body: { sessions: expectArray, has_more: false },
 			forbidden: NO_SECRETS,
+		},
+		{
+			name: "project labels, valid token",
+			path: "/api/project-labels",
+			init: { method: "GET" },
+			status: 200,
+			// An array even when nothing is named: the page falls back to the
+			// raw key for every repository, and a missing key throws.
+			body: { labels: expectArray },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "project label, remote key",
+			path: "/api/project-labels",
+			init: {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_key: "6a7678979e31",
+					machine_id: null,
+					label: "  onlooker  ",
+				}),
+			},
+			status: 200,
+			// Echoes what was stored - trimmed - so the page can show it without
+			// re-reading the list.
+			body: {
+				project_key: "6a7678979e31",
+				machine_id: null,
+				label: "onlooker",
+			},
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "project label, key that is not 12 hex",
+			path: "/api/project-labels",
+			init: {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_key: "not-a-key",
+					machine_id: null,
+					label: "onlooker",
+				}),
+			},
+			status: 400,
+			body: { error: { code: "invalid_project_key" } },
+		},
+		{
+			name: "project label, bidi override",
+			path: "/api/project-labels",
+			init: {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_key: "6a7678979e31",
+					machine_id: null,
+					label: "‮ekoolno",
+				}),
+			},
+			status: 400,
+			body: { error: { code: "invalid_label" } },
 		},
 		{
 			name: "machines list, valid token",

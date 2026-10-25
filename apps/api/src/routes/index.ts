@@ -72,5 +72,9 @@ export {
 	handleRemoveMember,
 	handleSetMemberRole,
 } from "./orgs-members";
+export {
+	handleGetProjectLabels,
+	handlePutProjectLabel,
+} from "./project-labels";
 export { handleGetSessions, handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";

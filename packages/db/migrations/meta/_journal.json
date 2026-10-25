@@ -120,6 +120,13 @@
       "when": 1792859230277,
       "tag": "0016_funny_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792937486444,
+      "tag": "0017_salty_alex_power",
+      "breakpoints": true
     }
   ]
 }

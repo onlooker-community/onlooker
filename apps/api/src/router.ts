@@ -25,6 +25,7 @@ import {
 	handleGetInventory,
 	handleGetLesson,
 	handleGetProfile,
+	handleGetProjectLabels,
 	handleGetSessions,
 	handleGetUserProfile,
 	handleListInvites,
@@ -39,6 +40,7 @@ import {
 	handlePublicLesson,
 	handlePushLessons,
 	handlePutInventory,
+	handlePutProjectLabel,
 	handleReadLessons,
 	handleRefresh,
 	handleRemoveMember,
@@ -380,6 +382,20 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleGetSessions,
+	},
+	{
+		method: "GET",
+		path: "/api/project-labels",
+		auth: "session",
+		cors: "app",
+		handler: handleGetProjectLabels,
+	},
+	{
+		method: "PUT",
+		path: "/api/project-labels",
+		auth: "session",
+		cors: "app",
+		handler: handlePutProjectLabel,
 	},
 
 	// =========================================================================

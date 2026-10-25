@@ -429,6 +429,53 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	project_labels: {
+		columns: [
+			{
+				name: "user_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "project_key",
+				type: "TEXT",
+				notnull: 1,
+				pk: 2,
+			},
+			{
+				name: "machine_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 3,
+			},
+			{
+				name: "source",
+				type: "TEXT",
+				notnull: 1,
+				pk: 4,
+			},
+			{
+				name: "label",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "updated_at",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "project_labels_user_idx",
+				unique: false,
+				columns: ["user_id"],
+			},
+		],
+	},
 	session_summaries: {
 		columns: [
 			{

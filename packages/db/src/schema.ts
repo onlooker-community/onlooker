@@ -463,6 +463,56 @@ export const session_summaries = sqliteTable(
 );
 
 /**
+ * A readable name for a project key (ONL-189).
+ *
+ * A key is an opaque hash, so this is the only place a repository's name can
+ * exist server-side - and only because the user typed it. Nothing here is
+ * derived from a path or an origin URL; that upload is ONL-197, opt-in, and
+ * writes `source = 'cli'` beside the user's rows rather than over them.
+ *
+ * Scoped the way rollupProjects scopes the key itself: a `remote` key names
+ * the same repository on every machine, so its label has no machine
+ * (`machine_id = ''`); a `root` key hashes a local path, so its label belongs
+ * to the machine that reported it.
+ */
+export const project_labels = sqliteTable(
+	"project_labels",
+	{
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		/** The 12-hex key, as session_summaries.counts_by_project carries it. */
+		project_key: text("project_key").notNull(),
+		/**
+		 * The machine a root key belongs to, or '' for a remote key.
+		 *
+		 * '' rather than NULL because SQLite treats every NULL in a primary key
+		 * as distinct, which would let one remote key carry two labels. And no
+		 * foreign key, because '' matches no machine_tokens row - so
+		 * anonymizeUser deletes these rows itself.
+		 */
+		machine_id: text("machine_id").notNull().default(""),
+		/** 'user' today; 'cli' is reserved for ONL-197. The user's label wins. */
+		source: text("source").notNull(),
+		label: text("label").notNull(),
+		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => ({
+		pk: primaryKey({
+			columns: [
+				table.user_id,
+				table.project_key,
+				table.machine_id,
+				table.source,
+			],
+		}),
+		// drizzle-kit writes the key above sorted by column name, leading with
+		// machine_id, so it cannot serve the one read: all of a user's labels.
+		userIdx: index("project_labels_user_idx").on(table.user_id),
+	}),
+);
+
+/**
  * An organization - the unit a lesson can be shared with.
  *
  * Deliberately thin. `name` is all a member ever sees: there is no slug,
@@ -584,3 +634,6 @@ export type NewLessonFeedEntry = typeof lesson_feed.$inferInsert;
 
 export type SessionSummary = typeof session_summaries.$inferSelect;
 export type NewSessionSummary = typeof session_summaries.$inferInsert;
+
+export type ProjectLabel = typeof project_labels.$inferSelect;
+export type NewProjectLabel = typeof project_labels.$inferInsert;
