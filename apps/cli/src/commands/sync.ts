@@ -11,6 +11,7 @@ import { collectInventory } from "../inventory";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 import { type PullOutcome, pull } from "../pull";
+import { lessonDigest, writePushed } from "../pushed";
 import { summarizeSessions } from "../sessions";
 import { muted, ok, PLAIN, type Theme, warn } from "../ui";
 
@@ -278,8 +279,25 @@ export async function sync({
 	// that difference out to whatever called us.
 	const terminal: string[] = [];
 	const retryable: string[] = [];
+	// Id to digest, for every lesson the pool confirmed it holds. Written to
+	// the pushed record at the end, so `status` can tell sent from unsent.
+	const held: Record<string, string> = {};
 
 	for (const chunk of batch(lessons, MAX_BATCH)) {
+		// Every distinct digest sent under each id. The pool answers per id, so
+		// an id whose copies disagree cannot say which copy it holds, and
+		// recording either would be a guess.
+		const digests = new Map<string, Set<string>>();
+		for (const lesson of chunk) {
+			const seen = digests.get(lesson.id) ?? new Set<string>();
+			seen.add(lessonDigest(lesson));
+			digests.set(lesson.id, seen);
+		}
+		const confirm = (id: string) => {
+			const seen = digests.get(id);
+			if (seen?.size === 1) held[id] = [...seen][0];
+		};
+
 		const response = await client.push(chunk);
 		// `api.ts` casts the response body rather than validating it, so this is
 		// the first place a body that is not the promised shape can be noticed.
@@ -288,9 +306,11 @@ export async function sync({
 			switch (result.outcome) {
 				case "created":
 					created++;
+					confirm(result.id);
 					break;
 				case "noop":
 					unchanged++;
+					confirm(result.id);
 					break;
 				case "conflict":
 					// Same id, different content. Not a failure to store, but not a
@@ -358,7 +378,17 @@ export async function sync({
 	const counts = [`${created} new`, `${unchanged} already in the pool`];
 	if (skipped.length > 0) counts.push(`${skipped.length} skipped`);
 	const pushed = lessons.length;
-	const summary = `Synced ${pushed} lesson${pushed === 1 ? "" : "s"}: ${counts.join(", ")}.`;
+	let summary = `Synced ${pushed} lesson${pushed === 1 ? "" : "s"}: ${counts.join(", ")}.`;
+
+	// Before any throw below, so a run with some failures still records what
+	// did land. Its own failure is reported, never thrown: the push worked,
+	// and failing the run over local bookkeeping would tell someone to retry
+	// a sync that succeeded.
+	try {
+		writePushed(config.apiBaseUrl, held, env);
+	} catch (error) {
+		summary += `\nCould not record what the pool holds (${(error as Error).message}), so status cannot tell which lessons are synced.`;
+	}
 
 	// Every kind of trouble in one report, not whichever kind came first. A
 	// lesson that fails permanently must not hide behind one that fails

@@ -150,7 +150,7 @@ export function writeLesson(
  * afford. Rename is atomic within a directory, so a reader sees either the old
  * content or the new one and never a partial write.
  */
-function atomicWrite(path: string, contents: string): void {
+export function atomicWrite(path: string, contents: string): void {
 	const tmp = `${path}.tmp`;
 	writeFileSync(tmp, contents);
 	renameSync(tmp, path);
