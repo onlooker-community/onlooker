@@ -329,6 +329,7 @@ export default function SessionsPage() {
 								hiddenCount={shape.hiddenCount}
 								activity={pluginActivity(session.counts_by_type, SHAPE_LIMIT)}
 								repos={repos}
+								repoCount={Object.keys(session.counts_by_project).length}
 								last={index === group.sessions.length - 1}
 							/>
 						);

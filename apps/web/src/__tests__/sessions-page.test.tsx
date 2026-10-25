@@ -727,11 +727,25 @@ describe("/sessions per repository", () => {
 
 		const rows = await screen.findAllByTestId("session-row");
 		const repos = within(rows[1]).getByTestId("session-repos");
-		expect(repos.textContent).toMatch(/181 ee2cfbe428c7 · 35 54460a64b16d/);
+		// Labeled, so the line does not read as one more plugin count under
+		// the plugin lines (ONL-196). Plural: the session touched four.
+		expect(repos.textContent).toMatch(
+			/^repos: 181 ee2cfbe428c7 · 35 54460a64b16d/,
+		);
 
 		// The tail survives in a title, as the event breakdown's does.
 		const more = within(repos).getByText(/\+2 more/);
 		expect(more.getAttribute("title")).toBe("2 9701ec23092a · 1 a2241956835d");
+	});
+
+	it("labels a single repository in the singular", async () => {
+		mocks.listSessions.mockResolvedValue(MULTI_REPO);
+		renderAppAt("/sessions");
+
+		const rows = await screen.findAllByTestId("session-row");
+		expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
+			"repo: 41 6a7678979e31",
+		);
 	});
 
 	it("says nothing about repositories on a row that carried none", async () => {
@@ -913,7 +927,29 @@ describe("/sessions per plugin", () => {
 		expect(within(row).queryByTestId("session-quiet")).toBeNull();
 		expect(within(row).queryByTestId("session-failed")).toBeNull();
 		// Not the prefix line either: the per-type counts are present, and
-		// they say no plugin did anything.
+		// they say no plugin did anything - so the row says that, rather than
+		// ending after line one as if something were missing (ONL-196).
 		expect(within(row).queryByText(/tool/)).toBeNull();
+		expect(within(row).getByTestId("session-no-plugins").textContent).toBe(
+			"no plugin activity",
+		);
+	});
+
+	// Only per-type counts can say nothing ran. A session synced before them
+	// has its prefix line, and no claim about plugins either way.
+	it("does not claim no activity for a session synced before per-type counts", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).queryByTestId("session-no-plugins")).toBeNull();
+	});
+
+	it("does not claim no activity when a plugin did something", async () => {
+		mocks.listSessions.mockResolvedValue(PER_TYPE);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).queryByTestId("session-no-plugins")).toBeNull();
 	});
 });
