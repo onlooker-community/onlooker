@@ -72,15 +72,18 @@ jobs:
       # So do not add a check-in step to another workflow expecting it to work.
       # It would report into a monitor Sentry disabled on creation and say "ok".
       #
-      # The Sentry monitor expects one of these every 6 HOURS with a 2 hour
-      # margin, which is far looser than the hourly cron above and is set from
-      # measurement rather than from the schedule. Over the last 12 runs
-      # (measured 2026-09-13 over 12 runs) the real gaps were 104 to 295
-      # minutes, median 134: GitHub throttles scheduled workflows silently,
-      # and this fires about every two hours at best.
-      # Remeasured 2026-09-19 over 20 runs: 197-minute median, 327 at the
-      # worst. The monitor's 6h interval plus 2h margin still covers 327, so
-      # nobody needs to re-derive that tolerance from this newer number.
+      # The Sentry monitor expects one of these every 8 HOURS with a 3 hour
+      # margin and raises an issue on the FIRST failure, which is far looser
+      # than the hourly cron above and is set from measurement rather than
+      # from the schedule. GitHub throttles scheduled workflows silently, and
+      # it has been getting worse: 134-minute median gaps on 2026-09-13, 197
+      # on 2026-09-19, and 4.26 hours on 2026-10-25 (100 runs, p95 7.36h,
+      # worst 9.59h). That last one already overran the old 6h + 2h window.
+      #
+      # So a run that dies silently is reported about 11 hours after the last
+      # good one. That is a chosen number, not a minutes-level alert: on the
+      # 2026-10-25 history, any setting under about 10 hours false-alarms.
+      # Remeasure before tightening it. Reasoning in ONL-203.
       #
       # A monitor cannot be tighter than the thing it monitors actually runs.
       # Setting it to the declared hour would mean a permanent missed-check-in
