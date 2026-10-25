@@ -200,6 +200,14 @@ up to roughly **16 hours** to raise an issue. The milestone this sits under asks
 for minutes. Still better than the nothing it replaces, and changing it means
 editing the monitor rather than any file here.
 
+> **Changed 2026-10-25 (ONL-203).** Two consecutive misses take 2 × 6h + 2h,
+> so 14 hours rather than 16. The monitor is now `schedule 8h`,
+> `checkin_margin 180`, `failure_issue_threshold 1`: about 11 hours for a silent
+> death, and one error check-in raises an issue on its own. Over 100 runs, the
+> median gap had grown to 4.26 hours and the worst to 9.59, already past the
+> old 8-hour window. Anything under about 10 hours would page on a healthy
+> workflow, so the cron path stays measured in hours.
+
 **The `environment=production` change is a no-op, proven rather than argued.**
 The monitor lists exactly one environment, `production`, `dateCreated
 2026-09-13` — before the change — and the check-ins sent after it land in that
