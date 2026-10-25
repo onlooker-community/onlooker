@@ -10,6 +10,7 @@ import {
 	lessons,
 	login_attempts,
 	machine_tokens,
+	project_labels,
 	session_summaries,
 	sessions,
 	users,
@@ -295,18 +296,74 @@ describe("session_summaries", () => {
 	});
 });
 
+describe("project_labels", () => {
+	it("declares exactly the columns a label needs", () => {
+		expect(columnNames(project_labels)).toEqual([
+			"label",
+			"machine_id",
+			"project_key",
+			"source",
+			"updated_at",
+			"user_id",
+		]);
+	});
+
+	// Source is in the key so a label the CLI uploads (ONL-197) sits beside
+	// the user's own instead of overwriting it.
+	it("is keyed on (user_id, project_key, machine_id, source)", () => {
+		const pks = getTableConfig(project_labels).primaryKeys;
+		expect(pks).toHaveLength(1);
+		expect(indexColumnNames(pks[0].columns)).toEqual([
+			"user_id",
+			"project_key",
+			"machine_id",
+			"source",
+		]);
+	});
+
+	// Not null, because SQLite treats every NULL in a primary key as distinct:
+	// a nullable machine_id would let one remote key carry two labels.
+	it("stores a remote key's missing machine as '', not null", () => {
+		const col = getTableConfig(project_labels).columns.find(
+			(c) => c.name === "machine_id",
+		);
+		expect(col?.notNull).toBe(true);
+	});
+
+	// Only the user. machine_id holds '' for a remote key, which no
+	// machine_tokens row has, so it cannot be a foreign key - and anonymization
+	// keeps the users row, so this cascade is not what removes labels either.
+	// queries.ts deletes them explicitly.
+	// drizzle-kit emits a composite key's columns sorted by name, so the
+	// stored key leads with machine_id and cannot serve the only read: all of
+	// one user's labels.
+	it("indexes user_id for the read, which the sorted key cannot serve", () => {
+		const idx = getTableConfig(project_labels).indexes.find(
+			(i) => i.config.name === "project_labels_user_idx",
+		);
+		expect(indexColumnNames(idx?.config.columns ?? [])).toEqual(["user_id"]);
+	});
+
+	it("references only its user", () => {
+		const fks = getTableConfig(project_labels).foreignKeys;
+		expect(fks).toHaveLength(1);
+		expect(fks[0].onDelete).toBe("cascade");
+	});
+});
+
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
-	// arrive with the feature that needs it, not by accident. Twelve, as of
-	// login_attempts landing with the failed-login backoff (onlooker-9s0m);
-	// eleven before that, since orgs/org_memberships/org_invites arrived with
-	// org accounts (ONL-12).
-	it("declares only the twelve tables in use", async () => {
+	// arrive with the feature that needs it, not by accident. Thirteen, as of
+	// project_labels landing with repository aliases (ONL-189); twelve before
+	// that, as of login_attempts landing with the failed-login backoff
+	// (onlooker-9s0m); eleven before that, since orgs/org_memberships/
+	// org_invites arrived with org accounts (ONL-12).
+	it("declares only the thirteen tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(12);
+		expect(tables).toHaveLength(13);
 	});
 });
 
