@@ -498,16 +498,21 @@ export const project_labels = sqliteTable(
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => ({
+		// Declared in name order because that is the order drizzle-kit writes a
+		// composite key in, whatever order it is given. expected-schema.ts is
+		// generated from THIS order and verify-schema compares the positions,
+		// so declaring it any other way fails the deploy after the migration
+		// has already run - which is what ONL-199 was.
 		pk: primaryKey({
 			columns: [
-				table.user_id,
-				table.project_key,
 				table.machine_id,
+				table.project_key,
 				table.source,
+				table.user_id,
 			],
 		}),
-		// drizzle-kit writes the key above sorted by column name, leading with
-		// machine_id, so it cannot serve the one read: all of a user's labels.
+		// The key leads with machine_id, so it cannot serve the one read: all
+		// of a user's labels.
 		userIdx: index("project_labels_user_idx").on(table.user_id),
 	}),
 );
