@@ -345,6 +345,45 @@ No export step is required. `~/.onlooker` is a single global store keyed by
 session, not partitioned by repo, so queries run from the ecosystem repo already
 see this repo's events.
 
+### Results *(measured 2026-10-25)*
+
+All three come from `~/.onlooker/logs/hook-health.jsonl`. Hook-health records
+carry no path and no cwd, so this repo's sessions come from elsewhere: the
+lineage ledger at `lineage/6a7678979e31/changes.jsonl` for read 1, and
+assayer's audit files under `assayer/6a7678979e31/` for read 2.
+
+1. **Per-edit round trip on `.ts`/`.tsx`: p50 288 ms, p95 445 ms, max 1071 ms**
+   (n=1,496, October). This is about 1.6× ecosystem's 178 ms on shell files.
+   ONL-38 settled the same read on 2026-09-26 at p50 266 ms, and that record
+   has the method. The four PostToolUse hooks run in parallel, so the cost is
+   the wall-clock span of each cluster, not the sum of the hooks' durations.
+   Adding up the per-hook medians gives 646 ms, which overstates the cost by
+   2–3×.
+
+   Per hook, the medians are inspector 286 ms, lineage 249 ms, tool-history 73
+   ms and cartographer 38 ms. Inspector's ~285 ms is mostly biome. Lineage
+   costs ~250 ms on every edit in every repo, not only TypeScript. So, as
+   ONL-38 notes, the cheapest edit here costs whatever lineage costs. ONL-39
+   is where its per-call cost is tracked.
+2. **`Stop` with assayer: p50 266 ms, p90 724 ms** (October, n=669), a little
+   under ecosystem's 353 ms. The TypeScript claim shape never showed up as a
+   cost of its own: across 123 audited sessions the median audit holds 0
+   claims, and the largest holds 5. The tail did once exist. August's p50 was
+   21 s (n=83), and September's p90 was 13 s (n=885). It's gone in October, so
+   this records history, not an open problem.
+3. **Bursar's figure can't shift when a second repo contributes, by
+   construction.** `bursar-session-start.sh` sums only the session's own
+   project ledger, `bursar/projects/<key>/sessions.jsonl`. Over the seven days
+   to 2026-10-25, that ledger held 208 sessions for this repo and 335 for
+   ecosystem, and neither count reached the other. The *Cross-repo signal*
+   premise above assumed a pooled window. There isn't one. No session here in
+   that window carried governor spend, so the figure was a session count, not
+   dollars.
+
+Plugin-side findings from this arena went where *Where findings go* says:
+ecosystem-449.13–.15, plus ONL-38 (per-edit cost), ONL-39 (lineage's per-call
+cost) and ONL-40 (inspector's overhead) in Linear.
+
 ## Where findings go *(approved)*
 
 Split by where the fix lands. Plugin bugs and latency findings become beads in
