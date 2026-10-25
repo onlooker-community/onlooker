@@ -10,6 +10,7 @@ import SessionsSummary from "../components/SessionsSummary";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { timeOf } from "../lib/dayKey";
+import { pluginActivity } from "../lib/pluginActivity";
 import {
 	durationMsOf,
 	formatDurationMs,
@@ -326,6 +327,7 @@ export default function SessionsPage() {
 								shown={shape.shown}
 								hidden={shape.hidden}
 								hiddenCount={shape.hiddenCount}
+								activity={pluginActivity(session.counts_by_type, SHAPE_LIMIT)}
 								repos={repos}
 								last={index === group.sessions.length - 1}
 							/>

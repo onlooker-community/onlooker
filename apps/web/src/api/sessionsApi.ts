@@ -42,6 +42,15 @@ export interface SessionSummary {
 	event_count: number;
 	counts_by_prefix: Record<string, number>;
 	/**
+	 * Full event type -> count, e.g. `curator.scan.complete` (ONL-128).
+	 *
+	 * What lets a row say what a plugin did rather than only how much it
+	 * fired - see lib/pluginActivity.ts. Empty for a session synced by a CLI
+	 * older than 2.12.0, which reported prefixes only. Never absent: the API
+	 * defaults the column on read, as it does counts_by_project.
+	 */
+	counts_by_type: Record<string, number>;
+	/**
 	 * Project key -> this session's events in that repository (ONL-184).
 	 *
 	 * The key is an opaque 12-hex hash, never a path or a name, and the web

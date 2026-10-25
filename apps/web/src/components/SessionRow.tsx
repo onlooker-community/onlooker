@@ -18,6 +18,7 @@
  * owns the arithmetic.
  */
 
+import type { PluginActivity } from "../lib/pluginActivity";
 import type { Shape } from "../lib/sessionRollup";
 import { PALETTE } from "./palette";
 
@@ -37,17 +38,16 @@ export const REPO_LIMIT = 2;
  * Shared by the event breakdown and the repository line so the two cannot
  * drift into different ways of saying "and N more".
  */
+const EVIDENCE_STYLE = {
+	marginTop: "0.15rem",
+	paddingLeft: "var(--space-3)",
+	color: PALETTE.muted,
+	fontSize: "0.9em",
+} as const;
+
 function Breakdown({ shape, testId }: { shape: Shape; testId?: string }) {
 	return (
-		<div
-			data-testid={testId}
-			style={{
-				marginTop: "0.15rem",
-				paddingLeft: "var(--space-3)",
-				color: PALETTE.muted,
-				fontSize: "0.9em",
-			}}
-		>
+		<div data-testid={testId} style={EVIDENCE_STYLE}>
 			{shape.shown}
 			{shape.hiddenCount > 0 ? (
 				<>
@@ -69,6 +69,52 @@ function Breakdown({ shape, testId }: { shape: Shape; testId?: string }) {
 	);
 }
 
+/**
+ * What each plugin did, output first (ONL-190).
+ *
+ * Three lines at most, each only when it has something to say: what was
+ * produced, which plugins ran without producing, and which failed. The
+ * quiet plugins are named and not counted - "curator ran twice and found
+ * nothing" is the point, and a count of its start and complete events would
+ * read as work done, which is what the prefix line got wrong.
+ */
+function Activity({ activity }: { activity: PluginActivity }) {
+	const quiet = [
+		activity.idle.length > 0 ? `ran idle: ${activity.idle.join(", ")}` : null,
+		activity.skipped.length > 0
+			? `skipped: ${activity.skipped.join(", ")}`
+			: null,
+		activity.unclassified.length > 0
+			? `unclassified: ${activity.unclassified.join(", ")}`
+			: null,
+	].filter((part) => part !== null);
+
+	return (
+		<>
+			{activity.produced.shown ? (
+				<Breakdown shape={activity.produced} testId="session-produced" />
+			) : null}
+			{quiet.length > 0 ? (
+				<div data-testid="session-quiet" style={EVIDENCE_STYLE}>
+					{quiet.join(" · ")}
+				</div>
+			) : null}
+			{activity.failed.length > 0 ? (
+				<div
+					data-testid="session-failed"
+					style={{ ...EVIDENCE_STYLE, color: PALETTE.danger }}
+				>
+					{/* The word "failed" carries it for a screen reader. */}
+					<span aria-hidden="true">✕ </span>
+					{activity.failed
+						.map(({ plugin, count }) => `${plugin} failed ${count}×`)
+						.join(" · ")}
+				</div>
+			) : null}
+		</>
+	);
+}
+
 export default function SessionRow({
 	time,
 	machineName,
@@ -78,6 +124,7 @@ export default function SessionRow({
 	shown,
 	hidden,
 	hiddenCount,
+	activity,
 	repos,
 	last,
 }: {
@@ -103,6 +150,11 @@ export default function SessionRow({
 	shown: string;
 	hidden: string;
 	hiddenCount: number;
+	/**
+	 * What each plugin did, or null for a session synced before per-type
+	 * counts existed - which keeps the prefix line (`shown`) instead.
+	 */
+	activity: PluginActivity | null;
 	/**
 	 * Events per repository, as project keys. An empty `shown` renders no
 	 * line at all: a session that carried no key has nothing true to say
@@ -168,7 +220,11 @@ export default function SessionRow({
 				</span>
 			</div>
 
-			{shown ? <Breakdown shape={{ shown, hidden, hiddenCount }} /> : null}
+			{activity ? (
+				<Activity activity={activity} />
+			) : shown ? (
+				<Breakdown shape={{ shown, hidden, hiddenCount }} />
+			) : null}
 			{repos.shown ? <Breakdown shape={repos} testId="session-repos" /> : null}
 		</div>
 	);

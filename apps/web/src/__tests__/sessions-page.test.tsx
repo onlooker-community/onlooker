@@ -112,6 +112,7 @@ const ONE_SESSION = {
 			ended_at: "2026-09-16T10:42:00Z",
 			event_count: 6492,
 			counts_by_prefix: { tool: 6311, session: 100, skill: 81 },
+			counts_by_type: {},
 			counts_by_project: {},
 			plugins: ["lineage"],
 			prompts: 5,
@@ -134,6 +135,7 @@ const TWO_DAYS = {
 			ended_at: "2026-09-16T10:42:00Z",
 			event_count: 30,
 			counts_by_prefix: { tool: 25, session: 5 },
+			counts_by_type: {},
 			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
@@ -146,6 +148,7 @@ const TWO_DAYS = {
 			ended_at: "2026-09-15T09:20:00Z",
 			event_count: 25,
 			counts_by_prefix: { tool: 20, session: 5 },
+			counts_by_type: {},
 			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
@@ -460,6 +463,7 @@ describe("/sessions summary header", () => {
 			ended_at: "2026-09-17T10:20:00Z",
 			event_count: 20,
 			counts_by_prefix: { tool: 20 },
+			counts_by_type: {},
 			counts_by_project: {},
 			plugins: [],
 			prompts: 1,
@@ -533,6 +537,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T12:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_type: {},
 					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
@@ -545,6 +550,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T11:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_type: {},
 					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
@@ -557,6 +563,7 @@ describe("/sessions summary header", () => {
 					ended_at: "2026-09-16T10:05:00Z",
 					event_count: 10,
 					counts_by_prefix: { tool: 10 },
+					counts_by_type: {},
 					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
@@ -617,6 +624,7 @@ describe("/sessions summary header", () => {
 						curator: 2,
 						scribe: 1,
 					},
+					counts_by_type: {},
 					counts_by_project: {},
 					plugins: [],
 					prompts: 1,
@@ -669,6 +677,7 @@ describe("/sessions per repository", () => {
 				ended_at: "2026-09-16T12:10:00Z",
 				event_count: 41,
 				counts_by_prefix: { memory: 41 },
+				counts_by_type: {},
 				counts_by_project: {
 					"6a7678979e31": { basis: "remote", event_count: 41 },
 				},
@@ -683,6 +692,7 @@ describe("/sessions per repository", () => {
 				ended_at: "2026-09-16T10:42:00Z",
 				event_count: 223,
 				counts_by_prefix: { tool: 90, inspector: 53, memory: 80 },
+				counts_by_type: {},
 				counts_by_project: {
 					ee2cfbe428c7: { basis: "remote", event_count: 181 },
 					"54460a64b16d": { basis: "remote", event_count: 35 },
@@ -700,6 +710,7 @@ describe("/sessions per repository", () => {
 				ended_at: "2026-09-16T09:20:00Z",
 				event_count: 25,
 				counts_by_prefix: { tool: 25 },
+				counts_by_type: {},
 				counts_by_project: {},
 				plugins: [],
 				prompts: 1,
@@ -778,5 +789,131 @@ describe("/sessions per repository", () => {
 
 		await screen.findByTestId("session-row");
 		expect(screen.queryByTestId("repositories-summary")).toBeNull();
+	});
+});
+
+describe("/sessions per plugin", () => {
+	// Shaped after a real session from the local event log: the substrate's
+	// memory and tool events dwarf everything, historian surfaced results and
+	// failed to embed, curator scanned and found nothing, scribe skipped.
+	const PER_TYPE = {
+		sessions: [
+			{
+				session_id: "s1",
+				machine_id: "m1",
+				started_at: "2026-09-16T10:00:00Z",
+				ended_at: "2026-09-16T10:09:00Z",
+				event_count: 95,
+				counts_by_prefix: {
+					memory: 19,
+					tool: 40,
+					historian: 13,
+					curator: 4,
+					session: 3,
+					bursar: 2,
+					onlooker: 1,
+					scribe: 1,
+				},
+				counts_by_type: {
+					"memory.recalled": 19,
+					"tool.file.read": 40,
+					"session.start": 1,
+					"session.prompt": 1,
+					"session.end": 1,
+					"historian.retrieval.started": 4,
+					"historian.retrieval.complete": 4,
+					"historian.retrieval.surfaced": 3,
+					"historian.embedder.failed": 2,
+					"bursar.session.recorded": 2,
+					"onlooker.artifact.ready": 1,
+					"curator.scan.started": 2,
+					"curator.scan.complete": 2,
+					"scribe.distill.skipped": 1,
+				},
+				counts_by_project: {},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+		],
+		cursor: null,
+		has_more: false,
+	};
+
+	it("leads with what each plugin produced", async () => {
+		mocks.listSessions.mockResolvedValue(PER_TYPE);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).getByTestId("session-produced").textContent).toBe(
+			"3 historian · 2 bursar · 1 onlooker",
+		);
+	});
+
+	// The sentence the old line could not say: curator ran twice and found
+	// nothing, which "4 curator" read as four things done.
+	it("names the plugins that ran without producing", async () => {
+		mocks.listSessions.mockResolvedValue(PER_TYPE);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).getByTestId("session-quiet").textContent).toBe(
+			"ran idle: curator · skipped: scribe",
+		);
+	});
+
+	it("says which plugins failed, and how often", async () => {
+		mocks.listSessions.mockResolvedValue(PER_TYPE);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).getByTestId("session-failed").textContent).toMatch(
+			/historian failed 2×/,
+		);
+	});
+
+	// The per-plugin view replaces the prefix line rather than sitting under
+	// it: the prefix line's "19 memory · 40 tool" is the harness, and leading
+	// with it is the problem this view exists to fix.
+	it("drops the prefix counts once a session has per-type counts", async () => {
+		mocks.listSessions.mockResolvedValue(PER_TYPE);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).queryByText(/40 tool/)).toBeNull();
+		expect(within(row).queryByText(/19 memory/)).toBeNull();
+	});
+
+	// A CLI older than 2.12.0 sent prefixes only. Those rows keep the line
+	// they had rather than going blank.
+	it("keeps the prefix line for a session synced before per-type counts", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).getByText(/6,311 tool/)).toBeTruthy();
+		expect(within(row).queryByTestId("session-produced")).toBeNull();
+		expect(within(row).queryByTestId("session-quiet")).toBeNull();
+	});
+
+	it("renders no plugin lines for a session in which no plugin ran", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...PER_TYPE,
+			sessions: [
+				{
+					...PER_TYPE.sessions[0],
+					counts_by_type: { "session.start": 1, "tool.file.read": 4 },
+				},
+			],
+		});
+		renderAppAt("/sessions");
+
+		const row = await screen.findByTestId("session-row");
+		expect(within(row).queryByTestId("session-produced")).toBeNull();
+		expect(within(row).queryByTestId("session-quiet")).toBeNull();
+		expect(within(row).queryByTestId("session-failed")).toBeNull();
+		// Not the prefix line either: the per-type counts are present, and
+		// they say no plugin did anything.
+		expect(within(row).queryByText(/tool/)).toBeNull();
 	});
 });
