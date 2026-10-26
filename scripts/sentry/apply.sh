@@ -19,6 +19,13 @@
 #   in `detectorIds`, so that field is where a workflow's project binding now
 #   lives - not the URL.
 #
+# One kind of detector does NOT come with the project: a metric_issue detector,
+# which watches a number. Those are payloads in scripts/sentry/detectors/, and
+# this script creates or updates them - matched by name - BEFORE it applies any
+# workflow, then lists detectors again, so a rule can bind a monitor created in
+# the same run. A detector file never says who is told; that is still a rule's
+# job, and a detector file carrying workflow_ids is refused.
+#
 # So the files here name a project and a detector TYPE, and this script
 # resolves the id. Pinning detector ids in the files would put a number that
 # means nothing to a reviewer in the diff, and break whenever a project is
@@ -45,7 +52,8 @@
 #   no file arguments means every rule in scripts/sentry/rules/
 #
 # Env:
-#   SENTRY_AUTH_TOKEN  required unless --dry-run. Needs org:read + alerts:write.
+#   SENTRY_AUTH_TOKEN  required unless --dry-run. Needs org:read + alerts:write
+#                      (alerts:write also covers creating a detector).
 #   SENTRY_ORG         defaults to onlooker-vw
 #
 # Exit codes, three-way for the reason client-error-monitor.sh gives:
@@ -66,6 +74,7 @@ readonly RULES_DIR="${SCRIPT_DIR}/rules"
 # a fixture, and its guard can only be tested through a file that the WORKFLOW
 # path rejects first - which is a test that passes for the wrong reason.
 readonly DASHBOARDS_DIR="${SENTRY_DASHBOARDS_DIR:-${SCRIPT_DIR}/dashboards}"
+readonly DETECTORS_DIR="${SENTRY_DETECTORS_DIR:-${SCRIPT_DIR}/detectors}"
 readonly ORG="${SENTRY_ORG:-onlooker-vw}"
 readonly API="${SENTRY_API_BASE:-https://sentry.io/api/0}"
 
@@ -87,6 +96,7 @@ while (($# > 0)); do
 		--applied-dirs)
 			basename "${RULES_DIR}"
 			basename "${DASHBOARDS_DIR}"
+			basename "${DETECTORS_DIR}"
 			exit 0
 			;;
 		-*)
@@ -220,6 +230,95 @@ detector_name() {
 	jq -r --arg id "$1" \
 		'[.[] | select((.id|tostring) == $id) | .name] | first // "name unknown"' \
 		<<<"${DETECTORS}"
+}
+
+# The environment filter again, in a detector's vocabulary: an array of data
+# sources, each carrying its own. EVERY source is checked, because a monitor
+# with one unscoped source counts staging failures into a production alert.
+#
+# And the binding stays in rules/. Sentry lets a detector name its workflows in
+# workflow_ids, which would make a second place that decides who is told - one
+# that apply_workflow's refusal and report_drift both read past.
+assert_detector_sound() {
+	local file="$1" bad
+	bad="$(jq -r '[.detector.data_sources[]?
+		| select(.environment != "production") | (.environment // "unset")]
+		| join(", ")' "${file}")"
+
+	if [[ -n "${bad}" ]] || ! jq -e '(.detector.data_sources | length) > 0' "${file}" >/dev/null 2>&1; then
+		echo "  REFUSED  ${file##*/}: a data source counts '${bad:-nothing}', expected 'production'" >&2
+		return 1
+	fi
+
+	if jq -e '.detector | has("workflow_ids") or has("workflowIds")' "${file}" >/dev/null 2>&1; then
+		echo "  REFUSED  ${file##*/}: carries workflow_ids. Who is told belongs in a" >&2
+		echo "           rule in rules/, bound by detectorName." >&2
+		return 1
+	fi
+}
+
+# 1 when the last apply_detector created something, so the caller knows the
+# detector list it holds is stale.
+DETECTOR_CREATED=0
+
+# Detectors are matched by (project, type, name), the way workflows are matched
+# by name: the id is Sentry's, and a file pinning it would break the day the
+# monitor is recreated.
+apply_detector() {
+	local file="$1"
+	local project type name payload
+	project="$(jq -r '.project' "${file}")"
+	type="$(jq -r '.detector.type' "${file}")"
+	name="$(jq -r '.detector.name' "${file}")"
+
+	if ((DRY_RUN == 1)); then
+		echo "  would apply  detector: ${name}  ->  project ${project}, type ${type}"
+		return 0
+	fi
+
+	local -a matches=()
+	while IFS= read -r line; do
+		[[ -n "${line}" ]] && matches+=("${line}")
+	done < <(detectors_matching "${project}" "${type}" "${name}")
+
+	# The state the hand-made waitlist monitor was left in: two of one name.
+	# Updating the first would leave the second detecting with nothing bound to
+	# it, and neither outcome would fail.
+	if ((${#matches[@]} > 1)); then
+		echo "  REFUSED  detector ${name}: ${#matches[@]} detectors in project ${project}" >&2
+		echo "           carry that name. Delete all but one in Sentry, so this" >&2
+		echo "           file describes exactly one:" >&2
+		printf '             %s\n' "${matches[@]}" >&2
+		return 1
+	fi
+
+	payload="$(jq -c '.detector' "${file}")"
+
+	# Create is project-scoped, update is org-scoped. That asymmetry is
+	# Sentry's, not ours.
+	local method path verb
+	if ((${#matches[@]} == 1)); then
+		method=PUT path="/organizations/${ORG}/detectors/${matches[0]%%$'\t'*}/" verb=updated
+	else
+		method=POST path="/organizations/${ORG}/projects/${project}/detectors/" verb=created
+	fi
+
+	local response status id
+	response="$(api "${method}" "${path}" "${payload}")"
+	status="$(status_of "${response}")"
+
+	if [[ "${status}" == "200" || "${status}" == "201" ]]; then
+		id="$(body_of "${response}" | jq -r '.id // "unknown"' 2>/dev/null || echo unknown)"
+		echo "  ok       ${verb}: detector ${name}  (id ${id})"
+		[[ "${verb}" == created ]] && DETECTOR_CREATED=1
+		return 0
+	fi
+
+	echo "  ERROR    detector ${name} rejected (HTTP ${status}):" >&2
+	body_of "${response}" | head -c 600 | sed 's/^/             /' >&2
+	echo >&2
+	deprecation_note
+	return 1
 }
 
 apply_workflow() {
@@ -541,6 +640,33 @@ report_drift() {
 	done < <(body_of "${response}" |
 		jq -r '.[] | [.id, .name, ((.detectorIds // []) | join(","))] | @tsv')
 
+	# Metric monitors no file defines. The other detector types come with a
+	# project and are not ours to define, but a metric_issue detector exists
+	# only because somebody made it - and one made by hand is exactly what this
+	# directory was built to retire. The waitlist monitor was made twice by
+	# hand, and the duplicate would have notified twice for one failure.
+	local defined="" projects
+	local -a detector_files=()
+	while IFS= read -r file; do detector_files+=("${file}"); done \
+		< <(find "${DETECTORS_DIR}" -maxdepth 1 -name '*.json' 2>/dev/null | sort)
+	if ((${#detector_files[@]} > 0)); then
+		defined="$(jq -r '[.project, .detector.type, .detector.name] | @tsv' "${detector_files[@]}")"
+	fi
+	projects="$({
+		jq -r '.project' "${known_files[@]}"
+		((${#detector_files[@]} == 0)) || jq -r '.project' "${detector_files[@]}"
+	} | sort -u)"
+
+	local project type
+	while IFS=$'\t' read -r id project type name; do
+		[[ -n "${id}" ]] || continue
+		grep -Fxq "${project}" <<<"${projects}" || continue
+		grep -Fxq "${project}"$'\t'"${type}"$'\t'"${name}" <<<"${defined}" && continue
+		found=1
+		echo "  drift    Sentry has a metric monitor this repo does not define: ${name} [id ${id}]"
+	done < <(jq -r '.[] | select(.type == "metric_issue")
+		| [.id, (.projectId|tostring), .type, .name] | @tsv' <<<"${DETECTORS}")
+
 	((found == 0)) && echo "  no drift: every workflow on these projects is defined here," \
 		"listening only to detectors it describes"
 	return 0
@@ -559,6 +685,43 @@ if ((DRY_RUN == 0)); then
 		echo "sentry: could not resolve detectors; nothing was applied" >&2
 		exit 1
 	}
+fi
+
+# Detectors before workflows, because a workflow binds to a detector by name
+# and the first apply of a new monitor is the one that creates it. Every file
+# in the directory, whatever rule files were named - as with dashboards.
+declare -a DETECTOR_FILES=()
+while IFS= read -r file; do DETECTOR_FILES+=("${file}"); done \
+	< <(find "${DETECTORS_DIR}" -maxdepth 1 -name '*.json' 2>/dev/null | sort)
+
+if ((${#DETECTOR_FILES[@]} > 0)); then
+	created_any=0
+	for file in "${DETECTOR_FILES[@]}"; do
+		if ! jq -e '.project and .detector.name and .detector.type' "${file}" >/dev/null 2>&1; then
+			echo "  ERROR    ${file##*/} needs a .project, a .detector.name and a .detector.type" >&2
+			failures=$((failures + 1))
+			continue
+		fi
+
+		assert_detector_sound "${file}" || {
+			failures=$((failures + 1))
+			continue
+		}
+
+		DETECTOR_CREATED=0
+		apply_detector "${file}" || failures=$((failures + 1))
+		((DETECTOR_CREATED == 0)) || created_any=1
+	done
+
+	# The list held now predates what was just created, and a rule binding a
+	# new monitor would report it missing.
+	if ((DRY_RUN == 0 && created_any == 1)); then
+		load_detectors || {
+			echo "sentry: could not re-read detectors after creating one; no workflow was applied" >&2
+			exit 1
+		}
+	fi
+	echo
 fi
 
 for file in "${RULE_FILES[@]}"; do

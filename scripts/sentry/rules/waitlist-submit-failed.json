@@ -1,0 +1,57 @@
+{
+	"_comment": [
+		"Tells somebody when ../detectors/waitlist-submit-failed.json raises an",
+		"issue. Its own workflow on purpose: the hand-made monitor this replaces",
+		"was connected in the UI to 'Website error (production)', which made",
+		"that workflow listen to a detector website-errors.json does not",
+		"describe, and apply.sh has refused to update it ever since (ONL-119).",
+		"One file, one detector, keeps the refusal meaningful.",
+		"",
+		"detectorName is required: it is how this file finds a detector apply.sh",
+		"created itself, and the name is the only handle that survives the",
+		"detector being recreated.",
+		"",
+		"first_seen_event, as in cron-checkin-missed.json, which was SEEN TO FIRE",
+		"for a monitor_check_in_failure detector. Whether it fires for a",
+		"metric_issue detector is what ONL-215 is not done until it has been",
+		"seen."
+	],
+	"project": "4512074226401280",
+	"detectorType": "metric_issue",
+	"detectorName": "Waitlist submit failing (production)",
+	"workflow": {
+		"name": "Waitlist submit failing (production)",
+		"environment": "production",
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
+			{
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
+			}
+		]
+	}
+}

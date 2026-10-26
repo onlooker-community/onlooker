@@ -86,6 +86,55 @@ for file in "${RULES_DIR}"/*.json; do
 done
 
 echo
+echo "sentry/apply: the detectors it ships with"
+
+readonly DETECTORS_DIR="${SCRIPT_DIR}/detectors"
+
+for file in "${DETECTORS_DIR}"/*.json; do
+	name="$(basename "${file}")"
+
+	if jq -e . "${file}" >/dev/null 2>&1; then
+		pass "${name} is valid JSON"
+	else
+		fail "${name} is valid JSON" "jq could not parse it"
+		continue
+	fi
+
+	# The same invariant as the rules, in the detector's own vocabulary. A
+	# monitor counting staging failures pages for somebody's work in progress.
+	# Every data source, not the first: one unscoped source is enough.
+	if jq -e '(.detector.data_sources | length) > 0
+		and all(.detector.data_sources[]; .environment == "production")' \
+		"${file}" >/dev/null 2>&1; then
+		pass "${name} counts production alone"
+	else
+		fail "${name} counts production alone" \
+			"a data source is not scoped to production"
+	fi
+
+	if [[ "$(jq -r '.project' "${file}")" =~ ^[0-9]+$ ]]; then
+		pass "${name} names its project by id"
+	else
+		fail "${name} names its project by id" "project is not numeric"
+	fi
+
+	# A detector raises an issue and tells nobody. The rule that binds it is
+	# what makes it an alert, and binding happens by name - so a detector no
+	# rule names is a monitor that detects into silence, the fault this
+	# directory was built to retire.
+	detector_name="$(jq -r '.detector.name' "${file}")"
+	detector_project="$(jq -r '.project' "${file}")"
+	if jq -e --arg n "${detector_name}" --arg p "${detector_project}" \
+		'select(.detectorName == $n and .project == $p)' \
+		"${RULES_DIR}"/*.json >/dev/null 2>&1; then
+		pass "${name} is bound by a rule that tells somebody"
+	else
+		fail "${name} is bound by a rule that tells somebody" \
+			"no rule in rules/ names detector '${detector_name}' in project ${detector_project}"
+	fi
+done
+
+echo
 echo "sentry/apply: what it refuses"
 
 # Every rule file in the repo, checked without touching the network.
@@ -119,6 +168,63 @@ expect_exit 1 "refuses a rule with no project or name" \
 	env -u SENTRY_AUTH_TOKEN "${APPLY}" --dry-run "${shapeless_rule}"
 
 rm -f "${staging_rule}" "${unscoped_rule}" "${shapeless_rule}"
+
+# Detector fixtures go through SENTRY_DETECTORS_DIR, never argv: positional
+# arguments are rule files, and a detector handed over that way would be
+# refused by the RULE shape check - a pass for the wrong reason, the trap the
+# dashboard tests below record falling into once.
+detector_dir="$(mktemp -d -t sentry-detector-XXXXXX)"
+shipped_detector="${DETECTORS_DIR}/waitlist-submit-failed.json"
+
+dry_run_detectors() {
+	env -u SENTRY_AUTH_TOKEN SENTRY_DETECTORS_DIR="${detector_dir}" \
+		"${APPLY}" --dry-run 2>&1 || true
+}
+
+jq '.detector.data_sources[0].environment = "staging"' \
+	"${shipped_detector}" >"${detector_dir}/d.json"
+detector_out="$(dry_run_detectors)"
+if [[ "${detector_out}" == *"REFUSED"*"staging"* ]]; then
+	pass "refuses a detector that counts staging"
+else
+	fail "refuses a detector that counts staging" "${detector_out}"
+fi
+
+# Two sources where only the second is unscoped: a check of the first alone
+# would wave it through.
+jq '.detector.data_sources += [.detector.data_sources[0] | del(.environment)]' \
+	"${shipped_detector}" >"${detector_dir}/d.json"
+detector_out="$(dry_run_detectors)"
+if [[ "${detector_out}" == *"REFUSED"* ]]; then
+	pass "refuses a detector with any data source not scoped to production"
+else
+	fail "refuses a detector with any data source not scoped to production" \
+		"${detector_out}"
+fi
+
+# Binding lives in rules/. A detector file carrying workflow_ids would make
+# a second place that decides who is told, and the drift check reads only
+# the first.
+jq '.detector.workflow_ids = [3984756]' \
+	"${shipped_detector}" >"${detector_dir}/d.json"
+detector_out="$(dry_run_detectors)"
+if [[ "${detector_out}" == *"REFUSED"*"workflow_ids"* ]]; then
+	pass "refuses a detector that binds itself to a workflow"
+else
+	fail "refuses a detector that binds itself to a workflow" "${detector_out}"
+fi
+
+# The positive case, so the refusals are not passing because the detector
+# path rejects everything.
+cp "${shipped_detector}" "${detector_dir}/d.json"
+detector_out="$(dry_run_detectors)"
+if [[ "${detector_out}" == *"would apply  detector: Waitlist submit failing (production)"* ]]; then
+	pass "accepts the shipped detector"
+else
+	fail "accepts the shipped detector" "${detector_out}"
+fi
+
+rm -rf "${detector_dir}"
 
 echo
 echo "sentry/apply: what it says when it cannot see"
@@ -255,10 +361,18 @@ if command -v python3 >/dev/null 2>&1; then
 	absent_rule="$(mktemp -t sentry-rule-XXXXXX).json"
 	jq '.detectorName = "No such detector"' "${cron_base}" >"${absent_rule}"
 
+	# Every run applies the detectors directory, the way it applies dashboards.
+	# These tests are about binding rules, so they get an empty one unless
+	# they set FAKE_DETECTORS_DIR - otherwise each would also create the
+	# shipped monitor in the fake, and the detector tests below could not tell
+	# their own writes from everyone else's.
+	no_detectors="$(mktemp -d -t sentry-no-detectors-XXXXXX)"
+
 	apply_against_fake() {
 		env SENTRY_AUTH_TOKEN=not-a-real-value \
 			SENTRY_API_BASE="http://127.0.0.1:${detectors_port}" \
-			"${APPLY}" "$1" 2>&1 || true
+			SENTRY_DETECTORS_DIR="${FAKE_DETECTORS_DIR:-${no_detectors}}" \
+			"${APPLY}" "$@" 2>&1 || true
 	}
 
 	# The exit code cannot carry this on its own. apply.sh exits 1 for a
@@ -401,9 +515,97 @@ if command -v python3 >/dev/null 2>&1; then
 			"${described_output}"
 	fi
 
+	echo
+	echo "sentry/apply: detectors it creates and updates"
+
+	# Metric monitors are the one detector apply.sh has to MAKE. issue_stream,
+	# error and monitor_check_in_failure come with a project; a metric_issue
+	# detector exists only if somebody creates it, and the waitlist's was
+	# created by hand, twice, with no payload anywhere (onlooker-txcu.14).
+	fake_detectors="$(mktemp -d -t sentry-fake-detectors-XXXXXX)"
+
+	# Matched by name, like workflows and dashboards. 10456140 is the live
+	# hand-made monitor, so this is the adoption path: the first apply takes it
+	# over rather than stacking a duplicate beside it.
+	jq '.detector.name = "waitlist.submit_failed"' \
+		"${DETECTORS_DIR}/waitlist-submit-failed.json" >"${fake_detectors}/d.json"
+	adopt_output="$(FAKE_DETECTORS_DIR="${fake_detectors}" \
+		apply_against_fake "${RULES_DIR}/api-faults.json")"
+
+	if [[ "${adopt_output}" == *"updated: detector waitlist.submit_failed  (id 10456140)"* ]]; then
+		pass "updates the detector its file names rather than creating another"
+	else
+		fail "updates the detector its file names rather than creating another" \
+			"${adopt_output}"
+	fi
+
+	# A detector the repo defines is not drift - but the duplicates beside it,
+	# which no file names, still are.
+	if [[ "${adopt_output}" == *"drift"*"metric monitor"*"waitlist.submit_failed"* ]]; then
+		fail "does not call a detector the repo defines drift" "${adopt_output}"
+	else
+		pass "does not call a detector the repo defines drift"
+	fi
+
+	if [[ "${adopt_output}" == *"drift"*"metric monitor this repo does not define: Duplicated by hand [id 10456901]"* ]]; then
+		pass "reports a metric monitor no file defines"
+	else
+		fail "reports a metric monitor no file defines" "${adopt_output}"
+	fi
+
+	# The ordering property, and the reason detectors are applied before rules
+	# and the list is read again: a rule must be able to bind a detector this
+	# same run created. Without the re-read it reports "no 'metric_issue'
+	# detector" for an id that exists, and a first apply could never succeed.
+	jq '.detector.name = "Created this run"' \
+		"${DETECTORS_DIR}/waitlist-submit-failed.json" >"${fake_detectors}/d.json"
+	same_run_rule="$(mktemp -t sentry-rule-XXXXXX).json"
+	jq '.detectorName = "Created this run"
+		| .workflow.name = "Bound in the same run"' \
+		"${RULES_DIR}/waitlist-submit-failed.json" >"${same_run_rule}"
+	create_output="$(FAKE_DETECTORS_DIR="${fake_detectors}" \
+		apply_against_fake "${same_run_rule}")"
+
+	if [[ "${create_output}" == *"created: detector Created this run  (id 8888"* ]]; then
+		pass "creates a detector no live one matches, under its project"
+	else
+		fail "creates a detector no live one matches, under its project" \
+			"${create_output}"
+	fi
+
+	if [[ "${create_output}" == *"Bound in the same run  (detector 8888"* ]]; then
+		pass "binds a rule to a detector created in the same run"
+	else
+		fail "binds a rule to a detector created in the same run" \
+			"${create_output}"
+	fi
+
+	# The hand-made state the live monitor was actually left in: two of the
+	# same name. Updating whichever came first would leave the other detecting
+	# with nobody bound to it, and nothing would fail.
+	jq '.detector.name = "Duplicated by hand"' \
+		"${DETECTORS_DIR}/waitlist-submit-failed.json" >"${fake_detectors}/d.json"
+	dupe_output="$(FAKE_DETECTORS_DIR="${fake_detectors}" \
+		apply_against_fake "${RULES_DIR}/api-faults.json")"
+
+	if [[ "${dupe_output}" == *"REFUSED"*"Duplicated by hand"*"10456901"*"10456902"* ]]; then
+		pass "refuses a detector file whose name matches two live detectors, naming both"
+	else
+		fail "refuses a detector file whose name matches two live detectors, naming both" \
+			"${dupe_output}"
+	fi
+
+	if [[ "${dupe_output}" == *"updated: detector Duplicated by hand"* ]]; then
+		fail "sends no PUT for the detector it refused" "${dupe_output}"
+	else
+		pass "sends no PUT for the detector it refused"
+	fi
+
 	kill "${detectors_pid}" 2>/dev/null || true
 	wait "${detectors_pid}" 2>/dev/null || true
-	rm -f "${cron_base}" "${ambiguous_rule}" "${named_rule}" "${absent_rule}"
+	rm -rf "${no_detectors}" "${fake_detectors}"
+	rm -f "${cron_base}" "${ambiguous_rule}" "${named_rule}" "${absent_rule}" \
+		"${same_run_rule}"
 else
 	echo "  skip  detector binding tests (python3 not available)"
 fi
