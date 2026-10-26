@@ -6,7 +6,12 @@ vi.mock("../api/client", () => ({
 	apiClient: { get: mocks.get, request: mocks.request },
 }));
 
-import { labelIdentity, listLabels, setLabel } from "../api/labelsApi";
+import {
+	labelIdentity,
+	listLabels,
+	nameForKey,
+	setLabel,
+} from "../api/labelsApi";
 
 describe("listLabels", () => {
 	beforeEach(() => {
@@ -65,5 +70,49 @@ describe("setLabel", () => {
 			machine_id: null,
 			label: null,
 		});
+	});
+});
+
+describe("nameForKey", () => {
+	const KEY = "6a7678979e31";
+
+	it("names a key by its remote label", () => {
+		const labels = new Map([[labelIdentity(KEY, null), "onlooker"]]);
+		expect(nameForKey(labels, KEY, { rootLabels: true })).toBe("onlooker");
+		expect(nameForKey(labels, KEY, { rootLabels: false })).toBe("onlooker");
+	});
+
+	it("prefers the remote label over a root one", () => {
+		const labels = new Map([
+			[labelIdentity(KEY, "m1"), "local copy"],
+			[labelIdentity(KEY, null), "onlooker"],
+		]);
+		expect(nameForKey(labels, KEY, { rootLabels: true })).toBe("onlooker");
+	});
+
+	it("names a root key when every machine agrees on its name", () => {
+		const labels = new Map([
+			[labelIdentity(KEY, "m1"), "scratch"],
+			[labelIdentity(KEY, "m2"), "scratch"],
+		]);
+		expect(nameForKey(labels, KEY, { rootLabels: true })).toBe("scratch");
+	});
+
+	it("names nothing when machines disagree about a root key", () => {
+		const labels = new Map([
+			[labelIdentity(KEY, "m1"), "scratch"],
+			[labelIdentity(KEY, "m2"), "sandbox"],
+		]);
+		expect(nameForKey(labels, KEY, { rootLabels: true })).toBeNull();
+	});
+
+	it("ignores root labels when told to", () => {
+		const labels = new Map([[labelIdentity(KEY, "m1"), "scratch"]]);
+		expect(nameForKey(labels, KEY, { rootLabels: false })).toBeNull();
+	});
+
+	it("does not match another key that ends the same way", () => {
+		const labels = new Map([[labelIdentity(`00${KEY}`, "m1"), "other"]]);
+		expect(nameForKey(labels, KEY, { rootLabels: true })).toBeNull();
 	});
 });

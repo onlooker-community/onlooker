@@ -13,6 +13,7 @@ import {
 	useOutletContext,
 } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { labelIdentity } from "../api/labelsApi";
 import LessonsPage, { type LessonsContext } from "../pages/LessonsPage";
 
 // auth and lessonsApi are the seams, matching machines-route.test.tsx.
@@ -38,6 +39,15 @@ const mocks = vi.hoisted(() => ({
 	getLesson: vi.fn(),
 	setLessonStatus: vi.fn(),
 	retractOrgLesson: vi.fn(),
+	listLabels: vi.fn(),
+}));
+
+// importOriginal so labelIdentity and nameForKey stay real, the reasoning
+// sessions-page.test.tsx gives: the page and these tests must agree on how a
+// label is keyed.
+vi.mock("../api/labelsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/labelsApi")>()),
+	listLabels: mocks.listLabels,
 }));
 
 vi.mock("../api/lessonsApi", () => ({
@@ -143,6 +153,8 @@ beforeEach(() => {
 	mocks.getLesson.mockResolvedValue({ lesson: UNEXPECTED_FETCH, own: true });
 	mocks.setLessonStatus.mockReset();
 	mocks.retractOrgLesson.mockReset();
+	mocks.listLabels.mockReset();
+	mocks.listLabels.mockResolvedValue(new Map());
 });
 
 describe("the list pane", () => {
@@ -1748,6 +1760,64 @@ describe("the visual language", () => {
  * design. It arrives as `owned_ids` beside the listed documents, and as `own`
  * on the single-lesson fetch the deep link uses.
  */
+/**
+ * A lesson's project_key under the name the viewer gave it on Sessions.
+ *
+ * The key stays beside the name: it is what two lessons are correlated by,
+ * and a name is only the viewer's own.
+ */
+describe("the project's name", () => {
+	const KEY = VITE.evidence.project_key;
+
+	it("names the project by the viewer's label", async () => {
+		mocks.listLabels.mockResolvedValue(
+			new Map([[labelIdentity(KEY, null), "onlooker"]]),
+		);
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+
+		expect(await screen.findByText(`project: onlooker (${KEY})`)).toBeDefined();
+	});
+
+	it("shows the bare key when the project has no name", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+
+		expect(await screen.findByText(`project: ${KEY}`)).toBeDefined();
+	});
+
+	it("shows the bare key when the labels cannot be read", async () => {
+		mocks.listLabels.mockRejectedValue(new Error("offline"));
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+
+		expect(await screen.findByText(`project: ${KEY}`)).toBeDefined();
+	});
+
+	it("names the viewer's own lesson by a root label", async () => {
+		mocks.listLabels.mockResolvedValue(
+			new Map([[labelIdentity(KEY, "m1"), "scratch"]]),
+		);
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+
+		expect(await screen.findByText(`project: scratch (${KEY})`)).toBeDefined();
+	});
+
+	// A root key hashes a path. Someone else's path hashing to the same key
+	// says nothing about which repository it is.
+	it("does not put a root label on another account's lesson", async () => {
+		mocks.listLabels.mockResolvedValue(
+			new Map([[labelIdentity(KEY, "m1"), "scratch"]]),
+		);
+		withPool([VITE], { owned_ids: [] });
+		await at(`/lessons/${VITE.id}`);
+
+		expect(await screen.findByText(`project: ${KEY}`)).toBeDefined();
+		expect(screen.queryByText(/scratch/)).toBeNull();
+	});
+});
+
 describe("a lesson the viewer does not own", () => {
 	it("offers no status control", async () => {
 		withPool([VITE], { owned_ids: [] });
