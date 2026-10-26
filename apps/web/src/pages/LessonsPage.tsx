@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useMatch } from "react-router-dom";
+import { type LabelMap, listLabels } from "../api/labelsApi";
 import {
 	type Lesson,
 	type LessonStatus,
@@ -101,6 +102,14 @@ export interface LessonsContext {
 	 * disagree about a row.
 	 */
 	formerAuthors: string[];
+	/**
+	 * The viewer's names for project keys, as Sessions sets them (ONL-189).
+	 *
+	 * Read once rather than per page: a label belongs to the viewer, not to a
+	 * lesson, so nothing about paging or a filter changes it. Empty until
+	 * read and empty if the read fails, and every key then shows as itself.
+	 */
+	labels: LabelMap;
 }
 
 /**
@@ -152,6 +161,8 @@ export default function LessonsPage() {
 	// merged on loadMore, left alone by patchLesson, which changes a status
 	// and never who anchors a lesson.
 	const [formerAuthors, setFormerAuthors] = useState<string[]>([]);
+	// Not reset by load(): see the context field's comment.
+	const [labels, setLabels] = useState<LabelMap>(new Map());
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// Whether any load attempt has ever settled - guarded below so a
 	// superseded request cannot flip it early, and never reset back to false
@@ -283,6 +294,23 @@ export default function LessonsPage() {
 		void load();
 	}, [load]);
 
+	// Its own effect rather than part of load(), so a filter change does not
+	// reread it and a failure here never blanks a pool that loaded fine -
+	// SessionsPage keeps the same read apart for the same reason.
+	useEffect(() => {
+		let active = true;
+		listLabels()
+			.then((loaded) => {
+				if (active) setLabels(loaded);
+			})
+			.catch(() => {
+				// Deliberately quiet: a key shown as itself is not wrong.
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
+
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
 		// Not `++requestSeq.current`: loadMore continues the query load() most
@@ -363,6 +391,7 @@ export default function LessonsPage() {
 		authors,
 		retractableIn,
 		formerAuthors,
+		labels,
 	};
 
 	// The live region's whole text, computed once rather than duplicated

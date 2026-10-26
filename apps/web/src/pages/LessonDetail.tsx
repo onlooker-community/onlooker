@@ -1,6 +1,7 @@
 import { AuthApiError } from "@onlooker/auth-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
+import { nameForKey } from "../api/labelsApi";
 import {
 	type BrowserStatus,
 	getLesson,
@@ -85,6 +86,7 @@ export default function LessonDetail() {
 		patchLesson,
 		retractableIn: retractableIn_,
 		formerAuthors,
+		labels,
 	} = useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
@@ -444,6 +446,11 @@ export default function LessonDetail() {
 	}
 
 	const { applies_to: appliesTo, consensus, evidence } = lesson;
+	// Root labels only on the viewer's own lesson: a root key hashes a path,
+	// and someone else's path hashing to it says nothing about the repository.
+	const projectName = nameForKey(labels, evidence.project_key, {
+		rootLabels: own,
+	});
 
 	// A retracted lesson can be made active again; an active one can be
 	// retracted. Those are the only two a human may assert - and apps/api
@@ -616,7 +623,9 @@ export default function LessonDetail() {
 						  mapping to a repository lives only in a local manifest,
 						  and author_key carries the unlinkability guarantee. They
 						  are shown because they are what a person correlates two
-						  lessons by, not because they mean anything on their own.
+						  lessons by, not because they mean anything on their own -
+						  which is why the key stays beside the viewer's name for
+						  it rather than giving way to it.
 						*/}
 						<Chips
 							values={[
@@ -627,7 +636,9 @@ export default function LessonDetail() {
 								...(own ? [] : ["from: another account"]),
 								`source: ${lesson.source}`,
 								`visibility: ${lesson.visibility}`,
-								`project: ${evidence.project_key}`,
+								projectName
+									? `project: ${projectName} (${evidence.project_key})`
+									: `project: ${evidence.project_key}`,
 							]}
 						/>
 					</Field>

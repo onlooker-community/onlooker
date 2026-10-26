@@ -37,6 +37,32 @@ export function labelIdentity(
 	return `${machineId ?? ""}\n${projectKey}`;
 }
 
+/**
+ * The user's name for a key seen without its machine, or null for none.
+ *
+ * A lesson's evidence carries a project_key and nothing else - no basis, no
+ * machine - so labelIdentity cannot be asked directly. A remote label needs
+ * no machine and answers first. A root label is the user's name for a path
+ * on one machine, so it answers only when the caller says the key is the
+ * user's own (`rootLabels`), and only when every machine that named the key
+ * named it the same: two names for one key leaves nothing honest to pick.
+ */
+export function nameForKey(
+	labels: LabelMap,
+	projectKey: string,
+	{ rootLabels }: { rootLabels: boolean },
+): string | null {
+	const remote = labels.get(labelIdentity(projectKey, null));
+	if (remote !== undefined) return remote;
+	if (!rootLabels) return null;
+	const names = new Set<string>();
+	for (const [identity, label] of labels) {
+		// The key follows the delimiter, so this is an exact match on it.
+		if (identity.endsWith(`\n${projectKey}`)) names.add(label);
+	}
+	return names.size === 1 ? [...names][0] : null;
+}
+
 export async function listLabels(): Promise<LabelMap> {
 	const { labels } = await apiClient.get<{ labels: ProjectLabel[] }>(
 		LABEL_ENDPOINTS.labels,
