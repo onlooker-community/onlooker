@@ -1,5 +1,4 @@
 import handler from "@astrojs/cloudflare/entrypoints/server";
-import * as Sentry from "@sentry/cloudflare";
-import { type WebsiteEnv, websiteMonitoringConfig } from "./src/lib/monitoring";
+import { monitored } from "./src/monitoring.worker";
 
-export default Sentry.withSentry<WebsiteEnv>(websiteMonitoringConfig, handler);
+export default monitored(handler);

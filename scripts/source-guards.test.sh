@@ -276,18 +276,26 @@ echo "source-guards: only an app's monitoring.ts reaches the monitoring provider
 #
 # monitoring.provider.ts is the same door, split off so a browser app can load
 # the provider's SDK as its own chunk instead of in the main bundle.
+# monitoring.worker.ts is the same split for apps/website, whose browser and
+# worker halves use different SDKs: one file importing both would ship the
+# Workers SDK to every visitor.
+#
+# apps/website's sentry.*.config.ts are scanned too. @sentry/astro finds them
+# by name at the app root, outside src/, so a src-only scan would let either
+# one call the SDK directly and pass.
 readonly PROVIDER_IMPORT="from ['\"](@sentry/|@onlooker/monitoring-sentry)"
 
-for app in api web; do
+for app in api web website; do
 	app_src="${ROOT}/apps/${app}/src"
-	strays="$(grep -rlE "${PROVIDER_IMPORT}" "${app_src}" 2>/dev/null |
-		grep -vE "/src/monitoring(\.provider)?\.ts$" || true)"
+	strays="$(grep -rlE "${PROVIDER_IMPORT}" "${app_src}" \
+		"${ROOT}/apps/${app}"/sentry.*.config.ts 2>/dev/null |
+		grep -vE "/src/monitoring(\.provider|\.worker)?\.ts$" || true)"
 
 	if [[ -n "${strays}" ]]; then
-		fail "apps/${app} reaches the provider only through src/monitoring(.provider).ts" \
+		fail "apps/${app} reaches the provider only through src/monitoring(.provider|.worker).ts" \
 			"also imported by: ${strays//${ROOT}\//}"
 	else
-		pass "apps/${app} reaches the provider only through src/monitoring(.provider).ts"
+		pass "apps/${app} reaches the provider only through src/monitoring(.provider|.worker).ts"
 	fi
 
 	# The pattern above finds nothing if it is wrong, which reads as a pass.
