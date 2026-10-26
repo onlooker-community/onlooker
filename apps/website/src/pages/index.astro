@@ -74,10 +74,8 @@ export const prerender = true;
 </Layout>
 
 <script>
-  import {
-    createSentryWaitlistSink,
-    createWaitlistTelemetry,
-  } from "../lib/waitlist-telemetry";
+  import { createWaitlistTelemetry } from "../lib/waitlist-telemetry";
+  import { monitor } from "../monitoring";
 
   const form = document.getElementById("signup-form") as HTMLFormElement | null;
   const btn = document.getElementById("submit-btn") as HTMLButtonElement | null;
@@ -85,7 +83,7 @@ export const prerender = true;
   const error = document.getElementById("error-msg");
   const emailInput = document.getElementById("email-input") as HTMLInputElement | null;
 
-  const telemetry = createWaitlistTelemetry(createSentryWaitlistSink());
+  const telemetry = createWaitlistTelemetry(monitor);
   telemetry.viewed();
 
   emailInput?.addEventListener("input", () => {

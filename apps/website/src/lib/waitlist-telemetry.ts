@@ -1,7 +1,7 @@
-import * as Sentry from "@sentry/astro";
+import type { Monitor } from "@onlooker/monitoring";
 
-// Counters for the coming-soon waitlist. Names are the query surface in
-// Sentry Metrics; changing one is a dashboard break, not a rename.
+// Counters for the coming-soon waitlist. Names are the query surface in the
+// provider's metrics; changing one is a dashboard break, not a rename.
 export const WAITLIST_METRICS = {
 	viewed: "waitlist.viewed",
 	emailStarted: "waitlist.email_started",
@@ -11,28 +11,10 @@ export const WAITLIST_METRICS = {
 	abandoned: "waitlist.abandoned",
 } as const;
 
-export type WaitlistAttributes = {
-	looks_valid: boolean;
-};
-
-export type WaitlistSink = {
-	count: (
-		name: string,
-		value?: number,
-		options?: { attributes?: WaitlistAttributes },
-	) => void;
-	log: (message: string, attributes?: WaitlistAttributes) => void;
-	captureException: (error: unknown) => void;
-	startSpan: <T>(
-		options: { name: string; op: string },
-		fn: () => Promise<T>,
-	) => Promise<T>;
-	flush: () => PromiseLike<unknown>;
-};
-
-// The sink is injected so the state machine can be tested without talking to
-// Sentry, and so a missing SDK init cannot throw from a form handler.
-export function createWaitlistTelemetry(sink: WaitlistSink) {
+// The monitor is injected so the state machine can be tested without talking
+// to a provider. A `Monitor` never throws, so a missing SDK init cannot throw
+// from a form handler either.
+export function createWaitlistTelemetry(monitor: Monitor) {
 	let viewed = false;
 	let started = false;
 	let submitted = false;
@@ -42,8 +24,8 @@ export function createWaitlistTelemetry(sink: WaitlistSink) {
 	function emit(name: string, looksValid?: boolean) {
 		const attributes =
 			looksValid === undefined ? undefined : { looks_valid: looksValid };
-		sink.count(name, 1, attributes ? { attributes } : undefined);
-		sink.log(name, attributes);
+		monitor.count(name, 1, attributes);
+		monitor.log("info", name, attributes);
 	}
 
 	return {
@@ -75,11 +57,14 @@ export function createWaitlistTelemetry(sink: WaitlistSink) {
 
 		onSubmitFailed(error: unknown, looksValid: boolean) {
 			emit(WAITLIST_METRICS.submitFailed, looksValid);
-			sink.captureException(error);
+			monitor.captureException(error, { tags: { surface: "waitlist" } });
 		},
 
 		submitWithSpan<T>(fn: () => Promise<T>): Promise<T> {
-			return sink.startSpan({ name: "waitlist.submit", op: "http.client" }, fn);
+			return monitor.startSpan(
+				{ name: "waitlist.submit", op: "http.client" },
+				fn,
+			);
 		},
 
 		// pagehide with persisted=false is a real leave (close / navigate).
@@ -94,29 +79,9 @@ export function createWaitlistTelemetry(sink: WaitlistSink) {
 		},
 
 		flush() {
-			return sink.flush();
+			return monitor.flush(2000);
 		},
 	};
 }
 
 export type WaitlistTelemetry = ReturnType<typeof createWaitlistTelemetry>;
-
-export function createSentryWaitlistSink(): WaitlistSink {
-	return {
-		count(name, value = 1, options) {
-			Sentry.metrics.count(name, value, options);
-		},
-		log(message, attributes) {
-			Sentry.logger.info(message, attributes);
-		},
-		captureException(error) {
-			Sentry.captureException(error, { tags: { surface: "waitlist" } });
-		},
-		startSpan(options, fn) {
-			return Sentry.startSpan(options, fn);
-		},
-		flush() {
-			return Sentry.flush(2000);
-		},
-	};
-}

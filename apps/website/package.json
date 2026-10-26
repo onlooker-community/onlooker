@@ -20,6 +20,8 @@
 	"dependencies": {
 		"@astrojs/cloudflare": "^13.5.2",
 		"@onlooker/brand": "workspace:*",
+		"@onlooker/monitoring": "workspace:*",
+		"@onlooker/monitoring-sentry": "workspace:*",
 		"@onlooker/types": "workspace:*",
 		"@sentry/astro": "10.74.0",
 		"@sentry/cloudflare": "10.74.0",
@@ -27,6 +29,7 @@
 		"wrangler": "^4.93.0"
 	},
 	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20250109.1",
 		"@onlooker/config-biome": "workspace:*",
 		"@onlooker/config-typescript": "workspace:*",
 		"vitest": "^4.1.9"

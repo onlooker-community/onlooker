@@ -12,12 +12,13 @@
 	},
 
 	// DSN is public (it is in the browser bundle). Recorded here so the
-	// worker's withSentry wrapper is not one missing dashboard secret away
-	// from silently shipping with no server-side Sentry. Must match the
-	// string in sentry.client.config.ts.
+	// worker's monitoring wrapper is not one missing dashboard secret away
+	// from silently shipping with no server-side reporting. Must match
+	// WEBSITE_DSN in src/monitoring.ts; src/__tests__/monitoring.test.ts
+	// fails otherwise. Named as apps/api names them.
 	"vars": {
-		"SENTRY_DSN": "https://70d0d23fb0468a859ab7977665b9b2d5@o4512074220371968.ingest.us.sentry.io/4512074226401280",
-		"SENTRY_ENVIRONMENT": "production"
+		"MONITORING_DSN": "https://70d0d23fb0468a859ab7977665b9b2d5@o4512074220371968.ingest.us.sentry.io/4512074226401280",
+		"ENVIRONMENT": "production"
 	},
 
 	// onlooker.dev was attached in the Cloudflare dashboard and lived nowhere

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { websiteMonitoringConfig } from "../lib/monitoring";
+import { browserMonitoringConfig, WEBSITE_DSN } from "../monitoring";
+import { websiteMonitoringConfig } from "../monitoring.worker";
 
 /**
  * Repository files are read with node:fs rather than Vite's `?raw`.
@@ -16,6 +17,7 @@ function repoFile(relativePath: string): string {
 const deployWorkflow = () =>
 	repoFile("../../../../.github/workflows/deploy.yml");
 const astroConfig = () => repoFile("../../astro.config.mjs");
+const wranglerConfig = () => repoFile("../../wrangler.jsonc");
 const turboConfig = () => repoFile("../../../../turbo.json");
 
 describe("websiteMonitoringConfig", () => {
@@ -39,7 +41,7 @@ describe("websiteMonitoringConfig", () => {
 
 	it("passes the DSN through, and stays off without one", () => {
 		expect(
-			websiteMonitoringConfig({ SENTRY_DSN: "https://k@o1.i/1" }).dsn,
+			websiteMonitoringConfig({ MONITORING_DSN: "https://k@o1.i/1" }).dsn,
 		).toBe("https://k@o1.i/1");
 		expect(websiteMonitoringConfig({}).dsn).toBeUndefined();
 	});
@@ -50,10 +52,68 @@ describe("websiteMonitoringConfig", () => {
 	// factory replaced rather than chosen afresh.
 	it("labels events with the environment, defaulting to production", () => {
 		expect(
-			websiteMonitoringConfig({ SENTRY_ENVIRONMENT: "development" })
-				.environment,
+			websiteMonitoringConfig({ ENVIRONMENT: "development" }).environment,
 		).toBe("development");
 		expect(websiteMonitoringConfig({}).environment).toBe("production");
+	});
+
+	// The shared vocabulary, not whatever string the var holds. A provider
+	// files `prod` and `production` as two environments, so a dashboard
+	// filtered on one silently drops the other.
+	it("names the environment in the vocabulary every app shares", () => {
+		expect(
+			websiteMonitoringConfig({ ENVIRONMENT: "staging" }).environment,
+		).toBe("staging");
+		expect(websiteMonitoringConfig({ ENVIRONMENT: "prod" }).environment).toBe(
+			"production",
+		);
+	});
+});
+
+describe("browserMonitoringConfig", () => {
+	// The case the inline `DEV ? "development" : "production"` got wrong: any
+	// build that was not the dev server called itself production, so a
+	// staging build would have reported straight into production's view.
+	it("labels a staging build staging", () => {
+		expect(browserMonitoringConfig("staging", undefined).environment).toBe(
+			"staging",
+		);
+	});
+
+	it("labels the dev server development and a production build production", () => {
+		expect(browserMonitoringConfig("development", undefined).environment).toBe(
+			"development",
+		);
+		expect(browserMonitoringConfig("production", undefined).environment).toBe(
+			"production",
+		);
+	});
+
+	// Empty and unset are one answer. A deploy that could not work out the
+	// commit exports "", and "" is a release name Sentry accepts.
+	it("stamps the build's commit, and treats an empty one as none", () => {
+		expect(browserMonitoringConfig("production", "0f1e2d3c").release).toBe(
+			"0f1e2d3c",
+		);
+		expect(browserMonitoringConfig("production", "").release).toBeUndefined();
+	});
+
+	it("sends to the website's DSN", () => {
+		expect(browserMonitoringConfig("production", undefined).dsn).toBe(
+			WEBSITE_DSN,
+		);
+	});
+});
+
+/**
+ * The browser and the worker are one project, and nothing joins the two DSNs
+ * but this. Split them and client and server events land in different
+ * projects, where a session that starts in one and fails in the other reads as
+ * two unrelated issues.
+ */
+describe("the browser and the worker report to one project", () => {
+	it("declares the browser's DSN as the worker's MONITORING_DSN", () => {
+		expect(wranglerConfig()).toContain(`"MONITORING_DSN": "${WEBSITE_DSN}"`);
 	});
 });
 

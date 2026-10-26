@@ -209,6 +209,12 @@ importers:
       '@onlooker/brand':
         specifier: workspace:*
         version: link:../../packages/brand
+      '@onlooker/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
+      '@onlooker/monitoring-sentry':
+        specifier: workspace:*
+        version: link:../../packages/monitoring-sentry
       '@onlooker/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -225,6 +231,9 @@ importers:
         specifier: ^4.93.0
         version: 4.102.0(@cloudflare/workers-types@4.20260702.1)
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250109.1
+        version: 4.20260702.1
       '@onlooker/config-biome':
         specifier: workspace:*
         version: link:../../packages/config-biome
