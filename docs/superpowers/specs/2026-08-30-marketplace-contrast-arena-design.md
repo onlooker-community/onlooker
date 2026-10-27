@@ -382,7 +382,9 @@ assayer's audit files under `assayer/6a7678979e31/` for read 2.
 
 Plugin-side findings from this arena went where *Where findings go* says:
 ecosystem-449.13–.15, plus ONL-38 (per-edit cost), ONL-39 (lineage's per-call
-cost) and ONL-40 (inspector's overhead) in Linear.
+cost) and ONL-40 (inspector's overhead) in Linear. The `${package_root}` gap
+below was named as already evidenced and then never filed. It went to Linear as
+ONL-214 on 2026-10-26, when that omission was found while closing this out.
 
 ## Where findings go *(approved)*
 
@@ -395,9 +397,10 @@ Two findings are already evidenced and need no soak:
 1. **Inspector has no `${package_root}` substitution**, so a workspace-scoped
    typecheck cannot be expressed. The only expressible form emits spurious
    errors on a clean tree, with the evidence above. Every monorepo consumer hits
-   this.
+   this. Filed as ONL-214.
 2. **Echo's default `watch_paths` is marketplace-repo-shaped.** Any consumer
    without a `plugins/*/agents/*.md` layout installs a permanent silent no-op.
+   Filed as ecosystem-449.15.
 
 A third is a second confirmed instance rather than a new bug: `ecosystem-449.12`
 (memory-recall-tracker encoding `github.com` where Claude Code writes
