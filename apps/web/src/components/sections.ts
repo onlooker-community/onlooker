@@ -44,9 +44,12 @@ export const SECTIONS = [
  * the header - and a reorder for layout's sake would quietly change both.
  *
  * The split follows the design this header was taken from, which puts what the
- * product does on one side and who you are on the other. See ONL-178.
+ * product does on one side and who you are on the other. See ONL-178. Orgs
+ * joined the account side in ONL-218, when that side became a dropdown under
+ * the signed-in person's name: which orgs you belong to is about who you are.
  */
 export const ACCOUNT_SECTION_PATHS: readonly string[] = [
+	"/orgs",
 	"/settings",
 	"/profile",
 ];

@@ -63,6 +63,12 @@ function renderShell(path = "/lessons") {
 	);
 }
 
+// Orgs, Settings, Profile and Sign out live behind the signed-in person's name
+// (ONL-218), and like the narrow menu the dropdown is rendered only while open.
+const accountButton = () =>
+	screen.getByRole("button", { name: /someone@example\.com/i });
+const openAccountMenu = () => fireEvent.click(accountButton());
+
 beforeEach(() => {
 	mocks.logout.mockReset().mockResolvedValue(undefined);
 	mocks.refresh.mockReset();
@@ -81,6 +87,7 @@ describe("AppShell", () => {
 	// and its ad-hoc <nav> are gone.
 	it("links to every authenticated surface", () => {
 		renderShell();
+		openAccountMenu();
 		const href = (name: RegExp) =>
 			screen.getByRole("link", { name }).getAttribute("href");
 		expect(href(/lessons/i)).toBe("/lessons");
@@ -108,8 +115,31 @@ describe("AppShell", () => {
 		).toBeNull();
 	});
 
+	// ONL-218. It was a span that looked exactly like the links around it, so
+	// clicking it did nothing. It goes home rather than to a section, which is
+	// why it is a plain link and never marked as the current page.
+	it("links the wordmark home", () => {
+		renderShell();
+		const wordmark = screen.getByRole("link", { name: /onlooker/i });
+		expect(wordmark.getAttribute("href")).toBe("/");
+		expect(wordmark.getAttribute("aria-current")).toBeNull();
+	});
+
+	// Weight, not an underline (ONL-218). In the stacked menus an underlined
+	// link sitting above a divider read as two rules. Weight is still a cue
+	// that is not hue alone.
+	it("shows the current section in bold, with no underline", () => {
+		renderShell("/machines");
+		const current = screen.getByRole("link", { name: /machines/i });
+		const other = screen.getByRole("link", { name: /lessons/i });
+		expect(current.style.fontWeight).toBe("700");
+		expect(other.style.fontWeight).toBe("400");
+		expect(current.style.borderBottom).toBe("");
+	});
+
 	it("signs out and returns to the public home page", async () => {
 		renderShell();
+		openAccountMenu();
 		fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 		await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(screen.getByText("home reached")).toBeDefined());
@@ -154,14 +184,95 @@ describe("AppShell", () => {
 	// them scannable at a glance rather than a column of same-shaped words.
 	it("gives the wordmark and every nav link an icon", () => {
 		renderShell();
+		openAccountMenu();
 		const icons = document.querySelectorAll("img.pixel-icon");
 		expect(icons.length).toBe(8);
 		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
 		// so NodeListOf<Element> is not directly iterable under this tsconfig.
 		for (const img of Array.from(icons)) {
-			expect(img.getAttribute("width")).toBe("16");
 			expect(img.getAttribute("src")).toBeTruthy();
 		}
+		// The wordmark's eye is drawn at the wordmark's own 32px, and every link
+		// icon at 16. A difference in size is part of what keeps the brand from
+		// reading as one more section (ONL-218).
+		const wordmark = screen.getByRole("link", { name: /onlooker/i });
+		const sizes = Array.from(icons).map((img) => img.getAttribute("width"));
+		expect(wordmark.querySelector("img")?.getAttribute("width")).toBe("32");
+		expect(sizes.filter((w) => w === "16").length).toBe(7);
+	});
+});
+
+// ONL-218. Who you are collapsed into one control, so the bar holds the
+// product and the brand and nothing else. The same disclosure contract as
+// the narrow menu below, plus a click outside closing it: this one opens
+// over the page rather than pushing it down, so it would otherwise sit on
+// top of whatever the person went back to.
+describe("the account menu", () => {
+	const accountMenu = () => document.getElementById("app-account-menu");
+
+	it("starts closed, and says so", () => {
+		renderShell();
+		expect(accountButton().getAttribute("aria-expanded")).toBe("false");
+		expect(accountMenu()).toBeNull();
+		// Product sections stay in the bar; account ones are behind the button.
+		expect(screen.getByRole("link", { name: /sessions/i })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: /orgs/i })).toBeNull();
+		expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+	});
+
+	it("opens to Orgs, Settings, Profile and Sign out", () => {
+		renderShell();
+		openAccountMenu();
+
+		expect(accountButton().getAttribute("aria-expanded")).toBe("true");
+		expect(accountButton().getAttribute("aria-controls")).toBe(
+			"app-account-menu",
+		);
+		const menu = accountMenu() as HTMLElement;
+		expect(menu).not.toBeNull();
+		for (const [label, to] of [
+			["Orgs", "/orgs"],
+			["Settings", "/settings"],
+			["Profile", "/profile"],
+		]) {
+			expect(
+				within(menu)
+					.getByRole("link", { name: new RegExp(label, "i") })
+					.getAttribute("href"),
+			).toBe(to);
+		}
+		expect(
+			within(menu).getByRole("button", { name: /sign out/i }),
+		).toBeTruthy();
+	});
+
+	it("closes on Escape and hands focus back to the button", () => {
+		renderShell();
+		openAccountMenu();
+		fireEvent.keyDown(document, { key: "Escape" });
+		expect(accountMenu()).toBeNull();
+		expect(document.activeElement).toBe(accountButton());
+	});
+
+	it("closes when a section is opened from it", () => {
+		renderShell();
+		openAccountMenu();
+		fireEvent.click(
+			within(accountMenu() as HTMLElement).getByRole("link", {
+				name: /settings/i,
+			}),
+		);
+		expect(accountMenu()).toBeNull();
+		expect(accountButton().getAttribute("aria-expanded")).toBe("false");
+	});
+
+	it("closes on a click outside it, and not on one inside", () => {
+		renderShell();
+		openAccountMenu();
+		fireEvent.mouseDown(accountMenu() as HTMLElement);
+		expect(accountMenu()).not.toBeNull();
+		fireEvent.mouseDown(screen.getByText("page body"));
+		expect(accountMenu()).toBeNull();
 	});
 });
 

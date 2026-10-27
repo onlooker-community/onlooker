@@ -34,18 +34,34 @@
 	padding: 0 1.5rem;
 }
 
+/*
+ * Wordmark left at every width, then the product links, with the account
+ * group pushed to the right edge. ONL-218 moved the wordmark out of the
+ * center, where it read as one more section between the two groups.
+ */
 .app-nav-bar {
 	display: flex;
 	align-items: center;
-	/*
-	 * Three children, space-between: the wordmark lands centred only when the
-	 * groups are of similar width, which is the same approximation the design
-	 * this follows makes. Below the breakpoint the groups are gone and this
-	 * puts the wordmark left and the toggle right, which is the arrangement
-	 * that reads correctly on a phone anyway.
-	 */
-	justify-content: space-between;
 	gap: 1.5rem;
+}
+
+.app-wordmark {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	flex: none;
+}
+
+/*
+ * Centering the eye on the line box puts it below the letters, because
+ * Abaddon reserves far more room under its capitals than above them: at
+ * 32px, 24px ascent, 12px descent, 20px caps. The caps' center sits
+ * (20 - (24 - 12)) / 2 = 4px above the box's, which is 0.125em at any size.
+ * text-box-trim would say this without the arithmetic, but it does not
+ * reach the bare text node a flex container wraps, and Firefox lacks it.
+ */
+.app-wordmark .pixel-icon {
+	translate: 0 -0.125em;
 }
 
 /* Hidden below the breakpoint; the toggle and its panel stand in for them. */
@@ -54,6 +70,8 @@
 }
 
 .app-nav-toggle {
+	/* Right edge on a phone, opposite the wordmark. */
+	margin-left: auto;
 	display: inline-flex;
 	align-items: center;
 	background: none;
@@ -77,6 +95,17 @@
 	padding: var(--space-4) 0 var(--space-3);
 }
 
+/*
+ * Every item at its own width rather than the column's. A grid stretches
+ * its items by default, and a stretched link carries its active underline
+ * the full width of the panel, where it reads as a divider. Sitting just
+ * above the real rule, it looked like two rules with nothing between them.
+ */
+.app-menu > div,
+.app-account-menu {
+	justify-items: start;
+}
+
 .app-menu-rule {
 	/*
 	 * The divider the reference draws between its sections and its account
@@ -85,11 +114,22 @@
 	border: none;
 	border-top: 2px solid var(--ink-dim);
 	margin: 0;
+	/* Full width, unlike the items around it in the dropdown. */
+	justify-self: stretch;
 }
 
-.app-menu-user {
+/*
+ * The signed-in name, in the panel and on the dropdown's button alike, in
+ * the links' own data face and size. It sits among them, and the body face
+ * made it read as a stray caption. Its case is kept: a name or an address
+ * in capitals is harder to recognize as yours.
+ */
+.app-menu-user,
+.app-account-toggle {
 	color: var(--ink-dim);
-	font-size: 0.85rem;
+	font-family: var(--font-data);
+	font-size: var(--text-data-md);
+	letter-spacing: 1px;
 }
 
 @media (min-width: 60rem) {
@@ -97,6 +137,20 @@
 		display: flex;
 		align-items: center;
 		gap: 1.25rem;
+	}
+
+	/*
+	 * The extra space after the wordmark is what separates the brand from the
+	 * links. With the bar's gap alone, it lines up as the first of them.
+	 */
+	.app-wordmark {
+		margin-right: 1rem;
+	}
+
+	.app-nav-group--account {
+		margin-left: auto;
+		/* The anchor the dropdown below hangs from. */
+		position: relative;
 	}
 
 	/*
@@ -108,4 +162,34 @@
 	.app-nav-toggle {
 		display: none;
 	}
+}
+
+/*
+ * The account dropdown, ONL-218. Outside the media query because it only
+ * renders when its toggle is clicked, and the toggle exists only above the
+ * breakpoint.
+ */
+.app-account-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.app-account-menu {
+	position: absolute;
+	top: calc(100% + 0.75rem);
+	right: 0;
+	z-index: 10;
+	display: grid;
+	gap: var(--space-4);
+	min-width: 12rem;
+	padding: var(--space-4);
+	/* The header's own fill and rule, so it reads as part of the header. */
+	background: var(--panel);
+	border: 2px solid var(--ink-dim);
 }

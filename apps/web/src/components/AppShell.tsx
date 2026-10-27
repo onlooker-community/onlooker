@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../auth";
 import { useReveal } from "../reveal";
 import "./app-shell.css";
@@ -39,15 +39,15 @@ const sectionLink = ({ isActive }: { isActive: boolean }) => ({
 	color: isActive ? PALETTE.accent : PALETTE.muted,
 	fontFamily: "var(--font-data)",
 	fontSize: "var(--text-data-md)",
+	// Weight as well as color, so the current section is not signaled only
+	// by hue. It was an underline until ONL-218: in the stacked menus an
+	// underlined link just above a divider read as two rules. The data face
+	// is monospaced, so bold takes the same width and the bar does not shift
+	// when the section changes.
+	fontWeight: isActive ? 700 : 400,
 	letterSpacing: "1px",
 	textTransform: "uppercase" as const,
 	textDecoration: "none",
-	// Underline rather than color alone, so the current section is not
-	// signaled only by hue.
-	borderBottom: isActive
-		? `2px solid ${PALETTE.accent}`
-		: "2px solid transparent",
-	paddingBottom: "0.15rem",
 	whiteSpace: "nowrap" as const,
 });
 
@@ -87,6 +87,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	const { dismiss } = useReveal();
 	const [expanded, setExpanded] = useState(false);
 	const toggleRef = useRef<HTMLButtonElement>(null);
+	// The account dropdown above the breakpoint, ONL-218. Its own state rather
+	// than a second use of `expanded`: the two controls never show at the same
+	// width, but each owns its panel and its focus return.
+	const [accountOpen, setAccountOpen] = useState(false);
+	const accountButtonRef = useRef<HTMLButtonElement>(null);
+	const accountRef = useRef<HTMLDivElement>(null);
 
 	// Close on navigation, or the menu stays open over the page it just
 	// opened. The panel only exists below the breakpoint, where it covers the
@@ -99,6 +105,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	// depending on it would re-run the effect on every open.
 	useEffect(() => {
 		setExpanded(false);
+		setAccountOpen(false);
 	}, [location.pathname]);
 
 	// Escape closes it and focus goes back to the control that opened it.
@@ -119,6 +126,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [expanded]);
+
+	// The account dropdown closes the same ways, and on a press anywhere
+	// outside it too. It opens over the page rather than pushing the page
+	// down the way the narrow menu does, so leaving it up would cover whatever
+	// the person turned back to. mousedown rather than click, so it is gone
+	// before the press lands on whatever was under it.
+	useEffect(() => {
+		if (!accountOpen) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setAccountOpen(false);
+			accountButtonRef.current?.focus();
+		};
+		const onPress = (event: MouseEvent) => {
+			if (accountRef.current?.contains(event.target as Node)) return;
+			setAccountOpen(false);
+		};
+		document.addEventListener("keydown", onKey);
+		document.addEventListener("mousedown", onPress);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			document.removeEventListener("mousedown", onPress);
+		};
+	}, [accountOpen]);
 
 	// The page heading comes from SECTIONS rather than from the page, which is
 	// the whole of the fix for onlooker-eqb. Two of the five shell routes named
@@ -173,6 +204,33 @@ export default function AppShell({ children }: { children: ReactNode }) {
 					 * with width.
 					 */}
 					<nav className="app-nav-bar" aria-label="Sections">
+						{/*
+						 * First and a link home, ONL-218. Centered between the groups
+						 * it read as an eighth section that did nothing when clicked.
+						 * A plain Link rather than a NavLink: it is never the current
+						 * section. Bold display face at twice the pixel scale, in
+						 * --ink-hi, where every section link is small --ink-dim data
+						 * type. At display-md and regular weight it still passed for
+						 * a link.
+						 */}
+						<Link
+							to="/"
+							className="app-wordmark"
+							style={{
+								color: "var(--ink-hi)",
+								fontFamily: "var(--font-display)",
+								fontSize: "var(--text-display-lg)",
+								fontWeight: 700,
+								letterSpacing: "2px",
+								textTransform: "uppercase",
+								textDecoration: "none",
+							}}
+						>
+							{/* Eye: the logo and the active state, in the brand doc's own mapping. */}
+							<Icon name="Eye" size={32} />
+							Onlooker
+						</Link>
+
 						<div className="app-nav-group">
 							{PRODUCT_SECTIONS.map((section) => (
 								<NavLink key={section.to} to={section.to} style={sectionLink}>
@@ -184,38 +242,56 @@ export default function AppShell({ children }: { children: ReactNode }) {
 							))}
 						</div>
 
-						<span
-							style={{
-								display: "flex",
-								alignItems: "center",
-								gap: "var(--space-1)",
-								fontFamily: "var(--font-display)",
-								fontSize: "var(--text-display-md)",
-								letterSpacing: "2px",
-								textTransform: "uppercase",
-								flex: "none",
-							}}
+						{/*
+						 * Who you are, as one control, ONL-218. Seven links, a name and
+						 * Sign out did not fit beside the wordmark in 1100px, and the
+						 * account side is the part nobody visits on every page.
+						 *
+						 * A disclosure rather than role="menu": these are links and a
+						 * button, reached with Tab like every other link here. The menu
+						 * role would promise arrow-key navigation this does not do.
+						 * Rendered only while open, for the reason the narrow panel
+						 * gives below.
+						 */}
+						<div
+							ref={accountRef}
+							className="app-nav-group app-nav-group--account"
 						>
-							{/* Eye: the logo and the active state, in the brand doc's own mapping. */}
-							<Icon name="Eye" />
-							Onlooker
-						</span>
-
-						<div className="app-nav-group">
-							{ACCOUNT_SECTIONS.map((section) => (
-								<NavLink key={section.to} to={section.to} style={sectionLink}>
-									<Icon name={section.icon} />
-									{section.label}
-								</NavLink>
-							))}
-							{user ? (
-								<span style={{ color: PALETTE.muted, fontSize: "0.85rem" }}>
-									{user.name || user.email}
-								</span>
-							) : null}
-							<button type="button" onClick={handleLogout} style={quietControl}>
-								Sign out
+							<button
+								ref={accountButtonRef}
+								type="button"
+								className="app-account-toggle"
+								aria-expanded={accountOpen}
+								aria-controls="app-account-menu"
+								onClick={() => setAccountOpen((open) => !open)}
+							>
+								{user ? user.name || user.email : "Account"}
+								{/* Text rather than an icon, for the reason the Menu
+								    toggle gives: the brand set has no chevron. */}
+								<span aria-hidden="true">{accountOpen ? "▴" : "▾"}</span>
 							</button>
+							{accountOpen ? (
+								<div id="app-account-menu" className="app-account-menu">
+									{ACCOUNT_SECTIONS.map((section) => (
+										<NavLink
+											key={section.to}
+											to={section.to}
+											style={sectionLink}
+										>
+											<Icon name={section.icon} />
+											{section.label}
+										</NavLink>
+									))}
+									<hr className="app-menu-rule" />
+									<button
+										type="button"
+										onClick={handleLogout}
+										style={{ ...quietControl, justifySelf: "start" }}
+									>
+										Sign out
+									</button>
+								</div>
+							) : null}
 						</div>
 
 						{/*
@@ -261,18 +337,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
 							<hr className="app-menu-rule" />
 
+							{/*
+							 * The same order as the dropdown above the breakpoint: who
+							 * you are, then the account sections, then Sign out on its
+							 * own. The name used to sit between Profile and Sign out,
+							 * where it read as one more item rather than the label for
+							 * the group.
+							 */}
 							<div style={{ display: "grid", gap: "var(--space-4)" }}>
+								{user ? (
+									<span className="app-menu-user">
+										{user.name || user.email}
+									</span>
+								) : null}
 								{ACCOUNT_SECTIONS.map((section) => (
 									<NavLink key={section.to} to={section.to} style={sectionLink}>
 										<Icon name={section.icon} />
 										{section.label}
 									</NavLink>
 								))}
-								{user ? (
-									<span className="app-menu-user">
-										{user.name || user.email}
-									</span>
-								) : null}
+							</div>
+
+							<hr className="app-menu-rule" />
+
+							<div style={{ display: "grid", gap: "var(--space-4)" }}>
 								<button
 									type="button"
 									onClick={handleLogout}
