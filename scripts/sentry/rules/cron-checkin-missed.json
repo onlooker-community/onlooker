@@ -48,6 +48,12 @@
 		"therefore a valid trigger for a monitor_check_in_failure detector; the",
 		"empty-conditions fallback was not needed.",
 		"",
+		"But it is only proven for the FIRST incident. Whether a later incident",
+		"raises a new issue or reopens ONLOOKER-API-1 is unverified, and if it",
+		"reopens, first_seen_event alone would never fire again - the fault the",
+		"waitlist monitor was seen to have (ONL-215). regression_event covers",
+		"that case and is a no-op in the other (ONL-217).",
+		"",
 		"HOW LATE THIS ALERT CAN BE, because the number is not obvious and is",
 		"not ours to set here. Since 2026-10-25 the monitor's own config carries",
 		"schedule 8h, checkin_margin 180, failure_issue_threshold 1,",
@@ -77,6 +83,11 @@
 			"conditions": [
 				{
 					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
 					"comparison": true,
 					"conditionResult": true
 				}
