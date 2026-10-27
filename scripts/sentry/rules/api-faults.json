@@ -11,7 +11,12 @@
 		"a DETECTOR, so apply.sh resolves this project's issue_stream detector at",
 		"apply time and fills in detectorIds. The detector id is deliberately not",
 		"written here: Sentry creates it per project, it means nothing to a",
-		"reviewer, and pinning it would break the day a project is recreated."
+		"reviewer, and pinning it would break the day a project is recreated.",
+		"",
+		"regression_event as well as first_seen_event, in every file here. A",
+		"resolved issue that comes back is reopened, not raised anew, so",
+		"first_seen_event alone stays silent for the second outage. That was",
+		"SEEN on the waitlist monitor (ONL-215) and fixed here by ONL-217."
 	],
 	"project": "4512075995283456",
 	"detectorType": "issue_stream",
@@ -27,6 +32,11 @@
 			"conditions": [
 				{
 					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
 					"comparison": true,
 					"conditionResult": true
 				}
