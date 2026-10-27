@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -71,6 +71,8 @@ describe("account routes", () => {
 	// reached /profile lost the navigation and had to use browser-back.
 	it("renders /profile inside the shell", () => {
 		renderAppAt("/profile");
+		// Settings sits in the account dropdown since ONL-218.
+		fireEvent.click(screen.getByRole("button", { name: /^someone$/i }));
 		const href = (name: RegExp) =>
 			screen.getByRole("link", { name }).getAttribute("href");
 		expect(href(/lessons/i)).toBe("/lessons");
@@ -105,6 +107,7 @@ describe("account routes", () => {
 
 	it("renders /settings inside the shell", () => {
 		renderAppAt("/settings");
+		fireEvent.click(screen.getByRole("button", { name: /^someone$/i }));
 		const href = (name: RegExp) =>
 			screen.getByRole("link", { name }).getAttribute("href");
 		expect(href(/lessons/i)).toBe("/lessons");

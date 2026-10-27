@@ -188,6 +188,8 @@ describe("a revealed token across the app", () => {
 		await renderApp("/machines");
 		await mintFromMachinesPage();
 
+		// Sign out sits in the account dropdown since ONL-218.
+		fireEvent.click(screen.getByRole("button", { name: /^someone$/i }));
 		fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
