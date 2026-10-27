@@ -35,10 +35,22 @@ refused every workflow with an `existing` match would pass.
 The detector ids here are live. `waitlist.submit_failed` stands in for the metric
 monitor's name, which cannot be read offline; the tests assert on its id.
 
+DETECTORS ARE WRITABLE, and the fake holds what is written for as long as it
+runs, because the property under test spans two calls: apply.sh creates a
+detector, lists detectors again, and binds a workflow to the new id in the same
+run. A fake that forgot the POST would make that test pass only by matching an
+id the script never created.
+
+Create is PROJECT-scoped and update is org-scoped, which is Sentry's real shape
+and easy to get backwards, so a POST to the org-level path answers 405 rather
+than succeeding. `Duplicated by hand` is two detectors with one name, the shape
+the live waitlist monitor was left in on 2026-09-26; a detector file naming it
+must be refused, not applied to whichever comes first.
+
 Used by apply.test.sh. Not shipped and not imported by anything else.
 """
 
-import http.server, json, sys
+import http.server, itertools, json, re, sys
 
 DETECTORS = [
     {
@@ -72,7 +84,21 @@ DETECTORS = [
         "projectId": 4512074226401280,
         "type": "metric_issue",
     },
+    {
+        "id": "10456901",
+        "name": "Duplicated by hand",
+        "projectId": 4512074226401280,
+        "type": "metric_issue",
+    },
+    {
+        "id": "10456902",
+        "name": "Duplicated by hand",
+        "projectId": 4512074226401280,
+        "type": "metric_issue",
+    },
 ]
+
+NEXT_ID = itertools.count(88880001)
 
 WORKFLOWS = [
     {
@@ -114,12 +140,35 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._json(200, [])
         self._json(404, {"detail": "no such endpoint"})
 
-    def do_POST(self):
+    def _body(self):
         length = int(self.headers.get("Content-Length", 0))
-        sent = json.loads(self.rfile.read(length) or b"{}")
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def do_POST(self):
+        sent = self._body()
+        created = re.search(r"/projects/(\d+)/detectors/$", self.path)
+        if created:
+            detector = {
+                "id": str(next(NEXT_ID)),
+                "name": sent.get("name"),
+                "projectId": int(created.group(1)),
+                "type": sent.get("type"),
+            }
+            DETECTORS.append(detector)
+            return self._json(201, {**sent, **detector})
+        if self.path.endswith("/detectors/"):
+            return self._json(405, {"detail": 'Method "POST" not allowed.'})
         self._json(201, {"id": "99999", **sent})
 
-    do_PUT = do_POST
+    def do_PUT(self):
+        sent = self._body()
+        updated = re.search(r"/detectors/(\d+)/$", self.path)
+        if updated:
+            match = [d for d in DETECTORS if d["id"] == updated.group(1)]
+            if not match:
+                return self._json(404, {"detail": "not found"})
+            return self._json(200, {**sent, **match[0]})
+        self._json(200, {"id": "99999", **sent})
 
     def log_message(self, *a):
         pass

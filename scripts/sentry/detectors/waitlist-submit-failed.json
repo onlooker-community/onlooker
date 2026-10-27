@@ -1,0 +1,67 @@
+{
+	"_comment": [
+		"A metric monitor. Sentry calls it a detector of type metric_issue: it",
+		"watches a number and raises an issue when the number crosses a line.",
+		"It tells nobody by itself - rules/waitlist-submit-failed.json is the",
+		"workflow that does, and binds here by detectorName. That is why this",
+		"file carries no workflow_ids: the binding lives in rules/, as it does",
+		"for every other detector, and apply.sh refuses a file that carries it.",
+		"",
+		"Why this monitor exists: nothing else catches a broken waitlist. A",
+		"submit that fails is handled - onSubmitFailed counts it and reports the",
+		"error - so the form still renders, no page 500s, and the issue alerts",
+		"stay quiet. The only visible symptom is that signups stop, which nobody",
+		"notices because signups are rare enough that zero looks like a slow",
+		"week.",
+		"",
+		"THE AGGREGATE NAMES THE METRIC, AND THE QUERY IS EMPTY. The retired",
+		"../alerts/ file used count(value) with 'metric.name:waitlist.",
+		"submit_failed' in the query, which Sentry accepted and which matched",
+		"nothing. A trace metric is addressed inside the aggregate as",
+		"sum(value,<name>,<type>,<unit>). Same mistake the dashboard made and",
+		"fixed (onlooker-txcu.13); the shape below was read off a monitor built",
+		"by hand in the UI on 2026-09-26.",
+		"",
+		"queryType 1 pairs with events_analytics_platform in Sentry's own",
+		"examples (0 goes with the errors dataset). The read shape of a detector",
+		"does not return it, so the API reference is the only evidence there is.",
+		"",
+		"STATIC, NOT DYNAMIC. Anomaly detection learns seasonality from history,",
+		"and this metric has fired twice ever, both forced. Any failure at all",
+		"is the signal: above 0 opens a high-priority issue (75), 0 resolves it.",
+		"",
+		"The name is how apply.sh finds this detector again, so renaming it in",
+		"Sentry means renaming it here and in the rule, or the next run creates",
+		"a second one."
+	],
+	"project": "4512074226401280",
+	"detector": {
+		"name": "Waitlist submit failing (production)",
+		"type": "metric_issue",
+		"description": "A waitlist signup failed. The form still renders, so this is the only sign that signups have stopped.",
+		"enabled": true,
+		"owner": "team:4512074220437504",
+		"data_sources": [
+			{
+				"aggregate": "sum(value,waitlist.submit_failed,counter,none)",
+				"dataset": "events_analytics_platform",
+				"environment": "production",
+				"eventTypes": ["trace_item_metric"],
+				"query": "",
+				"queryType": 1,
+				"timeWindow": 3600
+			}
+		],
+		"config": {
+			"detectionType": "static"
+		},
+		"condition_group": {
+			"logicType": "any",
+			"conditions": [
+				{ "type": "gt", "comparison": 0, "conditionResult": 75 },
+				{ "type": "lte", "comparison": 0, "conditionResult": 0 }
+			],
+			"actions": []
+		}
+	}
+}

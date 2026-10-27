@@ -1,0 +1,81 @@
+{
+	"_comment": [
+		"Tells somebody when ../detectors/waitlist-submit-failed.json raises an",
+		"issue. Its own workflow on purpose: the hand-made monitor this replaces",
+		"was connected in the UI to 'Website error (production)', which made",
+		"that workflow listen to a detector website-errors.json does not",
+		"describe, and apply.sh has refused to update it ever since (ONL-119).",
+		"One file, one detector, keeps the refusal meaningful.",
+		"",
+		"detectorName is required: it is how this file finds a detector apply.sh",
+		"created itself, and the name is the only handle that survives the",
+		"detector being recreated.",
+		"",
+		"regression_event is the trigger that matters, and first_seen_event",
+		"alone was SEEN NOT TO FIRE. A metric monitor raises ONE issue and",
+		"reopens it on every later breach. ONLOOKER-MARKETING-5 was first seen",
+		"2026-09-26, so the forced failure on 2026-10-26 at 23:46Z added an",
+		"occurrence to it at 23:51:49Z. The issue was not new, so the workflow",
+		"never triggered (lastTriggered null, empty group history) and nobody",
+		"was emailed. first_seen_event stays only for the case where the",
+		"detector is recreated and raises a fresh issue.",
+		"",
+		"The email goes to the team by id, unlike every other file here, and",
+		"email/issue_owners was SEEN NOT TO DELIVER. With regression_event the",
+		"workflow fired at 2026-10-27T01:42:18Z, and no email ever arrived for",
+		"ONLOOKER-MARKETING-5, on that fire or on its creation 2026-09-26. Error",
+		"issues in the same project (-4, -6, -7) and the cron alert all emailed",
+		"through issue_owners. The difference is the detector's owner: a metric",
+		"issue is owned by team:onlooker, so the AllMembers fallthrough never",
+		"applies. Naming the team says who is told instead of leaving it to",
+		"ownership rules, and the id is the same team the detector names as its",
+		"owner. It reaches only the team's members, so whoever should be paged",
+		"must be on team onlooker.",
+		"",
+		"Both changes together were SEEN TO DELIVER: a failure forced at",
+		"2026-10-27T02:42:23Z reopened ONLOOKER-MARKETING-5, the workflow fired",
+		"at 02:48:26Z, and the email reached a team member."
+	],
+	"project": "4512074226401280",
+	"detectorType": "metric_issue",
+	"detectorName": "Waitlist submit failing (production)",
+	"workflow": {
+		"name": "Waitlist submit failing (production)",
+		"environment": "production",
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
+			{
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {},
+						"config": {
+							"targetType": "team",
+							"targetIdentifier": "4512074220437504"
+						}
+					}
+				]
+			}
+		]
+	}
+}
