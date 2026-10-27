@@ -50,10 +50,10 @@ concurrency:
 jobs:
   client-errors:
     name: Check for reported client errors
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
 
       # The header above says the bug this workflow replaces is "a monitor that
       # stays green while blind". A schedule that quietly stops firing is the

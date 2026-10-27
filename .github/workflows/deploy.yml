@@ -102,9 +102,9 @@ jobs:
   # workspace-specific. Adding the missing eight would have run them ten times.
   quality:
     name: Lint & TypeCheck
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
 
       # The heartbeat's credential guard decides whether the authenticated
       # checks run at all. It is the one piece of that script that can fail
@@ -211,13 +211,13 @@ jobs:
   # ============================================================================
   contract-version:
     name: Contract version bumped with schema
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Pull requests only: the comparison is against the PR's base, which a push
     # to main does not have.
     if: github.event_name == 'pull_request'
     steps:
       # Full history so the base ref is available to diff against.
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -252,7 +252,7 @@ jobs:
 
   cli-version:
     name: CLI released with its source
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Pull requests only, for contract-version's reason: the comparison is
     # against the PR's base, which a push to main does not have.
     if: github.event_name == 'pull_request'
@@ -263,7 +263,7 @@ jobs:
       pull-requests: read
     steps:
       # Full history so the base ref is available to diff against.
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -291,11 +291,13 @@ jobs:
   # ============================================================================
   publish-contract:
     name: Publish lesson contract
-    # GitHub-hosted, unlike every other job here. npm refuses a provenance
-    # bundle from a self-hosted runner (E422 "Only github-hosted runners are
-    # supported when publishing with provenance"), and Blacksmith runners
+    # Must stay GitHub-hosted. npm refuses a provenance bundle from a
+    # self-hosted runner (E422 "Only github-hosted runners are supported when
+    # publishing with provenance"), and third-party runners such as Blacksmith
     # report as self-hosted. The Blacksmith migration (#186) moved this job
-    # too; nothing published until 2.1.0, so it went unnoticed.
+    # too; nothing published until 2.1.0, so it went unnoticed. Every job here
+    # is GitHub-hosted again since ONL-216, but this one cannot follow if CI
+    # ever moves off GitHub's runners.
     runs-on: ubuntu-latest
     needs: test
     # Merges to main only. Never publish from a pull request.
@@ -308,8 +310,6 @@ jobs:
       # naming this repository and this workflow file.
       id-token: write
     steps:
-      # The upstream action: useblacksmith/checkout reads a Blacksmith-side git
-      # mirror that a GitHub-hosted runner doesn't have.
       - uses: actions/checkout@v5
 
       - name: Setup Node.js
@@ -429,11 +429,11 @@ jobs:
   # ============================================================================
   test:
     name: Build & Test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: quality
     if: success()
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -470,7 +470,7 @@ jobs:
   # ============================================================================
   changes:
     name: Which surfaces changed
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Narrower than the workflow default, and only what the question needs:
     # read the repository, read what has been deployed to it.
     permissions:
@@ -479,7 +479,7 @@ jobs:
     outputs:
       deployable: ${{ steps.filter.outputs.deployable }}
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
         with:
           # The base of the diff is now whatever commit last reached an
           # environment, which can be many commits back. A shallow fetch does
@@ -551,7 +551,7 @@ jobs:
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: [test, changes]
     # Two staging deploys must never run at once - they migrate the same D1
     # database and deploy over the same workers - so they queue.
@@ -595,7 +595,7 @@ jobs:
       name: staging
       url: https://app-staging.onlooker.dev
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -724,7 +724,7 @@ jobs:
   # ============================================================================
   deploy-production:
     name: Deploy to Production
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Production deploys queue, for the same migration reason as staging.
     #
     # THE KNOWN LIMIT, so nobody rediscovers it the way it was found: a run
@@ -759,7 +759,7 @@ jobs:
       name: production
       url: https://app.onlooker.dev
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -910,7 +910,7 @@ jobs:
   # worse than not gating it at all.
   required:
     name: All checks passed
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: [quality, test, contract-version, cli-version, changes]
     # Without always(), one failed dependency skips the gate rather than
     # failing it, and a skipped required check is pending forever.
