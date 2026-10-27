@@ -76,6 +76,18 @@ for file in "${RULES_DIR}"/*.json; do
 		fail "${name} tells somebody" "actions is empty"
 	fi
 
+	# first_seen_event alone fires once per issue, ever. Sentry reopens a
+	# resolved issue rather than raising a new one, so the second outage is
+	# silent - SEEN on the waitlist monitor, which never emailed again after
+	# its first issue (ONL-215, ONL-217).
+	if jq -e 'any(.workflow.triggers.conditions[]; .type == "regression_event")' \
+		"${file}" >/dev/null 2>&1; then
+		pass "${name} tells somebody when an issue comes back"
+	else
+		fail "${name} tells somebody when an issue comes back" \
+			"no regression_event trigger"
+	fi
+
 	# Numeric, because it comes from the DSN path. A slug would still work
 	# against the API and would break the day somebody renames the project.
 	if [[ "$(jq -r '.project' "${file}")" =~ ^[0-9]+$ ]]; then

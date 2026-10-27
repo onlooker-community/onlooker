@@ -8,7 +8,9 @@
 		"workflow is fed by a second, vendor-less path (apps/web's fanout to",
 		"/api/client-errors) that keeps working when the provider chunk fails to",
 		"load at all - which is exactly the stale-tab-after-deploy case. Retire it",
-		"once this rule has been seen to fire, on purpose, per onlooker-k34."
+		"once this rule has been seen to fire, on purpose, per onlooker-k34.",
+		"",
+		"regression_event for the reason api-faults.json gives (ONL-217)."
 	],
 	"project": "4512075991547904",
 	"detectorType": "issue_stream",
@@ -24,6 +26,11 @@
 			"conditions": [
 				{
 					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
 					"comparison": true,
 					"conditionResult": true
 				}
