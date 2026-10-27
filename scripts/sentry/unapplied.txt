@@ -14,5 +14,6 @@
 #
 # Adding a line here is not a fix. It is a written admission, which is the
 # point: the reason has to survive review.
-
-alerts	POST /organizations/{org}/alert-rules/ answers 404. That is the API onlooker-txcu.8 migrated apply.sh away from (deprecated 2026-05-14, 410 brownouts, now gone). Applying this file is impossible, not merely unimplemented - the metric alert has to be re-expressed as a detector + workflow first, and no metric-type detector exists in the org, so whether Sentry supports one is an open question. See onlooker-txcu.2.1.
+#
+# No entries since ONL-215. alerts/ was the only one, and the metric alert it
+# held is now detectors/waitlist-submit-failed.json plus a rule, both applied.
