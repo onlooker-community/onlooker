@@ -17,13 +17,20 @@ export const PROPAGATION_HEADERS = ["sentry-trace", "baggage"] as const;
  *
  * Config is a function of `env` because a worker only learns its bindings
  * per request - vars differ between staging and production.
+ *
+ * The casts are about types, not values. `Handler` is typed against
+ * @cloudflare/workers-types, but withSentry's constraint names the global
+ * `ExportedHandler`, which is whatever runtime types the consuming program
+ * loads. apps/api's globals are workers-types, so the two agree; apps/website's
+ * are the ones `wrangler types` generates, which disagree on `Headers`, and
+ * this file fails to typecheck there without them.
  */
 export function withMonitoring<Env, Handler extends ExportedHandler<Env>>(
 	configFor: (env: Env) => MonitoringConfig,
 	handler: Handler,
 ): Handler {
-	return withSentry<Env, unknown, unknown, Handler>(
+	return withSentry<Env>(
 		(env) => sentryOptions(configFor(env)),
-		handler,
-	);
+		handler as unknown as Parameters<typeof withSentry<Env>>[1],
+	) as unknown as Handler;
 }
