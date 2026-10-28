@@ -536,6 +536,44 @@ else
 fi
 
 echo
+echo "source-guards: every TypeScript workspace is typechecked"
+
+# ONL-100. CI's `pnpm typecheck` is `turbo run typecheck`, which runs only in
+# workspaces that declare the script. deploy.yml dropped its hand-listed matrix
+# so coverage would follow the workspace list, but a workspace that declares
+# no script is still invisible to it. That is how apps/website, a deployed
+# app, went untypechecked while every other check stayed green.
+#
+# A tsconfig.json is what makes a workspace TypeScript, so it is the test. The
+# two config packages ship tsconfigs for others to extend and have none of
+# their own, which is why they need no exemption.
+untypechecked=""
+ts_workspaces=0
+for tsconfig in "${ROOT}"/apps/*/tsconfig.json "${ROOT}"/packages/*/tsconfig.json; do
+	[[ -f "${tsconfig}" ]] || continue
+	workspace="$(dirname "${tsconfig}")"
+	ts_workspaces=$((ts_workspaces + 1))
+	grep -qE '"typecheck"[[:space:]]*:' "${workspace}/package.json" ||
+		untypechecked="${untypechecked} ${workspace#"${ROOT}/"}"
+done
+
+if [[ -n "${untypechecked}" ]]; then
+	fail "every workspace with a tsconfig.json declares a typecheck script" \
+		"missing from:${untypechecked}"
+else
+	pass "every workspace with a tsconfig.json declares a typecheck script"
+fi
+
+# With no tsconfig found, the loop never runs and the check above passes while
+# asserting nothing.
+if (( ts_workspaces >= 14 )); then
+	pass "TypeScript workspaces are actually being found (${ts_workspaces})"
+else
+	fail "TypeScript workspaces are actually being found" \
+		"found ${ts_workspaces}, expected at least 14 - the glob is broken"
+fi
+
+echo
 if (( failures > 0 )); then
 	echo "source-guards.test.sh: ${failures} of ${tests} tests failed"
 	exit 1
