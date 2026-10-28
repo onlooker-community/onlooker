@@ -1,0 +1,74 @@
+{
+	"_comment": [
+		"A metric monitor on how long the API takes to answer. It tells nobody",
+		"by itself - rules/api-latency.json is the workflow that does, bound",
+		"here by detectorName, the way waitlist-submit-failed.json is.",
+		"",
+		"Why this monitor exists: api-faults.json hears about every request",
+		"that throws, and nothing hears about one that succeeds slowly. A D1",
+		"query that loses its index, or a fetch to a dependency that starts",
+		"hanging, answers 200 every time and raises no issue at all.",
+		"",
+		"WHAT IT COUNTS. Transactions only (is_transaction:true), so p95 is of",
+		"whole requests, not of the spans inside them. Two kinds are left out",
+		"because they are not requests a person waits on and they move p95 on",
+		"their own:",
+		"  - the */5 cron, which is a scheduled job, runs ~1s, and is 2,015 of",
+		"    9,569 transactions over the 7 days to 2026-10-27;",
+		"  - 404s (span.status:not_found), 6,500 of the same 9,569 - scanners",
+		"    asking for /.env and the like, answered in ~0ms. One burst was",
+		"    1,371 in an hour, which would drag p95 to zero and hide a real",
+		"    slowdown behind it.",
+		"",
+		"STATIC, NOT DYNAMIC, for the reason the waitlist monitor gives and a",
+		"stronger one: most hours carry 0-10 counted requests, and the daily",
+		"p95 over 14 days ranged 20-363ms. Anomaly detection would be learning",
+		"noise. 2s over an hour is well clear of anything seen so far, so it",
+		"fires on a regression and not on one slow request in a quiet hour -",
+		"though at this volume a quiet hour's p95 is close to its max, so a",
+		"single request over 2s in an hour with few others CAN open it.",
+		"",
+		"WHAT A DURATION MEANS HERE. A Worker's clock only advances across I/O,",
+		"so a request that answers without touching D1 or the network - a 401,",
+		"a 404 - reports 0ms however long it really took. p95 is therefore time",
+		"spent waiting on I/O, which is exactly what a lost index or a hanging",
+		"dependency would inflate, and CPU-bound slowness will not show here.",
+		"",
+		"queryType 1 and events_analytics_platform as in the waitlist monitor;",
+		"trace_item_span is the event type for the spans dataset.",
+		"",
+		"The name is how apply.sh finds this detector again, so renaming it in",
+		"Sentry means renaming it here and in the rule, or the next run creates",
+		"a second one."
+	],
+	"project": "4512075995283456",
+	"detector": {
+		"name": "API slow (production)",
+		"type": "metric_issue",
+		"description": "The API's p95 response time was over 2s for an hour. Slow requests still succeed, so no fault issue is raised for them.",
+		"enabled": true,
+		"owner": "team:4512074220437504",
+		"data_sources": [
+			{
+				"aggregate": "p95(span.duration)",
+				"dataset": "events_analytics_platform",
+				"environment": "production",
+				"eventTypes": ["trace_item_span"],
+				"query": "is_transaction:true !transaction:\"Scheduled Cron*\" !span.status:not_found",
+				"queryType": 1,
+				"timeWindow": 3600
+			}
+		],
+		"config": {
+			"detectionType": "static"
+		},
+		"condition_group": {
+			"logicType": "any",
+			"conditions": [
+				{ "type": "gt", "comparison": 2000, "conditionResult": 75 },
+				{ "type": "lte", "comparison": 2000, "conditionResult": 0 }
+			],
+			"actions": []
+		}
+	}
+}

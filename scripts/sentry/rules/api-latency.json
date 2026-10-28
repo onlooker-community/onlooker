@@ -1,0 +1,72 @@
+{
+	"_comment": [
+		"Tells somebody when ../detectors/api-latency.json raises an issue.",
+		"Its own workflow, for the reason waitlist-submit-failed.json gives:",
+		"one file, one detector, keeps apply.sh's refusal meaningful.",
+		"",
+		"regression_event and a team target, both copied from the waitlist",
+		"rule because both were SEEN there and a metric monitor behaves the",
+		"same way. It raises ONE issue and reopens it on every later breach,",
+		"so first_seen_event alone fires once in the monitor's life. And its",
+		"issue is owned by team:onlooker, so issue_owners with an AllMembers",
+		"fallthrough was seen to email nobody.",
+		"",
+		"ONL-49 also asked for an API failure-rate rule. There isn't one, on",
+		"purpose. Sentry's failure_rate() counts every non-ok status, and over",
+		"the 7 days to 2026-10-27 it read 70% for the API with no 5xx at all in",
+		"30 days: 6,500 404s from scanners and 179 401s. Narrowed to 5xx it",
+		"would repeat api-faults.json, since every 5xx the API returns is a",
+		"reported fault and already emails, so it was left out rather than",
+		"tuned until it was quiet.",
+		"",
+		"SEEN TO DELIVER: with the detector's threshold lowered to 100ms by a",
+		"one-off apply at 2026-10-28T01:56Z (the trailing-hour p95 was 264ms),",
+		"the monitor opened ONLOOKER-API-6, this workflow fired at 02:00:18Z,",
+		"and the email reached a team member. The threshold was put back to",
+		"2000 by a full apply at 02:07Z. To repeat the test, apply a lowered",
+		"copy through SENTRY_DETECTORS_DIR and this file alone, so the",
+		"committed threshold is never the one that changes."
+	],
+	"project": "4512075995283456",
+	"detectorType": "metric_issue",
+	"detectorName": "API slow (production)",
+	"workflow": {
+		"name": "API slow (production)",
+		"environment": "production",
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
+			{
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {},
+						"config": {
+							"targetType": "team",
+							"targetIdentifier": "4512074220437504"
+						}
+					}
+				]
+			}
+		]
+	}
+}
