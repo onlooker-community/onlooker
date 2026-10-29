@@ -85,13 +85,17 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+pnpm install
+pnpm test                                # every package, through turbo
+pnpm --filter @onlooker/api test pool    # only files matching "pool"
+pnpm typecheck
 ```
+
+To run one test file, put the name straight after `test`, with **no `--`**.
+`test -- pool` runs the whole suite and passes, so a plan or a timing that
+uses it is describing every file, not one. See `docs/development.md`,
+"Testing".
 
 ## Architecture Overview
 
