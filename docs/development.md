@@ -105,6 +105,18 @@ pnpm --filter @onlooker/api test
 pnpm --filter @onlooker/db test
 ```
 
+Run only the test files whose path matches a name:
+
+```sh
+pnpm --filter @onlooker/api test pool    # runs: vitest run pool
+```
+
+Don't put `--` before the name. pnpm forwards it as-is, and vitest reads
+`vitest run -- pool` as a filter matching nothing, so it runs the **whole**
+suite and still passes, which looks exactly like the one file passing. The form
+above works because every package's `test` script is a bare `vitest run`,
+which the name is appended to (ONL-144).
+
 ### Linting and Formatting
 
 ```sh
