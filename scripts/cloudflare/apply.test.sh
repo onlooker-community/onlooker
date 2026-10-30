@@ -2,9 +2,10 @@
 # Offline tests for scripts/cloudflare/apply.sh.
 #
 # Every case runs against a fixture server on localhost or against no network at
-# all, so this needs no Cloudflare credential and runs on every PR. apply.sh
-# itself is never run by CI - a human runs it with a credential - which is the
-# same split scripts/sentry/apply.sh has.
+# all, so this needs no Cloudflare credential and runs on every PR. CI never
+# runs apply.sh in a mode that writes - a human applies it with a credential,
+# the same split scripts/sentry/apply.sh has. The one live run is
+# rate-limit-drift.yml's --check, with a read-only token.
 #
 # What these are really defending. The rule this applier writes is the only rate
 # limiting the API has, and the applier's update verb REPLACES every rule in the
@@ -247,6 +248,54 @@ out="$(run_against "${port}")"
 check "an empty phase applies the payload" "0" "$?"
 contains "and says the zone had none" "no rate limiting rule" "${out}"
 check "and sends one PUT" "1" "$(wc -l <"${record}" | tr -d ' ')"
+
+echo
+echo "cloudflare apply.sh: --check"
+
+# The case ONL-180 exists for, so it goes first. A deleted rule answers the read
+# with success:true and an empty array - the fixture serves exactly that - and a
+# check that trusted the flag would pass while nothing meters the API.
+read -r port record <<<"$(start_zone '[]')"
+out="$(run_against "${port}" --check)"
+check "--check FAILS against a zone with no rule, exit 1" "1" "$?"
+contains "and says there is no rate limiting" "NO rate limiting rule" "${out}"
+check "and sends no PUT, where an apply would have created it" "0" "$(wc -l <"${record}" | tr -d ' ')"
+
+# The paired positive case, so the failure above cannot be a check that fails
+# on everything.
+readonly LIVE_MATCHING="$(jq -c --slurpfile want "${PAYLOAD}" '[($want[0] | del(._comment)) + {id: "x", ref: "x", version: "1", last_updated: "now"}]' <<<'[]')"
+read -r port record <<<"$(start_zone "${LIVE_MATCHING}")"
+out="$(run_against "${port}" --check)"
+check "--check passes when the live rule matches, exit 0" "0" "$?"
+contains "and says so" "matches the payload" "${out}"
+check "and sends no PUT" "0" "$(wc -l <"${record}" | tr -d ' ')"
+
+# The ONL-171 shape: one rule, still there, metering one path of six.
+read -r port record <<<"$(start_zone "${LIVE_ONE}")"
+out="$(run_against "${port}" --check)"
+check "--check fails on a narrowed expression, exit 1" "1" "$?"
+contains "and shows the diff" "/auth/forgot-password" "${out}"
+check "and sends no PUT, where an apply would have fixed it" "0" "$(wc -l <"${record}" | tr -d ' ')"
+
+# Toggled off in the dashboard: every field but one identical, metering nothing.
+read -r port record <<<"$(start_zone "$(jq -c '.[0].enabled = false' <<<"${LIVE_MATCHING}")")"
+out="$(run_against "${port}" --check)"
+check "--check fails on a disabled rule, exit 1" "1" "$?"
+
+read -r port record <<<"$(start_zone "$(jq -c '.[0].ratelimit.requests_to_origin = true' <<<"${LIVE_MATCHING}")")"
+out="$(run_against "${port}" --check)"
+check "--check fails on an undescribed field, as drift not a refusal" "1" "$?"
+contains "and calls it drift" "DRIFT" "${out}"
+
+read -r port record <<<"$(start_zone "$(jq -c '. + [(.[0] | .id = "second" | .ref = "second" | .description = "hand-added")]' <<<"${LIVE_MATCHING}")")"
+out="$(run_against "${port}" --check)"
+check "--check fails on a second rule, exit 1" "1" "$?"
+contains "and names it" "hand-added" "${out}"
+
+# Blind is not green. The workflow fails on 2 as well, but the code must stay
+# distinct so the log says "could not look" rather than "looked and found drift".
+out="$(run_against 9 --check)"
+check "--check that cannot reach Cloudflare exits 2" "2" "$?"
 
 echo
 echo "cloudflare apply.sh: the credential never appears in output"
