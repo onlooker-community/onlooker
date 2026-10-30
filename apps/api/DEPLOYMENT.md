@@ -384,11 +384,15 @@ present, `/auth/refresh` still absent — and that the applier refuses rather
 than overwriting a rule it does not describe. It needs no credential and never
 touches the zone.
 
-Nothing watches the **live** zone. No CI job holds a Cloudflare credential, so
-a rule deleted in the dashboard still produces no failing check, and the first
-symptom would be a bill or a Resend reputation problem. `apply.sh` reports that
-drift on demand, which is strictly better than a paragraph nobody can diff, and
-is not the same as monitoring.
+**The live zone is checked on a schedule** by
+`.github/workflows/rate-limit-drift.yml`, which runs `apply.sh --check` with a
+read-only token and fails on any difference from the payload, including a zone
+with no rule at all. A failure arrives as GitHub's failed-workflow email,
+typically within about four hours and within eight on the measured worst case,
+because GitHub delivers an hourly cron far less often than hourly. The
+workflow's header has the measurement and what is not covered (ONL-180).
+Before that, a rule deleted in the dashboard produced no failing check, and the
+first symptom would have been a bill or a Resend reputation problem.
 
 **A login backoff does exist now, in worker code**, and it is the one piece of
 WS5 that is not this zone rule. `handleLogin` refuses a sign-in after

@@ -1,0 +1,63 @@
+name: Rate limit drift
+
+# Compares the zone's live rate limiting rule against
+# scripts/cloudflare/ratelimit.json and fails when they differ - including when
+# the zone has no rule at all, which Cloudflare answers with success:true and
+# an empty array. That rule is the only rate limiting the API has, and before
+# this ran, a rule deleted or edited in the dashboard produced no failing check
+# anywhere. ONL-171 is what that looked like for weeks; ONL-180 is this file.
+#
+# HOW A FAILURE REACHES A HUMAN, AND HOW LONG IT TAKES. A failed run sends
+# GitHub's failed-workflow email, which is the same route heartbeat.yml relies
+# on. For a scheduled workflow that email goes to whoever last changed the
+# cron line below, so editing it moves the alert to the editor.
+#
+# The cron is declared hourly and is not delivered hourly. Measured 2026-10-29
+# over the last 100 scheduled runs of client-error-monitor.yml, which is also
+# declared hourly: a run every 4.26 hours at the median, 6.89 at p95, 7.95 at the
+# worst. So a deleted rule is typically reported within about four hours, and
+# within eight on the measured worst case, plus the email's own delivery. That
+# is slower than an incident page and much faster than never, and a deleted
+# rule costs a bill or Resend reputation over hours, not seconds.
+#
+# NOT MONITORED, the same trade heartbeat.yml writes down: the org's only
+# Sentry cron seat belongs to client-error-monitor.yml, and a check-in step here
+# would report into a monitor Sentry creates disabled and print "ok". If GitHub
+# stops scheduling this workflow - it disables schedules in a public repository
+# after 60 days without activity - nobody is told.
+#
+# A payload change merged to main fails this until somebody runs apply.sh. That
+# is correct rather than noisy: a payload that was never applied is drift.
+on:
+  schedule:
+    - cron: '30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rate-limit-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Compare the live rule to the payload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      # A READ-ONLY token, deliberately not the one apply.sh uses to write:
+      # Zone -> Zone WAF -> Read on this zone and nothing else. A scheduled job
+      # holding Edit would be one bad commit away from a PUT, and the PUT
+      # replaces every rule in the phase.
+      #
+      # Fails on exit 2 as well as exit 1. A missing secret, a revoked token or
+      # Cloudflare being unreachable means nobody is looking, and a check that
+      # stays green while blind is what this replaces. The log says which.
+      - name: Check the zone
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_RATELIMIT_READ_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: bash scripts/cloudflare/apply.sh --check

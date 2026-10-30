@@ -23,7 +23,7 @@
 # strict enough to be annoying: it refuses rather than choosing, the way
 # scripts/sentry/apply.sh refuses a workflow it cannot unambiguously resolve.
 #
-# Usage: scripts/cloudflare/apply.sh [--capture | --dry-run]
+# Usage: scripts/cloudflare/apply.sh [--capture | --dry-run | --check]
 #   --capture   read the live rule and write it to the payload file. How the
 #               payload is born: the first one was captured, not typed, because
 #               typing it from the document is the mistake this script exists to
@@ -32,11 +32,14 @@
 #               PUT. Makes NO request and needs no credential - so it cannot
 #               show a diff against the live rule, which needs both by
 #               definition.
+#   --check     fetch and compare, never write. Exit 1 on ANY drift, including
+#               a zone with no rule at all. What rate-limit-drift.yml runs.
 #   (no flag)   fetch, refuse or report, and PUT only if the live rule differs.
 #
 # Env:
 #   CLOUDFLARE_API_TOKEN  required unless --dry-run. Needs Zone -> Zone WAF ->
-#                         Edit on this zone. Read alone is enough for --capture.
+#                         Edit on this zone. Read alone is enough for --capture
+#                         and --check, and the scheduled check holds only Read.
 #   CLOUDFLARE_ZONE_ID    required unless --dry-run. Not committed: this repo is
 #                         public, already keeps ids out of config by a source
 #                         guard, and a wrong value would meter the wrong zone.
@@ -46,7 +49,8 @@
 #
 # Exit codes, three-way like scripts/sentry/apply.sh:
 #   0 - applied, already matching, or a well-formed --dry-run
-#   1 - Cloudflare rejected it, the payload is malformed, or a refusal fired
+#   1 - Cloudflare rejected it, the payload is malformed, a refusal fired, or
+#       --check found the live zone differs from the payload
 #   2 - this script could not do its job at all (no credential, no zone, no tools)
 #
 # THE CREDENTIAL IS NEVER PRINTED and never passed as an argv element - it is
@@ -76,6 +80,7 @@ for argument in "$@"; do
 	case "${argument}" in
 		--capture) MODE="capture" ;;
 		--dry-run) MODE="dry-run" ;;
+		--check) MODE="check" ;;
 		-h|--help)
 			sed -n '/^# Usage:/,/^#   (no flag)/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 			exit 0
@@ -191,6 +196,45 @@ require_success "${live}" "the entry point read"
 
 live_count="$(jq '.result.rules // [] | length' <<<"${live}")"
 
+# The live rule with what Cloudflare assigns stripped, so it compares against
+# the payload. Only meaningful when the phase holds exactly one rule.
+strip_server_assigned() {
+	jq -S --argjson drop "${SERVER_ASSIGNED}" \
+		'.result.rules[0] | delpaths([$drop[] | [.]])' <<<"${live}"
+}
+
+# --check: compare and report, and never write.
+#
+# It answers before either refusal, and the order matters. The refusals are
+# about what an APPLY would destroy; a check destroys nothing, and every case
+# they cover - a second rule, an undescribed field - is drift, so it fails
+# here with one word instead of a recommendation to reconcile by hand.
+#
+# THE EMPTY PHASE IS THE CASE THIS EXISTS FOR. A zone with the rule deleted
+# answers the read with success:true and an empty array, so a check that read
+# only the success flag would pass at exactly the moment the API has no rate
+# limiting at all. ONL-180, and the first case apply.test.sh asserts.
+if [[ "${MODE}" == "check" ]]; then
+	if ((live_count == 0)); then
+		echo "apply.sh: DRIFT - the zone has NO rate limiting rule. Nothing meters the" >&2
+		echo "  API's unauthenticated paths. Restore it with scripts/cloudflare/apply.sh." >&2
+		exit 1
+	fi
+	if ((live_count > 1)); then
+		echo "apply.sh: DRIFT - the zone holds ${live_count} rate limiting rules; the payload describes one:" >&2
+		jq -r '.result.rules[] | "    \(.description // "(no description)")  \(.expression)"' <<<"${live}" >&2
+		exit 1
+	fi
+	live_rule="$(strip_server_assigned)"
+	if [[ "${live_rule}" == "$(desired_rule)" ]]; then
+		echo "apply.sh: the live rule matches the payload."
+		exit 0
+	fi
+	echo "apply.sh: DRIFT - the live rule differs from the payload (< live, > payload):" >&2
+	diff <(printf '%s\n' "${live_rule}") <(desired_rule) >&2 || true
+	exit 1
+fi
+
 # REFUSAL ONE: more than one live rule.
 #
 # The plan allows a single rate limiting rule, so a second one means somebody
@@ -211,8 +255,7 @@ if ((live_count == 0)); then
 	echo "apply.sh: the zone has no rate limiting rule; applying the payload creates it."
 	live_rule='{}'
 else
-	live_rule="$(jq -S --argjson drop "${SERVER_ASSIGNED}" \
-		'.result.rules[0] | delpaths([$drop[] | [.]])' <<<"${live}")"
+	live_rule="$(strip_server_assigned)"
 fi
 
 # Capture writes before anything compares, and that order is deliberate.
