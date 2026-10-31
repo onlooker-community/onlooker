@@ -155,7 +155,13 @@ export function createApiClient(
 					attempt < config.maxRetries &&
 					RETRYABLE_STATUS.has(response.status)
 				) {
-					const wait = retryAfterMs(response) ?? backoffDelay(attempt);
+					const told = retryAfterMs(response);
+					// Longer than this client would ever back off on its own means
+					// the server is not describing a transient failure - the login
+					// backoff and the mail cap both answer minutes to a day. Hand
+					// the 429 to the caller instead of hanging the page on it.
+					if (told !== null && told > config.retryMaxDelayMs) return response;
+					const wait = told ?? backoffDelay(attempt);
 					attempt += 1;
 					logger.failure({ method, url, status: response.status, attempt });
 					await sleep(wait);
