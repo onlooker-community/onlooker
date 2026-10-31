@@ -19,7 +19,9 @@ const ADA = "ada@example.com";
 
 const seed = (key: string, windowStart: Date, count: number) =>
 	db()
-		.prepare("INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)")
+		.prepare(
+			"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
+		)
 		.bind(key, windowStart.toISOString(), count)
 		.run();
 
@@ -100,9 +102,9 @@ describe("claimMailSend, per address", () => {
 		await claimMailSend(db(), "reset", "  ada@example.com ", T0);
 		await claimMailSend(db(), "reset", ADA, T0);
 
-		expect(
-			(await claimMailSend(db(), "reset", "ADA@EXAMPLE.COM", T0)).ok,
-		).toBe(false);
+		expect((await claimMailSend(db(), "reset", "ADA@EXAMPLE.COM", T0)).ok).toBe(
+			false,
+		);
 	});
 });
 

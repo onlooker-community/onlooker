@@ -309,8 +309,19 @@ const hash = await hashPassword(password);
 
 None in worker code. There is no `rateLimit` function in this codebase and no
 KV namespace for one to use — the sample previously here called both.
-`apps/web/src/utils/rateLimiting.ts` exists and is **not** this: it throttles the
-browser, so anything calling the API directly ignores it.
+A browser-side throttle (`apps/web/src/utils/rateLimiting.ts`) used to sit in the
+web app; it was unused and is removed, since anything calling the API directly
+ignored it anyway.
+
+**Mail is capped inside the worker**, per recipient and per day, in
+`src/db/mail-sends.ts` (ONL-222). Three resets or three verification mails per
+address per hour, three invites per address per day across all orgs, and 80
+mails a day in total, under Resend's free-tier 100. The counters are a D1
+table, `mail_sends`, pruned by the five-minute cron. forgot-password answers a
+refusal with its usual 200, so the cap cannot say which addresses have
+accounts; the other two answer 429 with `Retry-After`. Reaching the daily
+ceiling raises a Sentry issue, because from then until UTC midnight legitimate
+mail is refused too.
 
 What does exist is **one** Cloudflare rate limiting rule on the `onlooker.dev`
 zone, and one is the whole budget — the plan allows a single rule, and it is

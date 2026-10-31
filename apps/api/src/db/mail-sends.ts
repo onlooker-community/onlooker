@@ -16,11 +16,12 @@ const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
 /** Sends allowed to one address per window, by kind. */
-export const MAIL_LIMITS: Record<MailKind, { max: number; windowMs: number }> = {
-	reset: { max: 3, windowMs: HOUR_MS },
-	verify: { max: 3, windowMs: HOUR_MS },
-	invite: { max: 3, windowMs: DAY_MS },
-};
+export const MAIL_LIMITS: Record<MailKind, { max: number; windowMs: number }> =
+	{
+		reset: { max: 3, windowMs: HOUR_MS },
+		verify: { max: 3, windowMs: HOUR_MS },
+		invite: { max: 3, windowMs: DAY_MS },
+	};
 
 /**
  * All mail, per UTC day. Resend's free tier allows 100 a day and 3,000 a
