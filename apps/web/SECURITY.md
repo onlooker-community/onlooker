@@ -84,8 +84,9 @@ if cookies are ever introduced.
 
 ## Open follow-ups (filed for later)
 
-1. **Server-side parity**: password policy, login rate limiting, and reset-token
-   single-use must be enforced on the API. The client rules are advisory.
+1. **Server-side parity**: password policy and reset-token single-use must be
+   enforced on the API. The client rules are advisory. Login rate limiting is
+   done: the API enforces it (audit row 9).
 2. **Shared password policy**: `lib/validation.ts` duplicates rules the backend
    also needs. Consider promoting the policy into `@onlooker/auth-core` so
    client and server share one source of truth.
@@ -108,8 +109,8 @@ Before promoting a build to production:
 - [ ] Content-Security-Policy denies inline and `eval` scripts.
 - [ ] `Referrer-Policy` set (`no-referrer` or `same-origin`), especially on the
       password-reset page.
-- [ ] Backend enforces: password complexity, login rate limiting/lockout,
-      single-use short-TTL reset tokens, refresh-token rotation + reuse
-      detection.
+- [ ] Backend enforces: password complexity, single-use short-TTL reset
+      tokens, refresh-token rotation + reuse detection. (Login rate limiting
+      is enforced in code and covered by audit row 9.)
 - [ ] No secrets in the client bundle — only `VITE_*` public config is inlined.
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `pnpm test` are green.

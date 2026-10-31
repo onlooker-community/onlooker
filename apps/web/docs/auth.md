@@ -43,7 +43,9 @@ Key modules:
 ### Authenticated requests
 `authenticatedFetch` injects `Authorization: Bearer <access token>`, applies a
 per-request timeout, and retries transient failures (network, `5xx`, `429`)
-with exponentially backed-off, jittered delays.
+with exponentially backed-off, jittered delays, unless `Retry-After` exceeds
+`retryMaxDelayMs` (5s by default), in which case the response is returned at
+once.
 
 ### Token refresh (transparent)
 On a `401` for a non-exempt request, the client posts the refresh token to

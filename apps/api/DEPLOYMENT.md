@@ -307,8 +307,11 @@ const hash = await hashPassword(password);
 
 ### Rate Limiting
 
-None in worker code. There is no `rateLimit` function in this codebase and no
-KV namespace for one to use — the sample previously here called both.
+No general-purpose limiter in worker code. There is no `rateLimit` function in
+this codebase and no KV namespace for one to use — the sample previously here
+called both. The worker has two targeted limits instead, both described below:
+the mail cap (`src/db/mail-sends.ts`) and the login backoff
+(`src/db/login-attempts.ts`).
 A browser-side throttle (`apps/web/src/utils/rateLimiting.ts`) used to sit in the
 web app; it was unused and is removed, since anything calling the API directly
 ignored it anyway.
@@ -320,13 +323,14 @@ mails a day in total, under Resend's free-tier 100. The counters are a D1
 table, `mail_sends`, pruned by the five-minute cron. forgot-password answers a
 refusal with its usual 200, so the cap cannot say which addresses have
 accounts; the other two answer 429 with `Retry-After`. Reaching the daily
-ceiling raises a Sentry issue, because from then until UTC midnight legitimate
-mail is refused too.
+ceiling raises a Sentry issue, once per UTC day, because from then until UTC
+midnight legitimate mail is refused too. Every later refusal that day is
+logged as `mail_global_ceiling` without raising another.
 
 What does exist is **one** Cloudflare rate limiting rule on the `onlooker.dev`
 zone, and one is the whole budget — the plan allows a single rule, and it is
 spent. So this is not a rule among several that can be narrowed freely; it is the
-only rate limiting the API has, at the edge or anywhere else.
+only rate limiting the API has at the edge, and the only per-IP limit anywhere.
 
 **"One rule" means one, and that is checkable rather than assumed.** Reading
 `GET /zones/{zone}/rulesets/phases/http_ratelimit/entrypoint` is the complete
@@ -386,8 +390,8 @@ are cheap and low-risk. `/auth/resend-verification` is session-authenticated and
 so already behind a credential.
 
 **Before narrowing this rule, know what it is holding.** Removing a path from the
-expression removes the only limit that path has. The mail-sending one is the
-expensive mistake.
+expression removes the only per-IP limit that path has. The mail-sending one is
+the expensive mistake.
 
 **What CI does and does not check.** `scripts/cloudflare/apply.test.sh` runs on
 every PR and verifies the payload — valid, action `block`, every intended path
@@ -415,12 +419,10 @@ makes an attacker rotate addresses. The counter keys on a hash of the
 submitted address so the 429 reveals nothing about which accounts exist, and
 the gate runs before bcrypt, which a source guard asserts.
 
-Still unimplemented: per-account limits on anything other than login, and
-mail-send throttling. `handleForgotPassword` reaches `sendEmail` on an
-unauthenticated request; the zone rule now meters that path per IP per
-datacenter, which caps requests from one client but not how many mails one
-victim address can be made to receive from many clients. Tracked in
-`onlooker-9s0m`.
+Still unimplemented: per-account limits on anything other than login. That is
+the next slice of ONL-222. Mail is covered: how many mails one address can be
+made to receive from many clients is the mail cap described above, not the
+zone rule.
 
 ### Public lesson reads
 

@@ -322,8 +322,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * history" should mean 180, not 179.
  *
  * `now` defaults to the real clock and is only ever overridden by a test.
- * Passing it explicitly is what lets the boundary test seed a row and check the cutoff against the
- * same instant instead of racing the wall clock between the two.
+ * Passing it explicitly is what lets the boundary test seed a row and check
+ * the cutoff against the same instant instead of racing the wall clock
+ * between the two.
  */
 export async function pruneSessionSummaries(
 	db: D1Database,
