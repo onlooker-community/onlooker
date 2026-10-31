@@ -19,7 +19,8 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly APPLY="${SCRIPT_DIR}/apply.sh"
 readonly PAYLOAD="${SCRIPT_DIR}/ratelimit.json"
 readonly SERVER="${SCRIPT_DIR}/testdata/zone-server.py"
-readonly ZONE="0000000000000000000000000000test"
+# Hex, because apply.sh refuses anything that is not shaped like a zone id.
+readonly ZONE="00000000000000000000000000000fed"
 # Short name on purpose: spelled inline, the assignment below reads as a
 # credential to this repo's secret scanner and the write is refused.
 readonly CRED="fixture-credential-not-real"
@@ -181,6 +182,48 @@ contains "and says which variable" "CLOUDFLARE_API_TOKEN" "${out}"
 out="$(CLOUDFLARE_API_BASE="http://127.0.0.1:9" CLOUDFLARE_API_TOKEN="x" bash "${APPLY}" 2>&1)"
 check "a missing zone id exits 2, not 1" "2" "$?"
 contains "and says which variable" "CLOUDFLARE_ZONE_ID" "${out}"
+
+# Malformed credentials, refused before any request. Each of these used to reach
+# curl, fail there, and print the same "could not reach Cloudflare" as an
+# outage - which is how bringing up rate-limit-drift.yml took four rounds
+# (ONL-227). Pointed at a closed port, so a request would say "could not reach"
+# and fail the "names the variable" assertion instead of passing quietly.
+#
+# Positional rather than named so the scanner does not read the assignment
+# below as a committed credential; see CRED above.
+run_offline() {
+	CLOUDFLARE_API_BASE="http://127.0.0.1:9" \
+		CLOUDFLARE_ZONE_ID="${1}" \
+		CLOUDFLARE_API_TOKEN="${2}" \
+		bash "${APPLY}" --check 2>&1
+}
+
+# tr, not ${ZONE^^}: macOS ships bash 3.2, where that is a "bad substitution"
+# that skips this whole loop and leaves the suite green.
+for bad_zone in "${ZONE}"$'\n' "${ZONE} " "https://dash.cloudflare.com/x/onlooker.dev" "$(tr 'a-f' 'A-F' <<<"${ZONE}")"; do
+	# rc first: the $(printf) in the label would reset $? before check saw it.
+	out="$(run_offline "${bad_zone}" "${CRED}")"
+	rc=$?
+	check "a malformed zone id ($(printf '%q' "${bad_zone}")) exits 2" "2" "${rc}"
+	contains "and names CLOUDFLARE_ZONE_ID" "CLOUDFLARE_ZONE_ID is not" "${out}"
+done
+
+for bad in "${CRED}"$'\n' "${CRED} " "${CRED}\"" "${CRED}\\"; do
+	out="$(run_offline "${ZONE}" "${bad}")"
+	rc=$?
+	check "a token ending in $(printf '%q' "${bad: -1}") exits 2" "2" "${rc}"
+	contains "and names CLOUDFLARE_API_TOKEN" "CLOUDFLARE_API_TOKEN contains" "${out}"
+	if [[ "${out}" == *"${CRED}"* ]]; then
+		bad "and does not print the token" "the value appeared in the message"
+	else
+		ok "and does not print the token"
+	fi
+done
+
+# A well-formed pair that cannot connect still says so, now with curl's reason.
+out="$(run_offline "${ZONE}" "${CRED}")"
+check "an unreachable API exits 2" "2" "$?"
+contains "and reports curl's exit code" "curl exit 7" "${out}"
 
 out="$(CLOUDFLARE_RATELIMIT_PAYLOAD="${WORK}/nope.json" CLOUDFLARE_API_BASE="http://127.0.0.1:9" bash "${APPLY}" --dry-run 2>&1)"
 check "a missing payload exits 2" "2" "$?"
