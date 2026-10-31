@@ -30,7 +30,6 @@ Key modules:
   drop-in `fetch`; `apiClient` is the typed `get/post/patch/delete` wrapper.
 - **`src/api/tokenStore.ts`** — stores the access + refresh tokens.
 - **`src/lib/validation.ts`** — email + password rules and strength scoring.
-- **`src/utils/rateLimiting.ts`** — client-side login attempt throttling.
 
 ## Auth flows
 
@@ -95,8 +94,6 @@ Auth is covered by:
   refresh middleware (success, failure, exempt paths), retry/timeout, and error
   mapping.
 - `src/lib/validation.test.ts` — email/password rules and strength scoring.
-- `src/utils/rateLimiting.test.ts` — attempt counting, lockout, expiry, sliding
-  window (driven by an injected clock, no real timers).
 
 Run: `pnpm -F @onlooker/web test`.
 
@@ -124,8 +121,9 @@ Raise `VITE_API_TIMEOUT_MS`. A caller-initiated `AbortController` is respected
 and is not retried; only timeouts and network errors are.
 
 **Locked out of login after several attempts.**
-Client-side rate limiting (`utils/rateLimiting.ts`) locks a key for 60s after 5
-failed attempts. It clears automatically; a successful login resets it.
+The API refuses login for an address after 4 failed attempts, answering 429
+`rate_limit_exceeded` with `Retry-After` (60s, doubling, capped at 30 min). It
+clears when the cooldown passes; a successful login resets it.
 
 **No API logs in the console.**
 Logging is off in production and gated on `VITE_API_LOG_REQUESTS`. Tokens and

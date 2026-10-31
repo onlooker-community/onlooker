@@ -321,9 +321,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * the whole reason this compares with `<` rather than `<=` - "180 days of
  * history" should mean 180, not 179.
  *
- * `now` defaults to the real clock and is only ever overridden by a test -
- * see rateLimiting.ts's `now` for the same pattern. Passing it explicitly is
- * what lets the boundary test seed a row and check the cutoff against the
+ * `now` defaults to the real clock and is only ever overridden by a test.
+ * Passing it explicitly is what lets the boundary test seed a row and check the cutoff against the
  * same instant instead of racing the wall clock between the two.
  */
 export async function pruneSessionSummaries(
