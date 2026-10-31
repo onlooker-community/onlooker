@@ -139,8 +139,24 @@ Resend outage cannot be retried into a burst.
   unknown address sends no mail, so it has nothing to cap and should not grow
   the table. On refusal, return the normal `200`.
 * **resend-verification, invites:** on refusal, throw `ApiError(429,
-  "mail_rate_limited", …)` with `Retry-After` in whole seconds, rounded up.
-  `ApiError` already carries headers, added for the login backoff.
+  "rate_limit_exceeded", …)` with `Retry-After` in whole seconds, rounded up.
+  That is the code and header the login backoff already answers, so a client
+  handles one shape. `ApiError` already carries headers, added for the login
+  backoff.
+
+## The web client must not wait out a long Retry-After *(measured, then proposed)*
+
+`apps/web/src/api/client.ts` retries every `429` up to `maxRetries` (2) times,
+sleeping for the full `Retry-After` before each retry, with no upper bound
+(`resilientFetch`, `retryAfterMs`). A capped invite answers `Retry-After` of up
+to a day, so the page would hang for that long. This is not new: the login
+backoff already answers up to 1,800 seconds, so a locked-out sign-in through
+this client hangs for up to 30 minutes.
+
+**Fix:** when `Retry-After` exceeds `retryMaxDelayMs` (5 seconds by default),
+return the `429` at once instead of retrying. A short `Retry-After` keeps
+today's behavior. A server that says to wait an hour is not describing a
+transient failure.
 * **All three:** on a `global` refusal, call `monitor.captureException` before
   answering, and log `{ event: "mail_global_ceiling" }`.
 
