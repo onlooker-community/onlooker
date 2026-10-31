@@ -19,7 +19,7 @@ import {
 	TextField,
 } from "../components/form";
 import { Button, Panel } from "../components/ui";
-import { describeError } from "../lib/apiErrors";
+import { describeError, describeRefusal } from "../lib/apiErrors";
 import {
 	scorePassword,
 	validateEmail,
@@ -90,13 +90,17 @@ function EmailVerificationNotice() {
 	const [state, setState] = useState<"idle" | "sending" | "sent" | "error">(
 		"idle",
 	);
+	const [errorText, setErrorText] = useState("");
 
 	const resend = async () => {
 		setState("sending");
 		try {
 			await resendVerificationEmail();
 			setState("sent");
-		} catch {
+		} catch (err) {
+			setErrorText(
+				describeRefusal(err, "Could not send the email. Try again."),
+			);
 			setState("error");
 		}
 	};
@@ -123,7 +127,7 @@ function EmailVerificationNotice() {
 			)}
 			{state === "error" && (
 				<div style={{ color: "var(--red)", marginTop: "0.5rem" }}>
-					Could not send the email. Try again.
+					{errorText}
 				</div>
 			)}
 		</Panel>
