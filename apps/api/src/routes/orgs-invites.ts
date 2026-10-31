@@ -1,3 +1,4 @@
+import { claimMailSend } from "../db/mail-sends.js";
 import {
 	createInvite,
 	deleteInvite,
@@ -8,6 +9,7 @@ import {
 import { getOrgName, isOrgRole, listMembers } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import { sendEmail } from "../email";
+import { mailRateLimitError, reportMailRefusal } from "../email/cap.js";
 import { orgInviteEmail } from "../email/templates.js";
 import { requireOrgRole } from "../orgs/authorize.js";
 import { resolveInviteWindow } from "../orgs/invite-window.js";
@@ -58,6 +60,16 @@ export async function handleCreateInvite(
 	const members = await listMembers(env.DB, params.id);
 	if (members.some((member) => normalizeEmail(member.email) === email)) {
 		throw new ApiError(409, "already_member", "They are already in this org");
+	}
+
+	// After validation, so a refused or malformed invite spends nothing, and
+	// before deletePendingInvitesFor, so a refusal leaves the pending invite -
+	// and the link in the invitee's inbox - working. The counter is per address
+	// across every org: anyone can create an org (ONL-222).
+	const claim = await claimMailSend(env.DB, "invite", email);
+	if (!claim.ok) {
+		reportMailRefusal(claim, "invite");
+		throw mailRateLimitError(claim);
 	}
 
 	const window = resolveInviteWindow(env, params.id);

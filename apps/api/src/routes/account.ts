@@ -10,6 +10,7 @@
  */
 
 import { accountDeletionPreview } from "../db/lessons.js";
+import { claimMailSend } from "../db/mail-sends.js";
 import { soleOwnedOrgs } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import {
@@ -28,6 +29,7 @@ import {
 	verificationTokenTarget,
 } from "../db/queries";
 import { sendEmail } from "../email";
+import { mailRateLimitError, reportMailRefusal } from "../email/cap.js";
 import {
 	passwordResetEmail,
 	RESET_TOKEN_TTL_MS,
@@ -393,6 +395,15 @@ export async function handleResendVerification(
 		throw new ApiError(404, "not_found", "User not found");
 	}
 
+	// Before the old link is retired, or a refusal would leave the caller with
+	// no working link at all. The caller is signed in and asking about their
+	// own address, so a 429 tells them nothing they did not know (ONL-222).
+	const claim = await claimMailSend(env.DB, "verify", user.email);
+	if (!claim.ok) {
+		reportMailRefusal(claim, "verify");
+		throw mailRateLimitError(claim);
+	}
+
 	// Retire any outstanding link first, so asking again does not leave a trail
 	// of live confirmations in an inbox someone else may later read.
 	await deleteVerificationTokens(env.DB, userId, "verify");
@@ -441,6 +452,16 @@ export async function handleForgotPassword(
 	// address must be indistinguishable from a registered one, or this endpoint
 	// becomes a way to ask whether somebody has an account here.
 	if (user) {
+		// Before the old link is retired, or a refusal would invalidate the
+		// link the owner already holds and send nothing in its place. And
+		// answered exactly like a send: anything else would say this address
+		// has an account (ONL-222).
+		const claim = await claimMailSend(env.DB, "reset", user.email);
+		if (!claim.ok) {
+			reportMailRefusal(claim, "reset");
+			return jsonResponse({ success: true });
+		}
+
 		await deleteVerificationTokens(env.DB, user.id, "reset");
 		const token = await createVerificationToken(
 			env.DB,
