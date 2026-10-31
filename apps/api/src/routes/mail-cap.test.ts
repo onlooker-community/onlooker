@@ -24,7 +24,6 @@ interface ErrorBody {
 beforeEach(async () => {
 	await db().prepare("DELETE FROM verification_tokens").run();
 	await resetOrgTables();
-	await db().prepare("DELETE FROM mail_sends").run();
 });
 
 const post = (path: string, body: unknown, token: string | null = null) =>
@@ -104,12 +103,13 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(row?.n).toBe(0);
 	});
 
-	it("sends nothing once the day's ceiling is spent, and still answers 200", async () => {
+	it("sends nothing once the day's ceiling is spent, and answers exactly as a send", async () => {
 		await spendTheDaysCeiling();
 
 		const response = await post("/auth/forgot-password", { email: ADA });
 
 		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
 		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
 	});
 });
@@ -204,5 +204,25 @@ describe("POST /api/orgs/:id/invites under the cap", () => {
 		await spendTheDaysCeiling();
 
 		expect((await invite(orgId, "new@example.com")).status).toBe(429);
+	});
+
+	// The claim runs after validation, so an invite that could never be sent
+	// spends neither the address's slot nor the day's.
+	it.each([
+		{ email: "not-an-address", status: 400, code: "invalid_email" },
+		{ email: ADA, status: 409, code: "already_member" },
+	])("writes no counter for an invite refused as $code", async ({
+		email,
+		status,
+		code,
+	}) => {
+		const refused = await invite(orgId, email);
+
+		expect(refused.status).toBe(status);
+		expect(((await refused.json()) as ErrorBody).error.code).toBe(code);
+		const row = await db()
+			.prepare("SELECT COUNT(*) AS n FROM mail_sends")
+			.first<{ n: number }>();
+		expect(row?.n).toBe(0);
 	});
 });

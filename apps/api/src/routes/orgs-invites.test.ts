@@ -22,9 +22,6 @@ function invite(token: string, email: string, role = "member") {
 
 beforeEach(async () => {
 	await resetOrgTables();
-	// Each test mails new@example.com; the per-address cap would otherwise
-	// carry its count from one test into the next (ONL-222).
-	await env.DB.prepare("DELETE FROM mail_sends").run();
 	ada = await signup("ada@example.com");
 	bob = await signup("bob@example.com");
 
