@@ -156,6 +156,18 @@ readonly ZONE="${CLOUDFLARE_ZONE_ID:-}"
 [[ -n "${AUTH}" ]] || fail "CLOUDFLARE_API_TOKEN is required" 2
 [[ -n "${ZONE}" ]] || fail "CLOUDFLARE_ZONE_ID is required" 2
 
+# Shape checks, before any request. Without them a trailing newline in either
+# secret fails inside curl - a malformed URL, or a config line that no longer
+# parses - and prints the same "could not reach Cloudflare" as an outage, which
+# is how bringing up rate-limit-drift.yml took four rounds (ONL-227). Exit 2
+# because nothing was asked of Cloudflare. Neither message prints the value.
+[[ "${ZONE}" =~ ^[0-9a-f]{32}$ ]] ||
+	fail "CLOUDFLARE_ZONE_ID is not a zone id (32 lowercase hex characters) - check it for whitespace, or a URL pasted in its place" 2
+# Only what breaks the curl config: whitespace ends the line, and a quote or a
+# backslash changes how it parses. Anything else is Cloudflare's to reject.
+[[ ! "${AUTH}" =~ [[:space:]\"\\] ]] ||
+	fail "CLOUDFLARE_API_TOKEN contains whitespace, a quote or a backslash, which no token has - check it for a trailing newline" 2
+
 readonly ENTRYPOINT="${API}/zones/${ZONE}/rulesets/phases/${PHASE}/entrypoint"
 
 # The credential goes in on stdin and nowhere else. See the header.
@@ -163,6 +175,10 @@ auth_config() { printf 'header = "Authorization: Bearer %s"\n' "${AUTH}"; }
 
 # A transport failure is exit 2, not 1: nothing was rejected and nothing was
 # written, so the caller should retry rather than reach for the payload.
+#
+# curl's exit code goes in the message because its stderr cannot: that would
+# echo the request, and the request carries the credential. The code alone
+# tells an outage (6, 7, 28) from a malformed request (3).
 request() {
 	local method="$1" url="$2" body="${3:-}" response
 	if [[ -n "${body}" ]]; then
@@ -170,10 +186,10 @@ request() {
 			--request "${method}" \
 			--header "Content-Type: application/json" \
 			--data "${body}" \
-			"${url}" 2>/dev/null)" || fail "could not reach Cloudflare" 2
+			"${url}" 2>/dev/null)" || fail "could not reach Cloudflare (curl exit $?)" 2
 	else
 		response="$(auth_config | curl -s -K - --max-time 20 \
-			--request "${method}" "${url}" 2>/dev/null)" || fail "could not reach Cloudflare" 2
+			--request "${method}" "${url}" 2>/dev/null)" || fail "could not reach Cloudflare (curl exit $?)" 2
 	fi
 	[[ -n "${response}" ]] || fail "Cloudflare returned an empty response" 2
 	jq empty <<<"${response}" 2>/dev/null || fail "Cloudflare returned non-JSON" 2
