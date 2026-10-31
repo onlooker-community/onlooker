@@ -13,12 +13,12 @@ const quiet = (recorder: ReturnType<typeof createRecordingMonitor>) => {
 describe("reportMailRefusal", () => {
 	// The ceiling refusing mail means legitimate mail is being refused for the
 	// rest of the day. A per-address cap firing is the system working.
-	it("raises an issue when the day's ceiling refuses", () => {
+	it("raises an issue when the day's ceiling first refuses", () => {
 		const recorder = createRecordingMonitor();
 		const { deps } = quiet(recorder);
 
 		reportMailRefusal(
-			{ ok: false, scope: "global", retryAfterMs: 1000 },
+			{ ok: false, scope: "global", first: true, retryAfterMs: 1000 },
 			"reset",
 			deps,
 		);
@@ -27,6 +27,25 @@ describe("reportMailRefusal", () => {
 		expect((recorder.exceptions[0]?.error as Error).message).toContain(
 			"ceiling",
 		);
+	});
+
+	// Once a day: a looped invite would otherwise raise an event per request.
+	it("only logs a later refusal at the ceiling the same day", () => {
+		const recorder = createRecordingMonitor();
+		const { deps, lines } = quiet(recorder);
+
+		reportMailRefusal(
+			{ ok: false, scope: "global", first: false, retryAfterMs: 1000 },
+			"invite",
+			deps,
+		);
+
+		expect(recorder.exceptions).toHaveLength(0);
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] as string)).toEqual({
+			event: "mail_global_ceiling",
+			kind: "invite",
+		});
 	});
 
 	it("raises nothing when one address is capped", () => {
@@ -79,6 +98,7 @@ describe("mailRateLimitError", () => {
 		const error = mailRateLimitError({
 			ok: false,
 			scope: "global",
+			first: false,
 			retryAfterMs: 0,
 		});
 

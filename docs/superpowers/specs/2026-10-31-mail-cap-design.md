@@ -157,8 +157,11 @@ this client hangs for up to 30 minutes.
 return the `429` at once instead of retrying. A short `Retry-After` keeps
 today's behavior. A server that says to wait an hour is not describing a
 transient failure.
-* **All three:** on a `global` refusal, call `monitor.captureException` before
-  answering, and log `{ event: "mail_global_ceiling" }`.
+* **All three:** on every `global` refusal, log
+  `{ event: "mail_global_ceiling" }`. Call `monitor.captureException` once per
+  UTC day, on the first refusal over the ceiling (the claim that counts 81),
+  not on every one: a looped invite would otherwise raise an event per
+  request.
 
 ## Pruning *(proposed)*
 
@@ -182,8 +185,9 @@ In the Workers pool, against D1:
   no `mail_sends` row.
 * **resend-verification and invites:** the fourth request answers `429` with
   `Retry-After`, and the previous link or invite still works.
-* **Global ceiling:** a refusal raises an issue through `monitor`, checked the
-  way `scheduled.test.ts` checks `captureException`.
+* **Global ceiling:** the day's first refusal raises an issue through
+  `monitor`, checked the way `scheduled.test.ts` checks `captureException`;
+  later ones only log.
 * **Prune:** removes old rows and keeps current ones.
 
 In `scripts/source-guards.test.sh`, because `vi.mock` does not apply in the
@@ -210,3 +214,15 @@ Workers pool:
   a delete, a create and a send that an unknown one skips, and the claim adds
   one more write. #205 fixed the
   equivalent leak in login. Measure it, then file it if real.
+* **The shared daily ceiling, ONL-228.** Two gaps found in the final review:
+  * Invites alone can fill the 80 a day. There is no per-inviter or per-org
+    invite cap and anyone can create an org, so about 27 addresses × 3 invites
+    spends the ceiling, and resets are then refused for everyone until UTC
+    midnight.
+  * The shared global counter is a weak cross-route oracle. forgot-password
+    bumps it only for registered addresses, and invite and verify callers can
+    see when it is full. The signal is noisy, available once a day, costs the
+    day's mail, and pages us.
+
+  Possible fixes: a per-inviter or per-org daily invite cap; reserving part of
+  the 80 for reset and verify.

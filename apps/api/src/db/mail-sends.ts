@@ -33,9 +33,15 @@ export const DAILY_MAIL_CEILING = 80;
 /** Longer than the longest window, so a prune never forgets a live count. */
 const RETENTION_MS = 2 * DAY_MS;
 
+/**
+ * A global refusal says whether it was the day's first: the upsert hands the
+ * count one past the ceiling to exactly one request, so the issue is raised
+ * once a UTC day, not once per refused request.
+ */
 export type MailClaim =
 	| { ok: true }
-	| { ok: false; scope: "address" | "global"; retryAfterMs: number };
+	| { ok: false; scope: "address"; retryAfterMs: number }
+	| { ok: false; scope: "global"; first: boolean; retryAfterMs: number };
 
 /** The day's ceiling row. A new UTC date is a new key, so it never needs resetting. */
 export function globalMailKey(now: Date): string {
@@ -91,6 +97,9 @@ function msUntilNextUtcMidnight(now: Date): number {
  *
  * The address is claimed first, and a refusal there stops before the global
  * row: one bombed address must not spend the day's ceiling for everybody.
+ * The reverse is not true: a refusal at the ceiling has already spent the
+ * address's own slot, so a late-day invite refusal leaves that address one
+ * fewer invite for the rest of its 24-hour window.
  * A claim counts even if the send then fails, so a Resend outage cannot be
  * retried into a burst.
  */
@@ -121,6 +130,7 @@ export async function claimMailSend(
 		return {
 			ok: false,
 			scope: "global",
+			first: all.count === DAILY_MAIL_CEILING + 1,
 			retryAfterMs: msUntilNextUtcMidnight(now),
 		};
 	}

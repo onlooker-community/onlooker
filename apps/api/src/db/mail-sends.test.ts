@@ -72,6 +72,19 @@ describe("claimMailSend, per address", () => {
 		expect(await claimMailSend(db(), "reset", ADA, at(HOUR))).toEqual({
 			ok: true,
 		});
+		// The count restarted at one, so two more fit and the fourth does not.
+		for (let i = 1; i <= 2; i++) {
+			expect(
+				await claimMailSend(db(), "reset", ADA, at(HOUR + i * MINUTE)),
+			).toEqual({ ok: true });
+		}
+		expect(
+			await claimMailSend(db(), "reset", ADA, at(HOUR + 10 * MINUTE)),
+		).toEqual({
+			ok: false,
+			scope: "address",
+			retryAfterMs: 50 * MINUTE,
+		});
 	});
 
 	// Per kind, so an inviter's 429 cannot reveal password-reset traffic to the
@@ -115,6 +128,26 @@ describe("claimMailSend, the daily ceiling", () => {
 		expect(await claimMailSend(db(), "reset", "new@example.com", T0)).toEqual({
 			ok: false,
 			scope: "global",
+			first: true,
+			retryAfterMs: 12 * HOUR,
+		});
+	});
+
+	// The atomic upsert hands 81 to exactly one request, so the day's first
+	// refusal is the one that raises the issue and the rest only log.
+	it("marks only the day's first refusal at the ceiling as first", async () => {
+		await seed(globalMailKey(T0), T0, DAILY_MAIL_CEILING);
+
+		expect(await claimMailSend(db(), "reset", "a@example.com", T0)).toEqual({
+			ok: false,
+			scope: "global",
+			first: true,
+			retryAfterMs: 12 * HOUR,
+		});
+		expect(await claimMailSend(db(), "reset", "b@example.com", T0)).toEqual({
+			ok: false,
+			scope: "global",
+			first: false,
 			retryAfterMs: 12 * HOUR,
 		});
 	});

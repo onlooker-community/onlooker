@@ -27,12 +27,15 @@ const realDeps: MailCapDeps = {
 };
 
 /**
- * Log the refusal, and raise an issue if it was the day's ceiling.
+ * Log every refusal, and raise an issue on the day's first one at the ceiling.
  *
  * Only the ceiling pages anybody. A capped address is the cap working; the
  * ceiling means legitimate mail is being refused until UTC midnight - possibly
  * because someone holding many valid addresses is driving forgot-password -
  * and without this it would first surface as Resend refusing to send.
+ *
+ * Once a UTC day, not once per refusal: a looped invite would otherwise raise
+ * an event per request. Every refusal still logs its line.
  *
  * The line names the kind and never the address.
  */
@@ -48,7 +51,7 @@ export function reportMailRefusal(
 			kind,
 		}),
 	);
-	if (global) {
+	if (refusal.scope === "global" && refusal.first) {
 		deps.monitor.captureException(
 			new Error(
 				`mail: the daily ceiling of ${DAILY_MAIL_CEILING} sends is spent; refusing ${kind} mail until UTC midnight`,
