@@ -503,17 +503,30 @@ mail_result="$(
 		/(deleteVerificationTokens|deletePendingInvitesFor)\(/ && !del { del = FNR }
 		/sendEmail\(/ && !send { send = FNR }
 		END { finish(); printf "%d|%s\n", senders, bad }
-	' ${mail_files}
+	' ${mail_files} </dev/null
 )"
 IFS='|' read -r mail_senders mail_bad <<<"${mail_result}"
 
 # The paired positive check. Without it a renamed sendEmail, or a moved
-# directory, would leave the check below passing over nothing.
+# directory, would leave the check below passing over nothing. The
+# </dev/null above makes an empty file list count 0 rather than read stdin.
 if [[ "${mail_senders}" == "3" ]]; then
 	pass "found the three mail-sending handlers"
 else
 	fail "found the three mail-sending handlers" \
-		"found ${mail_senders:-0} - if a sender was added or removed, update this count and claim in the new one"
+		"found ${mail_senders:-0} exported async functions that call sendEmail"
+fi
+
+# The awk above sees only `export async function`. A fourth sender written
+# any other way - not exported, an arrow, a method - would be invisible to it,
+# so count the call sites themselves, in any form.
+# shellcheck disable=SC2086
+mail_calls="$(cat ${mail_files} </dev/null | grep -c 'sendEmail(' || true)"
+if [[ "${mail_calls}" == "3" ]]; then
+	pass "found exactly three sendEmail call sites"
+else
+	fail "found exactly three sendEmail call sites" \
+		"found ${mail_calls:-0} - if a sender was added or removed, update this count and claim in the new one"
 fi
 
 if [[ -z "${mail_bad// /}" ]]; then
