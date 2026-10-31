@@ -127,6 +127,13 @@
       "when": 1792937486444,
       "tag": "0017_salty_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793464262669,
+      "tag": "0018_brief_luminals",
+      "breakpoints": true
     }
   ]
 }

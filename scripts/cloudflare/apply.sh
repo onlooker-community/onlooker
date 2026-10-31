@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Applies the zone's rate limiting rule from scripts/cloudflare/ratelimit.json.
 #
-# Why this rule lives in a file: it is the only rate limiting the API has, at
-# the edge or anywhere else, and until 2026-10-17 it lived exclusively in the
+# Why this rule lives in a file: it is the API's only per-IP rate limit (the
+# worker's login backoff and mail cap are per account and per recipient), and
+# until 2026-10-17 it lived exclusively in the
 # Cloudflare dashboard. The consequence was not hypothetical. apps/api/
 # DEPLOYMENT.md described a rule covering five paths at 60 requests per minute
 # per IP; the zone held one path at 6 per 10 seconds counted per IP per

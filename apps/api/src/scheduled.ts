@@ -1,4 +1,5 @@
 import { pruneLoginAttempts } from "./db/login-attempts.js";
+import { pruneMailSends } from "./db/mail-sends.js";
 import { pruneSessionSummaries } from "./db/session-summaries.js";
 import { runHeartbeat } from "./heartbeat";
 import { monitor } from "./monitoring";
@@ -21,6 +22,7 @@ export type ScheduledDeps = {
 	runHeartbeat: (env: WorkerEnv) => Promise<{ label: string; ok: boolean }[]>;
 	pruneSessionSummaries: (db: WorkerEnv["DB"]) => Promise<number>;
 	pruneLoginAttempts: (db: WorkerEnv["DB"]) => Promise<number>;
+	pruneMailSends: (db: WorkerEnv["DB"]) => Promise<number>;
 	monitor: Pick<typeof monitor, "captureException">;
 	log: (line: string) => void;
 };
@@ -30,6 +32,7 @@ const realDeps: ScheduledDeps = {
 		runHeartbeat(env, { fetch: (url) => fetch(String(url)), monitor }),
 	pruneSessionSummaries,
 	pruneLoginAttempts,
+	pruneMailSends,
 	monitor,
 	log: (line) => console.log(line),
 };
@@ -93,6 +96,20 @@ export async function runScheduled(
 		deps.monitor.captureException(
 			error instanceof Error ? error : new Error(String(error)),
 			{ tags: { kind: "login_attempts_prune" } },
+		);
+	}
+
+	// Its own try/catch, for the reason the one above has its own: the mail
+	// cap takes a row per address mailed and per kind, and this is the only
+	// thing bounding it (ONL-222). scheduled.test.ts pins both the ordering
+	// and the separation.
+	try {
+		const pruned = await deps.pruneMailSends(env.DB);
+		deps.log(JSON.stringify({ event: "mail_sends_pruned", pruned }));
+	} catch (error) {
+		deps.monitor.captureException(
+			error instanceof Error ? error : new Error(String(error)),
+			{ tags: { kind: "mail_sends_prune" } },
 		);
 	}
 }

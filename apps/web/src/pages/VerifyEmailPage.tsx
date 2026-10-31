@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { resendVerificationEmail, verifyEmail } from "../api/accountApi";
 import { auth } from "../auth";
 import { AuthCard, FormLink, FormMessage } from "../components/form";
+import { describeRefusal } from "../lib/apiErrors";
 
 type State = "verifying" | "success" | "error";
 
@@ -11,6 +12,7 @@ export default function VerifyEmailPage() {
 	const { user } = auth.useAuth();
 	const [state, setState] = useState<State>("verifying");
 	const [resent, setResent] = useState(false);
+	const [resendError, setResendError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let active = true;
@@ -73,20 +75,35 @@ export default function VerifyEmailPage() {
 						A new verification email is on its way.
 					</FormMessage>
 				) : (
-					<button
-						type="button"
-						onClick={() => {
-							resendVerificationEmail()
-								.then(() => setResent(true))
-								.catch(() => setResent(false));
-						}}
-						style={{
-							padding: "0.5rem 1rem",
-							cursor: "pointer",
-						}}
-					>
-						Resend verification email
-					</button>
+					<>
+						{resendError && (
+							<FormMessage kind="error">{resendError}</FormMessage>
+						)}
+						<button
+							type="button"
+							onClick={() => {
+								setResendError(null);
+								resendVerificationEmail()
+									.then(() => setResent(true))
+									.catch((err) => {
+										// A 429 says why and when (ONL-222's mail cap);
+										// swallowing it left the button doing nothing.
+										setResendError(
+											describeRefusal(
+												err,
+												"Could not send the email. Try again.",
+											),
+										);
+									});
+							}}
+							style={{
+								padding: "0.5rem 1rem",
+								cursor: "pointer",
+							}}
+						>
+							Resend verification email
+						</button>
+					</>
 				))}
 		</AuthCard>
 	);

@@ -23,6 +23,7 @@ function recording(
 		heartbeat?: () => Promise<{ label: string; ok: boolean }[]>;
 		prune?: () => Promise<number>;
 		pruneLogins?: () => Promise<number>;
+		pruneMails?: () => Promise<number>;
 	} = {},
 ) {
 	const calls: string[] = [];
@@ -48,6 +49,10 @@ function recording(
 				calls.push("prune-logins");
 				return overrides.pruneLogins ? await overrides.pruneLogins() : 2;
 			},
+			pruneMailSends: async () => {
+				calls.push("prune-mails");
+				return overrides.pruneMails ? await overrides.pruneMails() : 1;
+			},
 			monitor: recorder.monitor,
 			// Swallowed rather than printed: these tests assert on call order
 			// and thrown-ness, and a passing run should not spray JSON through
@@ -67,7 +72,40 @@ describe("the cron handler", () => {
 
 		await runScheduled(env, deps);
 
-		expect(calls).toEqual(["heartbeat", "prune", "prune-logins"]);
+		expect(calls).toEqual([
+			"heartbeat",
+			"prune",
+			"prune-logins",
+			"prune-mails",
+		]);
+	});
+
+	// Its own try/catch, for the reason the login prune has one: this is the
+	// only thing bounding a table that takes a row per address mailed.
+	it("prunes mail counters even when the login-attempt prune fails", async () => {
+		const { calls, deps } = recording({
+			pruneLogins: async () => {
+				throw new Error("login_attempts is unhappy");
+			},
+		});
+
+		await runScheduled(env, deps);
+
+		expect(calls).toContain("prune-mails");
+	});
+
+	it("reports a failing mail-counter prune through the monitor", async () => {
+		const { recorder, deps } = recording({
+			pruneMails: async () => {
+				throw new Error("mail_sends is unhappy");
+			},
+		});
+
+		await expect(runScheduled(env, deps)).resolves.toBeUndefined();
+		expect(recorder.exceptions).toHaveLength(1);
+		expect((recorder.exceptions[0]?.error as Error).message).toBe(
+			"mail_sends is unhappy",
+		);
 	});
 
 	// Each prune gets its own try/catch rather than sharing one. Sharing would

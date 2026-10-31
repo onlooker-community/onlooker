@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 // WS1's client owns transport resilience: it injects the Authorization header,
 // retries transient failures (429/5xx/network/timeout) with exponential backoff
-// + jitter, and refreshes the session once on 401 before replaying the request.
+// + jitter - unless Retry-After exceeds retryMaxDelayMs (5s by default), in
+// which case the response is returned at once - and refreshes the session once
+// on 401 before replaying the request.
 // This hook deliberately does NOT re-implement any of that — it only owns the
 // React data-fetching lifecycle so components never touch tokens or fetch state.
 import { apiClient } from "../api/client";

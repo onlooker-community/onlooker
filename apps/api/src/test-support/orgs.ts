@@ -63,7 +63,7 @@ export function call(
 }
 
 /**
- * Clear the org tables and users, in foreign-key order.
+ * Clear the org tables and users, in foreign-key order, and the mail counters.
  *
  * Table state persists between tests within a file, so every org suite calls
  * this in beforeEach.
@@ -84,4 +84,8 @@ export async function resetOrgTables(): Promise<void> {
 	await db.prepare("DELETE FROM org_memberships").run();
 	await db.prepare("DELETE FROM orgs").run();
 	await db.prepare("DELETE FROM users").run();
+	// Not an org table, but every suite that signs up and mails shares the
+	// per-address counters otherwise, and the cap would carry from one test
+	// into the next (ONL-222).
+	await db.prepare("DELETE FROM mail_sends").run();
 }

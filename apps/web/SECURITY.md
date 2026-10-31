@@ -24,7 +24,7 @@ enforcement.
 | 6 | Refresh loop bounded | Pass | `client.ts` refreshes at most once per request (single-flight `refreshInFlight`); `/auth/refresh` is refresh-exempt. |
 | 7 | Failed refresh clears the session | Pass | `performRefresh()` clears tokens and fires `onUnauthorized` when the refresh token is rejected. |
 | 8 | Password complexity enforced client-side | Pass | `lib/validation.ts` (min 8 / max 128, mixed case, number, symbol, common-password rejection) wired into `SignupPage`. |
-| 9 | Brute-force friction on login | Pass (client) | `utils/rateLimiting.ts` — 5 attempts/60s then lockout; must be paired with server enforcement (see gaps). |
+| 9 | Brute-force friction on login | Pass | Enforced by the API, not the browser: `apps/api/src/db/login-attempts.ts` allows 4 failures per address, then answers 429 `rate_limit_exceeded` with `Retry-After` (60s, doubling, capped at 30 min). A Cloudflare zone rate limit covers `/auth/login` per IP (see `apps/api/DEPLOYMENT.md`). The web client has no throttle of its own. |
 | 10 | CSRF exposure | N/A | Auth uses bearer tokens in a header, not ambient cookies, so classic CSRF does not apply. Revisit if cookie sessions are ever added. |
 | 11 | Tokens in `localStorage` | Accepted risk | See "Token storage" below. Documented tradeoff with mitigations. |
 | 12 | Password-reset token in URL | Accepted risk | See "Reset token in URL" below. Inherent to email-link resets; mitigated in logs. |
@@ -68,12 +68,11 @@ Recommendation: confirm the backend treats reset tokens as single-use and
 short-lived, and set `Referrer-Policy: no-referrer` (or `same-origin`) on the
 reset page.
 
-### Client-side rate limiting is not a security boundary
-`utils/rateLimiting.ts` slows accidental credential stuffing and gives the user
-a clear lockout message, but it lives in the browser and is trivially bypassed.
-The server **must** enforce its own login throttling and lockout. The client
-limiter's `onLockout` hook is the intended place to emit a
-suspicious-activity signal to monitoring.
+### Login throttling lives on the server
+The web client has no login throttle: a browser-side limiter is trivially
+bypassed, so the old one was removed. Throttling is the API's job (failed-login
+backoff in `apps/api/src/db/login-attempts.ts`, plus the Cloudflare zone rate
+limit), and the client only surfaces the 429 and its `Retry-After`.
 
 ### HTTPS
 Production config points at an `https://` origin, but nothing in the client
@@ -85,8 +84,9 @@ if cookies are ever introduced.
 
 ## Open follow-ups (filed for later)
 
-1. **Server-side parity**: password policy, login rate limiting, and reset-token
-   single-use must be enforced on the API. The client rules are advisory.
+1. **Server-side parity**: password policy and reset-token single-use must be
+   enforced on the API. The client rules are advisory. Login rate limiting is
+   done: the API enforces it (audit row 9).
 2. **Shared password policy**: `lib/validation.ts` duplicates rules the backend
    also needs. Consider promoting the policy into `@onlooker/auth-core` so
    client and server share one source of truth.
@@ -109,8 +109,8 @@ Before promoting a build to production:
 - [ ] Content-Security-Policy denies inline and `eval` scripts.
 - [ ] `Referrer-Policy` set (`no-referrer` or `same-origin`), especially on the
       password-reset page.
-- [ ] Backend enforces: password complexity, login rate limiting/lockout,
-      single-use short-TTL reset tokens, refresh-token rotation + reuse
-      detection.
+- [ ] Backend enforces: password complexity, single-use short-TTL reset
+      tokens, refresh-token rotation + reuse detection. (Login rate limiting
+      is enforced in code and covered by audit row 9.)
 - [ ] No secrets in the client bundle — only `VITE_*` public config is inlined.
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `pnpm test` are green.

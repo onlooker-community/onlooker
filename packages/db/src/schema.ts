@@ -213,6 +213,29 @@ export const login_attempts = sqliteTable(
 );
 
 /**
+ * Mail sent per recipient, in fixed windows, for the mail cap (ONL-222).
+ *
+ * `key` is `<kind>:<sha256 of the trimmed, lowercased address>` for a
+ * per-address counter, or `global:<UTC date>` for the day's ceiling. Hashed for
+ * the reason login_attempts is: the table must not be a list of addresses.
+ *
+ * No deadline column, for the reason login_attempts has none: the limit and
+ * the window length live in apps/api/src/db/mail-sends.ts, and a stored
+ * deadline would be a second copy of them.
+ */
+export const mail_sends = sqliteTable(
+	"mail_sends",
+	{
+		key: text("key").primaryKey(),
+		window_start: text("window_start").notNull(),
+		count: integer("count").notNull(),
+	},
+	(table) => ({
+		windowStartIdx: index("mail_sends_window_start_idx").on(table.window_start),
+	}),
+);
+
+/**
  * The hosted lesson pool - current state, one row per lesson.
  *
  * Only the fields the server filters or orders on are lifted into columns.

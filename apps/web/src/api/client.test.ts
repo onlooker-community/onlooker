@@ -494,6 +494,47 @@ describe("createApiClient — retry & backoff", () => {
 		expect(response.status).toBe(404);
 		expect(baseFetch).toHaveBeenCalledTimes(1);
 	});
+
+	// A server that says "wait an hour" is not describing a transient failure,
+	// and sleeping on it hangs the page: the login backoff answers up to 1,800
+	// seconds and a capped invite up to a day (ONL-222).
+	it("returns a 429 at once when Retry-After is longer than it would ever back off", async () => {
+		const baseFetch = vi.fn(async () =>
+			json(429, apiError("rate_limit_exceeded"), { "Retry-After": "3600" }),
+		);
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 2, retryMaxDelayMs: 5_000 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(429);
+		expect(baseFetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("still retries a 429 whose Retry-After is short", async () => {
+		let calls = 0;
+		const baseFetch = vi.fn(async () => {
+			calls += 1;
+			return calls < 2
+				? json(429, apiError("rate_limit_exceeded"), { "Retry-After": "0" })
+				: json(200, { ok: true });
+		});
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 2, retryMaxDelayMs: 5_000 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(200);
+		expect(baseFetch).toHaveBeenCalledTimes(2);
+	});
 });
 
 describe("createApiClient — timeout", () => {

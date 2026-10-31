@@ -1,3 +1,4 @@
+import { AuthApiError } from "@onlooker/auth-react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -33,7 +34,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("../api/accountApi", () => ({
-	getProfile: () =>
+	getProfile: vi.fn(() =>
 		Promise.resolve({
 			user: {
 				id: "u1",
@@ -43,6 +44,7 @@ vi.mock("../api/accountApi", () => ({
 				createdAt: "2026-01-01T00:00:00.000Z",
 			},
 		}),
+	),
 	updateProfile: vi.fn(),
 	changePassword: vi.fn(),
 	deleteAccount: vi.fn(),
@@ -224,5 +226,62 @@ describe("what the panel says deletion will destroy", () => {
 		);
 
 		await vi.waitFor(() => expect(api.deleteAccount).toHaveBeenCalled());
+	});
+});
+
+// The same page's other mail-sending button. The API caps resends at three an
+// hour (ONL-222); a refused one must say so rather than invite another try.
+describe("resend verification email", () => {
+	async function resendFromUnverifiedProfile() {
+		vi.mocked(api.getProfile).mockResolvedValueOnce({
+			user: {
+				id: "u1",
+				name: "Ada",
+				email: "ada@example.com",
+				emailVerified: false,
+				createdAt: "2026-01-01T00:00:00.000Z",
+			},
+		});
+		const user = userEvent.setup();
+		render(
+			<MemoryRouter>
+				<RevealProvider>
+					<SettingsPage />
+				</RevealProvider>
+			</MemoryRouter>,
+		);
+		await user.click(
+			await screen.findByRole("button", { name: /resend verification/i }),
+		);
+	}
+
+	it("says why when the server refuses with 429", async () => {
+		vi.mocked(api.resendVerificationEmail).mockRejectedValueOnce(
+			new AuthApiError(
+				429,
+				"rate_limit_exceeded",
+				"Too many emails to this address. Try again later.",
+			),
+		);
+
+		await resendFromUnverifiedProfile();
+
+		expect(
+			await screen.findByText(
+				"Too many emails to this address. Try again later.",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the generic line for any other failure", async () => {
+		vi.mocked(api.resendVerificationEmail).mockRejectedValueOnce(
+			new Error("network down"),
+		);
+
+		await resendFromUnverifiedProfile();
+
+		expect(
+			await screen.findByText("Could not send the email. Try again."),
+		).toBeInTheDocument();
 	});
 });
