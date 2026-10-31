@@ -466,6 +466,64 @@ else
 fi
 
 echo
+echo "source-guards: every mail sender claims a slot before it sends"
+
+# ONL-222. The mail cap is checked in each handler rather than inside
+# sendEmail, because each handler retires the recipient's previous link or
+# invite before sending a new one - and a refusal after that point would
+# invalidate the link they hold and send nothing. So the claim has to come
+# first in every function that sends, and a fourth sender added later without
+# one would mail uncapped with no failing test anywhere: the Workers pool
+# cannot observe call order (no vi.mock), which is why the login gate above is
+# pinned this way too.
+#
+# Per exported function: if it calls sendEmail, its first claimMailSend must
+# precede its first token retirement and its first send.
+mail_files="$(grep -rl 'sendEmail(' "${ROOT}/apps/api/src" --include='*.ts' |
+	grep -v '\.test\.ts$' | grep -v '/email/index\.ts$' || true)"
+
+mail_result="$(
+	# shellcheck disable=SC2086
+	awk '
+		function finish() {
+			if (fn != "" && send) {
+				senders++
+				if (!claim || send < claim || (del && del < claim)) bad = bad " " fn
+			}
+		}
+		FNR == 1 { finish(); fn = "" }
+		/^export async function / {
+			finish()
+			name = $4
+			sub(/\(.*/, "", name)
+			fn = name
+			claim = 0; del = 0; send = 0
+		}
+		/claimMailSend\(/ && !claim { claim = FNR }
+		/(deleteVerificationTokens|deletePendingInvitesFor)\(/ && !del { del = FNR }
+		/sendEmail\(/ && !send { send = FNR }
+		END { finish(); printf "%d|%s\n", senders, bad }
+	' ${mail_files}
+)"
+IFS='|' read -r mail_senders mail_bad <<<"${mail_result}"
+
+# The paired positive check. Without it a renamed sendEmail, or a moved
+# directory, would leave the check below passing over nothing.
+if [[ "${mail_senders}" == "3" ]]; then
+	pass "found the three mail-sending handlers"
+else
+	fail "found the three mail-sending handlers" \
+		"found ${mail_senders:-0} - if a sender was added or removed, update this count and claim in the new one"
+fi
+
+if [[ -z "${mail_bad// /}" ]]; then
+	pass "each mail sender claims before it retires a token or sends"
+else
+	fail "each mail sender claims before it retires a token or sends" \
+		"no claim first in:${mail_bad}"
+fi
+
+echo
 echo "source-guards: the CLI's session chunks fit the API's cap"
 
 # ONL-188. The CLI splits its session report so that no body exceeds the
