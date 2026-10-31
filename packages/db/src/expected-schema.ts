@@ -278,6 +278,35 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	mail_sends: {
+		columns: [
+			{
+				name: "key",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "window_start",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "count",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "mail_sends_window_start_idx",
+				unique: false,
+				columns: ["window_start"],
+			},
+		],
+	},
 	org_invites: {
 		columns: [
 			{

@@ -10,6 +10,7 @@ import {
 	lessons,
 	login_attempts,
 	machine_tokens,
+	mail_sends,
 	project_labels,
 	session_summaries,
 	sessions,
@@ -357,17 +358,18 @@ describe("project_labels", () => {
 
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
-	// arrive with the feature that needs it, not by accident. Thirteen, as of
-	// project_labels landing with repository aliases (ONL-189); twelve before
+	// arrive with the feature that needs it, not by accident. Fourteen, as of
+	// mail_sends landing with the mail cap (ONL-222); thirteen before that, as
+	// of project_labels landing with repository aliases (ONL-189); twelve before
 	// that, as of login_attempts landing with the failed-login backoff
 	// (onlooker-9s0m); eleven before that, since orgs/org_memberships/
 	// org_invites arrived with org accounts (ONL-12).
-	it("declares only the thirteen tables in use", async () => {
+	it("declares only the fourteen tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(13);
+		expect(tables).toHaveLength(14);
 	});
 });
 
@@ -426,5 +428,18 @@ describe("login_attempts", () => {
 		]);
 		const index = getTableConfig(login_attempts).indexes[0];
 		expect(indexColumnNames(index.config.columns)).toEqual(["last_fail_at"]);
+	});
+});
+
+describe("mail_sends", () => {
+	it("declares exactly the three columns the mail cap reads", () => {
+		expect(columnNames(mail_sends)).toEqual(["count", "key", "window_start"]);
+	});
+
+	// The key is a hash. A plaintext column would make this table a list of
+	// every address anybody asked to have mailed.
+	it("stores no address", () => {
+		expect(columnNames(mail_sends)).not.toContain("email");
+		expect(columnNames(mail_sends)).not.toContain("address");
 	});
 });
