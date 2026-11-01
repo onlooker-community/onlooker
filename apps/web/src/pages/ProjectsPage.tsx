@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import {
 	type LabelMap,
 	labelIdentity,
@@ -16,11 +16,31 @@ import { PALETTE } from "../components/palette";
 import { EmptyState, Loading, Panel } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
-import { plural } from "../lib/sessionRollup";
 
 // Every project key the server knows, with the user's name for it (ONL-209).
 // Sessions names the keys among its loaded sessions; this lists them all, so
 // a key can be found and renamed without first finding a session that used it.
+
+const CELL: CSSProperties = {
+	padding: "var(--space-2) var(--space-3)",
+	borderTop: `1px solid ${PALETTE.border}`,
+	verticalAlign: "baseline",
+};
+
+const HEADER: CSSProperties = {
+	padding: "0 var(--space-3) var(--space-2)",
+	textAlign: "left",
+	color: PALETTE.muted,
+	fontWeight: "normal",
+	whiteSpace: "nowrap",
+};
+
+/** Right-aligned with even digits, so magnitudes compare down a column. */
+const NUMERIC: CSSProperties = {
+	textAlign: "right",
+	fontVariantNumeric: "tabular-nums",
+	whiteSpace: "nowrap",
+};
 
 /** A row's identity, matching how a label is scoped. */
 function rowKey(project: Project): string {
@@ -128,69 +148,101 @@ export default function ProjectsPage() {
 		);
 	}
 
+	// A table rather than a list: every row has the same five measures, and
+	// wrapped list rows left each one's numbers reading as the next row's.
+	// Scrolls inside the panel at phone width, so the columns stay columns.
 	return (
-		<div style={{ maxWidth: "640px" }}>
-			<Panel title="Your projects" icon="Document">
-				<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-					{projects.map((project) => {
-						const named = namedOf(project);
-						const name =
-							labels.get(labelIdentity(named.key, named.machineId)) ?? null;
-						return (
-							<li
-								key={rowKey(project)}
-								style={{
-									display: "flex",
-									flexWrap: "wrap",
-									alignItems: "baseline",
-									gap: "var(--space-3)",
-									padding: "0.2rem 0",
-								}}
-							>
-								{editing === rowKey(project) ? (
-									<NameEditor
-										project={named}
-										current={name}
-										onRename={rename}
-										onDone={() => setEditing(null)}
-									/>
-								) : (
-									<RepositoryName
-										project={named}
-										name={name}
-										onEdit={() => setEditing(rowKey(project))}
-									/>
-								)}
-								{/* RepositoryName already shows the key when there is no name. */}
-								{name ? (
-									<span
-										style={{
-											flex: "none",
-											fontFamily: "var(--font-data)",
-											color: PALETTE.muted,
-										}}
-									>
-										{project.project_key}
-									</span>
-								) : null}
-								<span style={{ flex: "none", color: PALETTE.muted }}>
-									{seenOn(project, machines)}
-								</span>
-								<span style={{ marginLeft: "auto", color: PALETTE.muted }}>
-									{plural(project.sessions, "session")} ·{" "}
-									{plural(project.events, "event")}
-									{project.last_seen_at ? (
-										<>
-											{" "}
-											· Last seen <When iso={project.last_seen_at} />
-										</>
-									) : null}
-								</span>
-							</li>
-						);
-					})}
-				</ul>
-			</Panel>
-		</div>
+		<Panel title="Your projects" icon="Document">
+			<div style={{ overflowX: "auto" }}>
+				<table
+					aria-label="Your projects"
+					style={{ width: "100%", borderCollapse: "collapse" }}
+				>
+					<thead>
+						<tr>
+							<th scope="col" style={HEADER}>
+								Project
+							</th>
+							<th scope="col" style={HEADER}>
+								Seen on
+							</th>
+							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+								Sessions
+							</th>
+							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+								Events
+							</th>
+							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+								Last seen
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{projects.map((project) => {
+							const named = namedOf(project);
+							const name =
+								labels.get(labelIdentity(named.key, named.machineId)) ?? null;
+							return (
+								<tr key={rowKey(project)}>
+									<td style={{ ...CELL, width: "100%", minWidth: "16rem" }}>
+										{editing === rowKey(project) ? (
+											<NameEditor
+												project={named}
+												current={name}
+												onRename={rename}
+												onDone={() => setEditing(null)}
+											/>
+										) : (
+											<div
+												style={{
+													display: "flex",
+													flexWrap: "wrap",
+													alignItems: "baseline",
+													gap: "var(--space-2)",
+												}}
+											>
+												<RepositoryName
+													project={named}
+													name={name}
+													onEdit={() => setEditing(rowKey(project))}
+												/>
+											</div>
+										)}
+										{/* RepositoryName already shows the key when there is no name. */}
+										{name ? (
+											<div
+												style={{
+													fontFamily: "var(--font-data)",
+													fontSize: "0.85em",
+													color: PALETTE.muted,
+												}}
+											>
+												{project.project_key}
+											</div>
+										) : null}
+									</td>
+									<td style={{ ...CELL, whiteSpace: "nowrap" }}>
+										{seenOn(project, machines)}
+									</td>
+									<td style={{ ...CELL, ...NUMERIC }}>
+										{project.sessions.toLocaleString()}
+									</td>
+									<td style={{ ...CELL, ...NUMERIC }}>
+										{project.events.toLocaleString()}
+									</td>
+									<td style={{ ...CELL, ...NUMERIC }}>
+										{project.last_seen_at ? (
+											<When iso={project.last_seen_at} />
+										) : (
+											"—"
+										)}
+									</td>
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
+			</div>
+		</Panel>
 	);
 }
