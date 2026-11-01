@@ -113,9 +113,10 @@ reads `GET /api/project-labels` as Sessions does.
 
 ### The page
 
-`/projects` joins `SECTIONS` under Monitor, directly after Sessions. It shows each row's name, or its key when there is none, then the key, where
-it was seen (remote, or root on a named machine), sessions, events, last seen,
-and rename.
+`/projects` joins `SECTIONS` directly after Sessions, with the Briefcase icon the
+By repository panel already uses. It shows each row's name, or its key when there
+is none, then the key, where it was seen (remote, or root on a named machine),
+sessions, events, last seen, and rename.
 
 `RepositoryName` and `NameEditor` move out of `RepositoriesSummary.tsx` into a
 shared component. Sessions keeps its inline control. A root key on a machine
