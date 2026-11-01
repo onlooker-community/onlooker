@@ -521,7 +521,7 @@ describe("MachinesPage deleting a revoked machine", () => {
 		expect(screen.queryByRole("button", { name: "Yes, delete" })).toBeNull();
 	});
 
-	it("removes the row, announces it and moves focus to the status region", async () => {
+	it("removes the row, announces it and focuses the previous row when it was last", async () => {
 		withMachines(USED, REVOKED);
 		mocks.removeMachine.mockResolvedValue({ success: true });
 		await renderPage();
@@ -532,9 +532,81 @@ describe("MachinesPage deleting a revoked machine", () => {
 
 		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
 		expect(mocks.removeMachine).toHaveBeenCalledWith(REVOKED.id);
+		expect(screen.getByRole("status").textContent).toBe(
+			`Deleted ${REVOKED.name}.`,
+		);
+		await waitFor(() =>
+			expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(
+				USED.id,
+			),
+		);
+	});
+
+	it("focuses the next row after a delete", async () => {
+		withMachines(USED, REVOKED, NEVER_USED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		withMachines(
+			USED,
+			{ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" },
+			NEVER_USED,
+		);
+
+		await deleteIt();
+
+		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
+		await waitFor(() =>
+			expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(
+				NEVER_USED.id,
+			),
+		);
+	});
+
+	it("focuses the status region when no row is left after a delete", async () => {
+		withMachines(REVOKED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		withMachines({ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+
+		await deleteIt();
+
+		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
 		const status = screen.getByRole("status");
 		expect(status.textContent).toBe(`Deleted ${REVOKED.name}.`);
 		expect(document.activeElement).toBe(status);
+	});
+
+	it("focuses the status region when the reload after a delete fails", async () => {
+		withMachines(USED, REVOKED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		mocks.listMachines.mockRejectedValue(new Error("Network unreachable"));
+
+		await deleteIt();
+
+		expect(await screen.findByText(/network unreachable/i)).toBeDefined();
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole("status")),
+		);
+	});
+
+	// The row may already be gone server-side (deleted in another tab). Without
+	// a reload it would stay here and answer "No such machine" on every retry.
+	it("reloads the list when a delete fails", async () => {
+		withMachines(REVOKED);
+		mocks.removeMachine.mockRejectedValue(new Error("boom"));
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		const before = mocks.listMachines.mock.calls.length;
+
+		await deleteIt();
+
+		await waitFor(() =>
+			expect(mocks.listMachines.mock.calls.length).toBeGreaterThan(before),
+		);
 	});
 
 	it("does not show a machine that was already removed", async () => {

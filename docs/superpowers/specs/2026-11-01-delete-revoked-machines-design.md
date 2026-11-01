@@ -72,12 +72,15 @@ be told nothing had synced. The Sessions page does not change.
 * A revoked row gets a `ConfirmAction`: trigger "Delete", question
   `Delete <name>? Its sessions stay.`, confirm "Yes, delete", pending
   "Deleting...", variant `danger`.
-* On success the row is gone, so focus moves to the always-mounted status
-  region, which reads `Deleted <name>.`
+* On success the row is gone. Focus moves to the next visible row, or the
+  previous one when the deleted row was last, and the always-mounted status
+  region reads `Deleted <name>.` Focus falls back to the status region when no
+  row is left or the reload failed and took the rows with it.
 * While a token reveal is open, the announcement is parked and flushed the way
   revoke's is, because the page is inert underneath the reveal.
-* On failure, the error shows where a failed revoke's does, the row stays, and
-  focus does not move.
+* On failure, the error shows where a failed revoke's does and focus does not
+  move. The list reloads, so a row already removed elsewhere does not stay and
+  answer 404 on every retry; otherwise the row stays.
 * With every machine removed, the page shows its existing empty state.
 
 ## Tests
@@ -92,8 +95,10 @@ API, against D1:
 Web:
 
 * A revoked row offers Delete and a live row does not.
-* Deleting removes the row, moves focus to the status region and announces it.
-* A failed delete keeps the row and shows the error.
+* Deleting removes the row and announces it. Focus lands on the next row, on
+  the previous row when the last one was deleted, and on the status region when
+  no row remains or the reload fails.
+* A failed delete keeps the row and shows the error, and reloads the list.
 * An announcement waits while a reveal is open.
 * The Sessions page still names a removed machine.
 

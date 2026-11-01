@@ -240,6 +240,12 @@ export default function MachinesPage() {
 	const remove = async (machine: Machine) => {
 		setRemoving(machine.id);
 		setActionError(null);
+		// Worked out before the row goes: the next visible row, or the previous
+		// one when this was last. The row the person was standing on is about
+		// to disappear, and landing on its neighbor keeps them in the list.
+		const rows = visible ?? [];
+		const at = rows.findIndex((row) => row.id === machine.id);
+		const neighbor = rows[at + 1] ?? rows[at - 1];
 		try {
 			await removeMachine(machine.id);
 			await load();
@@ -250,11 +256,17 @@ export default function MachinesPage() {
 			} else {
 				setStatus(message);
 			}
-			// Unlike revoke, the row is gone, so the status region is the only
-			// place left to stand.
-			statusRef.current?.focus();
+			// The neighbor's row, falling back to the status region when there
+			// is none (the last machine) or the reload failed and took every
+			// row with it.
+			const target = neighbor ? rowRefs.current.get(neighbor.id) : undefined;
+			(target ?? statusRef.current)?.focus();
 		} catch (error) {
 			setActionError(describeError(error, "Could not delete that machine."));
+			// The row may already be gone elsewhere (another tab, another
+			// device); reload so it does not stay and answer "No such machine"
+			// on every retry. `mint` does the same for the same reason.
+			void load();
 		} finally {
 			setRemoving(null);
 		}
@@ -317,8 +329,9 @@ export default function MachinesPage() {
 				ref={statusRef}
 				role="status"
 				// Focusable only by script, like the rows. This is where focus
-				// goes after a delete, and when a revoke succeeds but the reload
-				// after it fails and takes the row with it.
+				// goes when a delete leaves no row to land on, and when a revoke
+				// or delete succeeds but the reload after it fails and takes the
+				// rows with it.
 				tabIndex={-1}
 				style={{ margin: 0 }}
 			>
