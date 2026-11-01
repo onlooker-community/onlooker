@@ -511,6 +511,58 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	session_projects: {
+		columns: [
+			{
+				name: "user_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "machine_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "session_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 3,
+			},
+			{
+				name: "project_key",
+				type: "TEXT",
+				notnull: 1,
+				pk: 2,
+			},
+			{
+				name: "basis",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
+				name: "event_count",
+				type: "INTEGER",
+				notnull: 1,
+				pk: 0,
+			},
+		],
+		indexes: [
+			{
+				name: "session_projects_session_idx",
+				unique: false,
+				columns: ["machine_id", "session_id"],
+			},
+			{
+				name: "session_projects_user_key_idx",
+				unique: false,
+				columns: ["user_id", "project_key"],
+			},
+		],
+	},
 	session_summaries: {
 		columns: [
 			{

@@ -26,6 +26,7 @@ import {
 	handleGetLesson,
 	handleGetProfile,
 	handleGetProjectLabels,
+	handleGetProjects,
 	handleGetSessions,
 	handleGetUserProfile,
 	handleListInvites,
@@ -390,6 +391,13 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleGetSessions,
+	},
+	{
+		method: "GET",
+		path: "/api/projects",
+		auth: "session",
+		cors: "app",
+		handler: handleGetProjects,
 	},
 	{
 		method: "GET",

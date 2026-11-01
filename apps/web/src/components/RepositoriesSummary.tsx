@@ -13,15 +13,15 @@
  * edited.
  */
 
-import { type KeyboardEvent, useState } from "react";
-import { describeError } from "../lib/apiErrors";
+import { useState } from "react";
 import {
 	type ProjectRollup,
 	type ProjectsRollup,
 	plural,
 } from "../lib/sessionRollup";
+import { type NamedProject, NameEditor, RepositoryName } from "./ProjectName";
 import { PALETTE } from "./palette";
-import { Button, Panel } from "./ui";
+import { Panel } from "./ui";
 
 /**
  * Show at most this many repositories, for the reason SessionsSummary caps
@@ -49,7 +49,7 @@ export default function RepositoriesSummary({
 	/** The user's name for a repository, or null to show its key. */
 	nameOf: (project: ProjectRollup) => string | null;
 	/** Store a name, or clear it with null. Rejects with what the server said. */
-	onRename: (project: ProjectRollup, label: string | null) => Promise<void>;
+	onRename: (project: NamedProject, label: string | null) => Promise<void>;
 }) {
 	// One row at a time. Opening a second editor abandons the first's draft,
 	// which is what a click elsewhere in a list is understood to mean.
@@ -131,138 +131,5 @@ export default function RepositoriesSummary({
 				) : null}
 			</div>
 		</Panel>
-	);
-}
-
-function RepositoryName({
-	project,
-	name,
-	onEdit,
-}: {
-	project: ProjectRollup;
-	name: string | null;
-	onEdit: () => void;
-}) {
-	return (
-		<>
-			{name ? (
-				// The key moves to a title rather than disappearing: it is what
-				// the CLI and the session lines' tails still speak in.
-				<span title={project.key} style={{ flex: "none" }}>
-					{name}
-				</span>
-			) : (
-				<span style={{ flex: "none", fontFamily: "var(--font-data)" }}>
-					{project.key}
-				</span>
-			)}
-			<button
-				type="button"
-				onClick={onEdit}
-				// Names the row, because "rename" alone repeats down the panel
-				// and a screen reader's list of buttons would be seven of them.
-				aria-label={`Rename repository ${name ?? project.key}`}
-				style={{
-					flex: "none",
-					padding: 0,
-					border: "none",
-					background: "none",
-					color: PALETTE.muted,
-					fontSize: "0.85em",
-					textDecoration: "underline",
-					cursor: "pointer",
-				}}
-			>
-				rename
-			</button>
-		</>
-	);
-}
-
-function NameEditor({
-	project,
-	current,
-	onRename,
-	onDone,
-}: {
-	project: ProjectRollup;
-	current: string | null;
-	onRename: (project: ProjectRollup, label: string | null) => Promise<void>;
-	onDone: () => void;
-}) {
-	const [draft, setDraft] = useState(current ?? "");
-	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const errorId = `repository-name-error-${project.machineId ?? ""}-${project.key}`;
-
-	const save = async (label: string | null) => {
-		if (saving) return;
-		setSaving(true);
-		setError(null);
-		try {
-			await onRename(project, label);
-			onDone();
-		} catch (failure) {
-			// The draft stays, so a refused name can be fixed rather than
-			// retyped.
-			setError(describeError(failure, "Could not save that name."));
-			setSaving(false);
-		}
-	};
-
-	// Blank saves as a clear: an empty name is no name, and the server would
-	// refuse it as one.
-	const submit = () => void save(draft.trim() === "" ? null : draft);
-
-	const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-		if (event.key === "Enter") submit();
-		if (event.key === "Escape") onDone();
-	};
-
-	return (
-		<div style={{ flex: "1 1 100%", display: "grid", gap: "0.35rem" }}>
-			<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
-				<input
-					// biome-ignore lint/a11y/noAutofocus: the editor opens because the user asked for it; focus belongs in it.
-					autoFocus
-					value={draft}
-					onChange={(event) => setDraft(event.target.value)}
-					onKeyDown={onKeyDown}
-					aria-label={`Name for ${project.key}`}
-					aria-invalid={error ? true : undefined}
-					aria-describedby={error ? errorId : undefined}
-					maxLength={200}
-					style={{
-						flex: "1 1 12rem",
-						padding: "0.35rem 0.5rem",
-						background: "var(--ground)",
-						color: "var(--ink)",
-						border: `2px solid ${error ? PALETTE.borderError : PALETTE.border}`,
-						borderRadius: 0,
-						fontFamily: "var(--font-body)",
-					}}
-				/>
-				<Button onClick={submit} loading={saving} loadingLabel="Saving…">
-					Save
-				</Button>
-				{current ? (
-					<Button variant="ghost" onClick={() => void save(null)}>
-						Clear
-					</Button>
-				) : null}
-				<Button variant="ghost" onClick={onDone}>
-					Cancel
-				</Button>
-			</div>
-			{error ? (
-				<div
-					id={errorId}
-					role="alert"
-					style={{ color: PALETTE.danger, fontSize: "0.85rem" }}
-				>
-					{error}
-				</div>
-			) : null}
-		</div>
 	);
 }

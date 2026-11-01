@@ -360,18 +360,19 @@ describe("project_labels", () => {
 
 describe("the schema as a whole", () => {
 	// The deferred tables are deferred on purpose. If one reappears, it should
-	// arrive with the feature that needs it, not by accident. Fourteen, as of
-	// mail_sends landing with the mail cap (ONL-222); thirteen before that, as
-	// of project_labels landing with repository aliases (ONL-189); twelve before
-	// that, as of login_attempts landing with the failed-login backoff
-	// (onlooker-9s0m); eleven before that, since orgs/org_memberships/
-	// org_invites arrived with org accounts (ONL-12).
-	it("declares only the fourteen tables in use", async () => {
+	// arrive with the feature that needs it, not by accident. Fifteen, as of
+	// session_projects landing with the Projects page (ONL-209); fourteen
+	// before that, as of mail_sends landing with the mail cap (ONL-222);
+	// thirteen before that, as of project_labels landing with repository
+	// aliases (ONL-189); twelve before that, as of login_attempts landing with
+	// the failed-login backoff (onlooker-9s0m); eleven before that, since
+	// orgs/org_memberships/org_invites arrived with org accounts (ONL-12).
+	it("declares only the fifteen tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table
 		// metadata behind a symbol in 0.31, so the string key no longer matches.
 		const tables = Object.values(schema).filter((v) => is(v, SQLiteTable));
-		expect(tables).toHaveLength(14);
+		expect(tables).toHaveLength(15);
 	});
 });
 

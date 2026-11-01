@@ -121,6 +121,8 @@ export const UNPLATED_ICONS = [
 	"Eye",
 	"Monitor",
 	"Home",
+	// The Projects nav link and its panel title.
+	"Document",
 	// Panel titles, through `Panel`'s own h2.
 	"Letter",
 	"Locked",

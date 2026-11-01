@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+	foreignKey,
 	index,
 	integer,
 	primaryKey,
@@ -502,6 +503,63 @@ export const session_summaries = sqliteTable(
 );
 
 /**
+ * One row per project a session touched, so a project can be found without
+ * reading JSON.
+ *
+ * counts_by_project stays the session's own record; this is its index, written
+ * in the same batch by putSessionSummaries and replaced whole on each sync,
+ * because a session's keys and counts both change while it runs. Cascades from
+ * the summary, so pruning and account deletion need nothing of their own.
+ *
+ * Rows that predate counts_by_project have no keys and so no rows here, which
+ * is what "no project was attributable" already means.
+ */
+export const session_projects = sqliteTable(
+	"session_projects",
+	{
+		user_id: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		machine_id: text("machine_id").notNull(),
+		session_id: text("session_id").notNull(),
+		/** The 12-hex key, as counts_by_project carries it. */
+		project_key: text("project_key").notNull(),
+		/** 'remote' or 'root'. See ProjectCount in apps/api. */
+		basis: text("basis").notNull(),
+		event_count: integer("event_count").notNull(),
+	},
+	(table) => ({
+		// Declared in name order because that is the order drizzle-kit writes a
+		// composite key into the migration, and the drift test compares the
+		// position of each column.
+		pk: primaryKey({
+			columns: [table.machine_id, table.project_key, table.session_id],
+		}),
+		sessionFk: foreignKey({
+			columns: [table.machine_id, table.session_id],
+			foreignColumns: [
+				session_summaries.machine_id,
+				session_summaries.session_id,
+			],
+		}).onDelete("cascade"),
+		// The primary key leads with machine_id and then project_key, so it
+		// cannot serve a lookup by (machine_id, session_id). Both the sync's
+		// DELETE in putSessionSummaries and the cascade from session_summaries
+		// make that lookup, and without this each would scan every row the
+		// machine has.
+		sessionIdx: index("session_projects_session_idx").on(
+			table.machine_id,
+			table.session_id,
+		),
+		// /api/projects, and PR 2's filter: this user's rows for a key.
+		userKeyIdx: index("session_projects_user_key_idx").on(
+			table.user_id,
+			table.project_key,
+		),
+	}),
+);
+
+/**
  * A readable name for a project key (ONL-189).
  *
  * A key is an opaque hash, so this is the only place a repository's name can
@@ -678,6 +736,9 @@ export type NewLessonFeedEntry = typeof lesson_feed.$inferInsert;
 
 export type SessionSummary = typeof session_summaries.$inferSelect;
 export type NewSessionSummary = typeof session_summaries.$inferInsert;
+
+export type SessionProject = typeof session_projects.$inferSelect;
+export type NewSessionProject = typeof session_projects.$inferInsert;
 
 export type ProjectLabel = typeof project_labels.$inferSelect;
 export type NewProjectLabel = typeof project_labels.$inferInsert;

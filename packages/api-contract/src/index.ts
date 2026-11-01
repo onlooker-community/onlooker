@@ -170,6 +170,12 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			status: 401,
 		},
 		{
+			name: "projects, no token",
+			path: "/api/projects",
+			init: { method: "GET" },
+			status: 401,
+		},
+		{
 			name: "project labels, no token",
 			path: "/api/project-labels",
 			init: { method: "GET" },
@@ -573,6 +579,16 @@ export function authenticatedCases(): ContractCase[] {
 			// two-empty-states distinction the web page draws (no machine vs.
 			// nothing over threshold) happens above this envelope, not in it.
 			body: { sessions: expectArray, has_more: false },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "projects, valid token",
+			path: "/api/projects",
+			init: { method: "GET" },
+			status: 200,
+			// An array even with nothing reported: the page's empty state reads
+			// its length, and a missing key throws.
+			body: { projects: expectArray },
 			forbidden: NO_SECRETS,
 		},
 		{

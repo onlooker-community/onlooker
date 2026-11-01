@@ -20,6 +20,10 @@ export const SECTIONS = [
 	// floor in packages/brand/assets.test.ts), and is not already used by
 	// another section.
 	{ to: "/sessions", label: "Sessions", icon: "Monitor" },
+	// Document, not the By repository panel's Briefcase: Briefcase measures 5%
+	// on the night panel against the 25% floor in packages/brand/assets.test.ts,
+	// and Document clears it (48% at worst).
+	{ to: "/projects", label: "Projects", icon: "Document" },
 	// Home over Letter: Letter already passes the contrast floor with no
 	// brand change needed, but it reads as mail - and this page is more than
 	// its invitation flow, so a mail icon would mislabel it. Home costs one
