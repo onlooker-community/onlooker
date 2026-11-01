@@ -113,8 +113,9 @@ reads `GET /api/project-labels` as Sessions does.
 
 ### The page
 
-`/projects` joins `SECTIONS` directly after Sessions, with the Briefcase icon the
-By repository panel already uses. It shows each row's name, or its key when there
+`/projects` joins `SECTIONS` directly after Sessions, with the Document icon.
+Briefcase, which the By repository panel uses, measures 5% legible on the night
+panel against a 25% floor; Document measures 48%. It shows each row's name, or its key when there
 is none, then the key, where it was seen (remote, or root on a named machine),
 sessions, events, last seen, and rename.
 

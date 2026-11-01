@@ -62,6 +62,10 @@ vi.mock("../api/sessionsApi", () => ({
 	listSessions: () =>
 		Promise.resolve({ sessions: [], cursor: null, has_more: false }),
 }));
+vi.mock("../api/projectsApi", () => ({
+	PROJECT_ENDPOINTS: { projects: "/api/projects" },
+	listProjects: () => Promise.resolve({ projects: [] }),
+}));
 // Same reason as listActivity above: the it.each renders /orgs once it is in
 // SECTIONS, so every function OrgsPage imports needs a stub here.
 vi.mock("../api/orgsApi", () => ({

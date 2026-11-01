@@ -180,13 +180,13 @@ describe("AppShell", () => {
 		).toBe("https://creativecommons.org/licenses/by/4.0/");
 	});
 
-	// The nav is seven identical links plus a wordmark; the icons are what make
+	// The nav is eight identical links plus a wordmark; the icons are what make
 	// them scannable at a glance rather than a column of same-shaped words.
 	it("gives the wordmark and every nav link an icon", () => {
 		renderShell();
 		openAccountMenu();
 		const icons = document.querySelectorAll("img.pixel-icon");
-		expect(icons.length).toBe(8);
+		expect(icons.length).toBe(9);
 		// Array.from, not a bare for-of: the project's `lib` has no DOM.Iterable,
 		// so NodeListOf<Element> is not directly iterable under this tsconfig.
 		for (const img of Array.from(icons)) {
@@ -198,7 +198,7 @@ describe("AppShell", () => {
 		const wordmark = screen.getByRole("link", { name: /onlooker/i });
 		const sizes = Array.from(icons).map((img) => img.getAttribute("width"));
 		expect(wordmark.querySelector("img")?.getAttribute("width")).toBe("32");
-		expect(sizes.filter((w) => w === "16").length).toBe(7);
+		expect(sizes.filter((w) => w === "16").length).toBe(8);
 	});
 });
 
