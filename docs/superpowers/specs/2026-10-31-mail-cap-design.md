@@ -224,5 +224,5 @@ Workers pool:
     see when it is full. The signal is noisy, available once a day, costs the
     day's mail, and pages us.
 
-  Possible fixes: a per-inviter or per-org daily invite cap; reserving part of
-  the 80 for reset and verify.
+  Resolved by a pool per kind and a per-inviter cap; see
+  `docs/superpowers/specs/2026-10-31-mail-pools-design.md`.

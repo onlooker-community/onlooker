@@ -316,16 +316,21 @@ A browser-side throttle (`apps/web/src/utils/rateLimiting.ts`) used to sit in th
 web app; it was unused and is removed, since anything calling the API directly
 ignored it anyway.
 
-**Mail is capped inside the worker**, per recipient and per day, in
-`src/db/mail-sends.ts` (ONL-222). Three resets or three verification mails per
-address per hour, three invites per address per day across all orgs, and 80
-mails a day in total, under Resend's free-tier 100. The counters are a D1
-table, `mail_sends`, pruned by the five-minute cron. forgot-password answers a
-refusal with its usual 200, so the cap cannot say which addresses have
-accounts; the other two answer 429 with `Retry-After`. Reaching the daily
-ceiling raises a Sentry issue, once per UTC day, because from then until UTC
-midnight legitimate mail is refused too. Every later refusal that day is
-logged as `mail_global_ceiling` without raising another.
+**Mail is capped inside the worker**, per recipient, per inviter and per day,
+in `src/db/mail-sends.ts` (ONL-222, ONL-228). Three resets or three
+verification mails per address per hour, and three invites per address per day
+across all orgs. Each user may send ten invites a day. Each kind has its own
+daily pool: 45 resets, 10 verification mails and 25 invites, 80 in all, under
+Resend's free-tier 100. The pools are separate so invites, which anyone can
+send because accounts are free, cannot spend the mail a locked-out user needs.
+The counters are a D1 table, `mail_sends`, pruned by the five-minute cron.
+forgot-password answers a refusal with its usual 200, so the cap cannot say
+which addresses have accounts. The other two answer 429 with `Retry-After`.
+A spent pool raises a Sentry issue tagged `mail_kind`, once per pool per UTC
+day, because from then until UTC midnight legitimate mail of that kind is
+refused too. Every later refusal that day is logged as `mail_global_ceiling`
+without raising another. Capped addresses and inviters log
+`mail_address_capped` and `mail_inviter_capped` and raise nothing.
 
 What does exist is **one** Cloudflare rate limiting rule on the `onlooker.dev`
 zone, and one is the whole budget — the plan allows a single rule, and it is
