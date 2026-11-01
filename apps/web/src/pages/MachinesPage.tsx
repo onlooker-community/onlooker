@@ -11,6 +11,7 @@ import {
 	createMachine,
 	listMachines,
 	type Machine,
+	removeMachine,
 	revokeMachine,
 } from "../api/machinesApi";
 import { listOrgs, type Org } from "../api/orgsApi";
@@ -73,15 +74,16 @@ export default function MachinesPage() {
 	const [mintError, setMintError] = useState<string | null>(null);
 	const { revealed, reveal } = useReveal();
 	const [revoking, setRevoking] = useState<string | null>(null);
-	const [revokeError, setRevokeError] = useState<string | null>(null);
+	const [removing, setRemoving] = useState<string | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 	// One machine open at a time. Enough for the page, and it keeps the
 	// document fetch scoped to a component that unmounts when it closes -
 	// see onlooker-bcn on not adding a fourth copy of a query lifecycle here.
 	const [openInventory, setOpenInventory] = useState<string | null>(null);
-	const [revokedName, setRevokedName] = useState("");
+	const [status, setStatus] = useState("");
 	// Parked here rather than written straight to state when a reveal is open.
 	// See the revoke handler and the flush effect below for why (onlooker-5o4).
-	const pendingRevokedName = useRef<string | null>(null);
+	const pendingStatus = useRef<string | null>(null);
 	// The current `revealed`, readable from inside an async handler that
 	// captured a stale one. Maintained by the effect below.
 	const revealedRef = useRef(revealed);
@@ -144,10 +146,10 @@ export default function MachinesPage() {
 	useEffect(() => {
 		revealedRef.current = revealed;
 		if (revealed) return;
-		const pending = pendingRevokedName.current;
+		const pending = pendingStatus.current;
 		if (pending === null) return;
-		pendingRevokedName.current = null;
-		setRevokedName(pending);
+		pendingStatus.current = null;
+		setStatus(pending);
 	}, [revealed]);
 
 	const mint = async (event: FormEvent) => {
@@ -184,7 +186,7 @@ export default function MachinesPage() {
 
 	const revoke = async (machine: Machine) => {
 		setRevoking(machine.id);
-		setRevokeError(null);
+		setActionError(null);
 		try {
 			await revokeMachine(machine.id);
 			await load();
@@ -199,10 +201,11 @@ export default function MachinesPage() {
 			//
 			// The ref, not `revealed` - this closure was created before the
 			// reveal opened and its captured copy is still null.
+			const message = `Revoked ${machine.name}.`;
 			if (revealedRef.current) {
-				pendingRevokedName.current = machine.name;
+				pendingStatus.current = message;
 			} else {
-				setRevokedName(machine.name);
+				setStatus(message);
 			}
 			// The row element survives the refetch - revoked machines keep their
 			// row - so this ref is still the same node the person was standing
@@ -228,9 +231,32 @@ export default function MachinesPage() {
 			// it was still live is worse than a slow button. For the same
 			// reason, a failed revoke does not move focus or announce
 			// anything - the machine is still live.
-			setRevokeError(describeError(error, "Could not revoke that machine."));
+			setActionError(describeError(error, "Could not revoke that machine."));
 		} finally {
 			setRevoking(null);
+		}
+	};
+
+	const remove = async (machine: Machine) => {
+		setRemoving(machine.id);
+		setActionError(null);
+		try {
+			await removeMachine(machine.id);
+			await load();
+			// Parked under a reveal for the reason revoke parks its announcement.
+			const message = `Deleted ${machine.name}.`;
+			if (revealedRef.current) {
+				pendingStatus.current = message;
+			} else {
+				setStatus(message);
+			}
+			// Unlike revoke, the row is gone, so the status region is the only
+			// place left to stand.
+			statusRef.current?.focus();
+		} catch (error) {
+			setActionError(describeError(error, "Could not delete that machine."));
+		} finally {
+			setRemoving(null);
 		}
 	};
 
@@ -243,15 +269,32 @@ export default function MachinesPage() {
 			? (orgs?.find((org) => org.id === machine.org_id)?.name ?? null)
 			: null;
 
+	// Only this page hides these. The Sessions page reads the same list to name
+	// the machine an old session came from.
+	const visible = machines?.filter((machine) => !machine.removed_at) ?? null;
+
 	const action = (machine: Machine) => {
-		// A revoked machine keeps its row - that is how a person sees that they
-		// revoked it - but there is nothing left to do to it. The row losing its
-		// ConfirmAction here is also what disarms a confirm after a successful
-		// revoke: there is no row left to hold the armed state.
-		if (machine.revoked_at) return null;
+		// A revoked machine keeps its row until its owner deletes it. Keyed, so
+		// the confirm a revoke just armed cannot carry over into this one: same
+		// slot, same component, and React would otherwise keep its state.
+		if (machine.revoked_at) {
+			return (
+				<ConfirmAction
+					key="delete"
+					trigger="Delete"
+					question={`Delete ${machine.name}? Its sessions stay.`}
+					confirmLabel="Yes, delete"
+					pendingLabel="Deleting..."
+					variant="danger"
+					pending={removing === machine.id}
+					onConfirm={() => void remove(machine)}
+				/>
+			);
+		}
 
 		return (
 			<ConfirmAction
+				key="revoke"
 				trigger="Revoke"
 				question={`Revoke ${machine.name}?`}
 				confirmLabel="Yes, revoke"
@@ -274,12 +317,12 @@ export default function MachinesPage() {
 				ref={statusRef}
 				role="status"
 				// Focusable only by script, like the rows. This is where focus
-				// goes when a revoke succeeds but the reload after it fails and
-				// takes the row with it.
+				// goes after a delete, and when a revoke succeeds but the reload
+				// after it fails and takes the row with it.
 				tabIndex={-1}
 				style={{ margin: 0 }}
 			>
-				{revokedName ? `Revoked ${revokedName}.` : ""}
+				{status}
 			</p>
 			<Panel title="Mint a machine token">
 				<p style={{ marginTop: 0 }}>
@@ -343,9 +386,9 @@ export default function MachinesPage() {
 					>
 						{loadError}
 					</EmptyState>
-				) : machines === null ? (
+				) : visible === null ? (
 					<Loading label="Loading machines…" />
-				) : machines.length === 0 ? (
+				) : visible.length === 0 ? (
 					<EmptyState title="No machines yet">
 						Mint a token above, then paste it into a plugin&apos;s config to
 						start syncing. If you lose a token, revoke its machine here and mint
@@ -363,7 +406,7 @@ export default function MachinesPage() {
 						  lives on Panel's own <section>, one level up.
 						*/}
 						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-							{machines.map((machine, index) => {
+							{visible.map((machine, index) => {
 								// Hoisted: the two reads below (the condition and the
 								// child) would otherwise each walk `orgs` with their own
 								// Array.find pass per row.
@@ -383,7 +426,7 @@ export default function MachinesPage() {
 										style={{
 											...row,
 											borderBottom:
-												index === machines.length - 1
+												index === visible.length - 1
 													? "none"
 													: `2px solid ${PALETTE.border}`,
 										}}
@@ -491,9 +534,9 @@ export default function MachinesPage() {
 							})}
 						</ul>
 
-						{revokeError ? (
+						{actionError ? (
 							<p role="alert" style={{ color: PALETTE.danger }}>
-								{revokeError}
+								{actionError}
 							</p>
 						) : null}
 					</Panel>
