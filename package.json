@@ -33,6 +33,7 @@
 		"tail:api": "pnpm --filter @onlooker/api exec wrangler tail --env production",
 		"tail:api:staging": "pnpm --filter @onlooker/api exec wrangler tail --env staging",
 		"db:backup": "pnpm --filter @onlooker/api exec wrangler d1 export DB --env production --remote --output ../../backup_$(date +%s).sql",
+		"seed:dev": "bash scripts/seed-dev-projects.sh",
 		"cloudflare:login": "pnpm --filter @onlooker/api exec wrangler login"
 	},
 	"devDependencies": {
