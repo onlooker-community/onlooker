@@ -127,6 +127,10 @@ jobs:
       - name: D1 latency sampler script tests
         run: bash scripts/d1-latency-sample.test.sh
 
+      # Pins that the local seed can only ever write to the local database.
+      - name: Local seed script tests
+        run: bash scripts/seed-dev-projects.test.sh
+
       # An alert rule that loses its environment filter starts paging a human
       # for staging work in progress - staging and production share one Sentry
       # project per app and are told apart by that tag alone. Nothing about

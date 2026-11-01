@@ -73,6 +73,16 @@ cd apps/website
 pnpm dev          # Astro dev server at http://localhost:4321
 ```
 
+A local account has no sessions until a machine syncs to `localhost`. To give
+one projects and sessions to look at, sign up in the local web app, then:
+
+```sh
+pnpm seed:dev you@example.com
+```
+
+It writes only to the local database, marks its rows `seed-`, and replaces them
+on each run. See `scripts/seed-dev-projects.sh`.
+
 ### Building
 
 ```sh
