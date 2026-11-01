@@ -66,6 +66,7 @@ export async function listProjects(
 	return [...results, ...labeled].sort(
 		(a, b) =>
 			(b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "") ||
-			a.project_key.localeCompare(b.project_key),
+			a.project_key.localeCompare(b.project_key) ||
+			(a.machine_id ?? "").localeCompare(b.machine_id ?? ""),
 	);
 }

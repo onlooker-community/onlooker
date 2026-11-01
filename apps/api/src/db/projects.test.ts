@@ -326,6 +326,10 @@ describe("the 0020 backfill", () => {
 		);
 		await seed("empty", "{}");
 		await seed("malformed", "not json");
+		// Valid JSON of the wrong shape must not abort the migration either.
+		await seed("scalar", "5");
+		await seed("array", "[1, 2]");
+		await seed("odd-value", JSON.stringify({ [REMOTE]: 7 }));
 
 		await db().prepare(BACKFILL).run();
 

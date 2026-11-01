@@ -542,6 +542,15 @@ export const session_projects = sqliteTable(
 				session_summaries.session_id,
 			],
 		}).onDelete("cascade"),
+		// The primary key leads with machine_id and then project_key, so it
+		// cannot serve a lookup by (machine_id, session_id). Both the sync's
+		// DELETE in putSessionSummaries and the cascade from session_summaries
+		// make that lookup, and without this each would scan every row the
+		// machine has.
+		sessionIdx: index("session_projects_session_idx").on(
+			table.machine_id,
+			table.session_id,
+		),
 		// /api/projects, and PR 2's filter: this user's rows for a key.
 		userKeyIdx: index("session_projects_user_key_idx").on(
 			table.user_id,

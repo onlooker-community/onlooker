@@ -552,6 +552,11 @@ export const EXPECTED_SCHEMA = {
 		],
 		indexes: [
 			{
+				name: "session_projects_session_idx",
+				unique: false,
+				columns: ["machine_id", "session_id"],
+			},
+			{
 				name: "session_projects_user_key_idx",
 				unique: false,
 				columns: ["user_id", "project_key"],

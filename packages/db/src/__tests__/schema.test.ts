@@ -363,11 +363,10 @@ describe("the schema as a whole", () => {
 	// arrive with the feature that needs it, not by accident. Fifteen, as of
 	// session_projects landing with the Projects page (ONL-209); fourteen
 	// before that, as of mail_sends landing with the mail cap (ONL-222);
-	// thirteen before that, as
-	// of project_labels landing with repository aliases (ONL-189); twelve before
-	// that, as of login_attempts landing with the failed-login backoff
-	// (onlooker-9s0m); eleven before that, since orgs/org_memberships/
-	// org_invites arrived with org accounts (ONL-12).
+	// thirteen before that, as of project_labels landing with repository
+	// aliases (ONL-189); twelve before that, as of login_attempts landing with
+	// the failed-login backoff (onlooker-9s0m); eleven before that, since
+	// orgs/org_memberships/org_invites arrived with org accounts (ONL-12).
 	it("declares only the fifteen tables in use", async () => {
 		const schema = await import("../schema.js");
 		// is(v, SQLiteTable) rather than "_" in v: drizzle-orm moved table

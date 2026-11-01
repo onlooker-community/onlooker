@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "07e6749f-1762-452c-8f9d-b9f68ff45669",
+  "id": "2137eaa5-591d-4bb9-99cf-f95257f6d320",
   "prevId": "6330210e-c064-43a8-aebc-4e8c4799754d",
   "tables": {
     "lesson_author_blocks": {
@@ -878,6 +878,14 @@
         }
       },
       "indexes": {
+        "session_projects_session_idx": {
+          "name": "session_projects_session_idx",
+          "columns": [
+            "machine_id",
+            "session_id"
+          ],
+          "isUnique": false
+        },
         "session_projects_user_key_idx": {
           "name": "session_projects_user_key_idx",
           "columns": [
@@ -918,13 +926,13 @@
         }
       },
       "compositePrimaryKeys": {
-        "session_projects_machine_id_session_id_project_key_pk": {
+        "session_projects_machine_id_project_key_session_id_pk": {
           "columns": [
             "machine_id",
             "project_key",
             "session_id"
           ],
-          "name": "session_projects_machine_id_session_id_project_key_pk"
+          "name": "session_projects_machine_id_project_key_session_id_pk"
         }
       },
       "uniqueConstraints": {}
