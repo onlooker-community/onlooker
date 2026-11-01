@@ -27,6 +27,21 @@ export const MAIL_LIMITS: Record<MailKind, { max: number; windowMs: number }> =
 	};
 
 /**
+ * Sends allowed to one address per fixed 24 hours, for the kinds an hourly cap
+ * alone does not bound. The reset pool is 45 and 3 an hour allows 72 a day, so
+ * one address could spend the pool over 15 hours, and every reset after that
+ * would silently answer 200 until midnight. Six a day bounds one address's
+ * share. Invites need none: they are already 3 per 24 hours.
+ */
+export const DAILY_ADDRESS_LIMITS: Record<
+	"reset" | "verify",
+	{ max: number; windowMs: number }
+> = {
+	reset: { max: 6, windowMs: DAY_MS },
+	verify: { max: 6, windowMs: DAY_MS },
+};
+
+/**
  * Each kind's mail, per UTC day. Resend's free tier allows 100 a day and
  * 3,000 a month; 80 in total leaves headroom under the first, and 80 x 31 =
  * 2,480 keeps under the second without a counter of its own.
@@ -44,8 +59,9 @@ export const DAILY_MAIL_CEILINGS: Record<MailKind, number> = {
 
 /**
  * Invites one user may send per 24 hours, to any addresses. Without it one
- * owner spends the invite pool in nine calls and nobody else can invite until
- * midnight.
+ * owner spends the 25-send invite pool in 25 calls to about nine addresses (a
+ * pool slot per invite, three invites per address) and nobody else can invite
+ * until midnight.
  */
 export const INVITER_LIMIT = { max: 10, windowMs: DAY_MS };
 
@@ -131,12 +147,14 @@ function msUntilWindowEnds(
 /**
  * Claim one send of `kind` to `address`, or answer why not.
  *
- * Narrowest counter first, and a refusal stops before the next, so a refusal
- * never spends a counter its caller does not own: a capped inviter spends no
- * victim address's slots and no pool slot, and a capped address spends no
- * pool slot. The reverse is not true: a refusal at the address has spent the
- * inviter's own slot, and one at the pool has spent the address's and the
- * inviter's.
+ * Narrowest counter first, and a refusal stops before the next: the inviter
+ * (invite only), the address's hourly counter, its daily counter (reset and
+ * verify only), then the kind's pool. A capped inviter spends no victim
+ * address's slots and no pool slot, an address refused hourly spends no daily
+ * slot, and a capped address spends no pool slot. The reverse is not true: a
+ * refusal at an address has spent the inviter's own slot, and one at the pool
+ * has spent the address's and the inviter's. A daily refusal is scope
+ * "address", answering the end of that 24-hour window.
  * A claim counts even if the send then fails, so a Resend outage cannot be
  * retried into a burst.
  *
@@ -182,19 +200,33 @@ export async function claimMailSend(
 		}
 	}
 
+	const hash = await loginAttemptKey(address);
+
 	const limit = MAIL_LIMITS[kind];
-	const mine = await countSend(
-		db,
-		`${kind}:${await loginAttemptKey(address)}`,
-		limit.windowMs,
-		now,
-	);
+	const mine = await countSend(db, `${kind}:${hash}`, limit.windowMs, now);
 	if (mine.count > limit.max) {
 		return {
 			ok: false,
 			scope: "address",
 			retryAfterMs: msUntilWindowEnds(mine, limit.windowMs, now),
 		};
+	}
+
+	if (kind !== "invite") {
+		const daily = DAILY_ADDRESS_LIMITS[kind];
+		const today = await countSend(
+			db,
+			`${kind}-day:${hash}`,
+			daily.windowMs,
+			now,
+		);
+		if (today.count > daily.max) {
+			return {
+				ok: false,
+				scope: "address",
+				retryAfterMs: msUntilWindowEnds(today, daily.windowMs, now),
+			};
+		}
 	}
 
 	const ceiling = DAILY_MAIL_CEILINGS[kind];

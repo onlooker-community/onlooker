@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { loginAttemptKey } from "../db/login-attempts.js";
 import {
+	DAILY_ADDRESS_LIMITS,
 	DAILY_MAIL_CEILINGS,
 	globalMailKey,
 	inviterMailKey,
@@ -106,6 +108,27 @@ describe("POST /auth/forgot-password under the cap", () => {
 			.prepare("SELECT COUNT(*) AS n FROM mail_sends")
 			.first<{ n: number }>();
 		expect(row?.n).toBe(0);
+	});
+
+	// The anti-enumeration answer: the daily cap refuses a real address, and the
+	// caller still sees exactly what a send looks like.
+	it("sends nothing once the address's daily cap is spent, and answers exactly as a send", async () => {
+		await db()
+			.prepare(
+				"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
+			)
+			.bind(
+				`reset-day:${await loginAttemptKey(ADA)}`,
+				new Date().toISOString(),
+				DAILY_ADDRESS_LIMITS.reset.max,
+			)
+			.run();
+
+		const response = await post("/auth/forgot-password", { email: ADA });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
 	});
 
 	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
@@ -228,7 +251,8 @@ describe("POST /api/orgs/:id/invites under the cap", () => {
 		expect((await invite(other, "new@example.com")).status).toBe(429);
 	});
 
-	// Without it one owner spends the invite pool in nine calls (ONL-228).
+	// Without it one owner spends the invite pool in 25 calls to about nine
+	// addresses, since every invite spends a pool slot (ONL-228).
 	it("refuses an owner's eleventh invite of the day, even to a fresh address", async () => {
 		for (let i = 0; i < 10; i++) {
 			expect((await invite(orgId, `n${i}@example.com`)).status).toBe(201);
@@ -248,7 +272,7 @@ describe("POST /api/orgs/:id/invites under the cap", () => {
 
 	it("counts invites per owner, so a second owner can still invite", async () => {
 		for (let i = 0; i < 10; i++) {
-			await invite(orgId, `n${i}@example.com`);
+			expect((await invite(orgId, `n${i}@example.com`)).status).toBe(201);
 		}
 		const grace = await signup("grace@example.com", "Grace");
 		const created = await post("/api/orgs", { name: "Grace's" }, grace.token);

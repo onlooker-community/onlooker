@@ -53,7 +53,8 @@ orgs a day at three invites each. The total is unchanged, so the headroom under
 Resend's free tier (100 a day, 3,000 a month) is too.
 
 **And cap each inviter at 10 invites per day.** Without it, one owner spends the
-invite pool in nine calls and nobody else can invite until midnight. With it,
+invite pool in 25 calls to about nine addresses (every invite spends a pool
+slot) and nobody else can invite until midnight. With it,
 that takes three accounts. It leaks nothing: the owner can already see their
 own invites.
 
@@ -64,6 +65,13 @@ Rejected:
   moves.
 * **A per-inviter cap alone.** Accounts are free (see above).
 
+**And cap reset and verify at 6 per address per 24 hours** *(approved
+2026-11-01, at the final review)*. The reset pool is 45 and the hourly address
+cap allows 72 a day, so one address could spend the pool over 15 hours, and
+every reset after that would silently answer 200 until midnight. A fixed
+24-hour window per kind and address bounds one address's share of a pool to 6.
+Invites need no such cap: they are already 3 per address per 24 hours.
+
 ## The counters *(proposed)*
 
 No new table and no migration. `mail_sends` already holds any key in a fixed
@@ -72,6 +80,7 @@ window.
 | Key | Window | Limit |
 |---|---|---|
 | `<kind>:<sha256 of address>` | as today | as today (3/hour, 3/hour, 3/day) |
+| `<kind>-day:<sha256 of address>` (reset, verify) | 24 hours, fixed | 6 |
 | `inviter:<user id>` | 24 hours, fixed | 10 |
 | `global:<kind>:<UTC date>` | the UTC day | 45 / 10 / 25 |
 
@@ -92,14 +101,21 @@ claimMailSend(db, "reset" | "verify", address, { now? })
 ```
 
 The counters are claimed narrowest-first, and each refusal stops before the
-next counter, so a refusal never spends a counter its caller does not own:
+next counter:
 
 1. **inviter** (invite only). A capped owner spends no victim address's slots
    and no pool slot.
-2. **address**, as today. A capped address spends only the inviter's own
-   allowance.
-3. **the kind's pool.** A refusal answers `first: true` to exactly one request
+2. **address, hourly**, as today. A capped address spends only the inviter's
+   own allowance.
+3. **address, daily** (reset and verify only). An address refused in step 2
+   spends no daily slot. A refusal here is `scope: "address"`, with
+   `retryAfterMs` the end of that 24-hour window.
+4. **the kind's pool.** A refusal answers `first: true` to exactly one request
    per pool per day: the one whose upsert returns the limit plus one.
+
+So a refusal does not spend the counters after it, but it has spent the ones
+before it: a refusal at an address has spent the inviter's own slot, and one at
+the pool has spent the address's and the inviter's.
 
 ```ts
 type MailClaim =
@@ -138,6 +154,11 @@ tier that is harmless, because Resend itself refuses past 100. It is accepted
 rather than carried over. The old rows are removed by the existing prune within
 two days.
 
+That can pass Resend's 100, though: a high old row plus the new counters can
+push the day's sends past it, where a reset vanishes and an invite 500s. Before
+deploying, read `SELECT key, count FROM mail_sends WHERE key LIKE 'global:%'`,
+and if the count is high, deploy just after UTC midnight.
+
 ## Tests *(proposed)*
 
 In the Workers pool, against D1:
@@ -170,6 +191,9 @@ passing unchanged in substance.
 
 * Per-account limits on other signed-in routes (ONL-222's next slice).
 * The forgot-password timing difference (measure first).
+* Many free accounts can still spend the reset pool: 15 addresses x 3 in a
+  burst. The zone's per-IP rule slows this but does not stop it. Filed in
+  Linear.
 * Requiring a verified address to invite, which would make accounts cost
   something. It is out of scope here and worth its own issue if invite abuse is
   ever seen.

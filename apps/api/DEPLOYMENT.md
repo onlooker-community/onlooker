@@ -318,8 +318,10 @@ ignored it anyway.
 
 **Mail is capped inside the worker**, per recipient, per inviter and per day,
 in `src/db/mail-sends.ts` (ONL-222, ONL-228). Three resets or three
-verification mails per address per hour, and three invites per address per day
-across all orgs. Each user may send ten invites a day. Each kind has its own
+verification mails per address per hour, and six of each per address per
+24 hours, so one address cannot spend a kind's pool over many hours. Three
+invites per address per day across all orgs. Each user may send ten invites per
+24 hours (a fixed window). Each kind has its own
 daily pool: 45 resets, 10 verification mails and 25 invites, 80 in all, under
 Resend's free-tier 100. The pools are separate so invites, which anyone can
 send because accounts are free, cannot spend the mail a locked-out user needs.
