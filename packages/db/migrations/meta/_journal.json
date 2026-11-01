@@ -141,6 +141,13 @@
       "when": 1793566439856,
       "tag": "0019_famous_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1793571153539,
+      "tag": "0020_moaning_miss_america",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { session_summaries } from "@onlooker/db";
+import { session_projects, session_summaries } from "@onlooker/db";
+import { and, eq } from "drizzle-orm";
 import { client } from "./client.js";
 import { BROWSE_MAX_LIMIT, InvalidCursorError } from "./lessons.js";
 
@@ -61,6 +62,9 @@ export interface ProjectCount {
  * One batch rather than one statement per session, for the same reason
  * rotateRefreshToken batches in queries.ts: it is one round trip to D1 instead
  * of N.
+ *
+ * Each summary also rewrites its session_projects rows in the same batch, so
+ * the per-project index never disagrees with counts_by_project.
  */
 export async function putSessionSummaries(
 	db: D1Database,
@@ -73,7 +77,7 @@ export async function putSessionSummaries(
 	const reportedAt = new Date().toISOString();
 	const drizzle = client(db);
 
-	const statements = summaries.map((summary) => {
+	const statements = summaries.flatMap((summary) => {
 		const row = {
 			user_id: userId,
 			machine_id: machineId,
@@ -96,7 +100,7 @@ export async function putSessionSummaries(
 			reported_at: reportedAt,
 		};
 
-		return drizzle
+		const upsert = drizzle
 			.insert(session_summaries)
 			.values(row)
 			.onConflictDoUpdate({
@@ -117,6 +121,33 @@ export async function putSessionSummaries(
 					reported_at: row.reported_at,
 				},
 			});
+
+		// Replaced whole rather than upserted: a key can drop out of a session
+		// between syncs, and an upsert would leave it behind. After the summary,
+		// because the foreign key needs it on a first report.
+		const clear = drizzle
+			.delete(session_projects)
+			.where(
+				and(
+					eq(session_projects.machine_id, machineId),
+					eq(session_projects.session_id, summary.session_id),
+				),
+			);
+		// One insert per key rather than one multi-row insert: six parameters
+		// a row would cross D1's 100 on a session touching seventeen projects.
+		const inserts = Object.entries(summary.counts_by_project ?? {}).map(
+			([project_key, count]) =>
+				drizzle.insert(session_projects).values({
+					user_id: userId,
+					machine_id: machineId,
+					session_id: summary.session_id,
+					project_key,
+					basis: count.basis,
+					event_count: count.event_count,
+				}),
+		);
+
+		return [upsert, clear, ...inserts];
 	});
 
 	// batch()'s type requires a non-empty tuple, not a plain array, to

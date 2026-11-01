@@ -1251,6 +1251,23 @@ export async function mockDataApi(
 		return json({ success: true });
 	}
 
+	// The mock holds no sessions (see /api/sessions), so labels are all it can
+	// list. They come back with zero activity, as listProjects returns a label
+	// whose sessions have passed retention.
+	if (poolPath === "/api/projects" && (options.method ?? "GET") === "GET") {
+		const { email } = requireAuth(options);
+		return json({
+			projects: labelsOf(email).map((label) => ({
+				project_key: label.project_key,
+				basis: label.machine_id === null ? "remote" : "root",
+				machine_id: label.machine_id,
+				sessions: 0,
+				events: 0,
+				last_seen_at: null,
+			})),
+		});
+	}
+
 	if (
 		poolPath === "/api/project-labels" &&
 		(options.method ?? "GET") === "GET"

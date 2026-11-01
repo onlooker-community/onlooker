@@ -77,5 +77,6 @@ export {
 	handleGetProjectLabels,
 	handlePutProjectLabel,
 } from "./project-labels";
+export { handleGetProjects } from "./projects";
 export { handleGetSessions, handlePostSessions } from "./sessions";
 export { handleClientError } from "./telemetry";
