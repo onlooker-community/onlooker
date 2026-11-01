@@ -64,9 +64,12 @@ export async function handleCreateInvite(
 
 	// After validation, so a refused or malformed invite spends nothing, and
 	// before deletePendingInvitesFor, so a refusal leaves the pending invite -
-	// and the link in the invitee's inbox - working. The counter is per address
-	// across every org: anyone can create an org (ONL-222).
-	const claim = await claimMailSend(env.DB, "invite", email);
+	// and the link in the invitee's inbox - working. Counted per inviter and
+	// per address across every org: anyone can create an org (ONL-222,
+	// ONL-228).
+	const claim = await claimMailSend(env.DB, "invite", email, {
+		inviterId: userId,
+	});
 	if (!claim.ok) {
 		reportMailRefusal(claim, "invite");
 		throw mailRateLimitError(claim);

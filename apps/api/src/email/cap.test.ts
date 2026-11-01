@@ -25,7 +25,7 @@ describe("reportMailRefusal", () => {
 
 		expect(recorder.exceptions).toHaveLength(1);
 		expect((recorder.exceptions[0]?.error as Error).message).toContain(
-			"ceiling",
+			"reset pool",
 		);
 	});
 

@@ -1,6 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DAILY_MAIL_CEILING, globalMailKey } from "../db/mail-sends.js";
+import {
+	DAILY_MAIL_CEILINGS,
+	globalMailKey,
+	type MailKind,
+} from "../db/mail-sends.js";
 import {
 	call,
 	resetOrgTables,
@@ -39,15 +43,15 @@ const tokenHashes = async (userId: string, type: "reset" | "verify") =>
 			.all<{ token_hash: string }>()
 	).results.map((row) => row.token_hash);
 
-const spendTheDaysCeiling = () =>
+const spendThePool = (kind: MailKind) =>
 	db()
 		.prepare(
 			"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
 		)
 		.bind(
-			globalMailKey(new Date()),
+			globalMailKey(kind, new Date()),
 			new Date().toISOString(),
-			DAILY_MAIL_CEILING,
+			DAILY_MAIL_CEILINGS[kind],
 		)
 		.run();
 
@@ -103,8 +107,8 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(row?.n).toBe(0);
 	});
 
-	it("sends nothing once the day's ceiling is spent, and answers exactly as a send", async () => {
-		await spendTheDaysCeiling();
+	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
+		await spendThePool("reset");
 
 		const response = await post("/auth/forgot-password", { email: ADA });
 
@@ -200,8 +204,8 @@ describe("POST /api/orgs/:id/invites under the cap", () => {
 		expect((await invite(other, "new@example.com")).status).toBe(429);
 	});
 
-	it("refuses an invite once the day's ceiling is spent", async () => {
-		await spendTheDaysCeiling();
+	it("refuses an invite once the invite pool is spent", async () => {
+		await spendThePool("invite");
 
 		expect((await invite(orgId, "new@example.com")).status).toBe(429);
 	});

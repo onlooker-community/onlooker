@@ -1,5 +1,5 @@
 import {
-	DAILY_MAIL_CEILING,
+	DAILY_MAIL_CEILINGS,
 	type MailClaim,
 	type MailKind,
 } from "../db/mail-sends.js";
@@ -54,7 +54,7 @@ export function reportMailRefusal(
 	if (refusal.scope === "global" && refusal.first) {
 		deps.monitor.captureException(
 			new Error(
-				`mail: the daily ceiling of ${DAILY_MAIL_CEILING} sends is spent; refusing ${kind} mail until UTC midnight`,
+				`mail: the daily ${kind} pool of ${DAILY_MAIL_CEILINGS[kind]} sends is spent; refusing ${kind} mail until UTC midnight`,
 			),
 			{ tags: { kind: "mail_global_ceiling" } },
 		);
