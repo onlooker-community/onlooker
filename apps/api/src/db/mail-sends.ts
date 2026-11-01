@@ -2,12 +2,15 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { loginAttemptKey } from "./login-attempts.js";
 
 /**
- * The mail cap: per recipient for each kind of mail, and per day for all of it.
+ * The mail cap: per recipient for each kind of mail, per inviter, and a daily
+ * pool for each kind.
  *
  * The whole policy and its statements live here. See
  * docs/superpowers/specs/2026-10-31-mail-cap-design.md for why the counters
  * are per kind, and why each handler claims before it touches a token rather
  * than sendEmail claiming on its way out.
+ * docs/superpowers/specs/2026-10-31-mail-pools-design.md is why the day is
+ * split into pools and invites are counted per inviter (ONL-228).
  */
 
 export type MailKind = "reset" | "verify" | "invite";
@@ -24,28 +27,68 @@ export const MAIL_LIMITS: Record<MailKind, { max: number; windowMs: number }> =
 	};
 
 /**
- * All mail, per UTC day. Resend's free tier allows 100 a day and 3,000 a
- * month; 80 leaves headroom under the first, and 80 x 31 = 2,480 keeps under
- * the second without a counter of its own.
+ * Sends allowed to one address per fixed 24 hours, for the kinds an hourly cap
+ * alone does not bound. The reset pool is 45 and 3 an hour allows 72 a day, so
+ * one address could spend the pool over 15 hours, and every reset after that
+ * would silently answer 200 until midnight. Six a day bounds one address's
+ * share. Invites need none: they are already 3 per 24 hours.
  */
-export const DAILY_MAIL_CEILING = 80;
+export const DAILY_ADDRESS_LIMITS: Record<
+	"reset" | "verify",
+	{ max: number; windowMs: number }
+> = {
+	reset: { max: 6, windowMs: DAY_MS },
+	verify: { max: 6, windowMs: DAY_MS },
+};
+
+/**
+ * Each kind's mail, per UTC day. Resend's free tier allows 100 a day and
+ * 3,000 a month; 80 in total leaves headroom under the first, and 80 x 31 =
+ * 2,480 keeps under the second without a counter of its own.
+ *
+ * A pool per kind, so invites - which anyone can send, since accounts are
+ * free - can never spend the mail a locked-out user needs, and no kind's
+ * refusal moves with another kind's traffic. Resets get the most because a
+ * locked-out user has no other way back in.
+ */
+export const DAILY_MAIL_CEILINGS: Record<MailKind, number> = {
+	reset: 45,
+	verify: 10,
+	invite: 25,
+};
+
+/**
+ * Invites one user may send per 24 hours, to any addresses. Without it one
+ * owner spends the 25-send invite pool in 25 calls to about nine addresses (a
+ * pool slot per invite, three invites per address) and nobody else can invite
+ * until midnight.
+ */
+export const INVITER_LIMIT = { max: 10, windowMs: DAY_MS };
 
 /** Longer than the longest window, so a prune never forgets a live count. */
 const RETENTION_MS = 2 * DAY_MS;
 
 /**
- * A global refusal says whether it was the day's first: the upsert hands the
- * count one past the ceiling to exactly one request, so the issue is raised
- * once a UTC day, not once per refused request.
+ * A global refusal says whether it was the day's first: the upsert hands
+ * each pool's count one past its limit to exactly one request, so the issue
+ * is raised once a UTC day, not once per refused request.
  */
 export type MailClaim =
 	| { ok: true }
-	| { ok: false; scope: "address"; retryAfterMs: number }
+	| { ok: false; scope: "address" | "inviter"; retryAfterMs: number }
 	| { ok: false; scope: "global"; first: boolean; retryAfterMs: number };
 
-/** The day's ceiling row. A new UTC date is a new key, so it never needs resetting. */
-export function globalMailKey(now: Date): string {
-	return `global:${now.toISOString().slice(0, 10)}`;
+/** A kind's pool for the day. A new UTC date is a new key, so it never needs resetting. */
+export function globalMailKey(kind: MailKind, now: Date): string {
+	return `global:${kind}:${now.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * One inviter's counter. A user id is an opaque identifier, not an address,
+ * so it is stored as it is rather than hashed.
+ */
+export function inviterMailKey(inviterId: string): string {
+	return `inviter:${inviterId}`;
 }
 
 /**
@@ -92,45 +135,107 @@ function msUntilNextUtcMidnight(now: Date): number {
 	return next - now.getTime();
 }
 
+/** When the fixed window that `row` counts in ends, from `now`. */
+function msUntilWindowEnds(
+	row: { window_start: string },
+	windowMs: number,
+	now: Date,
+): number {
+	return new Date(row.window_start).getTime() + windowMs - now.getTime();
+}
+
 /**
  * Claim one send of `kind` to `address`, or answer why not.
  *
- * The address is claimed first, and a refusal there stops before the global
- * row: one bombed address must not spend the day's ceiling for everybody.
- * The reverse is not true: a refusal at the ceiling has already spent the
- * address's own slot, so a late-day invite refusal leaves that address one
- * fewer invite for the rest of its 24-hour window.
+ * Narrowest counter first, and a refusal stops before the next: the inviter
+ * (invite only), the address's hourly counter, its daily counter (reset and
+ * verify only), then the kind's pool. A capped inviter spends no victim
+ * address's slots and no pool slot, an address refused hourly spends no daily
+ * slot, and a capped address spends no pool slot. The reverse is not true: a
+ * refusal at an address has spent the inviter's own slot, and one at the pool
+ * has spent the address's and the inviter's. A daily refusal is scope
+ * "address", answering the end of that 24-hour window.
  * A claim counts even if the send then fails, so a Resend outage cannot be
  * retried into a burst.
+ *
+ * An invite must name its inviter, and the overloads make leaving it out a
+ * type error rather than an uncapped invite.
  */
+export function claimMailSend(
+	db: D1Database,
+	kind: "invite",
+	address: string,
+	options: { inviterId: string; now?: Date },
+): Promise<MailClaim>;
+export function claimMailSend(
+	db: D1Database,
+	kind: "reset" | "verify",
+	address: string,
+	options?: { now?: Date },
+): Promise<MailClaim>;
 export async function claimMailSend(
 	db: D1Database,
 	kind: MailKind,
 	address: string,
-	now: Date = new Date(),
+	options: { inviterId?: string; now?: Date } = {},
 ): Promise<MailClaim> {
+	const now = options.now ?? new Date();
+
+	if (kind === "invite") {
+		if (!options.inviterId) {
+			throw new Error("claimMailSend: an invite claim must name its inviter");
+		}
+		const sent = await countSend(
+			db,
+			inviterMailKey(options.inviterId),
+			INVITER_LIMIT.windowMs,
+			now,
+		);
+		if (sent.count > INVITER_LIMIT.max) {
+			return {
+				ok: false,
+				scope: "inviter",
+				retryAfterMs: msUntilWindowEnds(sent, INVITER_LIMIT.windowMs, now),
+			};
+		}
+	}
+
+	const hash = await loginAttemptKey(address);
+
 	const limit = MAIL_LIMITS[kind];
-	const mine = await countSend(
-		db,
-		`${kind}:${await loginAttemptKey(address)}`,
-		limit.windowMs,
-		now,
-	);
+	const mine = await countSend(db, `${kind}:${hash}`, limit.windowMs, now);
 	if (mine.count > limit.max) {
 		return {
 			ok: false,
 			scope: "address",
-			retryAfterMs:
-				new Date(mine.window_start).getTime() + limit.windowMs - now.getTime(),
+			retryAfterMs: msUntilWindowEnds(mine, limit.windowMs, now),
 		};
 	}
 
-	const all = await countSend(db, globalMailKey(now), DAY_MS, now);
-	if (all.count > DAILY_MAIL_CEILING) {
+	if (kind !== "invite") {
+		const daily = DAILY_ADDRESS_LIMITS[kind];
+		const today = await countSend(
+			db,
+			`${kind}-day:${hash}`,
+			daily.windowMs,
+			now,
+		);
+		if (today.count > daily.max) {
+			return {
+				ok: false,
+				scope: "address",
+				retryAfterMs: msUntilWindowEnds(today, daily.windowMs, now),
+			};
+		}
+	}
+
+	const ceiling = DAILY_MAIL_CEILINGS[kind];
+	const pool = await countSend(db, globalMailKey(kind, now), DAY_MS, now);
+	if (pool.count > ceiling) {
 		return {
 			ok: false,
 			scope: "global",
-			first: all.count === DAILY_MAIL_CEILING + 1,
+			first: pool.count === ceiling + 1,
 			retryAfterMs: msUntilNextUtcMidnight(now),
 		};
 	}

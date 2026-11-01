@@ -11,22 +11,37 @@ const quiet = (recorder: ReturnType<typeof createRecordingMonitor>) => {
 };
 
 describe("reportMailRefusal", () => {
-	// The ceiling refusing mail means legitimate mail is being refused for the
-	// rest of the day. A per-address cap firing is the system working.
-	it("raises an issue when the day's ceiling first refuses", () => {
+	// A pool refusing mail means legitimate mail of that kind is being refused
+	// for the rest of the day. A per-address cap firing is the system working.
+	it.each([
+		"reset",
+		"verify",
+		"invite",
+	] as const)("raises an issue, tagged with the kind, when the %s pool first refuses", (kind) => {
 		const recorder = createRecordingMonitor();
 		const { deps } = quiet(recorder);
 
 		reportMailRefusal(
 			{ ok: false, scope: "global", first: true, retryAfterMs: 1000 },
-			"reset",
+			kind,
 			deps,
 		);
 
 		expect(recorder.exceptions).toHaveLength(1);
 		expect((recorder.exceptions[0]?.error as Error).message).toContain(
-			"ceiling",
+			`${kind} pool`,
 		);
+		expect(recorder.exceptions[0]?.context?.tags).toEqual({
+			kind: "mail_global_ceiling",
+			mail_kind: kind,
+		});
+		// Each pool is its own issue: the message differs by kind and ceiling, so
+		// without this Sentry groups by stack and a spent invite pool is filed
+		// under a spent reset pool.
+		expect(recorder.exceptions[0]?.context?.fingerprint).toEqual([
+			"mail_global_ceiling",
+			kind,
+		]);
 	});
 
 	// Once a day: a looped invite would otherwise raise an event per request.
@@ -59,6 +74,25 @@ describe("reportMailRefusal", () => {
 		);
 
 		expect(recorder.exceptions).toHaveLength(0);
+	});
+
+	// The inviter cap firing is the cap working, as an address cap is.
+	it("raises nothing and logs mail_inviter_capped when an inviter is capped", () => {
+		const recorder = createRecordingMonitor();
+		const { deps, lines } = quiet(recorder);
+
+		reportMailRefusal(
+			{ ok: false, scope: "inviter", retryAfterMs: 1000 },
+			"invite",
+			deps,
+		);
+
+		expect(recorder.exceptions).toHaveLength(0);
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] as string)).toEqual({
+			event: "mail_inviter_capped",
+			kind: "invite",
+		});
 	});
 
 	it("logs one structured line either way, naming the kind and never an address", () => {
@@ -103,5 +137,21 @@ describe("mailRateLimitError", () => {
 		});
 
 		expect(error.headers).toEqual({ "Retry-After": "1" });
+	});
+
+	// The owner can already see their own invites, so saying so leaks nothing.
+	it("tells a capped inviter it is their invites, with the window's Retry-After", () => {
+		const error = mailRateLimitError({
+			ok: false,
+			scope: "inviter",
+			retryAfterMs: 22 * 60 * 60_000,
+		});
+
+		expect(error.status).toBe(429);
+		expect(error.code).toBe("rate_limit_exceeded");
+		expect(error.message).toBe(
+			"You have sent too many invites today. Try again later.",
+		);
+		expect(error.headers).toEqual({ "Retry-After": String(22 * 60 * 60) });
 	});
 });

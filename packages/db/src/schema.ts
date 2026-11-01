@@ -215,9 +215,16 @@ export const login_attempts = sqliteTable(
 /**
  * Mail sent per recipient, in fixed windows, for the mail cap (ONL-222).
  *
- * `key` is `<kind>:<sha256 of the trimmed, lowercased address>` for a
- * per-address counter, or `global:<UTC date>` for the day's ceiling. Hashed for
- * the reason login_attempts is: the table must not be a list of addresses.
+ * `key` is one of:
+ * - `<kind>:<sha256 of the trimmed, lowercased address>`, an address's
+ *   counter in the kind's own window;
+ * - `<kind>-day:<sha256 of the address>`, its 24-hour counter (reset and
+ *   verify);
+ * - `inviter:<user id>`, one inviter's invites. Unhashed: an opaque id, not an
+ *   address, and it may outlive a deleted account by up to the 2-day retention;
+ * - `global:<kind>:<UTC date>`, a kind's pool for the day.
+ * Addresses are hashed for the reason login_attempts is: the table must not be
+ * a list of addresses.
  *
  * No deadline column, for the reason login_attempts has none: the limit and
  * the window length live in apps/api/src/db/mail-sends.ts, and a stored

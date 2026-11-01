@@ -24,7 +24,7 @@ export function describeError(error: unknown, fallback: string): string {
 /**
  * The server's message for a 429, the fallback for anything else.
  *
- * For mail sends: the API caps them per address and per day (ONL-222) and
+ * For mail sends: the API caps them per address, per inviter and per day (ONL-222) and
  * answers a refusal with a message saying so. A generic "try again" there
  * invites exactly the retry the cap just refused, while other failures keep
  * the generic line they always had.

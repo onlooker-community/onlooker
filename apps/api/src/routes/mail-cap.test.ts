@@ -1,6 +1,13 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DAILY_MAIL_CEILING, globalMailKey } from "../db/mail-sends.js";
+import { loginAttemptKey } from "../db/login-attempts.js";
+import {
+	DAILY_ADDRESS_LIMITS,
+	DAILY_MAIL_CEILINGS,
+	globalMailKey,
+	inviterMailKey,
+	type MailKind,
+} from "../db/mail-sends.js";
 import {
 	call,
 	resetOrgTables,
@@ -39,15 +46,15 @@ const tokenHashes = async (userId: string, type: "reset" | "verify") =>
 			.all<{ token_hash: string }>()
 	).results.map((row) => row.token_hash);
 
-const spendTheDaysCeiling = () =>
+const spendThePool = (kind: MailKind) =>
 	db()
 		.prepare(
 			"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
 		)
 		.bind(
-			globalMailKey(new Date()),
+			globalMailKey(kind, new Date()),
 			new Date().toISOString(),
-			DAILY_MAIL_CEILING,
+			DAILY_MAIL_CEILINGS[kind],
 		)
 		.run();
 
@@ -103,8 +110,29 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(row?.n).toBe(0);
 	});
 
-	it("sends nothing once the day's ceiling is spent, and answers exactly as a send", async () => {
-		await spendTheDaysCeiling();
+	// The anti-enumeration answer: the daily cap refuses a real address, and the
+	// caller still sees exactly what a send looks like.
+	it("sends nothing once the address's daily cap is spent, and answers exactly as a send", async () => {
+		await db()
+			.prepare(
+				"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
+			)
+			.bind(
+				`reset-day:${await loginAttemptKey(ADA)}`,
+				new Date().toISOString(),
+				DAILY_ADDRESS_LIMITS.reset.max,
+			)
+			.run();
+
+		const response = await post("/auth/forgot-password", { email: ADA });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
+	});
+
+	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
+		await spendThePool("reset");
 
 		const response = await post("/auth/forgot-password", { email: ADA });
 
@@ -146,6 +174,29 @@ describe("POST /auth/resend-verification under the cap", () => {
 
 		expect(third).toHaveLength(1);
 		expect(await tokenHashes(ada.id, "verify")).toEqual(third);
+	});
+});
+
+// The reason for ONL-228: anyone can sign up and invite, so invites must not
+// be able to spend the mail a locked-out user needs.
+describe("a spent invite pool", () => {
+	let ada: SignedUpUser;
+	beforeEach(async () => {
+		ada = await signup(ADA);
+		await spendThePool("invite");
+	});
+
+	it("still sends a password reset", async () => {
+		await post("/auth/forgot-password", { email: ADA });
+
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+	});
+
+	it("still sends a verification mail", async () => {
+		expect(
+			(await post("/auth/resend-verification", {}, ada.token)).status,
+		).toBe(200);
+		expect(await tokenHashes(ada.id, "verify")).toHaveLength(1);
 	});
 });
 
@@ -200,8 +251,63 @@ describe("POST /api/orgs/:id/invites under the cap", () => {
 		expect((await invite(other, "new@example.com")).status).toBe(429);
 	});
 
-	it("refuses an invite once the day's ceiling is spent", async () => {
-		await spendTheDaysCeiling();
+	// Without it one owner spends the invite pool in 25 calls to about nine
+	// addresses, since every invite spends a pool slot (ONL-228).
+	it("refuses an owner's eleventh invite of the day, even to a fresh address", async () => {
+		for (let i = 0; i < 10; i++) {
+			expect((await invite(orgId, `n${i}@example.com`)).status).toBe(201);
+		}
+
+		const refused = await invite(orgId, "fresh@example.com");
+
+		expect(refused.status).toBe(429);
+		const body = (await refused.json()) as ErrorBody;
+		expect(body.error.code).toBe("rate_limit_exceeded");
+		expect(body.error.message).toBe(
+			"You have sent too many invites today. Try again later.",
+		);
+		expect(Number(refused.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect(await inviteHash("fresh@example.com")).toBeUndefined();
+	});
+
+	it("counts invites per owner, so a second owner can still invite", async () => {
+		for (let i = 0; i < 10; i++) {
+			expect((await invite(orgId, `n${i}@example.com`)).status).toBe(201);
+		}
+		const grace = await signup("grace@example.com", "Grace");
+		const created = await post("/api/orgs", { name: "Grace's" }, grace.token);
+		const graceOrg = ((await created.json()) as { org: { id: string } }).org.id;
+
+		const response = await post(
+			`/api/orgs/${graceOrg}/invites`,
+			{ email: "fresh@example.com", role: "member" },
+			grace.token,
+		);
+
+		expect(response.status).toBe(201);
+	});
+
+	// Narrowest first: a capped owner spends neither the address's slots nor
+	// the pool.
+	it("writes no address or pool count for an invite refused at the inviter", async () => {
+		await db()
+			.prepare(
+				"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
+			)
+			.bind(inviterMailKey(ada.id), new Date().toISOString(), 10)
+			.run();
+
+		expect((await invite(orgId, "fresh@example.com")).status).toBe(429);
+
+		const rows = await db()
+			.prepare("SELECT key FROM mail_sends WHERE key != ?")
+			.bind(inviterMailKey(ada.id))
+			.all<{ key: string }>();
+		expect(rows.results).toEqual([]);
+	});
+
+	it("refuses an invite once the invite pool is spent", async () => {
+		await spendThePool("invite");
 
 		expect((await invite(orgId, "new@example.com")).status).toBe(429);
 	});
