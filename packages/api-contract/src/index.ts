@@ -306,7 +306,7 @@ export const MACHINE_LIFECYCLE = {
 	removeSomeoneElses: 404,
 	/**
 	 * The exact fields a listed machine carries - nothing more asserted here,
-	 * because extra fields are allowed and these five are the ones the page
+	 * because extra fields are allowed and these are the ones the page
 	 * reads by name (`id`, `created_at` and `last_used_at` render the row;
 	 * `name` labels it; `revoked_at` decides whether it offers Revoke or
 	 * Delete; `removed_at` is listed even though MachinesPage hides such a
