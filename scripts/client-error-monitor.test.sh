@@ -247,6 +247,43 @@ lookback "no credential falls back to 480" 480
 lookback "an explicit override beats derivation" 45 \
 	CLIENT_ERROR_LOOKBACK_MINUTES=45 MONITOR_RUNS_RESPONSE="$(runs_fixture 120)"
 
+# rejects_override <value>
+#
+# An unusable override has to exit 2, and exit 1 would be worse than it looks:
+# that is the code that tells a human client errors were found. 0 is here for
+# the opposite reason, because a zero-width window reads nothing and exits 0.
+# Runs the real path rather than the print seam, with curl stubbed to record,
+# because refusing before the first query is the point.
+rejects_override() {
+	local value="$1" stub record output="" actual=0
+	stub="$(mktemp -d)"
+	record="${stub}/called"
+	printf '#!/bin/sh\ntouch "%s"\nexit 7\n' "${record}" >"${stub}/curl"
+	chmod +x "${stub}/curl"
+
+	output="$(env PATH="${stub}:${PATH}" CLOUDFLARE_API_TOKEN=t CLOUDFLARE_ACCOUNT_ID=a \
+		CLIENT_ERROR_LOOKBACK_MINUTES="${value}" "${MONITOR}" all 2>&1 >/dev/null)" || actual=$?
+
+	if [[ "${actual}" != "2" ]]; then
+		fail "override '${value}' exits 2" "got ${actual}: ${output}"
+	elif [[ "${output}" != *"'${value}'"* ]]; then
+		fail "override '${value}' exits 2" "message does not name the value: ${output}"
+	elif [[ -e "${record}" ]]; then
+		fail "override '${value}' exits 2" "a request was sent first"
+	else
+		pass "override '${value}' exits 2 before any request"
+	fi
+	rm -rf "${stub}"
+}
+
+rejects_override abc
+rejects_override 45m
+rejects_override -5
+rejects_override 1e3
+rejects_override 0
+rejects_override 08
+rejects_override 007
+
 # MONITOR_PRINT_QUERY's own comment promises it exits before any network
 # request. Without a guard in resolve_lookback_minutes, a developer who has
 # GITHUB_TOKEN and GITHUB_REPOSITORY exported ambiently would turn this
