@@ -73,8 +73,13 @@ function project(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+/** The project rows, past the table's header row. */
 function rows() {
-	return screen.getAllByRole("listitem");
+	return screen.getAllByRole("row").slice(1);
+}
+
+async function findRows() {
+	return (await screen.findAllByRole("row")).slice(1);
 }
 
 beforeEach(() => {
@@ -91,11 +96,32 @@ describe("ProjectsPage", () => {
 	it("shows an unnamed key with its sessions, events and last seen", async () => {
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
-		expect(within(row).getByText(/3 sessions/)).toBeTruthy();
-		expect(within(row).getByText(/120 events/)).toBeTruthy();
-		expect(within(row).getByText(/Last seen/)).toBeTruthy();
+		expect(within(row).getByRole("cell", { name: "3" })).toBeTruthy();
+		expect(within(row).getByRole("cell", { name: "120" })).toBeTruthy();
+		expect(row.querySelector("time")).toBeTruthy();
+	});
+
+	it("gives each measure its own column", async () => {
+		render(<ProjectsPage />);
+
+		await findRows();
+		expect(
+			screen.getAllByRole("columnheader").map((th) => th.textContent),
+		).toEqual(["Project", "Seen on", "Sessions", "Events", "Last seen"]);
+		expect(within(rows()[0]).getAllByRole("cell")).toHaveLength(5);
+	});
+
+	it("marks a project never seen in a session", async () => {
+		mocks.listProjects.mockResolvedValue({
+			projects: [project({ sessions: 0, events: 0, last_seen_at: null })],
+		});
+		render(<ProjectsPage />);
+
+		const [row] = await findRows();
+		expect(within(row).getByRole("cell", { name: "—" })).toBeTruthy();
+		expect(row.querySelector("time")).toBeNull();
 	});
 
 	it("shows a named key under its name, with the key still visible", async () => {
@@ -104,7 +130,7 @@ describe("ProjectsPage", () => {
 		);
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText("onlooker")).toBeTruthy();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
 	});
@@ -121,7 +147,7 @@ describe("ProjectsPage", () => {
 		);
 		render(<ProjectsPage />);
 
-		await screen.findAllByRole("listitem");
+		await findRows();
 		expect(rows()).toHaveLength(2);
 		expect(screen.getAllByText("onlooker")).toHaveLength(2);
 	});
@@ -135,7 +161,7 @@ describe("ProjectsPage", () => {
 		});
 		render(<ProjectsPage />);
 
-		const [remote, root] = await screen.findAllByRole("listitem");
+		const [remote, root] = await findRows();
 		expect(within(remote).getByText("Every machine")).toBeTruthy();
 		expect(within(root).getByText("work laptop only")).toBeTruthy();
 	});
@@ -146,7 +172,7 @@ describe("ProjectsPage", () => {
 		});
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText("Seen on a lesson")).toBeTruthy();
 	});
 
@@ -156,7 +182,7 @@ describe("ProjectsPage", () => {
 		});
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText("old desktop only")).toBeTruthy();
 	});
 
@@ -164,7 +190,7 @@ describe("ProjectsPage", () => {
 		mocks.setLabel.mockResolvedValue("onlooker");
 		render(<ProjectsPage />);
 
-		await screen.findAllByRole("listitem");
+		await findRows();
 		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
 		fireEvent.change(screen.getByLabelText(`Name for ${KEY_A}`), {
 			target: { value: " onlooker " },
@@ -182,7 +208,7 @@ describe("ProjectsPage", () => {
 		mocks.setLabel.mockResolvedValue("scratch");
 		render(<ProjectsPage />);
 
-		await screen.findAllByRole("listitem");
+		await findRows();
 		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
 		fireEvent.change(screen.getByLabelText(`Name for ${KEY_A}`), {
 			target: { value: "scratch" },
@@ -220,7 +246,7 @@ describe("ProjectsPage", () => {
 		mocks.setLabel.mockResolvedValue("onlooker");
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
@@ -239,7 +265,7 @@ describe("ProjectsPage", () => {
 		});
 		render(<ProjectsPage />);
 
-		const [row] = await screen.findAllByRole("listitem");
+		const [row] = await findRows();
 		expect(within(row).getByText("one machine only")).toBeTruthy();
 	});
 
@@ -249,7 +275,7 @@ describe("ProjectsPage", () => {
 		});
 		render(<ProjectsPage />);
 
-		await screen.findAllByRole("listitem");
+		await findRows();
 		fireEvent.click(
 			screen.getByRole("button", { name: `Rename repository ${KEY_A}` }),
 		);
