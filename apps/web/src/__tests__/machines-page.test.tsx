@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	listMachines: vi.fn(),
 	createMachine: vi.fn(),
 	revokeMachine: vi.fn(),
+	removeMachine: vi.fn(),
 	getMachineInventory: vi.fn(),
 	listOrgs: vi.fn(),
 }));
@@ -25,6 +26,7 @@ vi.mock("../api/machinesApi", () => ({
 	listMachines: mocks.listMachines,
 	createMachine: mocks.createMachine,
 	revokeMachine: mocks.revokeMachine,
+	removeMachine: mocks.removeMachine,
 	getMachineInventory: mocks.getMachineInventory,
 }));
 
@@ -92,6 +94,7 @@ beforeEach(() => {
 	mocks.listMachines.mockReset();
 	mocks.createMachine.mockReset();
 	mocks.revokeMachine.mockReset();
+	mocks.removeMachine.mockReset();
 	mocks.getMachineInventory.mockReset();
 	// Every test above the org picker describe block below predates orgs and
 	// does not care what this returns - defaulted here so the page's own
@@ -292,10 +295,10 @@ describe("MachinesPage", () => {
 		expect(await screen.findByText("Revoked")).toBeDefined();
 	});
 
-	// A revoked machine keeps its row, but the ConfirmAction inside it returns
-	// null once revoked_at is set - so the confirm button unmounts while
-	// holding focus and the next Tab restarts at the top of the document. The
-	// row is a stable target precisely because revoked rows persist.
+	// A revoked machine keeps its row, but the keyed swap from the Revoke
+	// confirm to the Delete one unmounts the confirm button while it holds
+	// focus, and the next Tab restarts at the top of the document. The row is
+	// a stable target because it stays until the machine is deleted.
 	it("moves focus to the row after a revoke instead of dropping it", async () => {
 		withMachines(USED);
 		await renderPage();
@@ -416,11 +419,12 @@ describe("MachinesPage", () => {
 		);
 	});
 
-	it("keeps a revoked machine visible and gives it nothing to do", async () => {
+	it("keeps a revoked machine visible and offers only Delete", async () => {
 		withMachines(REVOKED);
 		await renderPage();
 		expect(await screen.findByText("stolen laptop")).toBeDefined();
 		expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
+		expect(screen.getByRole("button", { name: "Delete" })).toBeDefined();
 	});
 
 	it("offers a retry when the list cannot be loaded", async () => {
@@ -479,6 +483,158 @@ describe("MachinesPage", () => {
 	});
 });
 
+describe("MachinesPage deleting a revoked machine", () => {
+	const deleteIt = async () => {
+		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+		fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
+	};
+
+	it("offers Delete on a revoked row and not on a live one", async () => {
+		withMachines(USED);
+		await renderPage();
+		await screen.findByRole("button", { name: "Revoke" });
+		expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+	});
+
+	it("asks first, and says the sessions stay", async () => {
+		withMachines(REVOKED);
+		await renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+		expect(
+			screen.getByText(`Delete ${REVOKED.name}? Its sessions stay.`),
+		).toBeDefined();
+		expect(mocks.removeMachine).not.toHaveBeenCalled();
+	});
+
+	// Revoke's confirm and Delete's sit in the same slot. Without a key React
+	// reuses the armed one, and a person who just said "Yes, revoke" would be
+	// standing on "Yes, delete".
+	it("does not carry an armed revoke confirm over to Delete", async () => {
+		withMachines(USED);
+		mocks.revokeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+		withMachines({ ...USED, revoked_at: "2026-09-07T00:00:00.000Z" });
+		fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
+
+		await screen.findByRole("button", { name: "Delete" });
+		expect(screen.queryByRole("button", { name: "Yes, delete" })).toBeNull();
+	});
+
+	it("removes the row, announces it and focuses the previous row when it was last", async () => {
+		withMachines(USED, REVOKED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		withMachines(USED, { ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+
+		await deleteIt();
+
+		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
+		expect(mocks.removeMachine).toHaveBeenCalledWith(REVOKED.id);
+		expect(screen.getByRole("status").textContent).toBe(
+			`Deleted ${REVOKED.name}.`,
+		);
+		await waitFor(() =>
+			expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(
+				USED.id,
+			),
+		);
+	});
+
+	it("focuses the next row after a delete", async () => {
+		withMachines(USED, REVOKED, NEVER_USED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		withMachines(
+			USED,
+			{ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" },
+			NEVER_USED,
+		);
+
+		await deleteIt();
+
+		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
+		await waitFor(() =>
+			expect((document.activeElement as HTMLElement).dataset.machineRow).toBe(
+				NEVER_USED.id,
+			),
+		);
+	});
+
+	it("focuses the status region when no row is left after a delete", async () => {
+		withMachines(REVOKED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		withMachines({ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+
+		await deleteIt();
+
+		await waitFor(() => expect(screen.queryByText(REVOKED.name)).toBeNull());
+		const status = screen.getByRole("status");
+		expect(status.textContent).toBe(`Deleted ${REVOKED.name}.`);
+		expect(document.activeElement).toBe(status);
+	});
+
+	it("focuses the status region when the reload after a delete fails", async () => {
+		withMachines(USED, REVOKED);
+		mocks.removeMachine.mockResolvedValue({ success: true });
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		mocks.listMachines.mockRejectedValue(new Error("Network unreachable"));
+
+		await deleteIt();
+
+		expect(await screen.findByText(/network unreachable/i)).toBeDefined();
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole("status")),
+		);
+	});
+
+	// The row may already be gone server-side (deleted in another tab). Without
+	// a reload it would stay here and answer "No such machine" on every retry.
+	it("reloads the list when a delete fails", async () => {
+		withMachines(REVOKED);
+		mocks.removeMachine.mockRejectedValue(new Error("boom"));
+		await renderPage();
+		await screen.findByText(REVOKED.name);
+		const before = mocks.listMachines.mock.calls.length;
+
+		await deleteIt();
+
+		await waitFor(() =>
+			expect(mocks.listMachines.mock.calls.length).toBeGreaterThan(before),
+		);
+	});
+
+	it("does not show a machine that was already removed", async () => {
+		withMachines(USED, { ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+		await renderPage();
+		await screen.findByText(USED.name);
+		expect(screen.queryByText(REVOKED.name)).toBeNull();
+	});
+
+	it("shows the empty state when every machine is removed", async () => {
+		withMachines({ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+		await renderPage();
+		expect(await screen.findByText("No machines yet")).toBeDefined();
+	});
+
+	it("keeps the row and says so when the delete fails", async () => {
+		withMachines(REVOKED);
+		mocks.removeMachine.mockRejectedValue(new Error("boom"));
+		await renderPage();
+
+		await deleteIt();
+
+		expect(await screen.findByRole("alert")).toBeDefined();
+		expect(screen.getByText(REVOKED.name)).toBeDefined();
+		expect(screen.getByRole("status").textContent).toBe("");
+	});
+});
+
 describe("MachinesPage when a revoke lands under an open reveal", () => {
 	// onlooker-5o4. The status region lives inside the subtree that goes inert
 	// while a reveal is open, so a write here is dropped from the accessibility
@@ -523,6 +679,45 @@ describe("MachinesPage when a revoke lands under an open reveal", () => {
 
 		await waitFor(() =>
 			expect(status.textContent).toBe("Revoked work laptop."),
+		);
+	});
+
+	it("holds the delete announcement until the reveal is dismissed", async () => {
+		withMachines(REVOKED);
+		let settleRemove: (value: unknown) => void = () => {};
+		mocks.removeMachine.mockReturnValue(
+			new Promise((resolve) => {
+				settleRemove = resolve;
+			}),
+		);
+		mocks.createMachine.mockResolvedValue(MINTED);
+
+		await renderPage();
+
+		// Delete, and leave it in flight.
+		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+		fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
+		await waitFor(() => expect(mocks.removeMachine).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText(/machine name/i), {
+			target: { value: "second laptop" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mint token/i }));
+		await screen.findByRole("dialog");
+
+		// Let the delete land underneath the open dialog.
+		withMachines({ ...REVOKED, removed_at: "2026-09-07T00:00:00.000Z" });
+		await act(async () => {
+			settleRemove({ success: true });
+		});
+
+		const status = document.querySelector('[role="status"]') as HTMLElement;
+		expect(status.textContent).toBe("");
+
+		fireEvent.click(screen.getByRole("button", { name: /saved it/i }));
+
+		await waitFor(() =>
+			expect(status.textContent).toBe("Deleted stolen laptop."),
 		);
 	});
 

@@ -128,9 +128,10 @@ export const verification_tokens = sqliteTable(
  * raw value is returned once at creation and never stored.
  *
  * revoked_at is nullable rather than the row being deleted, so a revoked
- * machine stays visible in the web app - a revocation control nobody can act on
- * because they cannot tell which row is the stolen laptop is a control in name
- * only. last_used_at is what makes that identification possible.
+ * machine stays visible in the web app until its owner deletes it - a
+ * revocation control nobody can act on because they cannot tell which row is
+ * the stolen laptop is a control in name only. last_used_at is what makes that
+ * identification possible.
  */
 export const machine_tokens = sqliteTable(
 	"machine_tokens",
@@ -144,6 +145,14 @@ export const machine_tokens = sqliteTable(
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		last_used_at: text("last_used_at"),
 		revoked_at: text("revoked_at"),
+		/**
+		 * When its owner deleted it from the Machines page. Null means it shows.
+		 *
+		 * A mark rather than a delete: session_summaries.machine_id cascades, so
+		 * deleting this row would erase the machine's session history. Set only on
+		 * a revoked row, so it never hides a working credential.
+		 */
+		removed_at: text("removed_at"),
 		/**
 		 * The org this token pushes to, or null for a private-only token.
 		 *

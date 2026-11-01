@@ -1,0 +1,1 @@
+ALTER TABLE `machine_tokens` ADD `removed_at` text;

@@ -296,11 +296,22 @@ export const MACHINE_LIFECYCLE = {
 	 * exists, which is an existence oracle over other users' rows.
 	 */
 	revokeSomeoneElses: 404,
+	/** Deleting a revoked machine from the page succeeds. */
+	removeRevoked: 200,
+	/** A live machine cannot be removed: it would vanish while still working. */
+	removeLive: 404,
+	/** Removing twice answers 404, as revoking twice does. */
+	removeTwice: 404,
+	/** 404 and not 403, for revokeSomeoneElses's reason. */
+	removeSomeoneElses: 404,
 	/**
 	 * The exact fields a listed machine carries - nothing more asserted here,
-	 * because extra fields are allowed and these five are the ones the page
+	 * because extra fields are allowed and these are the ones the page
 	 * reads by name (`id`, `created_at` and `last_used_at` render the row;
-	 * `name` labels it; `revoked_at` decides whether it gets a Revoke button).
+	 * `name` labels it; `revoked_at` decides whether it offers Revoke or
+	 * Delete; `removed_at` is listed even though MachinesPage hides such a
+	 * row, because the Sessions page still needs it to name the machine an old
+	 * session came from).
 	 *
 	 * Nothing else in this package pins them: the static case below asserts
 	 * only `body: { machines: expectArray }`, and apps/api's own
@@ -326,6 +337,7 @@ export const MACHINE_LIFECYCLE = {
 		"created_at",
 		"last_used_at",
 		"revoked_at",
+		"removed_at",
 		"inventory_at",
 		"plugin_count",
 		"org_id",

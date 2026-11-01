@@ -28,6 +28,12 @@
  * vertical lines as the page content underneath rather than floating wider
  * than everything they label.
  */
+html,
+body {
+	margin: 0;
+	padding: 0;
+}
+
 .app-header-inner {
 	max-width: 1100px;
 	margin: 0 auto;

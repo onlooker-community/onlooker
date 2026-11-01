@@ -124,6 +124,8 @@ describe("machine_tokens", () => {
 			"name",
 			// The org this token pushes to, or null for a private-only token.
 			"org_id",
+			// When the owner deleted a revoked machine from the Machines page.
+			"removed_at",
 			"revoked_at",
 			"token_hash",
 			"user_id",

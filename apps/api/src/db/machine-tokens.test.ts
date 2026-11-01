@@ -3,17 +3,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	createMachineToken,
 	listMachineTokens,
+	removeMachineToken,
 	revokeMachineToken,
 	verifyMachineToken,
 } from "./machine-tokens.js";
 import { createOrgWithOwner } from "./orgs.js";
 import { createUser } from "./queries.js";
+import { putSessionSummaries } from "./session-summaries.js";
 
 const db = () => env.DB;
 
 let userId: string;
 
 beforeEach(async () => {
+	await db().prepare("DELETE FROM session_summaries").run();
 	await db().prepare("DELETE FROM machine_tokens").run();
 	await db().prepare("DELETE FROM sessions").run();
 	await db().prepare("DELETE FROM users").run();
@@ -174,5 +177,73 @@ describe("a token bound to an org", () => {
 		const [summary] = await listMachineTokens(db(), userId);
 
 		expect(summary.org_id).toBe(orgId);
+	});
+});
+
+describe("removeMachineToken", () => {
+	it("marks a revoked machine removed, and the list still returns it", async () => {
+		const { id } = await createMachineToken(db(), userId, "old laptop");
+		await revokeMachineToken(db(), userId, id);
+
+		expect(await removeMachineToken(db(), userId, id)).toBe(true);
+
+		const [machine] = await listMachineTokens(db(), userId);
+		expect(machine?.id).toBe(id);
+		expect(machine?.removed_at).not.toBeNull();
+	});
+
+	// A live credential must not vanish from the page while it still works.
+	it("will not remove a live machine", async () => {
+		const { id } = await createMachineToken(db(), userId, "live");
+
+		expect(await removeMachineToken(db(), userId, id)).toBe(false);
+		const [machine] = await listMachineTokens(db(), userId);
+		expect(machine?.removed_at).toBeNull();
+	});
+
+	it("will not remove a machine belonging to someone else", async () => {
+		const other = await createUser(db(), "b@example.com", "hash", "Bob");
+		const { id } = await createMachineToken(db(), userId, "mine");
+		await revokeMachineToken(db(), userId, id);
+
+		expect(await removeMachineToken(db(), other.id, id)).toBe(false);
+		const [machine] = await listMachineTokens(db(), userId);
+		expect(machine?.removed_at).toBeNull();
+	});
+
+	it("will not remove a machine twice, or one that never existed", async () => {
+		const { id } = await createMachineToken(db(), userId, "old");
+		await revokeMachineToken(db(), userId, id);
+		await removeMachineToken(db(), userId, id);
+
+		expect(await removeMachineToken(db(), userId, id)).toBe(false);
+		expect(await removeMachineToken(db(), userId, "no-such-id")).toBe(false);
+	});
+
+	// This exists to catch a future hard delete: session_summaries.machine_id
+	// cascades, so deleting the row would take the machine's history with it.
+	it("keeps the sessions the machine reported", async () => {
+		const { id } = await createMachineToken(db(), userId, "old laptop");
+		await putSessionSummaries(db(), userId, id, [
+			{
+				session_id: "s1",
+				started_at: "2026-01-01T00:00:00.000Z",
+				ended_at: "2026-01-01T01:00:00.000Z",
+				event_count: 3,
+				counts_by_prefix: { tool: 3 },
+				counts_by_project: {},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+		]);
+		await revokeMachineToken(db(), userId, id);
+		await removeMachineToken(db(), userId, id);
+
+		const row = await db()
+			.prepare("SELECT session_id FROM session_summaries WHERE machine_id = ?")
+			.bind(id)
+			.first<{ session_id: string }>();
+		expect(row?.session_id).toBe("s1");
 	});
 });

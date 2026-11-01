@@ -339,6 +339,24 @@ describe("/sessions with a session logged", () => {
 		expect(await screen.findByText(/unknown machine/i)).toBeDefined();
 	});
 
+	// Deleting a machine hides it from the Machines page only. The session
+	// history it sent stays, and so does the name that labels it.
+	it("still names a machine that was deleted from the Machines page", async () => {
+		mocks.listSessions.mockResolvedValue(ONE_SESSION);
+		mocks.listMachines.mockResolvedValue({
+			machines: [
+				{
+					...ONE_MACHINE.machines[0],
+					revoked_at: "2026-09-05T00:00:00Z",
+					removed_at: "2026-09-07T00:00:00.000Z",
+				},
+			],
+		});
+		renderAppAt("/sessions");
+
+		expect(await screen.findByText(/work laptop/i)).toBeDefined();
+	});
+
 	it("renders a session's shape", async () => {
 		renderAppAt("/sessions");
 

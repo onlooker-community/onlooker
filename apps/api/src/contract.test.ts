@@ -826,4 +826,38 @@ describe("apps/api machine credentials", () => {
 		// 404 and not 403 - see MACHINE_LIFECYCLE.revokeSomeoneElses.
 		expect(response.status).toBe(MACHINE_LIFECYCLE.revokeSomeoneElses);
 	});
+
+	it("removes only a revoked machine of your own, once", async () => {
+		const { id } = (await (await mint(owner, "old laptop")).json()) as {
+			id: string;
+		};
+		const remove = (who: typeof owner) =>
+			SELF.fetch(
+				`${BASE}/api/machines/${id}/remove`,
+				as(who, { method: "POST" }),
+			);
+
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeLive);
+
+		await SELF.fetch(
+			`${BASE}/api/machines/${id}`,
+			as(owner, { method: "DELETE" }),
+		);
+
+		expect((await remove(stranger)).status).toBe(
+			MACHINE_LIFECYCLE.removeSomeoneElses,
+		);
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeRevoked);
+
+		// Removed is a mark, not a delete: the Sessions page still names the
+		// machine, so the list must keep returning the row.
+		const listed = (await (
+			await SELF.fetch(`${BASE}/api/machines`, as(owner))
+		).json()) as { machines: Array<{ id: string; removed_at: string | null }> };
+		const row = listed.machines.find((machine) => machine.id === id);
+		expect(row).toBeDefined();
+		expect(row?.removed_at).not.toBeNull();
+
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeTwice);
+	});
 });

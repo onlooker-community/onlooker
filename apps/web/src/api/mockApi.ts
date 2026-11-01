@@ -790,6 +790,7 @@ interface MockMachine {
 	created_at: string;
 	last_used_at: string | null;
 	revoked_at: string | null;
+	removed_at: string | null;
 	/**
 	 * The reported inventory document, held whole so the detail route can
 	 * serve it. The list route sends a count derived from it and never the
@@ -1176,6 +1177,7 @@ export async function mockDataApi(
 			created_at: new Date().toISOString(),
 			last_used_at: null,
 			revoked_at: null,
+			removed_at: null,
 			org_id: orgId,
 		});
 
@@ -1185,6 +1187,25 @@ export async function mockDataApi(
 			{ id, name, token: mintMockMachineToken(), org_id: orgId },
 			201,
 		);
+	}
+
+	if (
+		poolPath.startsWith("/api/machines/") &&
+		poolPath.endsWith("/remove") &&
+		options.method === "POST"
+	) {
+		const { email } = requireAuth(options);
+		const id = poolPath.slice("/api/machines/".length, -"/remove".length);
+		const machine = machinesOf(email).find(
+			(candidate) =>
+				candidate.id === id && candidate.revoked_at && !candidate.removed_at,
+		);
+		// 404 for all of it, matching handleRemoveMachine.
+		if (!machine) {
+			throw new AuthApiError(404, "not_found", "No such machine");
+		}
+		machine.removed_at = new Date().toISOString();
+		return json({ success: true });
 	}
 
 	// Before the DELETE branch below, which matches on the same prefix. A
