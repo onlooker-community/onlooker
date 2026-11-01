@@ -15,7 +15,10 @@ export interface MachineTokenSummary {
 	created_at: string;
 	last_used_at: string | null;
 	revoked_at: string | null;
-	/** When its owner deleted it from the Machines page. Listed anyway: the Sessions page still names it. */
+	/**
+	 * When its owner deleted it from the Machines page. Listed anyway: the
+	 * Sessions page still names it.
+	 */
 	removed_at: string | null;
 	/** When this machine last reported an inventory. Null means never. */
 	inventory_at: string | null;

@@ -848,6 +848,16 @@ describe("apps/api machine credentials", () => {
 			MACHINE_LIFECYCLE.removeSomeoneElses,
 		);
 		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeRevoked);
+
+		// Removed is a mark, not a delete: the Sessions page still names the
+		// machine, so the list must keep returning the row.
+		const listed = (await (
+			await SELF.fetch(`${BASE}/api/machines`, as(owner))
+		).json()) as { machines: Array<{ id: string; removed_at: string | null }> };
+		const row = listed.machines.find((machine) => machine.id === id);
+		expect(row).toBeDefined();
+		expect(row?.removed_at).not.toBeNull();
+
 		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeTwice);
 	});
 });

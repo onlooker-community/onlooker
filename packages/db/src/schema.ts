@@ -128,9 +128,10 @@ export const verification_tokens = sqliteTable(
  * raw value is returned once at creation and never stored.
  *
  * revoked_at is nullable rather than the row being deleted, so a revoked
- * machine stays visible in the web app - a revocation control nobody can act on
- * because they cannot tell which row is the stolen laptop is a control in name
- * only. last_used_at is what makes that identification possible.
+ * machine stays visible in the web app until its owner deletes it - a
+ * revocation control nobody can act on because they cannot tell which row is
+ * the stolen laptop is a control in name only. last_used_at is what makes that
+ * identification possible.
  */
 export const machine_tokens = sqliteTable(
 	"machine_tokens",

@@ -295,10 +295,10 @@ describe("MachinesPage", () => {
 		expect(await screen.findByText("Revoked")).toBeDefined();
 	});
 
-	// A revoked machine keeps its row, but the ConfirmAction inside it returns
-	// null once revoked_at is set - so the confirm button unmounts while
-	// holding focus and the next Tab restarts at the top of the document. The
-	// row is a stable target precisely because revoked rows persist.
+	// A revoked machine keeps its row, but the keyed swap from the Revoke
+	// confirm to the Delete one unmounts the confirm button while it holds
+	// focus, and the next Tab restarts at the top of the document. The row is
+	// a stable target because it stays until the machine is deleted.
 	it("moves focus to the row after a revoke instead of dropping it", async () => {
 		withMachines(USED);
 		await renderPage();

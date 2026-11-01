@@ -308,7 +308,10 @@ export const MACHINE_LIFECYCLE = {
 	 * The exact fields a listed machine carries - nothing more asserted here,
 	 * because extra fields are allowed and these five are the ones the page
 	 * reads by name (`id`, `created_at` and `last_used_at` render the row;
-	 * `name` labels it; `revoked_at` decides whether it gets a Revoke button).
+	 * `name` labels it; `revoked_at` decides whether it offers Revoke or
+	 * Delete; `removed_at` is listed even though MachinesPage hides such a
+	 * row, because the Sessions page still needs it to name the machine an old
+	 * session came from).
 	 *
 	 * Nothing else in this package pins them: the static case below asserts
 	 * only `body: { machines: expectArray }`, and apps/api's own
