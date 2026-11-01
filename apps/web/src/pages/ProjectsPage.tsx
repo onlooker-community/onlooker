@@ -50,8 +50,12 @@ export default function ProjectsPage() {
 	// Null until read, and null if the read fails: a root key then says "one
 	// machine", as Sessions does. Nothing on the page is wrong without them.
 	const [machines, setMachines] = useState<Machine[] | null>(null);
-	// Empty until read, and empty if the read fails: every key shows as itself.
+	// Empty if the read fails: every key shows as itself. The rows wait for
+	// the read to settle, either way. Rendered earlier, a slow read could land
+	// over a rename just saved, and an editor opened before it would start
+	// with an empty draft and no Clear.
 	const [labels, setLabels] = useState<LabelMap>(new Map());
+	const [labelsSettled, setLabelsSettled] = useState(false);
 	const [editing, setEditing] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -66,10 +70,13 @@ export default function ProjectsPage() {
 			});
 		listLabels()
 			.then((loaded) => {
-				if (active) setLabels(loaded);
+				if (!active) return;
+				setLabels(loaded);
+				setLabelsSettled(true);
 			})
 			.catch(() => {
 				// Deliberately quiet; see the state's own comment.
+				if (active) setLabelsSettled(true);
 			});
 		listMachines()
 			.then((loaded) => {
@@ -106,7 +113,9 @@ export default function ProjectsPage() {
 		);
 	}
 
-	if (projects === null) return <Loading label="Loading your projects…" />;
+	if (projects === null || !labelsSettled) {
+		return <Loading label="Loading your projects…" />;
+	}
 
 	if (projects.length === 0) {
 		return (

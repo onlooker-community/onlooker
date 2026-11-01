@@ -193,6 +193,76 @@ describe("ProjectsPage", () => {
 		expect(mocks.setLabel).toHaveBeenCalledWith(KEY_A, "m1", "scratch");
 	});
 
+	it("offers no rename until the names have arrived", async () => {
+		let resolveLabels: (labels: Map<string, string>) => void = () => {};
+		mocks.listLabels.mockReturnValue(
+			new Promise((resolve) => {
+				resolveLabels = resolve;
+			}),
+		);
+		render(<ProjectsPage />);
+
+		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
+		expect(
+			screen.queryByRole("button", { name: /Rename repository/ }),
+		).toBeNull();
+
+		resolveLabels(new Map([[labelIdentity(KEY_A, null), "onlooker"]]));
+
+		expect(await screen.findByText("onlooker")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: /Rename repository/ }),
+		).toBeTruthy();
+	});
+
+	it("still lists and renames keys when the names cannot be read", async () => {
+		mocks.listLabels.mockRejectedValue(new Error("boom"));
+		mocks.setLabel.mockResolvedValue("onlooker");
+		render(<ProjectsPage />);
+
+		const [row] = await screen.findAllByRole("listitem");
+		expect(within(row).getByText(KEY_A)).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
+		fireEvent.change(screen.getByLabelText(`Name for ${KEY_A}`), {
+			target: { value: "onlooker" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+		expect(await screen.findByText("onlooker")).toBeTruthy();
+	});
+
+	it("says one machine when the machines cannot be read", async () => {
+		mocks.listMachines.mockRejectedValue(new Error("boom"));
+		mocks.listProjects.mockResolvedValue({
+			projects: [project({ basis: "root", machine_id: "m1" })],
+		});
+		render(<ProjectsPage />);
+
+		const [row] = await screen.findAllByRole("listitem");
+		expect(within(row).getByText("one machine only")).toBeTruthy();
+	});
+
+	it("closes one row's editor when another row's opens", async () => {
+		mocks.listProjects.mockResolvedValue({
+			projects: [project(), project({ project_key: KEY_B })],
+		});
+		render(<ProjectsPage />);
+
+		await screen.findAllByRole("listitem");
+		fireEvent.click(
+			screen.getByRole("button", { name: `Rename repository ${KEY_A}` }),
+		);
+		expect(screen.getByLabelText(`Name for ${KEY_A}`)).toBeTruthy();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: `Rename repository ${KEY_B}` }),
+		);
+
+		expect(screen.queryByLabelText(`Name for ${KEY_A}`)).toBeNull();
+		expect(screen.getByLabelText(`Name for ${KEY_B}`)).toBeTruthy();
+	});
+
 	it("says so when the projects cannot be loaded", async () => {
 		mocks.listProjects.mockRejectedValue(new Error("boom"));
 		render(<ProjectsPage />);
