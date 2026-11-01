@@ -296,6 +296,14 @@ export const MACHINE_LIFECYCLE = {
 	 * exists, which is an existence oracle over other users' rows.
 	 */
 	revokeSomeoneElses: 404,
+	/** Deleting a revoked machine from the page succeeds. */
+	removeRevoked: 200,
+	/** A live machine cannot be removed: it would vanish while still working. */
+	removeLive: 404,
+	/** Removing twice answers 404, as revoking twice does. */
+	removeTwice: 404,
+	/** 404 and not 403, for revokeSomeoneElses's reason. */
+	removeSomeoneElses: 404,
 	/**
 	 * The exact fields a listed machine carries - nothing more asserted here,
 	 * because extra fields are allowed and these five are the ones the page
@@ -326,6 +334,7 @@ export const MACHINE_LIFECYCLE = {
 		"created_at",
 		"last_used_at",
 		"revoked_at",
+		"removed_at",
 		"inventory_at",
 		"plugin_count",
 		"org_id",

@@ -134,6 +134,13 @@
       "when": 1793464262669,
       "tag": "0018_brief_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793566439856,
+      "tag": "0019_famous_moon_knight",
+      "breakpoints": true
     }
   ]
 }

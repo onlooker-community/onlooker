@@ -247,6 +247,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "removed_at",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
 				name: "org_id",
 				type: "TEXT",
 				notnull: 0,

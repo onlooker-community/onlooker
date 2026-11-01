@@ -826,4 +826,28 @@ describe("apps/api machine credentials", () => {
 		// 404 and not 403 - see MACHINE_LIFECYCLE.revokeSomeoneElses.
 		expect(response.status).toBe(MACHINE_LIFECYCLE.revokeSomeoneElses);
 	});
+
+	it("removes only a revoked machine of your own, once", async () => {
+		const { id } = (await (await mint(owner, "old laptop")).json()) as {
+			id: string;
+		};
+		const remove = (who: typeof owner) =>
+			SELF.fetch(
+				`${BASE}/api/machines/${id}/remove`,
+				as(who, { method: "POST" }),
+			);
+
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeLive);
+
+		await SELF.fetch(
+			`${BASE}/api/machines/${id}`,
+			as(owner, { method: "DELETE" }),
+		);
+
+		expect((await remove(stranger)).status).toBe(
+			MACHINE_LIFECYCLE.removeSomeoneElses,
+		);
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeRevoked);
+		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeTwice);
+	});
 });

@@ -48,6 +48,7 @@ export {
 export {
 	handleCreateMachine,
 	handleListMachines,
+	handleRemoveMachine,
 	handleRevokeMachine,
 } from "./machines";
 export {

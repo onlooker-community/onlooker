@@ -1,6 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { machine_tokens } from "@onlooker/db";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
 import { pluginCount } from "./machine-inventory.js";
@@ -15,6 +15,8 @@ export interface MachineTokenSummary {
 	created_at: string;
 	last_used_at: string | null;
 	revoked_at: string | null;
+	/** When its owner deleted it from the Machines page. Listed anyway: the Sessions page still names it. */
+	removed_at: string | null;
 	/** When this machine last reported an inventory. Null means never. */
 	inventory_at: string | null;
 	/**
@@ -147,7 +149,36 @@ export async function revokeMachineToken(
 }
 
 /**
- * Every machine this user has, revoked ones included, oldest first.
+ * Take a revoked machine off the Machines page. Returns false when the token
+ * does not exist, belongs to someone else, is still live or is already removed.
+ * The caller cannot tell those apart, which is deliberate.
+ *
+ * A mark rather than a DELETE: session_summaries.machine_id cascades, so
+ * deleting the row would erase the machine's session history.
+ */
+export async function removeMachineToken(
+	db: D1Database,
+	userId: string,
+	id: string,
+): Promise<boolean> {
+	const result = await client(db)
+		.update(machine_tokens)
+		.set({ removed_at: new Date().toISOString() })
+		.where(
+			and(
+				eq(machine_tokens.id, id),
+				eq(machine_tokens.user_id, userId),
+				isNotNull(machine_tokens.revoked_at),
+				isNull(machine_tokens.removed_at),
+			),
+		)
+		.returning({ id: machine_tokens.id });
+
+	return result.length > 0;
+}
+
+/**
+ * Every machine this user has, revoked and removed ones included, oldest first.
  *
  * Without an explicit order this relied on incidental SQLite behavior, while
  * the mock returns machines in insertion order and mockMachines.test.ts pins
@@ -166,6 +197,7 @@ export async function listMachineTokens(
 			created_at: machine_tokens.created_at,
 			last_used_at: machine_tokens.last_used_at,
 			revoked_at: machine_tokens.revoked_at,
+			removed_at: machine_tokens.removed_at,
 			inventory: machine_tokens.inventory,
 			inventory_at: machine_tokens.inventory_at,
 			org_id: machine_tokens.org_id,

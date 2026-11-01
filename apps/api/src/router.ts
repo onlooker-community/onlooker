@@ -43,6 +43,7 @@ import {
 	handlePutProjectLabel,
 	handleReadLessons,
 	handleRefresh,
+	handleRemoveMachine,
 	handleRemoveMember,
 	handleRenameOrg,
 	handleResendVerification,
@@ -288,6 +289,13 @@ export const ROUTES: Route[] = [
 		auth: "session",
 		cors: "app",
 		handler: handleRevokeMachine,
+	},
+	{
+		method: "POST",
+		path: "/api/machines/:id/remove",
+		auth: "session",
+		cors: "app",
+		handler: handleRemoveMachine,
 	},
 	{
 		method: "GET",

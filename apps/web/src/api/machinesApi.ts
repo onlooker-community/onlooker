@@ -28,6 +28,13 @@ export interface Machine {
 	last_used_at: string | null;
 	revoked_at: string | null;
 	/**
+	 * When its owner deleted it from the Machines page, or null if it shows.
+	 *
+	 * Only MachinesPage hides these. The list still returns them because the
+	 * Sessions page needs them to name the machine behind an old session.
+	 */
+	removed_at: string | null;
+	/**
 	 * When this machine last reported what it runs, or null for never.
 	 *
 	 * Load-bearing in the same way `last_used_at` is: the page renders never
@@ -120,5 +127,12 @@ export function getMachineInventory(
 export function revokeMachine(id: string): Promise<{ success: boolean }> {
 	return apiClient.delete<{ success: boolean }>(
 		`${MACHINE_ENDPOINTS.machines}/${encodeURIComponent(id)}`,
+	);
+}
+
+export function removeMachine(id: string): Promise<{ success: boolean }> {
+	return apiClient.post<{ success: boolean }>(
+		`${MACHINE_ENDPOINTS.machines}/${encodeURIComponent(id)}/remove`,
+		{},
 	);
 }

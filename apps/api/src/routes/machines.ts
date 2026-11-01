@@ -1,6 +1,7 @@
 import {
 	createMachineToken,
 	listMachineTokens,
+	removeMachineToken,
 	revokeMachineToken,
 } from "../db/machine-tokens.js";
 import { getMembership } from "../db/orgs.js";
@@ -81,6 +82,25 @@ export async function handleRevokeMachine(
 	// 404 rather than 403 when the machine belongs to someone else. A 403 would
 	// confirm the id exists, which is an existence oracle over other users' rows.
 	if (!(await revokeMachineToken(env.DB, userId, id))) {
+		throw new ApiError(404, "not_found", "No such machine");
+	}
+
+	return Response.json({ success: true });
+}
+
+export async function handleRemoveMachine(
+	_request: Request,
+	env: WorkerEnv,
+	params: RouteParams,
+	principal: Principal | null,
+): Promise<Response> {
+	// The router resolved this from the route's `auth: "session"`, which throws
+	// rather than returning null, so it cannot be null here.
+	const { userId } = principal as Principal;
+
+	// 404 for all of it, as handleRevokeMachine answers, so this cannot be used
+	// to learn which ids exist or which of someone else's are revoked.
+	if (!(await removeMachineToken(env.DB, userId, params.id))) {
 		throw new ApiError(404, "not_found", "No such machine");
 	}
 

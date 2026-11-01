@@ -145,6 +145,14 @@ export const machine_tokens = sqliteTable(
 		last_used_at: text("last_used_at"),
 		revoked_at: text("revoked_at"),
 		/**
+		 * When its owner deleted it from the Machines page. Null means it shows.
+		 *
+		 * A mark rather than a delete: session_summaries.machine_id cascades, so
+		 * deleting this row would erase the machine's session history. Set only on
+		 * a revoked row, so it never hides a working credential.
+		 */
+		removed_at: text("removed_at"),
+		/**
 		 * The org this token pushes to, or null for a private-only token.
 		 *
 		 * Set when the token is minted and never afterward, which is what makes

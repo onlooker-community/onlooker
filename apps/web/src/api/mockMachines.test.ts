@@ -161,6 +161,26 @@ describe("the mock's machine lifecycle", () => {
 		expect(machines[0].revoked_at).not.toBeNull();
 	});
 
+	it("lists a removed machine with removed_at set", async () => {
+		const { id } = (await (await mint("old laptop")).json()) as {
+			id: string;
+		};
+		const headers = { Authorization: `Bearer ${token}` };
+		await fetchMock(`/api/machines/${id}`, { method: "DELETE", headers });
+		const removed = await fetchMock(`/api/machines/${id}/remove`, {
+			method: "POST",
+			headers,
+		});
+		expect(removed.status).toBe(200);
+
+		const { machines } = (await (await list()).json()) as {
+			machines: Array<{ id: string; removed_at: string | null }>;
+		};
+		// Still listed: the Sessions page names old sessions by machine.
+		expect(machines).toHaveLength(1);
+		expect(machines[0].removed_at).not.toBeNull();
+	});
+
 	it("404s a second revoke of the same machine", async () => {
 		const { id } = (await (await mint("stolen laptop")).json()) as {
 			id: string;
