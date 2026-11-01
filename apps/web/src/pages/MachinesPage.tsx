@@ -33,7 +33,6 @@ const row: CSSProperties = {
 	gap: "var(--space-3)",
 	alignItems: "center",
 	padding: "var(--space-3)",
-	borderBottom: `2px solid ${PALETTE.border}`,
 };
 
 // A native select, matching the one LessonsPage's status filter and
@@ -364,7 +363,7 @@ export default function MachinesPage() {
 						  lives on Panel's own <section>, one level up.
 						*/}
 						<ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-							{machines.map((machine) => {
+							{machines.map((machine, index) => {
 								// Hoisted: the two reads below (the condition and the
 								// child) would otherwise each walk `orgs` with their own
 								// Array.find pass per row.
@@ -381,7 +380,13 @@ export default function MachinesPage() {
 										// it is where a person was standing when the control under
 										// their focus unmounted.
 										tabIndex={-1}
-										style={row}
+										style={{
+											...row,
+											borderBottom:
+												index === machines.length - 1
+													? "none"
+													: `2px solid ${PALETTE.border}`,
+										}}
 									>
 										<Plate
 											tone={machine.revoked_at ? "red" : "teal"}
