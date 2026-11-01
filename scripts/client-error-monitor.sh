@@ -162,6 +162,13 @@ resolve_lookback_minutes() {
 	fi
 
 	if [[ -n "${LOOKBACK_OVERRIDE}" ]]; then
+		# Stricter than the epoch check below, because this one is typed by
+		# hand. 0 is a window that reads nothing and exits 0, and a leading
+		# zero is octal to the arithmetic in build_query.
+		if [[ ! "${LOOKBACK_OVERRIDE}" =~ ^[1-9][0-9]*$ ]]; then
+			echo "client-error-monitor: CLIENT_ERROR_LOOKBACK_MINUTES must be a positive whole number of minutes, got '${LOOKBACK_OVERRIDE}'" >&2
+			exit 2
+		fi
 		LOOKBACK_MINUTES="${LOOKBACK_OVERRIDE}"
 		return
 	fi
