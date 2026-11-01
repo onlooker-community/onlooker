@@ -6,6 +6,8 @@ export type Attributes = Record<string, string | number | boolean>;
 export interface CaptureContext {
 	/** Indexed and filterable - `surface`, `kind`. Keep the value set small. */
 	tags?: Record<string, string>;
+	/** Overrides how a provider groups events into one issue; same fingerprint, same issue. */
+	fingerprint?: string[];
 	/** Attached for reading, not for filtering. */
 	extra?: Record<string, unknown>;
 }

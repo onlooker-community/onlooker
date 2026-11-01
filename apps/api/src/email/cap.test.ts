@@ -35,6 +35,13 @@ describe("reportMailRefusal", () => {
 			kind: "mail_global_ceiling",
 			mail_kind: kind,
 		});
+		// Each pool is its own issue: the message differs by kind and ceiling, so
+		// without this Sentry groups by stack and a spent invite pool is filed
+		// under a spent reset pool.
+		expect(recorder.exceptions[0]?.context?.fingerprint).toEqual([
+			"mail_global_ceiling",
+			kind,
+		]);
 	});
 
 	// Once a day: a looped invite would otherwise raise an event per request.

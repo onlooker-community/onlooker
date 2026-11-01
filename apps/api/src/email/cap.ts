@@ -64,7 +64,10 @@ export function reportMailRefusal(
 			new Error(
 				`mail: the daily ${kind} pool of ${DAILY_MAIL_CEILINGS[kind]} sends is spent; refusing ${kind} mail until UTC midnight`,
 			),
-			{ tags: { kind: "mail_global_ceiling", mail_kind: kind } },
+			{
+				tags: { kind: "mail_global_ceiling", mail_kind: kind },
+				fingerprint: ["mail_global_ceiling", kind],
+			},
 		);
 	}
 }
