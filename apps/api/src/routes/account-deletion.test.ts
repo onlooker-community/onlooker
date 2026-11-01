@@ -3,8 +3,10 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
+import { createMachineToken } from "../db/machine-tokens.js";
 import { addMembership, removeMembership } from "../db/orgs.js";
 import { getUserById } from "../db/queries.js";
+import { putSessionSummaries } from "../db/session-summaries.js";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
 	call,
@@ -34,6 +36,8 @@ beforeEach(async () => {
 	// resetOrgTables deliberately does not touch these two tables - see its
 	// doc comment - so this suite, which now seeds a lesson, clears them
 	// itself, the same way routes/orgs-lessons.test.ts does.
+	await db().prepare("DELETE FROM session_projects").run();
+	await db().prepare("DELETE FROM session_summaries").run();
 	await db().prepare("DELETE FROM lesson_feed").run();
 	await db().prepare("DELETE FROM lessons").run();
 	resetLessonCounter();
@@ -106,6 +110,39 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 
 		expect(response.status).toBe(200);
 		expect(await getUserById(db(), ada.id)).toBeNull();
+	});
+
+	// session_projects cascades from users and from session_summaries; this
+	// pins that deleting the account really leaves none of its project rows.
+	it("deletes the account's session_projects rows", async () => {
+		const machine = await createMachineToken(db(), ada.id, "laptop");
+		await putSessionSummaries(db(), ada.id, machine.id, [
+			{
+				session_id: "s1",
+				started_at: "2026-01-01T00:00:00.000Z",
+				ended_at: null,
+				event_count: 10,
+				counts_by_prefix: { tool: 10 },
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 7 },
+				},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+		]);
+		const count = async () =>
+			(
+				await db()
+					.prepare("SELECT COUNT(*) AS n FROM session_projects")
+					.first<{ n: number }>()
+			)?.n;
+		expect(await count()).toBe(1);
+
+		const response = await deleteAccount(ada.token);
+
+		expect(response.status).toBe(200);
+		expect(await count()).toBe(0);
 	});
 
 	it("deletes the account once the sole-owned org is deleted", async () => {

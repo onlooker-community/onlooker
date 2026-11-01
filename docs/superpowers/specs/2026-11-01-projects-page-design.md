@@ -72,10 +72,16 @@ coincidental path hash.
 | `basis` | `remote` or `root` |
 | `event_count` | integer |
 
-The primary key is `(machine_id, session_id, project_key)`. A composite foreign
-key to `session_summaries (machine_id, session_id)`, `ON DELETE CASCADE`, means
-pruning and account deletion need no new code. Index on
-`(user_id, project_key)`.
+The primary key is `(machine_id, project_key, session_id)`, the order drizzle-kit
+writes a composite key in. A composite foreign key to
+`session_summaries (machine_id, session_id)`, `ON DELETE CASCADE`, means pruning
+and account deletion need no new code.
+
+Two indexes. `(machine_id, session_id)` exists because the primary key leads with
+`project_key` after `machine_id`, so it cannot serve a lookup by session; the
+sync's delete and the foreign key's cascade both make that lookup, and without
+the index each would scan every row the machine has. `(user_id, project_key)`
+serves `GET /api/projects` and the Sessions filter.
 
 The migration backfills from `json_each(counts_by_project)`.
 

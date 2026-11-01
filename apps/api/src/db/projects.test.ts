@@ -4,7 +4,11 @@ import { createMachineToken } from "./machine-tokens.js";
 import { setProjectLabel } from "./project-labels.js";
 import { listProjects } from "./projects.js";
 import { createUser } from "./queries.js";
-import { type ProjectCount, putSessionSummaries } from "./session-summaries.js";
+import {
+	type ProjectCount,
+	pruneSessionSummaries,
+	putSessionSummaries,
+} from "./session-summaries.js";
 
 const db = () => env.DB;
 
@@ -166,6 +170,15 @@ describe("putSessionSummaries and session_projects", () => {
 
 		expect(await rows()).toEqual([]);
 	});
+
+	it("goes when retention prunes the session, and only then", async () => {
+		await report("old", "2025-12-01T00:00:00.000Z", { [REMOTE]: remote(7) });
+		await report("recent", "2026-06-01T00:00:00.000Z", { [ROOT]: root(3) });
+
+		await pruneSessionSummaries(db(), new Date("2026-07-01T00:00:00.000Z"));
+
+		expect((await rows()).map((r) => r.session_id)).toEqual(["recent"]);
+	});
 });
 
 describe("listProjects", () => {
@@ -222,6 +235,13 @@ describe("listProjects", () => {
 			theirs,
 			other.id,
 		);
+		// A label with no sessions is listed for its owner, so it must not
+		// leak to anyone else.
+		await setProjectLabel(db(), other.id, {
+			project_key: "cccccccccccc",
+			machine_id: null,
+			label: "theirs",
+		});
 
 		const projects = await listProjects(db(), userId);
 

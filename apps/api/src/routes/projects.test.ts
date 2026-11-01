@@ -1,5 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createMachineToken } from "../db/machine-tokens.js";
+import { putSessionSummaries } from "../db/session-summaries.js";
 
 const db = () => env.DB;
 const BASE = "https://api.onlooker.dev";
@@ -41,6 +43,48 @@ describe("GET /api/projects", () => {
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ projects: [] });
+	});
+
+	it("lists what the caller's machines reported", async () => {
+		const ada = await signup("ada@example.com");
+		const user = await db()
+			.prepare("SELECT id FROM users WHERE email = ?")
+			.bind("ada@example.com")
+			.first<{ id: string }>();
+		const machine = await createMachineToken(db(), user?.id ?? "", "laptop");
+		await putSessionSummaries(db(), user?.id ?? "", machine.id, [
+			{
+				session_id: "s1",
+				started_at: "2026-01-01T00:00:00.000Z",
+				ended_at: null,
+				event_count: 7,
+				counts_by_prefix: { tool: 7 },
+				counts_by_project: {
+					aaaaaaaaaaaa: { basis: "remote", event_count: 7 },
+				},
+				plugins: [],
+				prompts: 1,
+				compactions: 0,
+			},
+		]);
+
+		const response = await SELF.fetch(`${BASE}/api/projects`, {
+			headers: { Authorization: `Bearer ${ada}` },
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			projects: [
+				{
+					project_key: "aaaaaaaaaaaa",
+					basis: "remote",
+					machine_id: null,
+					sessions: 1,
+					events: 7,
+					last_seen_at: "2026-01-01T00:00:00.000Z",
+				},
+			],
+		});
 	});
 
 	// A machine credential names one machine and has no business reading a
