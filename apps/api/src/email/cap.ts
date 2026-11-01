@@ -26,37 +26,45 @@ const realDeps: MailCapDeps = {
 	log: (line) => console.log(line),
 };
 
+const REFUSAL_EVENTS: Record<MailRefusal["scope"], string> = {
+	address: "mail_address_capped",
+	inviter: "mail_inviter_capped",
+	global: "mail_global_ceiling",
+};
+
+const REFUSAL_MESSAGES: Record<MailRefusal["scope"], string> = {
+	address: "Too many emails to this address. Try again later.",
+	inviter: "You have sent too many invites today. Try again later.",
+	global: "Too many emails are being sent right now. Try again later.",
+};
+
 /**
- * Log every refusal, and raise an issue on the day's first one at the ceiling.
+ * Log every refusal, and raise an issue on a pool's first refusal of the day.
  *
- * Only the ceiling pages anybody. A capped address is the cap working; the
- * ceiling means legitimate mail is being refused until UTC midnight - possibly
- * because someone holding many valid addresses is driving forgot-password -
- * and without this it would first surface as Resend refusing to send.
+ * Only a pool pages anybody. A capped address or inviter is the cap working;
+ * a spent pool means legitimate mail of that kind is being refused until UTC
+ * midnight - possibly because someone holding many valid addresses is driving
+ * forgot-password - and without this it would first surface as Resend
+ * refusing to send. Tagged with the kind, so a full invite pool is told apart
+ * from a full reset pool.
  *
- * Once a UTC day, not once per refusal: a looped invite would otherwise raise
- * an event per request. Every refusal still logs its line.
+ * Once per pool per UTC day, not once per refusal: a looped invite would
+ * otherwise raise an event per request. Every refusal still logs its line.
  *
- * The line names the kind and never the address.
+ * The line names the kind and never the address or the inviter.
  */
 export function reportMailRefusal(
 	refusal: MailRefusal,
 	kind: MailKind,
 	deps: MailCapDeps = realDeps,
 ): void {
-	const global = refusal.scope === "global";
-	deps.log(
-		JSON.stringify({
-			event: global ? "mail_global_ceiling" : "mail_address_capped",
-			kind,
-		}),
-	);
+	deps.log(JSON.stringify({ event: REFUSAL_EVENTS[refusal.scope], kind }));
 	if (refusal.scope === "global" && refusal.first) {
 		deps.monitor.captureException(
 			new Error(
 				`mail: the daily ${kind} pool of ${DAILY_MAIL_CEILINGS[kind]} sends is spent; refusing ${kind} mail until UTC midnight`,
 			),
-			{ tags: { kind: "mail_global_ceiling" } },
+			{ tags: { kind: "mail_global_ceiling", mail_kind: kind } },
 		);
 	}
 }
@@ -70,9 +78,7 @@ export function mailRateLimitError(refusal: MailRefusal): ApiError {
 	return new ApiError(
 		429,
 		"rate_limit_exceeded",
-		refusal.scope === "global"
-			? "Too many emails are being sent right now. Try again later."
-			: "Too many emails to this address. Try again later.",
+		REFUSAL_MESSAGES[refusal.scope],
 		undefined,
 		{
 			"Retry-After": String(
