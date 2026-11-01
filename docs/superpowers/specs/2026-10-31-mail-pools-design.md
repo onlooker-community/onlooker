@@ -192,8 +192,7 @@ passing unchanged in substance.
 * Per-account limits on other signed-in routes (ONL-222's next slice).
 * The forgot-password timing difference (measure first).
 * Many free accounts can still spend the reset pool: 15 addresses x 3 in a
-  burst. The zone's per-IP rule slows this but does not stop it. Filed in
-  Linear.
+  burst. The zone's per-IP rule slows this but does not stop it. ONL-229.
 * Requiring a verified address to invite, which would make accounts cost
   something. It is out of scope here and worth its own issue if invite abuse is
   ever seen.
