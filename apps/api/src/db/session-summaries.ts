@@ -238,8 +238,11 @@ export interface ProjectFilter {
 /**
  * Narrows session_summaries to sessions that touched these projects.
  *
- * Through session_projects rather than json_each over counts_by_project, so a
- * rarely used project costs its own rows and not the account's whole history.
+ * Through session_projects rather than json_each over counts_by_project, so
+ * the match is an indexed lookup and not a parse of every row's JSON. The
+ * cost is bounded by one user's rows either way; which table the planner
+ * walks first depends on its statistics, so a rare project is not promised
+ * to cost only its own rows.
  * The basis is part of the match: a root key hashes a local path, so it means
  * nothing away from its machine, and the same hex under the other basis is a
  * different project.

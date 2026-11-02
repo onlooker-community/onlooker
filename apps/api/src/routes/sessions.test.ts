@@ -559,6 +559,41 @@ describe("GET /api/sessions?project=", () => {
 		expect(at.status).toBe(200);
 	});
 
+	// The widest read: every value a root key (two binds each) and a cursor
+	// present, 86 parameters against D1's 100.
+	it("answers 40 root values with a cursor", async () => {
+		const access = await signup("filter-widest@example.com");
+		const machine = await mint(access, "laptop");
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "w1",
+					started_at: "2026-09-12T00:00:00.000Z",
+					counts_by_project: root(ROOT),
+				}),
+				summary({
+					session_id: "w2",
+					started_at: "2026-09-11T00:00:00.000Z",
+					counts_by_project: root(ROOT),
+				}),
+			],
+		});
+		const firstPage = await get(access, "/api/sessions?limit=1");
+		const first = (await firstPage.json()) as { cursor: string };
+		const values = Array.from(
+			{ length: 40 },
+			(_, i) => `project=m${i}:${i.toString(16).padStart(12, "0")}`,
+		).join("&");
+
+		const response = await get(
+			access,
+			`/api/sessions?${values}&cursor=${encodeURIComponent(first.cursor)}`,
+		);
+
+		expect(response.status).toBe(200);
+	});
+
 	it.each([
 		["text that is not a key", "nope"],
 		["an upper-case key", "AAAAAAAAAAAA"],

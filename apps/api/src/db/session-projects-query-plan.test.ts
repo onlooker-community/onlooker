@@ -39,7 +39,10 @@ describe("the session_projects lookup by session", () => {
 });
 
 describe("a project filter", () => {
-	it("starts from session_projects_user_key_idx", async () => {
+	// Only what holds without planner statistics: the subquery is read through
+	// the user-and-key index. Where the outer query starts is the planner's
+	// choice, and not asserted.
+	it("reads session_projects through session_projects_user_key_idx", async () => {
 		const clause = projectFilterClause("u1", [
 			{ key: "aaaaaaaaaaaa", machineId: null },
 			{ key: "bbbbbbbbbbbb", machineId: "m1" },
@@ -54,6 +57,8 @@ describe("a project filter", () => {
 			.all<{ detail: string }>();
 		const plan = (results ?? []).map((row) => row.detail).join("\n");
 
-		expect(plan).toContain("session_projects_user_key_idx");
+		expect(plan).toMatch(
+			/session_projects.*USING.*INDEX session_projects_user_key_idx/,
+		);
 	});
 });
