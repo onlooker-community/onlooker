@@ -1079,6 +1079,22 @@ export async function mockDataApi(
 		// mock's page is always empty, so a well-formed cursor still yields
 		// nothing; only the rejection needs to match.
 		const query = new URLSearchParams(path.split("?")[1] ?? "");
+
+		// Mirrors parseProjectFilters in apps/api/src/routes/sessions.ts, and
+		// runs before the cursor is read, as the route's does. The page stays
+		// empty, so only the rejection needs to match.
+		const projects = query.getAll("project");
+		if (projects.length > 40) {
+			throw new AuthApiError(
+				400,
+				"invalid_project",
+				"Ask for at most 40 projects at once",
+			);
+		}
+		if (projects.some((value) => !/^(?:[^:]+:)?[0-9a-f]{12}$/.test(value))) {
+			throw new AuthApiError(400, "invalid_project", "That is not a project");
+		}
+
 		const cursor = query.get("cursor");
 		if (cursor) {
 			let decoded: string | null = null;
@@ -1095,16 +1111,6 @@ export async function mockDataApi(
 					"That cursor was not issued by this server; start from the first page",
 				);
 			}
-		}
-
-		// Mirrors parseProjectFilters in apps/api/src/routes/sessions.ts. The
-		// page stays empty, so only the rejection needs to match.
-		const projects = query.getAll("project");
-		if (
-			projects.length > 40 ||
-			projects.some((value) => !/^(?:[^:]+:)?[0-9a-f]{12}$/.test(value))
-		) {
-			throw new AuthApiError(400, "invalid_project", "That is not a project");
 		}
 
 		return json({ sessions: [], cursor: null, has_more: false });
