@@ -1277,7 +1277,9 @@ describe("/sessions filtered by project (ONL-209)", () => {
 
 		changeProject(KEY_A);
 
-		expect(await screen.findByText(`No sessions in ${KEY_A}`)).toBeDefined();
+		expect(
+			await screen.findByRole("heading", { name: `No sessions in ${KEY_A}` }),
+		).toBeDefined();
 		expect(((await filterControl()) as HTMLSelectElement).value).toBe(KEY_A);
 		expect(screen.queryByText(/no machine has synced/i)).toBeNull();
 		expect(screen.queryByText(/threshold/i)).toBeNull();
@@ -1449,6 +1451,74 @@ describe("/sessions filtered by project (ONL-209)", () => {
 				project: [KEY_A],
 			}),
 		);
+	});
+
+	it("offers no Load more while a new choice's first page is out", async () => {
+		const reload = deferred<ReturnType<typeof pageOf>>();
+		mocks.listSessions.mockImplementation((options) =>
+			options.project
+				? reload.promise
+				: Promise.resolve(pageOf(5, { cursor: "c1" })),
+		);
+		renderAppAt("/sessions");
+		await filterControl();
+		await showsPrompts(5);
+
+		changeProject(KEY_A);
+		await act(async () => {});
+
+		expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+		expect(mocks.listSessions).not.toHaveBeenCalledWith(
+			expect.objectContaining({ cursor: "c1", project: expect.anything() }),
+		);
+	});
+
+	// One region, mounted before there is anything to say: a screen reader
+	// announces a change inside a region that is already there, and does not
+	// reliably announce one that appears with its own text (see LessonsPage).
+	describe("announcing the result", () => {
+		function result() {
+			return screen.getByTestId("sessions-result");
+		}
+
+		it("says the count once the answer to this choice has landed", async () => {
+			const reload = deferred<ReturnType<typeof pageOf>>();
+			mocks.listSessions.mockImplementation((options) =>
+				options.project ? reload.promise : Promise.resolve(ONE_SESSION),
+			);
+			renderAppAt("/sessions");
+			await filterControl();
+			const region = result();
+			expect(region.getAttribute("role")).toBe("status");
+			expect(region.textContent).toBe("Showing 1 session");
+
+			changeProject(KEY_A);
+			await act(async () => {});
+			expect(result()).toBe(region);
+			expect(region.textContent).toBe("");
+
+			await act(async () => {
+				reload.resolve(pageOf(7));
+			});
+			expect(result()).toBe(region);
+			expect(region.textContent).toBe("Showing 1 session");
+		});
+
+		it("names the project when it holds nothing", async () => {
+			mocks.listSessions.mockImplementation(async (options) =>
+				options.project ? EMPTY : ONE_SESSION,
+			);
+			renderAppAt("/sessions");
+			await filterControl();
+			const region = result();
+
+			changeProject(KEY_A);
+
+			await waitFor(() =>
+				expect(region.textContent).toBe(`No sessions in ${KEY_A}`),
+			);
+			expect(result()).toBe(region);
+		});
 	});
 
 	it("still lists every repository of a session when filtered to one", async () => {

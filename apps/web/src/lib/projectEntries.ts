@@ -22,12 +22,17 @@ export function projectName(
 	return labels.get(labelIdentity(key, machineId)) ?? key;
 }
 
+// The shape the server filters on. Sync accepts other keys, but a request
+// carrying one is a 400, and sharing a name would take its neighbors with it.
+const FILTERABLE_KEY = /^[0-9a-f]{12}$/;
+
 export function projectEntries(
 	projects: Project[],
 	labels: LabelMap,
 ): ProjectEntry[] {
 	const entries = new Map<string, string[]>();
 	for (const { project_key: key, machine_id: machineId } of projects) {
+		if (!FILTERABLE_KEY.test(key)) continue;
 		const name = projectName(key, machineId, labels);
 		const value = machineId === null ? key : `${machineId}:${key}`;
 		entries.set(name, [...(entries.get(name) ?? []), value]);

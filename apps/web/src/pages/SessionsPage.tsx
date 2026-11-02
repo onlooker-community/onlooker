@@ -241,8 +241,11 @@ export default function SessionsPage() {
 		request.current += 1;
 		setFilterError(null);
 		setMoreError(null);
-		// A Load more still out belongs to the previous list and is dropped.
+		// A Load more still out belongs to the previous list and is dropped, and
+		// so is its cursor: it pages the old list, and sent with the new project
+		// it would be refused or skip rows.
 		setLoadingMore(false);
+		setCursor(null);
 		listSessions({
 			limit: 200,
 			...(filterKey ? { project: filterKey.split("\n") } : {}),
@@ -390,6 +393,15 @@ export default function SessionsPage() {
 		);
 	}
 
+	const landed = shownFilter === filterKey && !filterError;
+	const resultSummary = !landed
+		? ""
+		: sessions.length > 0
+			? `Showing ${plural(sessions.length, "session")}${hasMore ? ", more to load" : ""}`
+			: entry
+				? `No sessions in ${entry.name}`
+				: "";
+
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
 			{entries.length > 0 ? (
@@ -399,6 +411,33 @@ export default function SessionsPage() {
 					onChange={setSelected}
 				/>
 			) : null}
+
+			{/*
+			  One persistent region, as LessonsPage keeps: a screen reader
+			  announces content changing inside a region that is already
+			  there, and does not reliably announce one that appears with its
+			  own text. Visually hidden because the summary below already says
+			  this to the eye. Silent until the answer to the current choice
+			  has landed, so it never speaks for the list being replaced.
+			*/}
+			<p
+				role="status"
+				aria-live="polite"
+				data-testid="sessions-result"
+				style={{
+					position: "absolute",
+					width: "1px",
+					height: "1px",
+					margin: "-1px",
+					padding: 0,
+					overflow: "hidden",
+					clip: "rect(0, 0, 0, 0)",
+					whiteSpace: "nowrap",
+					border: 0,
+				}}
+			>
+				{resultSummary}
+			</p>
 
 			{filterError ? (
 				<div role="alert" style={{ color: PALETTE.danger }}>
