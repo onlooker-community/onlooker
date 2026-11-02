@@ -134,8 +134,8 @@ removed from the Machines page still shows that machine's name, because
 
 `GET /api/sessions?project=` is repeatable and capped at 40 values. More answers
 `400`. A root value binds two parameters, and D1 allows 100 per statement, so 40
-leaves room for the rest of the query. Each value is `<key>` for a remote key, or `<machine_id>:<key>` for a root
-key, because the same root key on two machines is two projects.
+leaves room for the rest of the query. Each value is `<key>` for a remote key, or
+`<machine_id>:<key>` for a root key, because the same root key on two machines is two projects.
 
 The query narrows `session_summaries` to the pairs found through
 `session_projects`, driven by its `(user_id, project_key)` index, so a rarely

@@ -734,8 +734,8 @@ describe("counts_by_project", () => {
 		expect(response.status).toBe(400);
 	});
 
-	// What the project filter can ask for and what can be stored must agree.
-	it("rejects a project key that is not 12 hex", async () => {
+	// A key this route can't filter on shouldn't cost a machine its sync.
+	it("accepts a project key that is not 12 hex", async () => {
 		const access = await signup("badkey@example.com");
 		const machine = await mint(access, "laptop");
 
@@ -750,7 +750,7 @@ describe("counts_by_project", () => {
 			],
 		});
 
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(200);
 	});
 
 	it("rejects an array where the map belongs", async () => {

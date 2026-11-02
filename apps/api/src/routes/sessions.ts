@@ -27,9 +27,6 @@ const MAX_SESSIONS_BYTES = 256 * 1024;
 /** The only document shape this server knows how to store. */
 const SUPPORTED_SCHEMA_VERSION = 1;
 
-/** A project key as the CLI derives it: the first 12 hex of a SHA-256. */
-const PROJECT_KEY = /^[0-9a-f]{12}$/;
-
 /** `<key>` for a remote key, `<machine_id>:<key>` for a root key. */
 const PROJECT_VALUE = /^(?:([^:]+):)?([0-9a-f]{12})$/;
 
@@ -64,26 +61,20 @@ function parseProjectFilters(url: URL): ProjectFilter[] {
  * "string"`, because it is what a reader branches on to decide whether a key
  * may be aggregated across machines. A third value would read as neither and
  * silently drop out of both.
- *
- * Keys are held to the 12-hex shape too, so what the project filter can ask for
- * and what can be stored agree.
  */
 function isValidCountsByProject(value: unknown): boolean {
 	if (value === undefined) return true;
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return false;
 	}
-	return Object.entries(value as Record<string, unknown>).every(
-		([key, entry]) => {
-			if (!PROJECT_KEY.test(key)) return false;
-			if (typeof entry !== "object" || entry === null) return false;
-			const count = entry as Record<string, unknown>;
-			return (
-				(count.basis === "remote" || count.basis === "root") &&
-				typeof count.event_count === "number"
-			);
-		},
-	);
+	return Object.values(value as Record<string, unknown>).every((entry) => {
+		if (typeof entry !== "object" || entry === null) return false;
+		const count = entry as Record<string, unknown>;
+		return (
+			(count.basis === "remote" || count.basis === "root") &&
+			typeof count.event_count === "number"
+		);
+	});
 }
 
 /**
