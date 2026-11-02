@@ -113,6 +113,35 @@ describe("the pool read's query plan with a project filter", () => {
 	});
 });
 
+describe("the pool read's bind budget", () => {
+	// D1 allows 100 bound parameters. Counted from the real statement, so it
+	// holds whether or not the local D1 enforces the limit.
+	it("binds exactly 100 at the worst case", async () => {
+		const { captured, db } = recorder();
+		const orgs = Array.from({ length: 50 }, (_, i) => `org-${i}`);
+		const keys = Array.from({ length: 39 }, (_, i) =>
+			i.toString(16).padStart(12, "0"),
+		);
+		const cursor = btoa("2026-08-01T00:00:00.000Z\n01KZ45MKAM734ZS7JK24D2DK01");
+
+		await readPool(
+			db,
+			{ userId: "u1" },
+			{
+				statuses: ["active", "refuted", "superseded", "retracted"],
+				projects: keys,
+				cursor,
+				limit: 50,
+			},
+			async () => orgs,
+		);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].binds).toHaveLength(100);
+		expect(captured[0].sql.match(/\?/g)).toHaveLength(100);
+	});
+});
+
 describe("the pool read's query plan", () => {
 	// The regression itself. `SCAN lessons` means every row of every user's
 	// lessons is read to answer one person's first page.

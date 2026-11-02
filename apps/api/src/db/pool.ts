@@ -205,6 +205,11 @@ async function resolveOrgIds(
  * key hashes a local path, so equal hex says nothing about what is in it, and
  * matching on it would tell you that someone has a path that hashes the same.
  *
+ * This decides what a filter finds, not what is readable. A session's basis is
+ * reported by the client, so it is not a boundary: visibilityPredicate alone
+ * decides what a caller may read, and every lesson matched here has already
+ * passed it.
+ *
  * There is no anonymous form. Nobody signed out has a project to narrow to, so
  * it matches nothing rather than leaving the read wide.
  */

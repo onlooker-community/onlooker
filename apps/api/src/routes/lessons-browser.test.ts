@@ -759,6 +759,23 @@ describe("GET /api/lessons?project=", () => {
 		).toHaveLength(1);
 	});
 
+	// The bind budget assumes at most four statuses. Repeating one must not
+	// spend it: the read would pass D1's 100 and answer 500.
+	it("holds when a status is repeated", async () => {
+		await seedOn(await readerId(), KEY);
+		const keys = Array.from(
+			{ length: 39 },
+			(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
+		).join("&");
+		const statuses = Array.from({ length: 60 }, () => "status=active").join(
+			"&",
+		);
+
+		const response = await browse(`/api/lessons?${keys}&${statuses}`);
+
+		expect(response.status).toBe(200);
+	});
+
 	it("refuses a malformed value", async () => {
 		for (const value of ["nope", "AAAAAAAAAAAA", "m1:aaaaaaaaaaaa"]) {
 			const response = await browse(`/api/lessons?project=${value}`);

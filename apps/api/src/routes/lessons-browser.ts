@@ -67,8 +67,8 @@ export async function handleBrowseLessons(
 	const { userId } = principal as Principal;
 	const url = new URL(request.url);
 
-	const statuses = url.searchParams.getAll("status");
-	for (const status of statuses) {
+	const requestedStatuses = url.searchParams.getAll("status");
+	for (const status of requestedStatuses) {
 		if (!KNOWN_STATUSES.has(status)) {
 			throw new ApiError(
 				400,
@@ -78,6 +78,9 @@ export async function handleBrowseLessons(
 		}
 	}
 
+	// Deduplicated because the bind budget assumes at most four statuses, and a
+	// repeated `status=active` would otherwise spend it on nothing.
+	const statuses = [...new Set(requestedStatuses)];
 	const projects = parseProjectKeys(url);
 
 	// Clamped rather than rejected: a client asking for more than the ceiling

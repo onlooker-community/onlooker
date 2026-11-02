@@ -161,9 +161,9 @@ add a NOT NULL column, and an empty default would be a lie.
 `GET /api/lessons?project=<key>` is repeatable and capped at 39 values, not 50:
 the read can already bind 59 of D1's 100 parameters (50 orgs, four statuses, a
 cursor, a limit), and the filter's two user ids take two more. A lesson stores
-no machine, so a root entry sends only its key, and `<machine_id>:<key>` answers
-`400`. The server applies it on
-top of `visibilityPredicate`, never instead of it:
+no machine, so a root entry sends only its key, and `<machine_id>:<key>`
+answers `400`. The server applies it on top of `visibilityPredicate`, never
+instead of it:
 
 ```
 project_key IN (keys) AND (
