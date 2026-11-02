@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMachineToken } from "../db/machine-tokens.js";
+import { setProjectLabel } from "../db/project-labels.js";
 import { putSessionSummaries } from "../db/session-summaries.js";
 
 const db = () => env.DB;
@@ -84,6 +85,141 @@ describe("GET /api/projects", () => {
 					last_seen_at: "2026-01-01T00:00:00.000Z",
 				},
 			],
+		});
+	});
+
+	describe("keys known from lessons", () => {
+		const KEY = "bbbbbbbbbbbb";
+
+		async function userIdOf(email: string): Promise<string> {
+			const user = await db()
+				.prepare("SELECT id FROM users WHERE email = ?")
+				.bind(email)
+				.first<{ id: string }>();
+			return user?.id ?? "";
+		}
+
+		// A lesson row with only what the listing reads. The id is a counter so
+		// two lessons in one test do not collide.
+		let lessonCount = 0;
+		async function lessonOn(
+			owner: string,
+			projectKey: string,
+			visibility = "private",
+		): Promise<void> {
+			lessonCount += 1;
+			await db()
+				.prepare(
+					`INSERT INTO lessons
+					   (id, user_id, visibility, status, schema_version, body, project_key)
+					 VALUES (?, ?, ?, 'active', 2, '{}', ?)`,
+				)
+				.bind(`lesson-${lessonCount}`, owner, visibility, projectKey)
+				.run();
+		}
+
+		async function sessionOn(
+			owner: string,
+			machineName: string,
+			basis: "remote" | "root",
+			sessionId: string,
+		): Promise<void> {
+			const machine = await createMachineToken(db(), owner, machineName);
+			await putSessionSummaries(db(), owner, machine.id, [
+				{
+					session_id: sessionId,
+					started_at: "2026-01-01T00:00:00.000Z",
+					ended_at: null,
+					event_count: 1,
+					counts_by_prefix: { tool: 1 },
+					counts_by_project: { [KEY]: { basis, event_count: 1 } },
+					plugins: [],
+					prompts: 1,
+					compactions: 0,
+				},
+			]);
+		}
+
+		type Listed = { project_key: string };
+		async function list(token: string): Promise<Listed[]> {
+			const response = await SELF.fetch(`${BASE}/api/projects`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			return ((await response.json()) as { projects: Listed[] }).projects;
+		}
+
+		beforeEach(async () => {
+			await db().prepare("DELETE FROM lesson_feed").run();
+			await db().prepare("DELETE FROM lessons").run();
+		});
+
+		it("lists a key known only from the caller's lesson", async () => {
+			const ada = await signup("ada@example.com");
+			await lessonOn(await userIdOf("ada@example.com"), KEY);
+
+			const response = await SELF.fetch(`${BASE}/api/projects`, {
+				headers: { Authorization: `Bearer ${ada}` },
+			});
+
+			expect(await response.json()).toEqual({
+				projects: [
+					{
+						project_key: KEY,
+						basis: null,
+						machine_id: null,
+						sessions: 0,
+						events: 0,
+						last_seen_at: null,
+					},
+				],
+			});
+		});
+
+		it("does not repeat a lesson's key that also has sessions", async () => {
+			const ada = await signup("ada@example.com");
+			const owner = await userIdOf("ada@example.com");
+			await lessonOn(owner, KEY);
+			await sessionOn(owner, "laptop", "root", "s1");
+			await sessionOn(owner, "desktop", "root", "s2");
+
+			const projects = await list(ada);
+
+			expect(projects).toHaveLength(2);
+		});
+
+		it("does not repeat a lesson's remote key that has sessions", async () => {
+			const ada = await signup("ada@example.com");
+			const owner = await userIdOf("ada@example.com");
+			await lessonOn(owner, KEY);
+			await sessionOn(owner, "laptop", "remote", "s1");
+
+			expect(await list(ada)).toHaveLength(1);
+		});
+
+		it("does not repeat a lesson's key that has only a label", async () => {
+			const ada = await signup("ada@example.com");
+			const owner = await userIdOf("ada@example.com");
+			await lessonOn(owner, KEY);
+			await setProjectLabel(db(), owner, {
+				project_key: KEY,
+				machine_id: null,
+				label: "onlooker",
+			});
+
+			const projects = await list(ada);
+
+			expect(projects).toHaveLength(1);
+			expect(projects[0]).toMatchObject({ project_key: KEY, basis: "remote" });
+		});
+
+		it("never lists another account's lesson keys", async () => {
+			const ada = await signup("ada@example.com");
+			await signup("grace@example.com");
+			const grace = await userIdOf("grace@example.com");
+			await lessonOn(grace, KEY);
+			await lessonOn(grace, "cccccccccccc", "public");
+
+			expect(await list(ada)).toEqual([]);
 		});
 	});
 

@@ -133,6 +133,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "project_key",
+				type: "TEXT",
+				notnull: 0,
+				pk: 0,
+			},
+			{
 				name: "created_at",
 				type: "TEXT",
 				notnull: 1,
@@ -150,6 +156,11 @@ export const EXPECTED_SCHEMA = {
 				name: "lessons_author_key_idx",
 				unique: false,
 				columns: ["author_key"],
+			},
+			{
+				name: "lessons_project_key_idx",
+				unique: false,
+				columns: ["project_key", "promoted_at", "id"],
 			},
 			{
 				name: "lessons_user_id_idx",

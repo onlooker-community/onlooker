@@ -179,8 +179,8 @@ export async function createLessonsWithFeed(
 				db
 					.prepare(
 						`INSERT INTO lessons
-							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, org_id, created_at, updated_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							(id, user_id, visibility, status, schema_version, body, promoted_at, author_key, org_id, project_key, created_at, updated_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 					)
 					.bind(
 						lesson.id,
@@ -189,17 +189,18 @@ export async function createLessonsWithFeed(
 						lesson.status,
 						lesson.schema_version,
 						canonicalize(lesson),
-						// Both promoted_at and author_key carry the same value as their
-						// copy inside body, written in the same statement so they cannot
-						// drift. promoted_at is immutable - transitionLesson must never
-						// touch it. author_key is simply never rewritten, because a
-						// lesson's author does not change.
+						// promoted_at, author_key and project_key carry the same value as
+						// their copy inside body, written in the same statement so they
+						// cannot drift. promoted_at is immutable - transitionLesson must
+						// never touch it. author_key and project_key are simply never
+						// rewritten, because a lesson's author and project do not change.
 						lesson.promoted_at,
 						lesson.author_key,
 						// Only an org-visible row carries the token's org. A
 						// private row with an org_id would be reachable by the
 						// org-retract path, which authorizes on this column.
 						lesson.visibility === "org" ? orgId : null,
+						lesson.evidence.project_key,
 						now,
 						now,
 					),
@@ -783,6 +784,27 @@ export async function hasOrgSharedLessons(
 		.first<{ present: number }>();
 
 	return row !== null;
+}
+
+/**
+ * Every project key this user has a lesson under, whatever its visibility.
+ *
+ * Only the caller's own rows and only the key, so nothing about another
+ * account's lessons - or their content - can reach the Projects page. A row
+ * written before the migration backfilled it has no key and is skipped.
+ */
+export async function listLessonProjectKeys(
+	db: D1Database,
+	userId: string,
+): Promise<string[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT DISTINCT project_key FROM lessons
+			  WHERE user_id = ? AND project_key IS NOT NULL`,
+		)
+		.bind(userId)
+		.all<{ project_key: string }>();
+	return results.map((row) => row.project_key);
 }
 
 /**

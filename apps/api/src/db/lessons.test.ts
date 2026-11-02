@@ -29,7 +29,13 @@ function lesson(overrides: Partial<TLesson> = {}): TLesson {
 		schema_version: 2,
 		claim: "Pin rollup when vite is below 6",
 		rationale: "The bundled rollup version drifts",
-		evidence: { artifact_ids: [], resolution: "pinned rollup" },
+		evidence: {
+			artifact_ids: [],
+			session_ids: [],
+			project_key: "aaaaaaaaaaaa",
+			observed_at: "2026-08-22T00:00:00.000Z",
+			resolution: "pinned rollup",
+		},
 		applies_to: {
 			stack: ["vite"],
 			scope: { kind: "versioned", versions: { vite: "<6" } },
@@ -71,6 +77,29 @@ async function seqs(
 describe("createLessonsWithFeed", () => {
 	it("assigns the first lesson seq 1", async () => {
 		expect(await seqs(userId, lesson())).toEqual([1]);
+	});
+
+	// The project filter narrows on the column, so it has to match the copy
+	// inside body or a lesson would list under one project and filter under
+	// another (ONL-209).
+	it("stores the evidence's project key in its own column", async () => {
+		const written = lesson({
+			evidence: {
+				artifact_ids: [],
+				session_ids: [],
+				project_key: "6a7678979e31",
+				observed_at: "2026-08-22T00:00:00.000Z",
+				resolution: "pinned rollup",
+			},
+		});
+
+		await createLessonsWithFeed(db(), userId, [written]);
+
+		const row = await db()
+			.prepare("SELECT project_key FROM lessons WHERE id = ?")
+			.bind(written.id)
+			.first<{ project_key: string | null }>();
+		expect(row?.project_key).toBe("6a7678979e31");
 	});
 
 	// The property the whole delta protocol rests on. If seq has holes, the

@@ -167,6 +167,8 @@ describe("lessons", () => {
 			"id",
 			// The org this lesson was shared with, or null.
 			"org_id",
+			// The project the lesson was mined from, for the project filter.
+			"project_key",
 			"promoted_at",
 			"schema_version",
 			"status",

@@ -1,4 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { listLessonProjectKeys } from "./lessons.js";
 import { listProjectLabels } from "./project-labels.js";
 
 /**
@@ -21,8 +22,9 @@ export interface Project {
 /**
  * This user's projects, most recently seen first.
  *
- * Labels are read too, so a project does not vanish once its sessions pass
- * retention: the name is the user's, and it should stay findable.
+ * Labels and lessons are read too, so a project does not vanish once its
+ * sessions pass retention: the name is the user's, and a lesson filed under
+ * the key should stay findable.
  */
 export async function listProjects(
 	db: D1Database,
@@ -61,9 +63,25 @@ export async function listProjects(
 			last_seen_at: null,
 		}));
 
+	// By key, not identity: a lesson stores no machine, so its key is already
+	// listed if any machine's sessions or any label hold it.
+	const listed = new Set(
+		[...results, ...labeled].map((row) => row.project_key),
+	);
+	const fromLessons: Project[] = (await listLessonProjectKeys(db, userId))
+		.filter((key) => !listed.has(key))
+		.map((key) => ({
+			project_key: key,
+			basis: null,
+			machine_id: null,
+			sessions: 0,
+			events: 0,
+			last_seen_at: null,
+		}));
+
 	// ISO timestamps sort as text. Never seen goes last, then by key so the
 	// order is stable.
-	return [...results, ...labeled].sort(
+	return [...results, ...labeled, ...fromLessons].sort(
 		(a, b) =>
 			(b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "") ||
 			a.project_key.localeCompare(b.project_key) ||
