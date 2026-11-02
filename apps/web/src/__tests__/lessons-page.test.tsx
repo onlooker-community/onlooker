@@ -1771,12 +1771,6 @@ describe("the visual language", () => {
  * design. It arrives as `owned_ids` beside the listed documents, and as `own`
  * on the single-lesson fetch the deep link uses.
  */
-/**
- * A lesson's project_key under the name the viewer gave it on Sessions.
- *
- * The key stays beside the name: it is what two lessons are correlated by,
- * and a name is only the viewer's own.
- */
 describe("the project filter", () => {
 	const KEY_A = "aaaaaaaaaaaa";
 	const KEY_B = "bbbbbbbbbbbb";
@@ -2100,9 +2094,10 @@ describe("the project filter", () => {
 		).toBe("beta");
 	});
 
-	// The selection is a name, so a rename that takes it away cannot leave the
-	// page filtering on keys nobody can see chosen.
-	it("falls back to all projects when a rename takes the selected name away", async () => {
+	// The selection is a name, so labels landing after a choice, which take
+	// that name away, cannot leave the page filtering on keys nobody can see
+	// chosen.
+	it("falls back to all projects when late labels take the selected name away", async () => {
 		let resolveLabels: (value: Map<string, string>) => void = () => {};
 		mocks.listLabels.mockImplementation(
 			() =>
@@ -2134,6 +2129,12 @@ describe("the project filter", () => {
 	});
 });
 
+/**
+ * A lesson's project_key under the name the viewer gave it on Sessions.
+ *
+ * The key stays beside the name: it is what two lessons are correlated by,
+ * and a name is only the viewer's own.
+ */
 describe("the project's name", () => {
 	const KEY = VITE.evidence.project_key;
 

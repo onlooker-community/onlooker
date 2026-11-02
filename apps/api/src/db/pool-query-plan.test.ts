@@ -102,6 +102,9 @@ describe("the pool read's query plan with a project filter", () => {
 		const plan = await planFor(await captureProjectBrowse());
 
 		expect(plan.join("\n")).not.toMatch(/\bSCAN lessons\b/);
+		// By name: not scanning could also mean some other index, which would
+		// leave the one added for this filter unused.
+		expect(plan.join("\n")).toMatch(/lessons_project_key_idx/);
 	});
 
 	// A `?` the binds do not cover would be a 500 in D1 and invisible here
