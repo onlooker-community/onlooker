@@ -582,6 +582,14 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			name: "sessions, unusable project filter",
+			path: "/api/sessions?project=nope",
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_project" } },
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "projects, valid token",
 			path: "/api/projects",
 			init: { method: "GET" },

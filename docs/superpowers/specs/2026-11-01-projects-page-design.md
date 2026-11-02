@@ -132,8 +132,9 @@ removed from the Machines page still shows that machine's name, because
 
 ## PR 2: The Sessions filter
 
-`GET /api/sessions?project=` is repeatable and capped at 50 values. More answers
-`400`. Each value is `<key>` for a remote key, or `<machine_id>:<key>` for a root
+`GET /api/sessions?project=` is repeatable and capped at 40 values. More answers
+`400`. A root value binds two parameters, and D1 allows 100 per statement, so 40
+leaves room for the rest of the query. Each value is `<key>` for a remote key, or `<machine_id>:<key>` for a root
 key, because the same root key on two machines is two projects.
 
 The query narrows `session_summaries` to the pairs found through
@@ -184,7 +185,8 @@ Across the PRs:
 * Pruning a session and deleting an account clear its `session_projects` rows.
 * Both backfills run against seeded rows, as `backfill.test.ts` does.
 * A project past retention stays listed if it has a label.
-* More than 50 `project` values answers `400`.
+* More than 40 `project` values answers `400` on Sessions, and more than 50 on
+  Lessons.
 
 `mockApi` gets the same behavior, and the contract tests cover the routes.
 

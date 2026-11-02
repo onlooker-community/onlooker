@@ -1097,6 +1097,16 @@ export async function mockDataApi(
 			}
 		}
 
+		// Mirrors parseProjectFilters in apps/api/src/routes/sessions.ts. The
+		// page stays empty, so only the rejection needs to match.
+		const projects = query.getAll("project");
+		if (
+			projects.length > 40 ||
+			projects.some((value) => !/^(?:[^:]+:)?[0-9a-f]{12}$/.test(value))
+		) {
+			throw new AuthApiError(400, "invalid_project", "That is not a project");
+		}
+
 		return json({ sessions: [], cursor: null, has_more: false });
 	}
 

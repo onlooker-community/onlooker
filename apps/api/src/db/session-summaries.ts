@@ -224,6 +224,56 @@ export function decodeSessionsCursor(
 }
 
 /**
+ * How many projects one read may ask for. D1 allows 100 bound parameters: a
+ * root key takes two, and the rest of the query takes six.
+ */
+export const MAX_PROJECT_FILTERS = 40;
+
+/** One project to narrow to. `machineId` is null for a remote key. */
+export interface ProjectFilter {
+	key: string;
+	machineId: string | null;
+}
+
+/**
+ * Narrows session_summaries to sessions that touched these projects.
+ *
+ * Through session_projects rather than json_each over counts_by_project, so a
+ * rarely used project costs its own rows and not the account's whole history.
+ * The basis is part of the match: a root key hashes a local path, so it means
+ * nothing away from its machine, and the same hex under the other basis is a
+ * different project.
+ */
+export function projectFilterClause(
+	userId: string,
+	filters: ProjectFilter[],
+): { sql: string; binds: string[] } {
+	const remote = filters.filter((filter) => filter.machineId === null);
+	const root = filters.filter((filter) => filter.machineId !== null);
+
+	const conditions: string[] = [];
+	const binds: string[] = [userId];
+	if (remote.length > 0) {
+		conditions.push(
+			`(basis = 'remote' AND project_key IN (${remote.map(() => "?").join(", ")}))`,
+		);
+		binds.push(...remote.map((filter) => filter.key));
+	}
+	for (const filter of root) {
+		conditions.push("(basis = 'root' AND machine_id = ? AND project_key = ?)");
+		binds.push(filter.machineId as string, filter.key);
+	}
+
+	return {
+		sql: `(machine_id, session_id) IN (
+				SELECT machine_id, session_id FROM session_projects
+				WHERE user_id = ? AND (${conditions.join(" OR ")})
+			)`,
+		binds,
+	};
+}
+
+/**
  * One page of a user's session summaries, newest first.
  *
  * Ordered by (started_at, machine_id, session_id), all DESC - see
@@ -242,11 +292,21 @@ export function decodeSessionsCursor(
 export async function listSessionSummaries(
 	db: D1Database,
 	userId: string,
-	opts: { cursor?: string | null; limit: number },
+	opts: {
+		cursor?: string | null;
+		limit: number;
+		projects?: ProjectFilter[];
+	},
 ): Promise<SessionSummariesPage> {
 	const limit = Math.min(Math.max(1, opts.limit), BROWSE_MAX_LIMIT);
 	const binds: unknown[] = [userId];
 	let where = "user_id = ?";
+
+	if (opts.projects && opts.projects.length > 0) {
+		const clause = projectFilterClause(userId, opts.projects);
+		where += ` AND ${clause.sql}`;
+		binds.push(...clause.binds);
+	}
 
 	if (opts.cursor) {
 		const after = decodeSessionsCursor(opts.cursor);
