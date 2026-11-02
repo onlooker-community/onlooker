@@ -140,6 +140,8 @@ export interface OwnedLesson {
 
 export interface ListLessonsOptions {
 	statuses?: LessonStatus[];
+	/** Bare project keys; see `entryKeys` in lib/projectEntries.ts. */
+	project?: string[];
 	cursor?: string | null;
 	limit?: number;
 }
@@ -153,6 +155,7 @@ export function listLessons(
 	// searchParams.getAll("status"), so "active,retracted" would arrive as a
 	// single unrecognized status and come back a 400.
 	for (const status of options.statuses ?? []) query.append("status", status);
+	for (const key of options.project ?? []) query.append("project", key);
 
 	// `if (cursor)` and not `!= null`: apps/api guards the same way, treating
 	// "" as absent. Sending `?cursor=` for an empty string would be a request

@@ -7,8 +7,10 @@ import {
 	listLessons,
 	type RetractableOrg,
 } from "../api/lessonsApi";
+import { listProjects, type Project } from "../api/projectsApi";
 import { Icon } from "../components/Icon";
 import { LoadMore } from "../components/LoadMore";
+import ProjectFilter from "../components/ProjectFilter";
 import { PALETTE } from "../components/palette";
 import {
 	Chip,
@@ -20,6 +22,7 @@ import {
 } from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
+import { entryKeys, projectEntries } from "../lib/projectEntries";
 import "./lessons.css";
 
 // The pool, read by a person. A layout route rather than a page: it fetches
@@ -175,6 +178,12 @@ export default function LessonsPage() {
 	// already showing.
 	const [poolSettled, setPoolSettled] = useState(false);
 	const [filter, setFilter] = useState<"" | LessonStatus>("");
+	// Empty until read, and empty if the read fails: the control then doesn't
+	// show, and the page is what it was without one.
+	const [projects, setProjects] = useState<Project[]>([]);
+	// A name rather than an entry, so a rename that regroups keys can't leave a
+	// stale set of keys behind.
+	const [selected, setSelected] = useState<string | null>(null);
 	// Cleared by `load()` the moment a new query starts, not once it resolves
 	// - see the comment there. That still leaves one painted frame between a
 	// filter change and the effect that calls `load()` running, because
@@ -197,6 +206,18 @@ export default function LessonsPage() {
 	// while the list shows another. A stale rejection is worse still: it
 	// would blank a list a newer request had already filled.
 	const requestSeq = useRef(0);
+
+	const entries = projectEntries(projects, labels);
+	const entry = entries.find((option) => option.name === selected) ?? null;
+	// A string, so `load` changes when the keys do and not on every render.
+	const projectKey = entry ? entryKeys(entry).join("\n") : "";
+	const query = useCallback(
+		() => ({
+			...(filter ? { statuses: [filter] } : {}),
+			...(projectKey ? { project: projectKey.split("\n") } : {}),
+		}),
+		[filter, projectKey],
+	);
 
 	// Which pane the narrow layout should show. The layout route does not
 	// receive the child's params, so the path is matched directly.
@@ -230,7 +251,7 @@ export default function LessonsPage() {
 		// which this line also produces on every filter change.
 		setEnded(false);
 		try {
-			const page = await listLessons(filter ? { statuses: [filter] } : {});
+			const page = await listLessons(query());
 			if (seq !== requestSeq.current) return;
 			setLessons(page.lessons);
 			// `?? []` is not defensive padding: a page without `owned_ids` -
@@ -288,11 +309,27 @@ export default function LessonsPage() {
 			// arrive.
 			if (seq === requestSeq.current) setPoolSettled(true);
 		}
-	}, [filter]);
+	}, [query]);
 
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	// Its own effect, for the labels' reason and one more: a failure here
+	// must never blank the pool.
+	useEffect(() => {
+		let active = true;
+		listProjects()
+			.then(({ projects: loaded }) => {
+				if (active) setProjects(loaded);
+			})
+			.catch(() => {
+				// Deliberately quiet: the page works without the control.
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
 	// Its own effect rather than part of load(), so a filter change does not
 	// reread it and a failure here never blanks a pool that loaded fine -
@@ -335,10 +372,8 @@ export default function LessonsPage() {
 			// The filter travels with the cursor. A cursor is a position within
 			// ONE query's ordering, so paging with a different filter than the
 			// one that minted it walks a boundary that query never established.
-			const page = await listLessons({
-				...(filter ? { statuses: [filter] } : {}),
-				cursor,
-			});
+			// The project is part of that query exactly as the status is.
+			const page = await listLessons({ ...query(), cursor });
 			if (seq !== requestSeq.current) return;
 			setLessons((current) => [...(current ?? []), ...page.lessons]);
 			setOwnedIds((current) => [...current, ...(page.owned_ids ?? [])]);
@@ -400,20 +435,36 @@ export default function LessonsPage() {
 	// being the same JSX, since the region has to exist even when the branch
 	// it is summarizing does not render its own heading (the loading paragraph,
 	// the row list).
+	//
+	// The empty title has one source for the same reason: the region and the
+	// heading below must not disagree about which empty this is. A project
+	// names itself ahead of a status, since it is the narrower claim.
+	const emptyTitle = entry
+		? `No lessons in ${entry.name}`
+		: filter
+			? (FILTERS.find((option) => option.value === filter)?.empty ??
+				"No lessons")
+			: "Nothing has synced yet";
 	const resultSummary = loadError
 		? "Could not load the pool"
 		: lessons === null
 			? "Loading the pool…"
 			: lessons.length === 0
-				? filter
-					? (FILTERS.find((option) => option.value === filter)?.empty ??
-						"No lessons")
-					: "Nothing has synced yet"
+				? emptyTitle
 				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`;
 
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
 			<div className="lessons-list">
+				{entries.length > 0 ? (
+					<div style={{ marginBottom: "1rem" }}>
+						<ProjectFilter
+							entries={entries}
+							value={entry?.name ?? null}
+							onChange={setSelected}
+						/>
+					</div>
+				) : null}
 				<div style={{ marginBottom: "1rem" }}>
 					<label
 						htmlFor="lesson-status"
@@ -504,18 +555,16 @@ export default function LessonsPage() {
 					// This mirrors the primitive's look without a second role.
 					<p style={{ color: PALETTE.muted }}>{resultSummary}</p>
 				) : lessons.length === 0 ? (
-					filter ? (
+					entry || filter ? (
 						// An empty FILTER result and an empty POOL say different
 						// things. Telling someone whose pool is full to "connect a
-						// machine" because they filtered to a status nothing holds
-						// would be a lie, and the kind that makes a person doubt
-						// everything else the page says.
-						<EmptyState
-							title={
-								FILTERS.find((o) => o.value === filter)?.empty ?? "No lessons"
-							}
-						>
-							Nothing in the pool holds that status right now.
+						// machine" because they filtered to a status nothing holds,
+						// or a project with no lessons, would be a lie, and the kind
+						// that makes a person doubt everything else the page says.
+						<EmptyState title={emptyTitle}>
+							{entry
+								? "Nothing you can read in the pool matches that project."
+								: "Nothing in the pool holds that status right now."}
 						</EmptyState>
 					) : (
 						<EmptyState

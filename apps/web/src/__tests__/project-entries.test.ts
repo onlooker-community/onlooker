@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { labelIdentity } from "../api/labelsApi";
 import type { Project } from "../api/projectsApi";
-import { projectEntries, projectName } from "../lib/projectEntries";
+import { entryKeys, projectEntries, projectName } from "../lib/projectEntries";
 
 const A = "aaaaaaaaaaaa";
 const B = "bbbbbbbbbbbb";
@@ -88,6 +88,24 @@ describe("projectEntries", () => {
 			labels,
 		).map((entry) => entry.name);
 		expect(names).toEqual(["Apple", "banana", "cherry"]);
+	});
+});
+
+describe("entryKeys", () => {
+	it("passes a bare key through", () => {
+		expect(entryKeys({ name: "x", values: [A, B] })).toEqual([A, B]);
+	});
+
+	it("takes the key off a <machine_id>:<key> value", () => {
+		expect(entryKeys({ name: "x", values: [`m1:${A}`] })).toEqual([A]);
+	});
+
+	// A lesson stores no machine, so the same root key on two machines is one
+	// thing to it.
+	it("gives the same key on two machines once", () => {
+		expect(entryKeys({ name: "x", values: [`m1:${A}`, `m2:${A}`, A] })).toEqual(
+			[A],
+		);
 	});
 });
 
