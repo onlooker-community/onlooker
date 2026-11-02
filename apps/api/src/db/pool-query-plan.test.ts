@@ -84,6 +84,35 @@ async function planForOrgBrowse(): Promise<string[]> {
 	return planFor(captured[0]);
 }
 
+/** What `readPool` prepares for a project filter, with the real statement. */
+async function captureProjectBrowse(): Promise<Captured> {
+	const { captured, db } = recorder();
+	await readPool(
+		db,
+		{ userId: "u1" },
+		{ projects: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"], limit: 50 },
+		async () => ["org-a", "org-b"],
+	);
+	expect(captured).toHaveLength(1);
+	return captured[0];
+}
+
+describe("the pool read's query plan with a project filter", () => {
+	it("does not scan the whole lessons table", async () => {
+		const plan = await planFor(await captureProjectBrowse());
+
+		expect(plan.join("\n")).not.toMatch(/\bSCAN lessons\b/);
+	});
+
+	// A `?` the binds do not cover would be a 500 in D1 and invisible here
+	// until the planner ran it, so count them against each other.
+	it("binds one value for every placeholder", async () => {
+		const { sql, binds } = await captureProjectBrowse();
+
+		expect(sql.match(/\?/g)).toHaveLength(binds.length);
+	});
+});
+
 describe("the pool read's query plan", () => {
 	// The regression itself. `SCAN lessons` means every row of every user's
 	// lessons is read to answer one person's first page.

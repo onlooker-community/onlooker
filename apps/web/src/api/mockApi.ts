@@ -977,6 +977,18 @@ export async function mockDataApi(
 			}
 		}
 
+		const projects = query.getAll("project");
+		if (projects.length > 39) {
+			throw new AuthApiError(
+				400,
+				"invalid_project",
+				"Ask for at most 39 projects at once",
+			);
+		}
+		if (!projects.every((key) => /^[0-9a-f]{12}$/.test(key))) {
+			throw new AuthApiError(400, "invalid_project", "That is not a project");
+		}
+
 		// The real cursor is base64 of `<promoted_at>\n<id>`; anything else was
 		// not minted here. The mock's pool is always empty, so a well-formed
 		// cursor still yields nothing - only the rejection needs to match.

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
 import { addMembership, createOrgWithOwner } from "../db/orgs.js";
 import { createUser, getUserByEmail } from "../db/queries.js";
+import { putSessionSummaries } from "../db/session-summaries.js";
 import {
 	BASE,
 	lesson,
@@ -15,10 +16,13 @@ import {
 const db = () => env.DB;
 let accessToken: string;
 let machineToken: string;
+let machineId: string;
 
 beforeEach(async () => {
 	await db().prepare("DELETE FROM lesson_feed").run();
 	await db().prepare("DELETE FROM lessons").run();
+	await db().prepare("DELETE FROM session_projects").run();
+	await db().prepare("DELETE FROM session_summaries").run();
 	await db().prepare("DELETE FROM machine_tokens").run();
 	await db().prepare("DELETE FROM sessions").run();
 	await db().prepare("DELETE FROM org_memberships").run();
@@ -27,6 +31,7 @@ beforeEach(async () => {
 	const minted = await mintMachine("browser@example.com");
 	accessToken = minted.accessToken;
 	machineToken = minted.token;
+	machineId = minted.id;
 	resetLessonCounter();
 });
 
@@ -499,5 +504,278 @@ describe("former_authors and former_author, at the route", () => {
 			former_author: boolean;
 		};
 		expect(one).toMatchObject({ former_author: true });
+	});
+});
+
+/**
+ * GET /api/lessons?project= narrows the pool, and the pool mixes accounts.
+ *
+ * So most of what is asserted here is what must NOT come back. A key on
+ * someone else's lesson counts only where the caller holds it as `remote`:
+ * that names one repository for everyone, while a `root` key hashes a local
+ * path, and matching on it would tell the caller that a stranger has a path
+ * which hashes the same.
+ */
+describe("GET /api/lessons?project=", () => {
+	const KEY = "aaaaaaaaaaaa";
+	const OTHER_KEY = "bbbbbbbbbbbb";
+
+	let held = 0;
+
+	const readerId = async () =>
+		((await getUserByEmail(db(), "browser@example.com")) as { id: string }).id;
+
+	/** The reader reports a session that touched `key` on this basis. */
+	async function hold(key: string, basis: "remote" | "root") {
+		held += 1;
+		await putSessionSummaries(db(), await readerId(), machineId, [
+			{
+				session_id: `held-${held}`,
+				started_at: "2026-01-01T00:00:00.000Z",
+				ended_at: null,
+				event_count: 1,
+				counts_by_prefix: {},
+				counts_by_project: { [key]: { basis, event_count: 1 } },
+				plugins: [],
+				prompts: 0,
+				compactions: 0,
+			},
+		]);
+	}
+
+	/** A lesson on `key`, written past the push gate like the seeds above. */
+	async function seedOn(
+		owner: string,
+		key: string,
+		overrides: Record<string, unknown> = {},
+		orgId: string | null = null,
+	): Promise<TLesson> {
+		const base = lesson();
+		const written = {
+			...base,
+			evidence: { ...base.evidence, project_key: key },
+			...overrides,
+		} as TLesson;
+		await createLessonsWithFeed(db(), owner, [written], orgId);
+		return written;
+	}
+
+	const stranger = async (email = "stranger@example.com") =>
+		(await createUser(db(), email, "hash", "Bob")).id;
+
+	const idsAt = async (path: string) =>
+		(
+			(await (await browse(path)).json()) as { lessons: Array<{ id: string }> }
+		).lessons.map((entry) => entry.id);
+
+	it("finds the caller's own lesson by key", async () => {
+		const mine = await seedOn(await readerId(), KEY);
+		await seedOn(await readerId(), OTHER_KEY);
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([mine.id]);
+	});
+
+	it("finds another account's public lesson when the caller holds the key as remote", async () => {
+		const theirs = await seedOn(await stranger(), KEY, {
+			visibility: "public",
+		});
+		await hold(KEY, "remote");
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([theirs.id]);
+	});
+
+	it("does not match another account's lesson on a key the caller holds only as root", async () => {
+		await seedOn(await stranger(), KEY, { visibility: "public" });
+		await hold(KEY, "root");
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([]);
+	});
+
+	it("does not match another account's lesson on a key the caller doesn't hold", async () => {
+		await seedOn(await stranger(), KEY, { visibility: "public" });
+		await hold(OTHER_KEY, "remote");
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([]);
+	});
+
+	// A key held by somebody else says nothing about the caller. The subquery
+	// is scoped to the caller's own session rows.
+	it("does not match on a key only another account holds as remote", async () => {
+		const other = await stranger();
+		await seedOn(other, KEY, { visibility: "public" });
+		const otherMachine = await mintMachine("holder@example.com");
+		const holder = (await getUserByEmail(db(), "holder@example.com")) as {
+			id: string;
+		};
+		await putSessionSummaries(db(), holder.id, otherMachine.id, [
+			{
+				session_id: "theirs-1",
+				started_at: "2026-01-01T00:00:00.000Z",
+				ended_at: null,
+				event_count: 1,
+				counts_by_prefix: {},
+				counts_by_project: { [KEY]: { basis: "remote", event_count: 1 } },
+				plugins: [],
+				prompts: 0,
+				compactions: 0,
+			},
+		]);
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([]);
+	});
+
+	it("does not reveal another account's private lesson", async () => {
+		await seedOn(await stranger(), KEY, { visibility: "private" });
+		await hold(KEY, "remote");
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([]);
+	});
+
+	it("keeps a retracted lesson of another account hidden", async () => {
+		await seedOn(await stranger(), KEY, {
+			visibility: "public",
+			status: "retracted",
+		});
+		await hold(KEY, "remote");
+
+		expect(await idsAt(`/api/lessons?project=${KEY}`)).toEqual([]);
+	});
+
+	it("finds an org-mate's org lesson on a shared remote key, and not on a root one", async () => {
+		const org = await createOrgWithOwner(db(), "Acme", await readerId());
+		const author = await stranger("author@example.com");
+		await addMembership(db(), org.id, author, "member");
+		const onRemote = await seedOn(author, KEY, { visibility: "org" }, org.id);
+		await seedOn(author, OTHER_KEY, { visibility: "org" }, org.id);
+		await hold(KEY, "remote");
+		await hold(OTHER_KEY, "root");
+
+		expect(
+			await idsAt(`/api/lessons?project=${KEY}&project=${OTHER_KEY}`),
+		).toEqual([onRemote.id]);
+	});
+
+	it("matches any of several keys", async () => {
+		const a = await seedOn(await readerId(), KEY);
+		const b = await seedOn(await readerId(), OTHER_KEY);
+		await seedOn(await readerId(), "cccccccccccc");
+
+		expect(
+			(await idsAt(`/api/lessons?project=${KEY}&project=${OTHER_KEY}`)).sort(),
+		).toEqual([a.id, b.id].sort());
+	});
+
+	it("combines with a status filter", async () => {
+		await seedOn(await readerId(), KEY);
+		const refuted = await seedOn(await readerId(), KEY, {
+			status: "refuted",
+		});
+		await seedOn(await readerId(), OTHER_KEY, { status: "refuted" });
+
+		expect(await idsAt(`/api/lessons?project=${KEY}&status=refuted`)).toEqual([
+			refuted.id,
+		]);
+	});
+
+	it("pages across a filter, every match once", async () => {
+		const owner = await readerId();
+		const written: string[] = [];
+		for (let day = 1; day <= 5; day += 1) {
+			written.push(
+				(
+					await seedOn(owner, KEY, {
+						promoted_at: `2026-08-0${day}T00:00:00.000Z`,
+					})
+				).id,
+			);
+		}
+		await seedOn(owner, OTHER_KEY);
+
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		for (let pages = 0; pages < 10; pages += 1) {
+			const path: string = `/api/lessons?project=${KEY}&limit=2${
+				cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+			}`;
+			const body = (await (await browse(path)).json()) as {
+				lessons: Array<{ id: string }>;
+				cursor: string | null;
+				has_more: boolean;
+			};
+			seen.push(...body.lessons.map((entry) => entry.id));
+			if (!body.has_more) break;
+			cursor = body.cursor;
+		}
+
+		expect(seen.sort()).toEqual(written.sort());
+	});
+
+	it("refuses more than 39 values", async () => {
+		const keys = (count: number) =>
+			Array.from(
+				{ length: count },
+				(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
+			).join("&");
+
+		const tooMany = await browse(`/api/lessons?${keys(40)}`);
+		expect(tooMany.status).toBe(400);
+		expect(await tooMany.json()).toMatchObject({
+			error: { code: "invalid_project" },
+		});
+		expect((await browse(`/api/lessons?${keys(39)}`)).status).toBe(200);
+	});
+
+	// 52 binds for the visibility predicate at 50 orgs, 4 statuses, 39 keys and
+	// the two user ids, a cursor's two, and the LIMIT: exactly D1's 100.
+	it("holds at the worst case", async () => {
+		const owner = await readerId();
+		for (let i = 0; i < 50; i += 1) {
+			await createOrgWithOwner(db(), `Org ${i}`, owner);
+		}
+		await seedOn(owner, KEY, { promoted_at: "2026-08-01T00:00:00.000Z" });
+		await seedOn(owner, KEY, { promoted_at: "2026-08-02T00:00:00.000Z" });
+		const first = (await (
+			await browse(`/api/lessons?project=${KEY}&limit=1`)
+		).json()) as { cursor: string };
+
+		const keys = [KEY].concat(
+			Array.from({ length: 38 }, (_, i) =>
+				(i + 1).toString(16).padStart(12, "0"),
+			),
+		);
+		const query = [
+			...keys.map((key) => `project=${key}`),
+			...["active", "refuted", "superseded", "retracted"].map(
+				(status) => `status=${status}`,
+			),
+			`cursor=${encodeURIComponent(first.cursor)}`,
+			"limit=1",
+		].join("&");
+
+		const response = await browse(`/api/lessons?${query}`);
+		expect(response.status).toBe(200);
+		expect(
+			((await response.json()) as { lessons: unknown[] }).lessons,
+		).toHaveLength(1);
+	});
+
+	it("refuses a malformed value", async () => {
+		for (const value of ["nope", "AAAAAAAAAAAA", "m1:aaaaaaaaaaaa"]) {
+			const response = await browse(`/api/lessons?project=${value}`);
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				error: { code: "invalid_project" },
+			});
+		}
+	});
+
+	it("leaves the read alone without a filter", async () => {
+		const unkeyed = await seedOn(await readerId(), KEY);
+		await db()
+			.prepare("UPDATE lessons SET project_key = NULL WHERE id = ?")
+			.bind(unkeyed.id)
+			.run();
+
+		expect(await idsAt("/api/lessons")).toEqual([unkeyed.id]);
 	});
 });

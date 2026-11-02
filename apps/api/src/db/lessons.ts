@@ -689,7 +689,12 @@ export async function listActivityPage(
 export async function listLessonsPage(
 	db: D1Database,
 	userId: string,
-	opts: { statuses?: string[]; cursor?: string | null; limit: number },
+	opts: {
+		statuses?: string[];
+		projects?: string[];
+		cursor?: string | null;
+		limit: number;
+	},
 ): Promise<LessonPage> {
 	return readPool(db, { userId }, opts, orgIdsForUser);
 }
