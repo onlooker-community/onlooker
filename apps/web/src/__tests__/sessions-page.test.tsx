@@ -1341,6 +1341,131 @@ describe("/sessions filtered by project (ONL-209)", () => {
 		);
 	});
 
+	// Leaving a filter that held nothing: until the reload lands, the rows on
+	// screen are still the empty ones, and they must not be read as an empty
+	// account.
+	describe("leaving a filter with no rows", () => {
+		async function leaveFor(filtered: () => Promise<unknown>) {
+			const reload = deferred<typeof ONE_SESSION>();
+			let unfiltered = 0;
+			mocks.listSessions.mockImplementation((options) => {
+				if (options.project) return filtered();
+				unfiltered += 1;
+				return unfiltered === 1 ? Promise.resolve(ONE_SESSION) : reload.promise;
+			});
+			renderAppAt("/sessions");
+			const select = await filterControl();
+
+			changeProject(KEY_A);
+			await waitFor(() => expect(mocks.listSessions).toHaveBeenCalledTimes(2));
+			await act(async () => {});
+			select.focus();
+
+			changeProject("");
+			await act(async () => {});
+			return { select, reload };
+		}
+
+		function expectKeptTheControl(select: HTMLSelectElement) {
+			expect(screen.queryByText(/threshold/i)).toBeNull();
+			expect(screen.queryByText(/no machine has synced/i)).toBeNull();
+			expect(screen.getByLabelText("Project")).toBe(select);
+			expect(document.activeElement).toBe(select);
+		}
+
+		it("from an empty one", async () => {
+			const { select, reload } = await leaveFor(() => Promise.resolve(EMPTY));
+
+			expectKeptTheControl(select);
+			await act(async () => {
+				reload.resolve(ONE_SESSION);
+			});
+			await showsPrompts(5);
+		});
+
+		it("from a failed one", async () => {
+			const { select, reload } = await leaveFor(() =>
+				Promise.reject(new Error("sessions are down")),
+			);
+
+			expectKeptTheControl(select);
+			await act(async () => {
+				reload.resolve(ONE_SESSION);
+			});
+			await showsPrompts(5);
+		});
+	});
+
+	it("drops a stale Load more when the same choice comes back around", async () => {
+		const slow = deferred<ReturnType<typeof pageOf>>();
+		mocks.listSessions.mockImplementation((options) => {
+			if (options.cursor) return slow.promise;
+			if (options.project?.[0] === KEY_A) {
+				return Promise.resolve(pageOf(7, { cursor: "fa" }));
+			}
+			if (options.project?.[0] === KEY_B) return Promise.resolve(pageOf(8));
+			return Promise.resolve(ONE_SESSION);
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+		changeProject(KEY_A);
+		await showsPrompts(7);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		changeProject(KEY_B);
+		await showsPrompts(8);
+		changeProject(KEY_A);
+		await showsPrompts(7);
+
+		await act(async () => {
+			slow.resolve(pageOf(9));
+		});
+
+		expect(promptsShown()).toEqual([7]);
+	});
+
+	it("loads more at once after a choice changes under a Load more still out", async () => {
+		const slow = deferred<ReturnType<typeof pageOf>>();
+		mocks.listSessions.mockImplementation((options) => {
+			if (options.cursor === "c1") return slow.promise;
+			if (options.cursor === "fa") return Promise.resolve(pageOf(10));
+			if (options.project?.[0] === KEY_A) {
+				return Promise.resolve(pageOf(7, { cursor: "fa" }));
+			}
+			return Promise.resolve(pageOf(5, { cursor: "c1" }));
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+		await showsPrompts(5);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+		changeProject(KEY_A);
+		await showsPrompts(7);
+
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({
+				cursor: "fa",
+				limit: 200,
+				project: [KEY_A],
+			}),
+		);
+	});
+
+	it("still lists every repository of a session when filtered to one", async () => {
+		mocks.listSessions.mockImplementation(async (options) =>
+			options.project ? pageOf(7, { keys: [KEY_A, KEY_B] }) : ONE_SESSION,
+		);
+		renderAppAt("/sessions");
+		await filterControl();
+
+		changeProject(KEY_A);
+
+		await showsPrompts(7);
+		const repos = screen.getByTestId("session-repos").textContent;
+		expect(repos).toContain(KEY_A);
+		expect(repos).toContain(KEY_B);
+	});
+
 	it("hides the filter and keeps the page working when projects cannot be read", async () => {
 		mocks.listProjects.mockRejectedValue(new Error("offline"));
 		renderAppAt("/sessions");

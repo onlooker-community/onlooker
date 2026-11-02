@@ -32,7 +32,8 @@ import {
 
 // A person's own read of the CLI sessions their machines have reported -
 // every row here already cleared apps/cli's reporting threshold, so unlike
-// ActivityPage this page never has to filter what it shows. See
+// ActivityPage this page has no threshold of its own to apply. The project
+// filter (ONL-209) narrows by repository, and is asked of the server. See
 // sessionsApi.ts's SessionsPage doc comment.
 
 /** How long a session ran, or that it is still running. */
@@ -148,7 +149,14 @@ export default function SessionsPage() {
 	// stale set of keys behind: `entry` below is always read from current names.
 	const [selected, setSelected] = useState<string | null>(null);
 	const [filterError, setFilterError] = useState<string | null>(null);
-	const latestFilter = useRef("");
+	// Which filter the rows on screen answer. The empty states speak for an
+	// answer, so they wait for one: leaving a filter that held nothing would
+	// otherwise read its empty rows as an empty account until the reload lands.
+	const [shownFilter, setShownFilter] = useState("");
+	// Counts the loads the filter has started. A counter rather than the filter
+	// itself, because A, then B, then A is the same value as the first A while
+	// being a different list.
+	const request = useRef(0);
 
 	// A project with no sessions has nothing to show here.
 	const entries = projectEntries(
@@ -230,9 +238,11 @@ export default function SessionsPage() {
 	// focus and the page doesn't flash a loading state.
 	useEffect(() => {
 		let active = true;
-		latestFilter.current = filterKey;
+		request.current += 1;
 		setFilterError(null);
 		setMoreError(null);
+		// A Load more still out belongs to the previous list and is dropped.
+		setLoadingMore(false);
 		listSessions({
 			limit: 200,
 			...(filterKey ? { project: filterKey.split("\n") } : {}),
@@ -243,6 +253,7 @@ export default function SessionsPage() {
 				setCursor(page.has_more ? page.cursor : null);
 				setHasMore(page.has_more);
 				setEnded(false);
+				setShownFilter(filterKey);
 			})
 			.catch((error: unknown) => {
 				if (!active) return;
@@ -254,6 +265,7 @@ export default function SessionsPage() {
 					setCursor(null);
 					setHasMore(false);
 					setFilterError(message);
+					setShownFilter(filterKey);
 				} else {
 					setLoadError(message);
 				}
@@ -282,6 +294,7 @@ export default function SessionsPage() {
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
 		const requested = filterKey;
+		const issued = request.current;
 		setLoadingMore(true);
 		setMoreError(null);
 		try {
@@ -291,17 +304,18 @@ export default function SessionsPage() {
 				...(requested ? { project: requested.split("\n") } : {}),
 			});
 			// A page for the previous choice has nowhere to go.
-			if (latestFilter.current !== requested) return;
+			if (request.current !== issued) return;
 			setSessions((current) => [...(current ?? []), ...page.sessions]);
 			setCursor(page.has_more ? page.cursor : null);
 			setEnded(!page.has_more);
 			setHasMore(page.has_more);
 		} catch (error) {
-			if (latestFilter.current !== requested) return;
+			if (request.current !== issued) return;
 			// The pages already loaded stay. A failed append is a missing tail.
 			setMoreError(describeError(error, "Could not load more sessions."));
 		} finally {
-			setLoadingMore(false);
+			// Not a newer list's request to clear.
+			if (request.current === issued) setLoadingMore(false);
 		}
 	};
 
@@ -317,7 +331,7 @@ export default function SessionsPage() {
 
 	if (sessions === null) return <Loading label="Loading your sessions…" />;
 
-	if (sessions.length === 0 && !entry) {
+	if (sessions.length === 0 && !entry && shownFilter === "") {
 		// Not yet known which empty state is true. Both assert a fact about
 		// machines, and rendering either one now would be a guess dressed up
 		// as an answer - the exact failure mode this type exists to close off.
@@ -392,7 +406,10 @@ export default function SessionsPage() {
 				</div>
 			) : null}
 
-			{entry && sessions.length === 0 && !filterError ? (
+			{entry &&
+			shownFilter === filterKey &&
+			sessions.length === 0 &&
+			!filterError ? (
 				<EmptyState title={`No sessions in ${entry.name}`}>
 					Sessions past the last 180 days are gone, and anything the CLI
 					reported before it knew about repositories has no project.
