@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
 	type LabelMap,
@@ -7,8 +7,10 @@ import {
 	setLabel,
 } from "../api/labelsApi";
 import { listMachines, type Machine } from "../api/machinesApi";
+import { listProjects, type Project } from "../api/projectsApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
+import ProjectFilter from "../components/ProjectFilter";
 import { PALETTE } from "../components/palette";
 import RepositoriesSummary from "../components/RepositoriesSummary";
 import SessionRow, { REPO_LIMIT, SHAPE_LIMIT } from "../components/SessionRow";
@@ -17,6 +19,7 @@ import { EmptyState, Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { timeOf } from "../lib/dayKey";
 import { pluginActivity } from "../lib/pluginActivity";
+import { projectEntries, projectName } from "../lib/projectEntries";
 import {
 	durationMsOf,
 	formatDurationMs,
@@ -29,7 +32,8 @@ import {
 
 // A person's own read of the CLI sessions their machines have reported -
 // every row here already cleared apps/cli's reporting threshold, so unlike
-// ActivityPage this page never has to filter what it shows. See
+// ActivityPage this page has no threshold of its own to apply. The project
+// filter (ONL-209) narrows by repository, and is asked of the server. See
 // sessionsApi.ts's SessionsPage doc comment.
 
 /** How long a session ran, or that it is still running. */
@@ -116,7 +120,7 @@ function reposOf(
 		session.counts_by_project,
 	)) {
 		const machineId = basis === "root" ? session.machine_id : null;
-		const name = labels.get(labelIdentity(key, machineId)) ?? key;
+		const name = projectName(key, machineId, labels);
 		counts[name] = (counts[name] ?? 0) + event_count;
 	}
 	return counts;
@@ -138,6 +142,31 @@ export default function SessionsPage() {
 	// itself, which is what this page showed before names existed. Not worth
 	// an error state of its own - nothing on the page is wrong without them.
 	const [labels, setLabels] = useState<LabelMap>(new Map());
+	// Empty until read, and empty if the read fails: the filter then doesn't
+	// show, and the page is what it was without one.
+	const [projects, setProjects] = useState<Project[]>([]);
+	// A name rather than an entry, so a rename that regroups keys can't leave a
+	// stale set of keys behind: `entry` below is always read from current names.
+	const [selected, setSelected] = useState<string | null>(null);
+	const [filterError, setFilterError] = useState<string | null>(null);
+	// Which filter the rows on screen answer. The empty states speak for an
+	// answer, so they wait for one: leaving a filter that held nothing would
+	// otherwise read its empty rows as an empty account until the reload lands.
+	const [shownFilter, setShownFilter] = useState("");
+	// Counts the loads the filter has started. A counter rather than the filter
+	// itself, because A, then B, then A is the same value as the first A while
+	// being a different list.
+	const request = useRef(0);
+
+	// A project with no sessions has nothing to show here.
+	const entries = projectEntries(
+		projects.filter((project) => project.sessions > 0),
+		labels,
+	);
+	const entry = entries.find((option) => option.name === selected) ?? null;
+	// A string, so the effect below reruns when the keys change and not on
+	// every render. `\n` can't appear in a value.
+	const filterKey = entry?.values.join("\n") ?? "";
 
 	// A second, independent read, kept apart from the sessions fetch rather
 	// than folded into one Promise.all: a failure here says nothing about
@@ -183,21 +212,7 @@ export default function SessionsPage() {
 	);
 
 	useEffect(() => {
-		// An `active` flag, not a request sequence number - this screen has no
-		// filter to mint a second query, so the only thing to guard against is
-		// an unmount mid-flight. Same reasoning as ActivityPage's own effect.
 		let active = true;
-		listSessions({ limit: 200 })
-			.then((page) => {
-				if (!active) return;
-				setSessions(page.sessions);
-				setCursor(page.has_more ? page.cursor : null);
-				setHasMore(page.has_more);
-			})
-			.catch((error: unknown) => {
-				if (!active) return;
-				setLoadError(describeError(error, "Could not load your sessions."));
-			});
 		void checkMachines(() => active);
 		listLabels()
 			.then((loaded) => {
@@ -206,10 +221,62 @@ export default function SessionsPage() {
 			.catch(() => {
 				// Deliberately quiet; see the state's own comment.
 			});
+		listProjects()
+			.then(({ projects: loaded }) => {
+				if (active) setProjects(loaded);
+			})
+			.catch(() => {
+				// Deliberately quiet; see the state's own comment.
+			});
 		return () => {
 			active = false;
 		};
 	}, [checkMachines]);
+
+	// Reruns per filter. `active` is what drops a slow answer to the previous
+	// choice. The rows stay until the new ones land, so the control keeps its
+	// focus and the page doesn't flash a loading state.
+	useEffect(() => {
+		let active = true;
+		request.current += 1;
+		setFilterError(null);
+		setMoreError(null);
+		// A Load more still out belongs to the previous list and is dropped, and
+		// so is its cursor: it pages the old list, and sent with the new project
+		// it would be refused or skip rows.
+		setLoadingMore(false);
+		setCursor(null);
+		listSessions({
+			limit: 200,
+			...(filterKey ? { project: filterKey.split("\n") } : {}),
+		})
+			.then((page) => {
+				if (!active) return;
+				setSessions(page.sessions);
+				setCursor(page.has_more ? page.cursor : null);
+				setHasMore(page.has_more);
+				setEnded(false);
+				setShownFilter(filterKey);
+			})
+			.catch((error: unknown) => {
+				if (!active) return;
+				const message = describeError(error, "Could not load your sessions.");
+				// Filtered, the failure belongs under the control, because a
+				// full-page error would take away the way back to all projects.
+				if (filterKey) {
+					setSessions([]);
+					setCursor(null);
+					setHasMore(false);
+					setFilterError(message);
+					setShownFilter(filterKey);
+				} else {
+					setLoadError(message);
+				}
+			});
+		return () => {
+			active = false;
+		};
+	}, [filterKey]);
 
 	// Applies what the server stored - trimmed - rather than what was typed,
 	// and only once it is stored: a refused name never shows as if it took.
@@ -229,19 +296,29 @@ export default function SessionsPage() {
 
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
+		const requested = filterKey;
+		const issued = request.current;
 		setLoadingMore(true);
 		setMoreError(null);
 		try {
-			const page = await listSessions({ cursor, limit: 200 });
+			const page = await listSessions({
+				cursor,
+				limit: 200,
+				...(requested ? { project: requested.split("\n") } : {}),
+			});
+			// A page for the previous choice has nowhere to go.
+			if (request.current !== issued) return;
 			setSessions((current) => [...(current ?? []), ...page.sessions]);
 			setCursor(page.has_more ? page.cursor : null);
 			setEnded(!page.has_more);
 			setHasMore(page.has_more);
 		} catch (error) {
+			if (request.current !== issued) return;
 			// The pages already loaded stay. A failed append is a missing tail.
 			setMoreError(describeError(error, "Could not load more sessions."));
 		} finally {
-			setLoadingMore(false);
+			// Not a newer list's request to clear.
+			if (request.current === issued) setLoadingMore(false);
 		}
 	};
 
@@ -257,7 +334,7 @@ export default function SessionsPage() {
 
 	if (sessions === null) return <Loading label="Loading your sessions…" />;
 
-	if (sessions.length === 0) {
+	if (sessions.length === 0 && !entry && shownFilter === "") {
 		// Not yet known which empty state is true. Both assert a fact about
 		// machines, and rendering either one now would be a guess dressed up
 		// as an answer - the exact failure mode this type exists to close off.
@@ -316,22 +393,86 @@ export default function SessionsPage() {
 		);
 	}
 
+	const landed = shownFilter === filterKey && !filterError;
+	const resultSummary = !landed
+		? ""
+		: sessions.length > 0
+			? `Showing ${plural(sessions.length, "session")}${hasMore ? ", more to load" : ""}`
+			: entry
+				? `No sessions in ${entry.name}`
+				: "";
+
 	return (
 		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
-			<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
-			<RepositoriesSummary
-				rollup={rollupProjects(sessions)}
-				complete={!hasMore}
-				machineName={(id) =>
-					machinesCheck.kind === "known"
-						? machineName(machinesCheck.machines, id)
-						: null
-				}
-				nameOf={(project) =>
-					labels.get(labelIdentity(project.key, project.machineId)) ?? null
-				}
-				onRename={rename}
-			/>
+			{entries.length > 0 ? (
+				<ProjectFilter
+					entries={entries}
+					value={entry?.name ?? null}
+					onChange={setSelected}
+				/>
+			) : null}
+
+			{/*
+			  One persistent region, as LessonsPage keeps: a screen reader
+			  announces content changing inside a region that is already
+			  there, and does not reliably announce one that appears with its
+			  own text. Visually hidden because the summary below already says
+			  this to the eye. Silent until the answer to the current choice
+			  has landed, so it never speaks for the list being replaced.
+			*/}
+			<p
+				role="status"
+				aria-live="polite"
+				data-testid="sessions-result"
+				style={{
+					position: "absolute",
+					width: "1px",
+					height: "1px",
+					margin: "-1px",
+					padding: 0,
+					overflow: "hidden",
+					clip: "rect(0, 0, 0, 0)",
+					whiteSpace: "nowrap",
+					border: 0,
+				}}
+			>
+				{resultSummary}
+			</p>
+
+			{filterError ? (
+				<div role="alert" style={{ color: PALETTE.danger }}>
+					{filterError}
+				</div>
+			) : null}
+
+			{entry &&
+			shownFilter === filterKey &&
+			sessions.length === 0 &&
+			!filterError ? (
+				<EmptyState title={`No sessions in ${entry.name}`}>
+					Sessions past the last 180 days are gone, and anything the CLI
+					reported before it knew about repositories has no project.
+				</EmptyState>
+			) : null}
+
+			{sessions.length > 0 ? (
+				<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
+			) : null}
+			{sessions.length > 0 ? (
+				<RepositoriesSummary
+					rollup={rollupProjects(sessions)}
+					complete={!hasMore}
+					machineName={(id) =>
+						machinesCheck.kind === "known"
+							? machineName(machinesCheck.machines, id)
+							: null
+					}
+					nameOf={(project) =>
+						labels.get(labelIdentity(project.key, project.machineId)) ?? null
+					}
+					onRename={rename}
+				/>
+			) : null}
 
 			{/* Same grouping rollupSessions's own day totals use - see
 			    groupSessionsByDay's doc comment in sessionRollup.ts for why a
@@ -390,18 +531,20 @@ export default function SessionsPage() {
 				</Panel>
 			))}
 
-			<LoadMore
-				cursor={cursor}
-				loading={loadingMore}
-				ended={ended}
-				// Not "the whole history" - the server only keeps 180 days of it
-				// (see RETENTION_DAYS, apps/api's session-summaries.ts), so this
-				// names the actual boundary rather than a claim the data doesn't
-				// back.
-				endLabel="That's the last 180 days of history."
-				error={moreError}
-				onLoadMore={() => void loadMore()}
-			/>
+			{sessions.length > 0 ? (
+				<LoadMore
+					cursor={cursor}
+					loading={loadingMore}
+					ended={ended}
+					// Not "the whole history" - the server only keeps 180 days of it
+					// (see RETENTION_DAYS, apps/api's session-summaries.ts), so this
+					// names the actual boundary rather than a claim the data doesn't
+					// back.
+					endLabel="That's the last 180 days of history."
+					error={moreError}
+					onLoadMore={() => void loadMore()}
+				/>
+			) : null}
 		</div>
 	);
 }

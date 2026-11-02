@@ -349,6 +349,271 @@ describe("GET /api/sessions", () => {
 	});
 });
 
+describe("GET /api/sessions?project=", () => {
+	const REMOTE = "aaaaaaaaaaaa";
+	const OTHER = "bbbbbbbbbbbb";
+	const ROOT = "cccccccccccc";
+
+	const remote = (key: string) => ({
+		[key]: { basis: "remote", event_count: 1 },
+	});
+	const root = (key: string) => ({ [key]: { basis: "root", event_count: 1 } });
+
+	async function ids(response: Response): Promise<string[]> {
+		const body = (await response.json()) as { sessions: WireSummary[] };
+		return body.sessions.map((s) => s.session_id);
+	}
+
+	it("finds a remote key's sessions on every machine", async () => {
+		const access = await signup("filter-remote@example.com");
+		const m1 = await mint(access, "laptop");
+		const m2 = await mint(access, "desktop");
+		await post(m1.token, {
+			schema_version: 1,
+			sessions: [
+				summary({ session_id: "m1-remote", counts_by_project: remote(REMOTE) }),
+				summary({ session_id: "m1-other", counts_by_project: remote(OTHER) }),
+			],
+		});
+		await post(m2.token, {
+			schema_version: 1,
+			sessions: [
+				summary({ session_id: "m2-remote", counts_by_project: remote(REMOTE) }),
+			],
+		});
+
+		const response = await get(access, `/api/sessions?project=${REMOTE}`);
+
+		expect(response.status).toBe(200);
+		expect((await ids(response)).sort()).toEqual(["m1-remote", "m2-remote"]);
+	});
+
+	it("finds a root key on its own machine only", async () => {
+		const access = await signup("filter-root@example.com");
+		const m1 = await mint(access, "laptop");
+		const m2 = await mint(access, "desktop");
+		await post(m1.token, {
+			schema_version: 1,
+			sessions: [summary({ session_id: "m1", counts_by_project: root(ROOT) })],
+		});
+		await post(m2.token, {
+			schema_version: 1,
+			sessions: [summary({ session_id: "m2", counts_by_project: root(ROOT) })],
+		});
+
+		const response = await get(
+			access,
+			`/api/sessions?project=${m1.id}:${ROOT}`,
+		);
+
+		expect(await ids(response)).toEqual(["m1"]);
+	});
+
+	it("does not read a root key as remote, or a remote key as root", async () => {
+		const access = await signup("filter-basis@example.com");
+		const m1 = await mint(access, "laptop");
+		await post(m1.token, {
+			schema_version: 1,
+			sessions: [
+				summary({ session_id: "is-root", counts_by_project: root(ROOT) }),
+				summary({ session_id: "is-remote", counts_by_project: remote(REMOTE) }),
+			],
+		});
+
+		const asRemote = await get(access, `/api/sessions?project=${ROOT}`);
+		const asRoot = await get(
+			access,
+			`/api/sessions?project=${m1.id}:${REMOTE}`,
+		);
+
+		expect(await ids(asRemote)).toEqual([]);
+		expect(await ids(asRoot)).toEqual([]);
+	});
+
+	it("matches any of several values, each session once", async () => {
+		const access = await signup("filter-several@example.com");
+		const machine = await mint(access, "laptop");
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "both",
+					counts_by_project: { ...remote(REMOTE), ...remote(OTHER) },
+				}),
+			],
+		});
+
+		const response = await get(
+			access,
+			`/api/sessions?project=${REMOTE}&project=${OTHER}`,
+		);
+
+		expect(await ids(response)).toEqual(["both"]);
+	});
+
+	it("keeps a session's other projects", async () => {
+		const access = await signup("filter-keeps@example.com");
+		const machine = await mint(access, "laptop");
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					counts_by_project: { ...remote(REMOTE), ...remote(OTHER) },
+				}),
+			],
+		});
+
+		const response = await get(access, `/api/sessions?project=${REMOTE}`);
+
+		const body = (await response.json()) as {
+			sessions: { counts_by_project: Record<string, unknown> }[];
+		};
+		expect(Object.keys(body.sessions[0].counts_by_project).sort()).toEqual([
+			REMOTE,
+			OTHER,
+		]);
+	});
+
+	it("pages across a filter, every match once", async () => {
+		const access = await signup("filter-pages@example.com");
+		const machine = await mint(access, "laptop");
+		const day = (n: number) =>
+			`2026-09-${String(10 + n).padStart(2, "0")}T00:00:00.000Z`;
+		// Newest first, matches at the even positions: s0 s2 s4 s6 s8.
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: Array.from({ length: 10 }, (_, n) =>
+				summary({
+					session_id: `s${n}`,
+					started_at: day(20 - n),
+					counts_by_project: n % 2 === 0 ? remote(REMOTE) : remote(OTHER),
+				}),
+			),
+		});
+
+		const seen: string[] = [];
+		let path = `/api/sessions?project=${REMOTE}&limit=2`;
+		let hasMore = true;
+		while (hasMore) {
+			const body = (await (await get(access, path)).json()) as {
+				sessions: WireSummary[];
+				cursor: string | null;
+				has_more: boolean;
+			};
+			seen.push(...body.sessions.map((s) => s.session_id));
+			hasMore = body.has_more;
+			if (hasMore) {
+				path = `/api/sessions?project=${REMOTE}&limit=2&cursor=${encodeURIComponent(body.cursor as string)}`;
+			}
+		}
+
+		expect(seen).toEqual(["s0", "s2", "s4", "s6", "s8"]);
+	});
+
+	it("never reaches another account's sessions", async () => {
+		const mine = await signup("filter-mine@example.com");
+		const myMachine = await mint(mine, "laptop");
+		await post(myMachine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({ session_id: "mine", counts_by_project: remote(REMOTE) }),
+			],
+		});
+		const theirs = await signup("filter-theirs@example.com");
+		const theirMachine = await mint(theirs, "laptop");
+		await post(theirMachine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "theirs",
+					counts_by_project: { ...remote(REMOTE), ...root(ROOT) },
+				}),
+			],
+		});
+
+		const shared = await get(mine, `/api/sessions?project=${REMOTE}`);
+		const theirRoot = await get(
+			mine,
+			`/api/sessions?project=${theirMachine.id}:${ROOT}`,
+		);
+
+		expect(await ids(shared)).toEqual(["mine"]);
+		expect(await ids(theirRoot)).toEqual([]);
+	});
+
+	it("refuses more than 40 values", async () => {
+		const access = await signup("filter-many@example.com");
+		const keys = (count: number) =>
+			Array.from(
+				{ length: count },
+				(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
+			).join("&");
+
+		const over = await get(access, `/api/sessions?${keys(41)}`);
+		const at = await get(access, `/api/sessions?${keys(40)}`);
+
+		expect(over.status).toBe(400);
+		expect((await over.json()) as { error: { code: string } }).toMatchObject({
+			error: { code: "invalid_project" },
+		});
+		expect(at.status).toBe(200);
+	});
+
+	// The widest read: every value a root key (two binds each) and a cursor
+	// present, 86 parameters against D1's 100.
+	it("answers 40 root values with a cursor", async () => {
+		const access = await signup("filter-widest@example.com");
+		const machine = await mint(access, "laptop");
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					session_id: "w1",
+					started_at: "2026-09-12T00:00:00.000Z",
+					counts_by_project: root(ROOT),
+				}),
+				summary({
+					session_id: "w2",
+					started_at: "2026-09-11T00:00:00.000Z",
+					counts_by_project: root(ROOT),
+				}),
+			],
+		});
+		const firstPage = await get(access, "/api/sessions?limit=1");
+		const first = (await firstPage.json()) as { cursor: string };
+		const values = Array.from(
+			{ length: 40 },
+			(_, i) => `project=m${i}:${i.toString(16).padStart(12, "0")}`,
+		).join("&");
+
+		const response = await get(
+			access,
+			`/api/sessions?${values}&cursor=${encodeURIComponent(first.cursor)}`,
+		);
+
+		expect(response.status).toBe(200);
+	});
+
+	it.each([
+		["text that is not a key", "nope"],
+		["an upper-case key", "AAAAAAAAAAAA"],
+		["a root key with no machine", ":aaaaaaaaaaaa"],
+		["a machine with no key", "m1:"],
+	])("refuses a malformed value: %s", async (_label, value) => {
+		const access = await signup(`filter-bad-${_label.length}@example.com`);
+
+		const response = await get(
+			access,
+			`/api/sessions?project=${encodeURIComponent(value)}`,
+		);
+
+		expect(response.status).toBe(400);
+		expect(
+			(await response.json()) as { error: { code: string } },
+		).toMatchObject({ error: { code: "invalid_project" } });
+	});
+});
+
 describe("pruneSessionSummaries", () => {
 	// A fixed anchor rather than the real clock, so the boundary test below is
 	// exact instead of racing the few milliseconds between seeding a row and
@@ -502,6 +767,25 @@ describe("counts_by_project", () => {
 		});
 
 		expect(response.status).toBe(400);
+	});
+
+	// A key this route can't filter on shouldn't cost a machine its sync.
+	it("accepts a project key that is not 12 hex", async () => {
+		const access = await signup("badkey@example.com");
+		const machine = await mint(access, "laptop");
+
+		const response = await post(machine.token, {
+			schema_version: 1,
+			sessions: [
+				summary({
+					counts_by_project: {
+						"not-a-key": { basis: "remote", event_count: 3 },
+					},
+				}),
+			],
+		});
+
+		expect(response.status).toBe(200);
 	});
 
 	it("rejects an array where the map belongs", async () => {

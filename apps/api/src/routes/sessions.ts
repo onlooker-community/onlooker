@@ -1,8 +1,12 @@
 import { BROWSE_DEFAULT_LIMIT, InvalidCursorError } from "../db/lessons.js";
 import type { Principal } from "../db/pool.js";
-import type { SessionSummaryInput } from "../db/session-summaries.js";
+import type {
+	ProjectFilter,
+	SessionSummaryInput,
+} from "../db/session-summaries.js";
 import {
 	listSessionSummaries,
+	MAX_PROJECT_FILTERS,
 	putSessionSummaries,
 } from "../db/session-summaries.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
@@ -22,6 +26,28 @@ const MAX_SESSIONS_BYTES = 256 * 1024;
 
 /** The only document shape this server knows how to store. */
 const SUPPORTED_SCHEMA_VERSION = 1;
+
+/** `<key>` for a remote key, `<machine_id>:<key>` for a root key. */
+const PROJECT_VALUE = /^(?:([^:]+):)?([0-9a-f]{12})$/;
+
+/** The `project` values of a read, or throws 400. */
+function parseProjectFilters(url: URL): ProjectFilter[] {
+	const values = url.searchParams.getAll("project");
+	if (values.length > MAX_PROJECT_FILTERS) {
+		throw new ApiError(
+			400,
+			"invalid_project",
+			`Ask for at most ${MAX_PROJECT_FILTERS} projects at once`,
+		);
+	}
+	return values.map((value) => {
+		const match = PROJECT_VALUE.exec(value);
+		if (!match) {
+			throw new ApiError(400, "invalid_project", "That is not a project");
+		}
+		return { key: match[2], machineId: match[1] ?? null };
+	});
+}
 
 /**
  * Whether `counts_by_project` is a map of project key -> {basis, event_count}.
@@ -215,11 +241,13 @@ export async function handleGetSessions(
 	// request serves nobody.
 	const requested = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
 	const limit = Number.isNaN(requested) ? BROWSE_DEFAULT_LIMIT : requested;
+	const projects = parseProjectFilters(url);
 
 	try {
 		const page = await listSessionSummaries(env.DB, userId, {
 			cursor: url.searchParams.get("cursor"),
 			limit,
+			projects,
 		});
 		return Response.json({
 			sessions: page.sessions,

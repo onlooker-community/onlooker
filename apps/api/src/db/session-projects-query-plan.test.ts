@@ -3,6 +3,7 @@ import { session_projects } from "@onlooker/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { client } from "./client.js";
+import { projectFilterClause } from "./session-summaries.js";
 
 /**
  * How SQLite finds one session's session_projects rows.
@@ -34,5 +35,30 @@ describe("the session_projects lookup by session", () => {
 		const plan = (results ?? []).map((row) => row.detail);
 
 		expect(plan.join("\n")).toContain("session_projects_session_idx");
+	});
+});
+
+describe("a project filter", () => {
+	// Only what holds without planner statistics: the subquery is read through
+	// the user-and-key index. Where the outer query starts is the planner's
+	// choice, and not asserted.
+	it("reads session_projects through session_projects_user_key_idx", async () => {
+		const clause = projectFilterClause("u1", [
+			{ key: "aaaaaaaaaaaa", machineId: null },
+			{ key: "bbbbbbbbbbbb", machineId: "m1" },
+		]);
+		const { results } = await env.DB.prepare(
+			`EXPLAIN QUERY PLAN
+			 SELECT session_id FROM session_summaries
+			 WHERE user_id = ? AND ${clause.sql}
+			 ORDER BY started_at DESC LIMIT 200`,
+		)
+			.bind("u1", ...clause.binds)
+			.all<{ detail: string }>();
+		const plan = (results ?? []).map((row) => row.detail).join("\n");
+
+		expect(plan).toMatch(
+			/session_projects.*USING.*INDEX session_projects_user_key_idx/,
+		);
 	});
 });
