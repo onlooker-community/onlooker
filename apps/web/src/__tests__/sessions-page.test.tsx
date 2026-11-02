@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 	listMachines: vi.fn(),
 	listLabels: vi.fn(),
 	setLabel: vi.fn(),
+	listProjects: vi.fn(),
 }));
 
 // importOriginal so labelIdentity stays real: the page and these tests must
@@ -43,6 +44,11 @@ vi.mock("../api/labelsApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../api/labelsApi")>()),
 	listLabels: mocks.listLabels,
 	setLabel: mocks.setLabel,
+}));
+
+vi.mock("../api/projectsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/projectsApi")>()),
+	listProjects: mocks.listProjects,
 }));
 
 vi.mock("../api/sessionsApi", () => ({
@@ -170,10 +176,29 @@ const TWO_DAYS = {
 	has_more: false,
 };
 
+const KEY_A = "aaaaaaaaaaaa";
+const KEY_B = "bbbbbbbbbbbb";
+// Known to the server, but with no session left to show.
+const KEY_C = "cccccccccccc";
+
+function project(key: string, sessions: number) {
+	return {
+		project_key: key,
+		basis: "remote",
+		machine_id: null,
+		sessions,
+		events: sessions * 10,
+		last_seen_at: null,
+	};
+}
+
 beforeEach(() => {
 	mocks.listSessions.mockReset().mockResolvedValue(ONE_SESSION);
 	mocks.listMachines.mockReset().mockResolvedValue(ONE_MACHINE);
 	mocks.listLabels.mockReset().mockResolvedValue(new Map());
+	mocks.listProjects.mockReset().mockResolvedValue({
+		projects: [project(KEY_A, 3), project(KEY_B, 2), project(KEY_C, 0)],
+	});
 	mocks.setLabel
 		.mockReset()
 		.mockImplementation(async (_key, _machine, label: string | null) =>
@@ -1034,6 +1059,295 @@ describe("/sessions per repository", () => {
 				).value,
 			).toBe("x‮");
 		});
+	});
+});
+
+describe("/sessions filtered by project (ONL-209)", () => {
+	/** A one-session page, told apart from the others by its prompt count. */
+	function pageOf(
+		prompts: number,
+		extra: { cursor?: string; keys?: string[] } = {},
+	) {
+		return {
+			sessions: [
+				{
+					...ONE_SESSION.sessions[0],
+					session_id: `p${prompts}`,
+					prompts,
+					compactions: 0,
+					counts_by_project: Object.fromEntries(
+						(extra.keys ?? []).map((key) => [
+							key,
+							{ basis: "remote", event_count: 5 },
+						]),
+					),
+				},
+			],
+			cursor: extra.cursor ?? null,
+			has_more: extra.cursor !== undefined,
+		};
+	}
+
+	function deferred<T>() {
+		let resolve: (value: T) => void = () => {};
+		let reject: (reason: unknown) => void = () => {};
+		const promise = new Promise<T>((res, rej) => {
+			resolve = res;
+			reject = rej;
+		});
+		return { promise, resolve, reject };
+	}
+
+	// Read off the rows: the summary above them restates the longest
+	// session's prompts, so a page-wide text query finds it twice.
+	function promptsShown(): number[] {
+		return screen
+			.queryAllByTestId("session-row")
+			.map((row) => Number(/(\d+) prompts?/.exec(row.textContent ?? "")?.[1]));
+	}
+
+	async function showsPrompts(count: number) {
+		await waitFor(() => expect(promptsShown()).toContain(count));
+	}
+
+	async function filterControl(): Promise<HTMLSelectElement> {
+		return (await screen.findByLabelText("Project")) as HTMLSelectElement;
+	}
+
+	function changeProject(name: string) {
+		fireEvent.change(screen.getByLabelText("Project"), {
+			target: { value: name },
+		});
+	}
+
+	it("offers all projects and an entry per name, leaving out one with no sessions", async () => {
+		renderAppAt("/sessions");
+
+		const select = await filterControl();
+		expect(
+			within(select)
+				.getAllByRole("option")
+				.map((option) => option.textContent),
+		).toEqual(["All projects", KEY_A, KEY_B]);
+	});
+
+	it("sends no project on the first load", async () => {
+		renderAppAt("/sessions");
+
+		await filterControl();
+		expect(mocks.listSessions).toHaveBeenCalledTimes(1);
+		expect(mocks.listSessions).toHaveBeenCalledWith({ limit: 200 });
+	});
+
+	it("asks the server for the chosen project and shows what came back", async () => {
+		mocks.listSessions.mockImplementation(async (options) =>
+			options.project ? pageOf(7) : ONE_SESSION,
+		);
+		renderAppAt("/sessions");
+		await filterControl();
+
+		changeProject(KEY_A);
+
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({
+				limit: 200,
+				project: [KEY_A],
+			}),
+		);
+		await showsPrompts(7);
+		expect(promptsShown()).toEqual([7]);
+	});
+
+	it("sends every key that shares the chosen name", async () => {
+		mocks.listLabels.mockResolvedValue(
+			new Map([
+				[labelIdentity(KEY_A, null), "onlooker"],
+				[labelIdentity(KEY_B, null), "onlooker"],
+			]),
+		);
+		renderAppAt("/sessions");
+		await waitFor(async () =>
+			expect(
+				within(await filterControl())
+					.getAllByRole("option")
+					.map((option) => option.textContent),
+			).toEqual(["All projects", "onlooker"]),
+		);
+
+		changeProject("onlooker");
+
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({
+				limit: 200,
+				project: [KEY_A, KEY_B],
+			}),
+		);
+	});
+
+	it("keeps the project when loading more", async () => {
+		mocks.listSessions.mockImplementation(async (options) =>
+			options.project ? pageOf(7, { cursor: "f1" }) : ONE_SESSION,
+		);
+		renderAppAt("/sessions");
+		await filterControl();
+		changeProject(KEY_A);
+		await showsPrompts(7);
+
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({
+				cursor: "f1",
+				limit: 200,
+				project: [KEY_A],
+			}),
+		);
+	});
+
+	it("starts paging over when the choice changes", async () => {
+		mocks.listSessions.mockImplementation(async (options) => {
+			if (options.project?.[0] === KEY_A) return pageOf(7, { cursor: "fa" });
+			if (options.project?.[0] === KEY_B) return pageOf(8, { cursor: "fb" });
+			return ONE_SESSION;
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+		changeProject(KEY_A);
+		await showsPrompts(7);
+		changeProject(KEY_B);
+		await showsPrompts(8);
+
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({
+				cursor: "fb",
+				limit: 200,
+				project: [KEY_B],
+			}),
+		);
+	});
+
+	it("ignores a slow answer to a choice that has since changed", async () => {
+		const slow = deferred<ReturnType<typeof pageOf>>();
+		mocks.listSessions.mockImplementation((options) => {
+			if (options.project?.[0] === KEY_A) return slow.promise;
+			if (options.project?.[0] === KEY_B) return Promise.resolve(pageOf(8));
+			return Promise.resolve(ONE_SESSION);
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+		changeProject(KEY_A);
+		changeProject(KEY_B);
+		await showsPrompts(8);
+
+		await act(async () => {
+			slow.resolve(pageOf(7));
+		});
+
+		expect(promptsShown()).toEqual([8]);
+	});
+
+	it("does not append a slow Load more to a different choice", async () => {
+		const slow = deferred<ReturnType<typeof pageOf>>();
+		mocks.listSessions.mockImplementation((options) => {
+			if (options.cursor) return slow.promise;
+			if (options.project?.[0] === KEY_A) return Promise.resolve(pageOf(7));
+			return Promise.resolve({ ...pageOf(5), cursor: "c1", has_more: true });
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+		changeProject(KEY_A);
+		await showsPrompts(7);
+
+		await act(async () => {
+			slow.resolve(pageOf(9));
+		});
+
+		expect(promptsShown()).toEqual([7]);
+	});
+
+	it("says a project has no sessions without taking the page's empty states", async () => {
+		mocks.listSessions.mockImplementation(async (options) =>
+			options.project ? EMPTY : ONE_SESSION,
+		);
+		renderAppAt("/sessions");
+		await filterControl();
+
+		changeProject(KEY_A);
+
+		expect(await screen.findByText(`No sessions in ${KEY_A}`)).toBeDefined();
+		expect(((await filterControl()) as HTMLSelectElement).value).toBe(KEY_A);
+		expect(screen.queryByText(/no machine has synced/i)).toBeNull();
+		expect(screen.queryByText(/threshold/i)).toBeNull();
+		expect(screen.queryByText("What you loaded")).toBeNull();
+	});
+
+	it("reports a failed filtered load under the control, and recovers", async () => {
+		mocks.listSessions.mockImplementation(async (options) => {
+			if (options.project) throw new Error("sessions are down");
+			return ONE_SESSION;
+		});
+		renderAppAt("/sessions");
+		await filterControl();
+
+		changeProject(KEY_A);
+
+		expect((await screen.findByRole("alert")).textContent).toMatch(
+			/sessions are down/,
+		);
+		expect(((await filterControl()) as HTMLSelectElement).value).toBe(KEY_A);
+
+		changeProject("");
+
+		await showsPrompts(5);
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	it("falls back to all projects when the chosen name goes away", async () => {
+		mocks.listLabels.mockResolvedValue(
+			new Map([[labelIdentity(KEY_A, null), "alpha"]]),
+		);
+		mocks.listSessions.mockImplementation(async (options) =>
+			options.project ? pageOf(7, { keys: [KEY_A] }) : ONE_SESSION,
+		);
+		renderAppAt("/sessions");
+		await waitFor(async () =>
+			expect(
+				within(await filterControl())
+					.getAllByRole("option")
+					.map((option) => option.textContent),
+			).toContain("alpha"),
+		);
+		changeProject("alpha");
+		await showsPrompts(7);
+
+		const panel = await screen.findByTestId("repositories-summary");
+		fireEvent.click(
+			within(panel).getByRole("button", { name: "Rename repository alpha" }),
+		);
+		fireEvent.change(
+			within(panel).getByRole("textbox", { name: `Name for ${KEY_A}` }),
+			{ target: { value: "zeta" } },
+		);
+		fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
+
+		await waitFor(async () =>
+			expect(((await filterControl()) as HTMLSelectElement).value).toBe(""),
+		);
+		await waitFor(() =>
+			expect(mocks.listSessions).toHaveBeenLastCalledWith({ limit: 200 }),
+		);
+	});
+
+	it("hides the filter and keeps the page working when projects cannot be read", async () => {
+		mocks.listProjects.mockRejectedValue(new Error("offline"));
+		renderAppAt("/sessions");
+
+		await screen.findByTestId("session-row");
+		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
+		expect(screen.queryByLabelText("Project")).toBeNull();
 	});
 });
 

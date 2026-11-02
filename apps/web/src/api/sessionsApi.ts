@@ -102,6 +102,8 @@ export interface ListSessionsOptions {
 	 * `has_more` comes back true - see components/SessionsSummary.tsx.
 	 */
 	limit?: number;
+	/** `<key>` or `<machine_id>:<key>` values; see lib/projectEntries.ts. */
+	project?: string[];
 }
 
 /**
@@ -117,6 +119,7 @@ export function listSessions(
 	const query = new URLSearchParams();
 	if (options.cursor) query.set("cursor", options.cursor);
 	if (options.limit) query.set("limit", String(options.limit));
+	for (const value of options.project ?? []) query.append("project", value);
 
 	const search = query.toString();
 	return apiClient.get<SessionsPage>(

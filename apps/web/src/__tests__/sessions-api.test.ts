@@ -36,4 +36,13 @@ describe("listSessions", () => {
 		await listSessions({ cursor: "c1", limit: 200 });
 		expect(mocks.get).toHaveBeenCalledWith("/api/sessions?cursor=c1&limit=200");
 	});
+
+	// One value per key under a name, so the parameter repeats rather than
+	// joining with a separator a key could in principle contain.
+	it("repeats the project parameter for each value", async () => {
+		await listSessions({ limit: 200, project: ["aaa", "m1:bbb"] });
+		expect(mocks.get).toHaveBeenCalledWith(
+			"/api/sessions?limit=200&project=aaa&project=m1%3Abbb",
+		);
+	});
 });
