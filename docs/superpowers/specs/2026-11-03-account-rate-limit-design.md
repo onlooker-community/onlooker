@@ -118,7 +118,11 @@ problem. So a refusal reports only when `LIMIT_REPORT_GATE` allows it, keyed
 - Fingerprint `["account_rate_limited"]`.
 - Tags: the route's method and its pattern (for example
   `POST /lessons/:id/status`), never the concrete path.
-- The user id goes in Sentry's user context. It's an opaque id, not an email.
+- The user id goes in the event's `extra`, as `user_id`, not in a tag. It's an
+  opaque id, not an email. (`CaptureContext` in `packages/monitoring` has no
+  per-event user, and `setUser` is global to the isolate.)
+- With no `LIMIT_REPORT_GATE`, a refusal still answers 429 but isn't reported,
+  since one report per refused request is the flood the gate exists to stop.
 
 ## Failure *(approved)*
 
