@@ -66,6 +66,14 @@ const spendThePool = (pool: MailPool) =>
 		)
 		.run();
 
+const poolCount = async (pool: MailPool) =>
+	(
+		await db()
+			.prepare("SELECT count FROM mail_sends WHERE key = ?")
+			.bind(globalMailKey(pool, new Date()))
+			.first<{ count: number }>()
+	)?.count;
+
 describe("POST /auth/forgot-password under the cap", () => {
 	let ada: SignedUpUser;
 	beforeEach(async () => {
@@ -139,7 +147,43 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
 	});
 
-	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
+	it("sends nothing once both reset pools are spent, and answers exactly as a send", async () => {
+		await spendThePool("reset-open");
+		await spendThePool("reset-reserved");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		const response = await post("/auth/forgot-password", { email: ADA });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
+	});
+
+	// The reserve's whole point: the open share is gone, and the people who
+	// would be locked out by it are still served.
+	it("sends a reset to an established account while fresh accounts have spent the open share", async () => {
+		await spendThePool("reset-open");
+		const bob = await signup("bob@example.com");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+		await db()
+			.prepare("UPDATE users SET email_verified = ? WHERE id = ?")
+			.bind(new Date().toISOString(), bob.id)
+			.run();
+
+		await post("/auth/forgot-password", { email: ADA });
+		await post("/auth/forgot-password", { email: "bob@example.com" });
+
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+		expect(await tokenHashes(bob.id, "reset")).toHaveLength(1);
+	});
+
+	it("sends nothing to a fresh account once the open share is spent, and answers exactly as a send", async () => {
 		await spendThePool("reset-open");
 
 		const response = await post("/auth/forgot-password", { email: ADA });
@@ -147,6 +191,23 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe(JSON.stringify({ success: true }));
 		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
+	});
+
+	it("spills an established account into the open share once the reserve is spent", async () => {
+		await spendThePool("reset-reserved");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		await post("/auth/forgot-password", { email: ADA });
+
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+		// A fresh account would have sent just the same, from the open share
+		// alone. What shows this one asked the reserve first is its counter
+		// moving past the ceiling, and the send counted against the open share.
+		expect(await poolCount("reset-reserved")).toBe(RESET_POOLS.reserved + 1);
+		expect(await poolCount("reset-open")).toBe(1);
 	});
 });
 

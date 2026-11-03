@@ -10,7 +10,7 @@
  */
 
 import { accountDeletionPreview } from "../db/lessons.js";
-import { claimMailSend } from "../db/mail-sends.js";
+import { claimMailSend, isEstablished } from "../db/mail-sends.js";
 import { soleOwnedOrgs } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import {
@@ -456,13 +456,14 @@ export async function handleForgotPassword(
 		// link the owner already holds and send nothing in its place. And
 		// answered exactly like a send: anything else would say this address
 		// has an account (ONL-222).
+		//
+		// A user row already read, so this costs no query. See isEstablished
+		// for why these two facts, and the reset reserve for what they buy.
 		const claim = await claimMailSend(env.DB, "reset", user.email, {
-			established: false,
+			established: isEstablished(user, new Date()),
 		});
-		if (!claim.ok) {
-			reportMailClaim(claim, "reset");
-			return jsonResponse({ success: true });
-		}
+		reportMailClaim(claim, "reset");
+		if (!claim.ok) return jsonResponse({ success: true });
 
 		await deleteVerificationTokens(env.DB, user.id, "reset");
 		const token = await createVerificationToken(
