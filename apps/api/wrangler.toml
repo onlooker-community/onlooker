@@ -75,6 +75,20 @@ database_id = "00000000-0000-0000-0000-000000000000"
 # packages/db owns the schema and generates these; see the note under staging.
 migrations_dir = "../../packages/db/migrations"
 
+# The per-account circuit breaker, see apps/api/src/middleware/account-limit.ts.
+# Namespace ids are unique per environment so one environment's traffic can't
+# spend another's counts. The period must be 10 or 60.
+[[env.development.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1101"
+simple = { limit = 1000, period = 60 }
+
+# One Sentry report per account per minute when the limiter refuses.
+[[env.development.ratelimits]]
+name = "LIMIT_REPORT_GATE"
+namespace_id = "1102"
+simple = { limit = 1, period = 60 }
+
 # ============================================================================
 # STAGING ENVIRONMENT
 # ============================================================================
@@ -152,6 +166,17 @@ database_id = "ff3a01c8-aedb-4bc2-8231-b8511b353728"
 # Previously "migrations" (apps/api/migrations), which described a different
 # schema than packages/db did - that divergence is what onlooker-1g9 fixed.
 migrations_dir = "../../packages/db/migrations"
+
+# See the note under [[env.development.ratelimits]].
+[[env.staging.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1201"
+simple = { limit = 1000, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "LIMIT_REPORT_GATE"
+namespace_id = "1202"
+simple = { limit = 1, period = 60 }
 
 # ============================================================================
 # PRODUCTION ENVIRONMENT
@@ -234,6 +259,17 @@ binding = "DB"
 database_name = "onlooker-db"
 migrations_dir = "../../packages/db/migrations"
 database_id = "5473b131-271e-4ce9-84e5-b48a93269dc8"
+
+# See the note under [[env.development.ratelimits]].
+[[env.production.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1301"
+simple = { limit = 1000, period = 60 }
+
+[[env.production.ratelimits]]
+name = "LIMIT_REPORT_GATE"
+namespace_id = "1302"
+simple = { limit = 1, period = 60 }
 
 # ============================================================================
 # OBSERVABILITY & MONITORING

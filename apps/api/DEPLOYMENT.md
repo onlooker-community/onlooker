@@ -309,9 +309,10 @@ const hash = await hashPassword(password);
 
 No general-purpose limiter in worker code. There is no `rateLimit` function in
 this codebase and no KV namespace for one to use — the sample previously here
-called both. The worker has two targeted limits instead, both described below:
-the mail cap (`src/db/mail-sends.ts`) and the login backoff
-(`src/db/login-attempts.ts`).
+called both. The worker has three targeted limits instead, all described below:
+the mail cap (`src/db/mail-sends.ts`), the login backoff
+(`src/db/login-attempts.ts`) and the per-account circuit breaker
+(`src/middleware/account-limit.ts`).
 A browser-side throttle (`apps/web/src/utils/rateLimiting.ts`) used to sit in the
 web app; it was unused and is removed, since anything calling the API directly
 ignored it anyway.
@@ -451,10 +452,43 @@ makes an attacker rotate addresses. The counter keys on a hash of the
 submitted address so the 429 reveals nothing about which accounts exist, and
 the gate runs before bcrypt, which a source guard asserts.
 
-Still unimplemented: per-account limits on anything other than login. That is
-the next slice of ONL-222. Mail is covered: how many mails one address can be
-made to receive from many clients is the mail cap described above, not the
-zone rule.
+Mail is covered: how many mails one address can be made to receive from many
+clients is the mail cap described above, not the zone rule.
+
+#### Per-account limit (signed-in routes)
+
+Every request that carries a credential, whether a session, a machine token or
+the operator's, counts against one budget per account: 1,000 requests per 60
+seconds, keyed by user id. The browser and every machine on the account share
+it.
+
+**Why 1,000.** The worst legitimate sync measured on 2026-11-03 is about 74
+requests in 15 to 30 seconds. Two machines syncing at once come to about 600 a
+minute, and nothing calls the API without a person running the CLI. So this is
+a circuit breaker for a runaway script or a stolen token, not a quota, and no
+one doing real work should meet it. A refusal is a 429 `rate_limited` with
+`Retry-After: 60`.
+
+**The mechanism** is the Workers rate limiting binding, `ACCOUNT_LIMITER`
+(`src/middleware/account-limit.ts`). It is approximate and counted per
+Cloudflare location, and it costs no D1 read or write. It runs in `dispatch`
+after the principal resolves, so a flood with a valid token still pays the
+credential check but not the handler. A source guard pins that order. Routes
+with no credential have no principal and are not counted here; the zone rule
+above is their limit.
+
+**Alerting.** The first refusal per account per minute raises a Sentry issue
+fingerprinted `["account_rate_limited"]`, tagged with the route, with `user_id`
+in extra. `LIMIT_REPORT_GATE`, a second binding allowing one call per account
+per minute, decides which refusal that is. Later refusals in the minute are
+refused without raising another.
+
+**It fails open.** With no binding the limit is off, which is the state of the
+test pool. A binding that throws is reported as `["account_limiter_failed"]`
+and the request goes through.
+
+The CLI does not yet read `Retry-After`, so a 429 can abort a push. That
+follow-up is ONL-242.
 
 ### Public lesson reads
 

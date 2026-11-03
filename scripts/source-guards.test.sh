@@ -466,6 +466,30 @@ else
 fi
 
 echo
+echo "source-guards: the account limit runs between the principal and the handler"
+
+# ONL-222. dispatch counts a signed-in request against its account after
+# resolvePrincipal - so the key is a verified user id, not a claimed one - and
+# before the handler, which is where the cost is. A limit moved above the
+# principal would key on nothing; one moved below the handler would refuse
+# work already done. The route tests can see a 429, but not which side of the
+# handler it came from, so line order is pinned here, like the login gate.
+router_file="${ROOT}/apps/api/src/router.ts"
+principal_line="$(grep -n 'await resolvePrincipal(' "${router_file}" | head -1 | cut -d: -f1)"
+limit_line="$(grep -n 'await enforceAccountLimit(' "${router_file}" | head -1 | cut -d: -f1)"
+handler_line="$(grep -n 'await matched.route.handler(' "${router_file}" | head -1 | cut -d: -f1)"
+
+if [[ -z "${principal_line}" || -z "${limit_line}" || -z "${handler_line}" ]]; then
+	fail "dispatch still resolves a principal, enforces the account limit and calls the handler" \
+		"resolvePrincipal at '${principal_line:-none}', enforceAccountLimit at '${limit_line:-none}', handler at '${handler_line:-none}'"
+elif (( principal_line < limit_line && limit_line < handler_line )); then
+	pass "dispatch enforces the account limit after resolvePrincipal and before the handler"
+else
+	fail "dispatch enforces the account limit after resolvePrincipal and before the handler" \
+		"resolvePrincipal at ${principal_line}, enforceAccountLimit at ${limit_line}, handler at ${handler_line}"
+fi
+
+echo
 echo "source-guards: every mail sender claims a slot before it sends"
 
 # ONL-222. The mail cap is checked in each handler rather than inside
