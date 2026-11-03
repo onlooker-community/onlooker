@@ -6,7 +6,8 @@ import {
 	DAILY_MAIL_CEILINGS,
 	globalMailKey,
 	inviterMailKey,
-	type MailKind,
+	type MailPool,
+	RESET_POOLS,
 } from "../db/mail-sends.js";
 import {
 	call,
@@ -46,15 +47,22 @@ const tokenHashes = async (userId: string, type: "reset" | "verify") =>
 			.all<{ token_hash: string }>()
 	).results.map((row) => row.token_hash);
 
-const spendThePool = (kind: MailKind) =>
+const POOL_CEILINGS: Record<MailPool, number> = {
+	"reset-reserved": RESET_POOLS.reserved,
+	"reset-open": RESET_POOLS.open,
+	verify: DAILY_MAIL_CEILINGS.verify,
+	invite: DAILY_MAIL_CEILINGS.invite,
+};
+
+const spendThePool = (pool: MailPool) =>
 	db()
 		.prepare(
 			"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
 		)
 		.bind(
-			globalMailKey(kind, new Date()),
+			globalMailKey(pool, new Date()),
 			new Date().toISOString(),
-			DAILY_MAIL_CEILINGS[kind],
+			POOL_CEILINGS[pool],
 		)
 		.run();
 
@@ -132,7 +140,7 @@ describe("POST /auth/forgot-password under the cap", () => {
 	});
 
 	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
-		await spendThePool("reset");
+		await spendThePool("reset-open");
 
 		const response = await post("/auth/forgot-password", { email: ADA });
 

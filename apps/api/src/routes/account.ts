@@ -29,7 +29,7 @@ import {
 	verificationTokenTarget,
 } from "../db/queries";
 import { sendEmail } from "../email";
-import { mailRateLimitError, reportMailRefusal } from "../email/cap.js";
+import { mailRateLimitError, reportMailClaim } from "../email/cap.js";
 import {
 	passwordResetEmail,
 	RESET_TOKEN_TTL_MS,
@@ -400,7 +400,7 @@ export async function handleResendVerification(
 	// own address, so a 429 tells them nothing they did not know (ONL-222).
 	const claim = await claimMailSend(env.DB, "verify", user.email);
 	if (!claim.ok) {
-		reportMailRefusal(claim, "verify");
+		reportMailClaim(claim, "verify");
 		throw mailRateLimitError(claim);
 	}
 
@@ -456,9 +456,11 @@ export async function handleForgotPassword(
 		// link the owner already holds and send nothing in its place. And
 		// answered exactly like a send: anything else would say this address
 		// has an account (ONL-222).
-		const claim = await claimMailSend(env.DB, "reset", user.email);
+		const claim = await claimMailSend(env.DB, "reset", user.email, {
+			established: false,
+		});
 		if (!claim.ok) {
-			reportMailRefusal(claim, "reset");
+			reportMailClaim(claim, "reset");
 			return jsonResponse({ success: true });
 		}
 
