@@ -49,8 +49,10 @@ const POOL_CEILINGS: Record<MailPool, number> = {
 
 /** What a spent pool means for mail, until UTC midnight. */
 const CONSEQUENCES: Record<MailPool, string> = {
-	"reset-reserved": "established accounts now share the open pool",
-	"reset-open": "resets for new, unverified accounts are refused",
+	"reset-reserved":
+		"established accounts are still served, from the open share, but nobody is refused yet",
+	"reset-open":
+		"resets for new, unverified accounts are refused, and so are established ones once the reserve is spent",
 	verify: "refusing verify mail until UTC midnight",
 	invite: "refusing invite mail until UTC midnight",
 };

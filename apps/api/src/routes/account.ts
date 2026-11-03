@@ -461,6 +461,7 @@ export async function handleForgotPassword(
 		// for why these two facts, and the reset reserve for what they buy.
 		const claim = await claimMailSend(env.DB, "reset", user.email, {
 			established: isEstablished(user, new Date()),
+			userId: user.id,
 		});
 		reportMailClaim(claim, "reset");
 		if (!claim.ok) return jsonResponse({ success: true });

@@ -49,14 +49,22 @@ and the monthly arithmetic in `DAILY_MAIL_CEILINGS` don't change.
   claims the open share, so it is never worse off than under one pool.
 - Any other account claims the open share only.
 - The per-address caps (3 an hour, 6 a day) still come first and are unchanged.
+- A per-account cap follows them: 6 resets per 24 hours per user id, counted
+  as `reset-user-day:<user id>` (`USER_RESET_LIMIT`). Added after review: an
+  account keeps its age through an email change (`handleUpdateProfile` clears
+  `email_verified` but not `created_at`), so without it one aged account could
+  change address, take six resets, and repeat until it had spent the reserve.
+  A refusal is scope `"address"`, so it reports like the address caps and
+  forgot-password still answers the same 200.
 
 Fresh accounts can spend at most 10 a day, about two addresses at the daily
-cap. Spending the reserve needs 6 established accounts.
+cap. Spending the reserve needs 6 established accounts, since each is held to
+6 resets a day whatever addresses it uses.
 
 ## The code *(proposed)*
 
-- `claimMailSend(db, "reset", address, { established })`. The reset overload
-  requires `established`, so leaving it out is a type error rather than a
+- `claimMailSend(db, "reset", address, { established, userId })`. The reset
+  overload requires both, so leaving either out is a type error rather than a
   silent default.
 - Two pools, `global:reset-reserved:<date>` and `global:reset-open:<date>`. New
   keys, so a deploy mid-day does not read the old 45-pool's count as either.
@@ -81,10 +89,12 @@ route still cannot say whether an address has an account or which kind it is.
 `reportMailRefusal` raises once per pool per UTC day, as it does today,
 fingerprinted per pool:
 
-- `reset-open` spent: probably someone farming accounts. Established users are
-  unaffected.
-- `reset-reserved` spent: established users are being refused. This is the one
-  to act on.
+- `reset-reserved` spent: raised by the first spill of the day, on a send.
+  Established users are still served, from the open share, so nobody is
+  refused yet. This is the early warning.
+- `reset-open` spent: new, unverified accounts are refused, and so are
+  established ones once the reserve is spent too. Probably someone farming
+  accounts. This is the one to act on if the reserve is also spent.
 
 When an established account spills and the open share is also spent, both
 pools are full, and each alerts on its own first refusal.

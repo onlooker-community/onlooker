@@ -13,6 +13,8 @@ import {
 	MAIL_LIMITS,
 	pruneMailSends,
 	RESET_POOLS,
+	USER_RESET_LIMIT,
+	userResetKey,
 } from "./mail-sends.js";
 
 const db = () => env.DB;
@@ -54,6 +56,7 @@ describe("the limits", () => {
 		expect(MAIL_LIMITS.invite).toEqual({ max: 3, windowMs: DAY });
 		expect(DAILY_MAIL_CEILINGS).toEqual({ reset: 45, verify: 10, invite: 25 });
 		expect(INVITER_LIMIT).toEqual({ max: 10, windowMs: DAY });
+		expect(USER_RESET_LIMIT).toEqual({ max: 6, windowMs: DAY });
 		expect(DAILY_ADDRESS_LIMITS).toEqual({
 			reset: { max: 6, windowMs: DAY },
 			verify: { max: 6, windowMs: DAY },
@@ -74,6 +77,7 @@ describe("claimMailSend, per address", () => {
 			expect(
 				await claimMailSend(db(), "reset", ADA, {
 					established: true,
+					userId: ADA,
 					now: at(i * MINUTE),
 				}),
 			).toEqual({
@@ -84,6 +88,7 @@ describe("claimMailSend, per address", () => {
 		expect(
 			await claimMailSend(db(), "reset", ADA, {
 				established: true,
+				userId: ADA,
 				now: at(10 * MINUTE),
 			}),
 		).toEqual({
@@ -97,6 +102,7 @@ describe("claimMailSend, per address", () => {
 		for (let i = 0; i < 3; i++) {
 			await claimMailSend(db(), "reset", ADA, {
 				established: true,
+				userId: ADA,
 				now: at(i * MINUTE),
 			});
 		}
@@ -104,6 +110,7 @@ describe("claimMailSend, per address", () => {
 		expect(
 			await claimMailSend(db(), "reset", ADA, {
 				established: true,
+				userId: ADA,
 				now: at(HOUR),
 			}),
 		).toEqual({
@@ -114,6 +121,7 @@ describe("claimMailSend, per address", () => {
 			expect(
 				await claimMailSend(db(), "reset", ADA, {
 					established: true,
+					userId: ADA,
 					now: at(HOUR + i * MINUTE),
 				}),
 			).toEqual({ ok: true });
@@ -121,6 +129,7 @@ describe("claimMailSend, per address", () => {
 		expect(
 			await claimMailSend(db(), "reset", ADA, {
 				established: true,
+				userId: ADA,
 				now: at(HOUR + 10 * MINUTE),
 			}),
 		).toEqual({
@@ -134,7 +143,11 @@ describe("claimMailSend, per address", () => {
 	// address - which would say it has an account here (spec, "Decisions").
 	it("keeps a separate count for each kind of mail", async () => {
 		for (let i = 0; i < 3; i++) {
-			await claimMailSend(db(), "reset", ADA, { established: true, now: T0 });
+			await claimMailSend(db(), "reset", ADA, {
+				established: true,
+				userId: ADA,
+				now: T0,
+			});
 		}
 
 		expect(await claimMailSend(db(), "verify", ADA, { now: T0 })).toEqual({
@@ -163,7 +176,7 @@ describe("claimMailSend, per address", () => {
 	});
 
 	it("treats case and surrounding whitespace as the same address", async () => {
-		const options = { established: true, now: T0 };
+		const options = { established: true, userId: ADA, now: T0 };
 		await claimMailSend(db(), "reset", "Ada@Example.com", options);
 		await claimMailSend(db(), "reset", "  ada@example.com ", options);
 		await claimMailSend(db(), "reset", ADA, options);
@@ -197,6 +210,7 @@ describe("claimMailSend, the daily pools", () => {
 		expect(
 			await claimMailSend(db(), "reset", "a@example.com", {
 				established: false,
+				userId: "a@example.com",
 				now: T0,
 			}),
 		).toEqual({ ok: true });
@@ -222,6 +236,7 @@ describe("claimMailSend, the daily pools", () => {
 					? claimMailSend(db(), pool, address, { now: T0 })
 					: claimMailSend(db(), "reset", address, {
 							established: false,
+							userId: address,
 							now: T0,
 						});
 
@@ -247,7 +262,11 @@ describe("claimMailSend, the daily pools", () => {
 	// share of the pool.
 	it("does not spend a pool slot on a refused address", async () => {
 		for (let i = 0; i < 4; i++) {
-			await claimMailSend(db(), "reset", ADA, { established: false, now: T0 });
+			await claimMailSend(db(), "reset", ADA, {
+				established: false,
+				userId: ADA,
+				now: T0,
+			});
 		}
 
 		expect(await countOf(globalMailKey("reset-open", T0))).toBe(3);
@@ -270,9 +289,17 @@ describe("claimMailSend, the daily pools", () => {
 
 describe("the reset reserve", () => {
 	const established = (address: string, now = T0) =>
-		claimMailSend(db(), "reset", address, { established: true, now });
+		claimMailSend(db(), "reset", address, {
+			established: true,
+			userId: address,
+			now,
+		});
 	const fresh = (address: string, now = T0) =>
-		claimMailSend(db(), "reset", address, { established: false, now });
+		claimMailSend(db(), "reset", address, {
+			established: false,
+			userId: address,
+			now,
+		});
 
 	it("splits the reset pool without changing its total", () => {
 		expect(RESET_POOLS).toEqual({ reserved: 35, open: 10 });
@@ -353,6 +380,60 @@ describe("the reset reserve", () => {
 	});
 });
 
+// An account keeps its age through an email change, so the address caps
+// alone let one aged account take six resets per address it can name.
+describe("claimMailSend, the daily account cap", () => {
+	const address = (i: number) => `ada-${i}@example.com`;
+	const account = (i: number, userId = "user-ada-1") =>
+		claimMailSend(db(), "reset", address(i), {
+			established: true,
+			userId,
+			now: at(i * MINUTE),
+		});
+
+	it("refuses the seventh reset for one account across seven addresses, spending no pool slot", async () => {
+		for (let i = 0; i < 6; i++) {
+			expect(await account(i)).toEqual({ ok: true });
+		}
+
+		expect(await account(6)).toEqual({
+			ok: false,
+			scope: "address",
+			retryAfterMs: DAY - 6 * MINUTE,
+		});
+		expect(await countOf(globalMailKey("reset-reserved", T0))).toBe(6);
+		expect(await countOf(globalMailKey("reset-open", T0))).toBeUndefined();
+	});
+
+	it("keeps a separate count for each account", async () => {
+		for (let i = 0; i < 6; i++) await account(i);
+
+		expect((await account(7, "user-bob-1")).ok).toBe(true);
+	});
+
+	it("stores the account's id as it is, and starts a new window after 24 hours", async () => {
+		expect(userResetKey("user-ada-1")).toBe("reset-user-day:user-ada-1");
+		for (let i = 0; i < 6; i++) await account(i);
+
+		expect(
+			(
+				await claimMailSend(db(), "reset", address(9), {
+					established: true,
+					userId: "user-ada-1",
+					now: at(DAY),
+				})
+			).ok,
+		).toBe(true);
+	});
+
+	it("will not compile a reset claim that does not name the account", () => {
+		const unchecked = () =>
+			// @ts-expect-error a reset claim must say whose account it is for
+			claimMailSend(db(), "reset", ADA, { established: true, now: T0 });
+		expect(unchecked).toBeTypeOf("function");
+	});
+});
+
 describe("isEstablished", () => {
 	it("counts a verified account, however new", () => {
 		expect(
@@ -398,8 +479,8 @@ describe("isEstablished", () => {
 	});
 });
 
-// The hourly cap allows 72 a day, more than the 45-mail reset pool, so one
-// address could spend the pool over 15 hours. Six a day bounds its share.
+// The hourly cap allows 72 a day, more than the whole 45-mail reset budget,
+// so one address could spend it over 15 hours. Six a day bounds its share.
 describe("claimMailSend, the daily address cap", () => {
 	const dayKey = async (kind: "reset" | "verify", address: string) =>
 		`${kind}-day:${await loginAttemptKey(address)}`;
@@ -407,7 +488,11 @@ describe("claimMailSend, the daily address cap", () => {
 	// Three an hour, for `hours` hours, so the hourly window is never the limit.
 	const claim = (kind: "reset" | "verify", now: Date) =>
 		kind === "reset"
-			? claimMailSend(db(), kind, ADA, { established: true, now })
+			? claimMailSend(db(), kind, ADA, {
+					established: true,
+					userId: ADA,
+					now,
+				})
 			: claimMailSend(db(), kind, ADA, { now });
 
 	const spendDay = async (kind: "reset" | "verify", sends: number) => {

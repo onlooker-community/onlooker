@@ -28,10 +28,10 @@ export const MAIL_LIMITS: Record<MailKind, { max: number; windowMs: number }> =
 
 /**
  * Sends allowed to one address per fixed 24 hours, for the kinds an hourly cap
- * alone does not bound. The reset pool is 45 and 3 an hour allows 72 a day, so
- * one address could spend the pool over 15 hours, and every reset after that
- * would silently answer 200 until midnight. Six a day bounds one address's
- * share. Invites need none: they are already 3 per 24 hours.
+ * alone does not bound. 3 an hour allows 72 a day, more than the whole 45-mail
+ * reset pool, so one address could spend it over 15 hours, and every reset
+ * after that would silently answer 200 until midnight. Six a day bounds one
+ * address's share. Invites need none: they are already 3 per 24 hours.
  */
 export const DAILY_ADDRESS_LIMITS: Record<
 	"reset" | "verify",
@@ -40,6 +40,14 @@ export const DAILY_ADDRESS_LIMITS: Record<
 	reset: { max: 6, windowMs: DAY_MS },
 	verify: { max: 6, windowMs: DAY_MS },
 };
+
+/**
+ * Resets allowed to one account per fixed 24 hours, whatever addresses it has
+ * held. An account keeps its age through an email change, so without this one
+ * aged account could change address, take six resets, and repeat until it had
+ * spent the whole reserve (ONL-229).
+ */
+export const USER_RESET_LIMIT = { max: 6, windowMs: DAY_MS };
 
 /**
  * Each kind's mail, per UTC day. Resend's free tier allows 100 a day and
@@ -141,6 +149,11 @@ export function inviterMailKey(inviterId: string): string {
 	return `inviter:${inviterId}`;
 }
 
+/** One account's daily reset counter, stored by id for the same reason. */
+export function userResetKey(userId: string): string {
+	return `reset-user-day:${userId}`;
+}
+
 /**
  * Count one send against `key` and answer the count and the window it landed
  * in.
@@ -199,7 +212,8 @@ function msUntilWindowEnds(
  *
  * Narrowest counter first, and a refusal stops before the next: the inviter
  * (invite only), the address's hourly counter, its daily counter (reset and
- * verify only), then the kind's pool. A capped inviter spends no victim
+ * verify only), the account's daily counter (reset only), then the kind's
+ * pool. A capped inviter spends no victim
  * address's slots and no pool slot, an address refused hourly spends no daily
  * slot, and a capped address spends no pool slot. The reverse is not true: a
  * refusal at an address has spent the inviter's own slot, and one at the pool
@@ -225,7 +239,7 @@ export function claimMailSend(
 	db: D1Database,
 	kind: "reset",
 	address: string,
-	options: { established: boolean; now?: Date },
+	options: { established: boolean; userId: string; now?: Date },
 ): Promise<MailClaim>;
 export function claimMailSend(
 	db: D1Database,
@@ -237,7 +251,12 @@ export async function claimMailSend(
 	db: D1Database,
 	kind: MailKind,
 	address: string,
-	options: { inviterId?: string; established?: boolean; now?: Date } = {},
+	options: {
+		inviterId?: string;
+		established?: boolean;
+		userId?: string;
+		now?: Date;
+	} = {},
 ): Promise<MailClaim> {
 	const now = options.now ?? new Date();
 
@@ -285,6 +304,25 @@ export async function claimMailSend(
 				ok: false,
 				scope: "address",
 				retryAfterMs: msUntilWindowEnds(today, daily.windowMs, now),
+			};
+		}
+	}
+
+	if (kind === "reset") {
+		if (!options.userId) {
+			throw new Error("claimMailSend: a reset claim must name its account");
+		}
+		const account = await countSend(
+			db,
+			userResetKey(options.userId),
+			USER_RESET_LIMIT.windowMs,
+			now,
+		);
+		if (account.count > USER_RESET_LIMIT.max) {
+			return {
+				ok: false,
+				scope: "address",
+				retryAfterMs: msUntilWindowEnds(account, USER_RESET_LIMIT.windowMs, now),
 			};
 		}
 	}

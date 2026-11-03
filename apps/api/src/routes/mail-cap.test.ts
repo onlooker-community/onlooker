@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loginAttemptKey } from "../db/login-attempts.js";
 import {
 	DAILY_ADDRESS_LIMITS,
@@ -9,6 +9,7 @@ import {
 	type MailPool,
 	RESET_POOLS,
 } from "../db/mail-sends.js";
+import { monitor } from "../monitoring.js";
 import {
 	call,
 	resetOrgTables,
@@ -208,6 +209,60 @@ describe("POST /auth/forgot-password under the cap", () => {
 		// moving past the ceiling, and the send counted against the open share.
 		expect(await poolCount("reset-reserved")).toBe(RESET_POOLS.reserved + 1);
 		expect(await poolCount("reset-open")).toBe(1);
+	});
+
+	// The spill is the early warning, and raised on a send, not a refusal. The
+	// monitor is spied on rather than injected: it is an object whose method
+	// the route reaches through, which the Workers pool can replace.
+	it("raises the reserve's alert when an established account spills", async () => {
+		const capture = vi.spyOn(monitor, "captureException");
+		await spendThePool("reset-reserved");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		const response = await post("/auth/forgot-password", { email: ADA });
+
+		expect(response.status).toBe(200);
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+		expect(capture).toHaveBeenCalledTimes(1);
+		expect(capture.mock.calls[0]?.[1]).toMatchObject({
+			tags: { mail_pool: "reset-reserved" },
+		});
+		capture.mockRestore();
+	});
+
+	// An account keeps its age through an email change, so every new address
+	// starts the address caps over. The account's own cap is what stops it.
+	it("sends nothing for the seventh reset of the day to an account that keeps changing address", async () => {
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		let email = ADA;
+		for (let i = 0; i < 6; i++) {
+			expect(
+				(await post("/auth/forgot-password", { email })).status,
+			).toBe(200);
+			expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+			const next = `ada-${i}@example.com`;
+			const changed = await call("/auth/profile", ada.token, {
+				method: "PATCH",
+				body: JSON.stringify({ email: next }),
+			});
+			expect(changed.status).toBe(200);
+			email = next;
+		}
+		const sixth = await tokenHashes(ada.id, "reset");
+
+		const response = await post("/auth/forgot-password", { email });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual(sixth);
+		expect(await poolCount("reset-reserved")).toBe(6);
 	});
 });
 
