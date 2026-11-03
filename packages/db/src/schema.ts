@@ -321,6 +321,11 @@ export const lessons = sqliteTable(
 		org_id: text("org_id").references(() => orgs.id, {
 			onDelete: "set null",
 		}),
+		// Lifted out of `body` because the project filter narrows on it (ONL-209).
+		// Immutable, like promoted_at. Nullable because SQLite needs a default
+		// to add a NOT NULL column, and an empty default would claim a project.
+		// A row written between the migration and the API deploy stays NULL.
+		project_key: text("project_key"),
 		created_at: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
@@ -361,6 +366,11 @@ export const lessons = sqliteTable(
 		visibilityOrgPromotedAtIdx: index(
 			"lessons_visibility_org_promoted_at_idx",
 		).on(table.visibility, table.org_id, table.promoted_at, table.id),
+		projectKeyIdx: index("lessons_project_key_idx").on(
+			table.project_key,
+			table.promoted_at,
+			table.id,
+		),
 	}),
 );
 

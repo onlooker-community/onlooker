@@ -6,7 +6,7 @@ import {
 	SequenceExhaustedError,
 	transitionLesson,
 } from "../db/lessons.js";
-import type { Principal } from "../db/pool.js";
+import { MAX_LESSON_PROJECT_FILTERS, type Principal } from "../db/pool.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
@@ -37,6 +37,25 @@ const KNOWN_STATUSES = new Set([
  */
 const BROWSER_TRANSITIONS = new Set(["active", "retracted"]);
 
+/** A project key as the lesson contract defines it. */
+const PROJECT_KEY = /^[0-9a-f]{12}$/;
+
+/** The `project` values of a read, or throws 400. */
+function parseProjectKeys(url: URL): string[] {
+	const keys = url.searchParams.getAll("project");
+	if (keys.length > MAX_LESSON_PROJECT_FILTERS) {
+		throw new ApiError(
+			400,
+			"invalid_project",
+			`Ask for at most ${MAX_LESSON_PROJECT_FILTERS} projects at once`,
+		);
+	}
+	if (!keys.every((key) => PROJECT_KEY.test(key))) {
+		throw new ApiError(400, "invalid_project", "That is not a project");
+	}
+	return keys;
+}
+
 export async function handleBrowseLessons(
 	request: Request,
 	env: WorkerEnv,
@@ -48,8 +67,8 @@ export async function handleBrowseLessons(
 	const { userId } = principal as Principal;
 	const url = new URL(request.url);
 
-	const statuses = url.searchParams.getAll("status");
-	for (const status of statuses) {
+	const requestedStatuses = url.searchParams.getAll("status");
+	for (const status of requestedStatuses) {
 		if (!KNOWN_STATUSES.has(status)) {
 			throw new ApiError(
 				400,
@@ -59,6 +78,11 @@ export async function handleBrowseLessons(
 		}
 	}
 
+	// Deduplicated because the bind budget assumes at most four statuses, and a
+	// repeated `status=active` would otherwise spend it on nothing.
+	const statuses = [...new Set(requestedStatuses)];
+	const projects = parseProjectKeys(url);
+
 	// Clamped rather than rejected: a client asking for more than the ceiling
 	// wants as much as it can get, and failing the request serves nobody.
 	const requested = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
@@ -67,6 +91,7 @@ export async function handleBrowseLessons(
 	try {
 		const page = await listLessonsPage(env.DB, userId, {
 			statuses,
+			projects,
 			cursor: url.searchParams.get("cursor"),
 			limit,
 		});

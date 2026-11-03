@@ -118,6 +118,21 @@ describe("readPool, anonymous", () => {
 		expect(idsIn(page)).toEqual([pub.id]);
 	});
 
+	// Nobody signed out has a project to narrow to, so a project filter must
+	// not widen into the unfiltered public read.
+	it("returns nothing for a project filter", async () => {
+		const base = lesson();
+		await seedFor(theirs, {
+			visibility: "public",
+			evidence: { ...base.evidence, project_key: "aaaaaaaaaaaa" },
+		});
+		const page = await readPool(db(), null, {
+			projects: ["aaaaaaaaaaaa"],
+			limit: 50,
+		});
+		expect(idsIn(page)).toEqual([]);
+	});
+
 	// THE LEAK TESTS. Each must be proven by ablation - see Step 5.
 	it("does not return a private lesson", async () => {
 		await seedFor(theirs, { visibility: "private" });

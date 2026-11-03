@@ -26,6 +26,14 @@ export function projectName(
 // carrying one is a 400, and sharing a name would take its neighbors with it.
 const FILTERABLE_KEY = /^[0-9a-f]{12}$/;
 
+/**
+ * An entry's keys alone, for a read with no machine. A lesson stores none, so
+ * the same root key on two machines is one thing to it.
+ */
+export function entryKeys(entry: ProjectEntry): string[] {
+	return [...new Set(entry.values.map((value) => value.slice(-12)))];
+}
+
 export function projectEntries(
 	projects: Project[],
 	labels: LabelMap,

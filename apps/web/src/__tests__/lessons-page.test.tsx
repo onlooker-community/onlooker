@@ -14,6 +14,7 @@ import {
 } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { labelIdentity } from "../api/labelsApi";
+import type { Project } from "../api/projectsApi";
 import LessonsPage, { type LessonsContext } from "../pages/LessonsPage";
 
 // auth and lessonsApi are the seams, matching machines-route.test.tsx.
@@ -40,6 +41,12 @@ const mocks = vi.hoisted(() => ({
 	setLessonStatus: vi.fn(),
 	retractOrgLesson: vi.fn(),
 	listLabels: vi.fn(),
+	listProjects: vi.fn(),
+}));
+
+vi.mock("../api/projectsApi", () => ({
+	PROJECT_ENDPOINTS: { projects: "/api/projects" },
+	listProjects: mocks.listProjects,
 }));
 
 // importOriginal so labelIdentity and nameForKey stay real, the reasoning
@@ -155,6 +162,10 @@ beforeEach(() => {
 	mocks.retractOrgLesson.mockReset();
 	mocks.listLabels.mockReset();
 	mocks.listLabels.mockResolvedValue(new Map());
+	// No projects, so no Project control: every test that is not about the
+	// filter sees the page as it was before one existed.
+	mocks.listProjects.mockReset();
+	mocks.listProjects.mockResolvedValue({ projects: [] });
 });
 
 describe("the list pane", () => {
@@ -1760,6 +1771,364 @@ describe("the visual language", () => {
  * design. It arrives as `owned_ids` beside the listed documents, and as `own`
  * on the single-lesson fetch the deep link uses.
  */
+describe("the project filter", () => {
+	const KEY_A = "aaaaaaaaaaaa";
+	const KEY_B = "bbbbbbbbbbbb";
+	const KEY_IDLE = "dddddddddddd";
+	const KEY_ROOT = "cccccccccccc";
+	// A key the pool knows only from a lesson, which records no machine.
+	const KEY_LESSON = VITE.evidence.project_key;
+
+	function project(
+		key: string,
+		machineId: string | null,
+		sessions: number,
+		basis: Project["basis"] = machineId === null ? "remote" : "root",
+	): Project {
+		return {
+			project_key: key,
+			basis,
+			machine_id: machineId,
+			sessions,
+			events: sessions * 10,
+			last_seen_at: null,
+		};
+	}
+
+	function offer(
+		projects: Project[],
+		names: [string, string | null, string][],
+	) {
+		mocks.listProjects.mockResolvedValue({ projects });
+		mocks.listLabels.mockResolvedValue(
+			new Map(
+				names.map(([key, machineId, name]) => [
+					labelIdentity(key, machineId),
+					name,
+				]),
+			),
+		);
+	}
+
+	function offerDefaults() {
+		offer(
+			[
+				project(KEY_A, null, 3),
+				project(KEY_B, null, 2),
+				project(KEY_ROOT, "m1", 1),
+				project(KEY_IDLE, null, 0),
+				project(KEY_LESSON, null, 0, null),
+			],
+			[
+				[KEY_A, null, "alpha"],
+				[KEY_B, null, "beta"],
+				[KEY_ROOT, "m1", "scratch"],
+				[KEY_IDLE, null, "idle"],
+			],
+		);
+	}
+
+	const control = () => screen.findByLabelText(/^project$/i);
+
+	function choose(name: string) {
+		fireEvent.change(screen.getByLabelText(/^project$/i), {
+			target: { value: name },
+		});
+	}
+
+	it("offers all projects and one entry per name, unsessioned keys included", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+
+		const select = (await control()) as HTMLSelectElement;
+		expect(Array.from(select.options, (option) => option.text)).toEqual([
+			"All projects",
+			KEY_LESSON,
+			"alpha",
+			"beta",
+			"idle",
+			"scratch",
+		]);
+	});
+
+	it("shows no control when there are no projects", async () => {
+		withPool([VITE]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
+
+		expect(screen.queryByLabelText(/^project$/i)).toBeNull();
+	});
+
+	it("shows no control, and still loads the pool, when projects cannot be read", async () => {
+		mocks.listProjects.mockRejectedValue(new Error("offline"));
+		withPool([VITE]);
+		await at("/lessons");
+
+		expect(await screen.findByText(VITE.claim)).toBeDefined();
+		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
+		expect(screen.queryByLabelText(/^project$/i)).toBeNull();
+		expect(screen.queryByText(/could not load the pool/i)).toBeNull();
+	});
+
+	it("sends no project on the first load", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		expect(mocks.listLessons).toHaveBeenNthCalledWith(1, {});
+	});
+
+	it("reads with the chosen entry's keys", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		choose("alpha");
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ project: [KEY_A] }),
+		);
+	});
+
+	it("sends every key that shares the chosen name", async () => {
+		offer(
+			[project(KEY_A, null, 1), project(KEY_B, null, 1)],
+			[
+				[KEY_A, null, "shared"],
+				[KEY_B, null, "shared"],
+			],
+		);
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		choose("shared");
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				project: [KEY_A, KEY_B],
+			}),
+		);
+	});
+
+	// A lesson stores no machine, so a prefix would match nothing.
+	it("sends a root project as the bare key", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		choose("scratch");
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				project: [KEY_ROOT],
+			}),
+		);
+	});
+
+	it("combines a status with a project, status first", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["active"],
+			}),
+		);
+		choose("alpha");
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["active"],
+				project: [KEY_A],
+			}),
+		);
+	});
+
+	it("combines a status with a project, project first", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		choose("alpha");
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ project: [KEY_A] }),
+		);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				statuses: ["retracted"],
+				project: [KEY_A],
+			}),
+		);
+	});
+
+	it("carries the project with the cursor when loading more", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		choose("alpha");
+		await screen.findByRole("button", { name: /load more/i });
+
+		withPool([D1]);
+		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				project: [KEY_A],
+				cursor: "Y3Vyc29yLTE=",
+			}),
+		);
+		expect(await screen.findByText(D1.claim)).toBeDefined();
+	});
+
+	// An empty project is not an empty pool, and "connect a machine" would be
+	// a lie to someone whose pool is full.
+	it("names the project when it holds no lessons", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		withPool([]);
+		choose("alpha");
+
+		expect(
+			await screen.findByRole("heading", { name: "No lessons in alpha" }),
+		).toBeDefined();
+		expect(screen.getByRole("status").textContent).toBe("No lessons in alpha");
+		expect(screen.queryByText(/nothing has synced yet/i)).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: /connect a machine/i }),
+		).toBeNull();
+	});
+
+	it("still names the project when a status filter is set too", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		withPool([]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		choose("alpha");
+
+		expect(
+			await screen.findByRole("heading", { name: "No lessons in alpha" }),
+		).toBeDefined();
+		expect(screen.getByRole("status").textContent).toBe("No lessons in alpha");
+		expect(screen.queryByText(/no retracted lessons/i)).toBeNull();
+	});
+
+	// The control and the region live outside the branches that swap, so a
+	// failed read cannot strand someone inside a project they cannot leave.
+	it("keeps the control through a failed read, and All projects recovers", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		mocks.listLessons.mockRejectedValue(new Error("network is down"));
+		choose("alpha");
+
+		expect(await screen.findByRole("button", { name: /retry/i })).toBeDefined();
+		const select = screen.getByLabelText(/^project$/i) as HTMLSelectElement;
+		expect(select.value).toBe("alpha");
+		expect(screen.getByRole("status").textContent).toBe(
+			"Could not load the pool",
+		);
+
+		withPool([D1]);
+		choose("");
+
+		expect(await screen.findByText(D1.claim)).toBeDefined();
+		expect(mocks.listLessons).toHaveBeenLastCalledWith({});
+	});
+
+	it("ignores a slow answer to a first choice that lands after a second", async () => {
+		offerDefaults();
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		let resolveFirst: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveFirst = resolve;
+				}),
+		);
+		choose("alpha");
+
+		withPool([D1]);
+		choose("beta");
+		await screen.findByText(D1.claim);
+
+		await act(async () => {
+			resolveFirst({ lessons: [STALE], cursor: null, has_more: false });
+		});
+
+		expect(screen.queryByText(STALE.claim)).toBeNull();
+		expect(screen.getByText(D1.claim)).toBeDefined();
+		expect(
+			(screen.getByLabelText(/^project$/i) as HTMLSelectElement).value,
+		).toBe("beta");
+	});
+
+	// The selection is a name, so labels landing after a choice, which take
+	// that name away, cannot leave the page filtering on keys nobody can see
+	// chosen.
+	it("falls back to all projects when late labels take the selected name away", async () => {
+		let resolveLabels: (value: Map<string, string>) => void = () => {};
+		mocks.listLabels.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveLabels = resolve;
+				}),
+		);
+		mocks.listProjects.mockResolvedValue({
+			projects: [project(KEY_A, null, 1)],
+		});
+		withPool([VITE]);
+		await at("/lessons");
+		await control();
+
+		// Named by its key until the labels arrive.
+		choose(KEY_A);
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ project: [KEY_A] }),
+		);
+
+		await act(async () => {
+			resolveLabels(new Map([[labelIdentity(KEY_A, null), "renamed"]]));
+		});
+
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenLastCalledWith({}));
+		expect(
+			(screen.getByLabelText(/^project$/i) as HTMLSelectElement).value,
+		).toBe("");
+	});
+});
+
 /**
  * A lesson's project_key under the name the viewer gave it on Sessions.
  *

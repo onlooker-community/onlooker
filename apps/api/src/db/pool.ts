@@ -55,6 +55,7 @@ export const noOrgIds: OrgIds = async () => [];
 
 export interface PoolFilters {
 	statuses?: string[];
+	projects?: string[];
 	cursor?: string | null;
 	limit: number;
 }
@@ -78,6 +79,13 @@ export interface PoolFilters {
  * ceiling is gone, not raised.
  */
 export const MAX_READER_ORGS_BOUND = 50;
+
+/**
+ * How many project keys one read may ask for. The rest of this query can bind
+ * 59 of D1's 100 (see MAX_READER_ORGS_BOUND), and the filter's two user ids
+ * take two more.
+ */
+export const MAX_LESSON_PROJECT_FILTERS = 39;
 
 /**
  * How many author ids the name lookup binds per statement.
@@ -190,6 +198,37 @@ async function resolveOrgIds(
 }
 
 /**
+ * Narrows a read to these projects, on top of visibilityPredicate.
+ *
+ * Your own lessons match by key. Someone else's match only where you hold the
+ * key as remote: a remote key names one repository for everyone, but a root
+ * key hashes a local path, so equal hex says nothing about what is in it, and
+ * matching on it would tell you that someone has a path that hashes the same.
+ *
+ * This decides what a filter finds, not what is readable. A session's basis is
+ * reported by the client, so it is not a boundary: visibilityPredicate alone
+ * decides what a caller may read, and every lesson matched here has already
+ * passed it.
+ *
+ * There is no anonymous form. Nobody signed out has a project to narrow to, so
+ * it matches nothing rather than leaving the read wide.
+ */
+function projectPredicate(
+	principal: Principal | null,
+	keys: string[],
+): { sql: string; binds: unknown[] } {
+	if (!principal) return { sql: "0", binds: [] };
+	return {
+		sql:
+			`project_key IN (${keys.map(() => "?").join(", ")})` +
+			" AND (user_id = ? OR EXISTS (SELECT 1 FROM session_projects p" +
+			" WHERE p.user_id = ? AND p.project_key = lessons.project_key" +
+			" AND p.basis = 'remote'))",
+		binds: [...keys, principal.userId, principal.userId],
+	};
+}
+
+/**
  * One page of the pool this principal may read, newest first.
  *
  * Callers pass filters, never SQL. There is no other path from a route to a
@@ -212,6 +251,12 @@ export async function readPool(
 	if (filters.statuses && filters.statuses.length > 0) {
 		where += ` AND status IN (${filters.statuses.map(() => "?").join(", ")})`;
 		binds.push(...filters.statuses);
+	}
+
+	if (filters.projects && filters.projects.length > 0) {
+		const projects = projectPredicate(principal, filters.projects);
+		where += ` AND ${projects.sql}`;
+		binds.push(...projects.binds);
 	}
 
 	if (filters.cursor) {

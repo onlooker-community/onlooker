@@ -700,6 +700,22 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			name: "lessons, unusable project filter",
+			path: "/api/lessons?project=nope",
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_project" } },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lessons, a machine's root value is not a lesson filter",
+			path: "/api/lessons?project=m1:aaaaaaaaaaaa",
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_project" } },
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "an empty cursor is treated as no cursor",
 			path: "/api/lessons?cursor=",
 			init: { method: "GET" },

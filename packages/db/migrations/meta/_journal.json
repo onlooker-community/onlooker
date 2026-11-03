@@ -148,6 +148,13 @@
       "when": 1793571450346,
       "tag": "0020_typical_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793592123896,
+      "tag": "0021_workable_sprite",
+      "breakpoints": true
     }
   ]
 }

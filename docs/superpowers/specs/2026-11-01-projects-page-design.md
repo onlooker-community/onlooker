@@ -112,6 +112,8 @@ pass retention, and its name does not go with it:
 1. `session_projects`, which gives the activity.
 2. The viewer's own lessons' `project_key`, once PR 3 adds the column. Such a key
    with no session rows has `basis: null`, and the page says "seen on a lesson".
+   A lesson key is listed only when no session row or label already holds that
+   key.
 3. The viewer's `project_labels`, with zero activity.
 
 Other accounts' keys are never listed. Names are not in this response: the page
@@ -156,9 +158,12 @@ touching two projects still shows both.
 and set by `createLessonsWithFeed`. Nullable because SQLite needs a default to
 add a NOT NULL column, and an empty default would be a lie.
 
-`GET /api/lessons?project=<key>` is repeatable and capped at 50 values. A lesson
-stores no machine, so a root entry sends only its key. The server applies it on
-top of `visibilityPredicate`, never instead of it:
+`GET /api/lessons?project=<key>` is repeatable and capped at 39 values, not 50:
+the read can already bind 59 of D1's 100 parameters (50 orgs, four statuses, a
+cursor, a limit), and the filter's two user ids take two more. A lesson stores
+no machine, so a root entry sends only its key, and `<machine_id>:<key>`
+answers `400`. The server applies it on top of `visibilityPredicate`, never
+instead of it:
 
 ```
 project_key IN (keys) AND (
@@ -185,7 +190,7 @@ Across the PRs:
 * Pruning a session and deleting an account clear its `session_projects` rows.
 * Both backfills run against seeded rows, as `backfill.test.ts` does.
 * A project past retention stays listed if it has a label.
-* More than 40 `project` values answers `400` on Sessions, and more than 50 on
+* More than 40 `project` values answers `400` on Sessions, and more than 39 on
   Lessons.
 
 `mockApi` gets the same behavior, and the contract tests cover the routes.
