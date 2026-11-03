@@ -1,13 +1,15 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loginAttemptKey } from "../db/login-attempts.js";
 import {
 	DAILY_ADDRESS_LIMITS,
 	DAILY_MAIL_CEILINGS,
 	globalMailKey,
 	inviterMailKey,
-	type MailKind,
+	type MailPool,
+	RESET_POOLS,
 } from "../db/mail-sends.js";
+import { monitor } from "../monitoring.js";
 import {
 	call,
 	resetOrgTables,
@@ -46,17 +48,32 @@ const tokenHashes = async (userId: string, type: "reset" | "verify") =>
 			.all<{ token_hash: string }>()
 	).results.map((row) => row.token_hash);
 
-const spendThePool = (kind: MailKind) =>
+const POOL_CEILINGS: Record<MailPool, number> = {
+	"reset-reserved": RESET_POOLS.reserved,
+	"reset-open": RESET_POOLS.open,
+	verify: DAILY_MAIL_CEILINGS.verify,
+	invite: DAILY_MAIL_CEILINGS.invite,
+};
+
+const spendThePool = (pool: MailPool) =>
 	db()
 		.prepare(
 			"INSERT INTO mail_sends (key, window_start, count) VALUES (?, ?, ?)",
 		)
 		.bind(
-			globalMailKey(kind, new Date()),
+			globalMailKey(pool, new Date()),
 			new Date().toISOString(),
-			DAILY_MAIL_CEILINGS[kind],
+			POOL_CEILINGS[pool],
 		)
 		.run();
+
+const poolCount = async (pool: MailPool) =>
+	(
+		await db()
+			.prepare("SELECT count FROM mail_sends WHERE key = ?")
+			.bind(globalMailKey(pool, new Date()))
+			.first<{ count: number }>()
+	)?.count;
 
 describe("POST /auth/forgot-password under the cap", () => {
 	let ada: SignedUpUser;
@@ -131,14 +148,124 @@ describe("POST /auth/forgot-password under the cap", () => {
 		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
 	});
 
-	it("sends nothing once the reset pool is spent, and answers exactly as a send", async () => {
-		await spendThePool("reset");
+	it("sends nothing once both reset pools are spent, and answers exactly as a send", async () => {
+		await spendThePool("reset-open");
+		await spendThePool("reset-reserved");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
 
 		const response = await post("/auth/forgot-password", { email: ADA });
 
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe(JSON.stringify({ success: true }));
 		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
+	});
+
+	// The reserve's whole point: the open share is gone, and the people who
+	// would be locked out by it are still served.
+	it("sends a reset to an established account while fresh accounts have spent the open share", async () => {
+		await spendThePool("reset-open");
+		const bob = await signup("bob@example.com");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+		await db()
+			.prepare("UPDATE users SET email_verified = ? WHERE id = ?")
+			.bind(new Date().toISOString(), bob.id)
+			.run();
+
+		await post("/auth/forgot-password", { email: ADA });
+		await post("/auth/forgot-password", { email: "bob@example.com" });
+
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+		expect(await tokenHashes(bob.id, "reset")).toHaveLength(1);
+	});
+
+	it("sends nothing to a fresh account once the open share is spent, and answers exactly as a send", async () => {
+		await spendThePool("reset-open");
+
+		const response = await post("/auth/forgot-password", { email: ADA });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual([]);
+	});
+
+	it("spills an established account into the open share once the reserve is spent", async () => {
+		await spendThePool("reset-reserved");
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		await post("/auth/forgot-password", { email: ADA });
+
+		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+		// A fresh account would have sent just the same, from the open share
+		// alone. What shows this one asked the reserve first is its counter
+		// moving past the ceiling, and the send counted against the open share.
+		expect(await poolCount("reset-reserved")).toBe(RESET_POOLS.reserved + 1);
+		expect(await poolCount("reset-open")).toBe(1);
+	});
+
+	// The spill is the early warning, and raised on a send, not a refusal. The
+	// monitor is spied on rather than injected: it is an object whose method
+	// the route reaches through, which the Workers pool can replace.
+	it("raises the reserve's alert when an established account spills", async () => {
+		// Restored in `finally`: the monitor is shared across the suite, and a
+		// failed assertion must not leave the spy on it.
+		const capture = vi.spyOn(monitor, "captureException");
+		try {
+			await spendThePool("reset-reserved");
+			await db()
+				.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+				.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+				.run();
+
+			const response = await post("/auth/forgot-password", { email: ADA });
+
+			expect(response.status).toBe(200);
+			expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+			expect(capture).toHaveBeenCalledTimes(1);
+			expect(capture.mock.calls[0]?.[1]).toMatchObject({
+				tags: { mail_pool: "reset-reserved" },
+			});
+		} finally {
+			capture.mockRestore();
+		}
+	});
+
+	// An account keeps its age through an email change, so every new address
+	// starts the address caps over. The account's own cap is what stops it.
+	it("sends nothing for the seventh reset of the day to an account that keeps changing address", async () => {
+		await db()
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+			.run();
+
+		let email = ADA;
+		for (let i = 0; i < 6; i++) {
+			expect((await post("/auth/forgot-password", { email })).status).toBe(200);
+			expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+			const next = `ada-${i}@example.com`;
+			const changed = await call("/auth/profile", ada.token, {
+				method: "PATCH",
+				body: JSON.stringify({ email: next }),
+			});
+			expect(changed.status).toBe(200);
+			email = next;
+		}
+		const sixth = await tokenHashes(ada.id, "reset");
+
+		const response = await post("/auth/forgot-password", { email });
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe(JSON.stringify({ success: true }));
+		expect(await tokenHashes(ada.id, "reset")).toEqual(sixth);
+		expect(await poolCount("reset-reserved")).toBe(6);
 	});
 });
 

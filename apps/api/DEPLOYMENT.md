@@ -325,13 +325,38 @@ invites per address per day across all orgs. Each user may send ten invites per
 daily pool: 45 resets, 10 verification mails and 25 invites, 80 in all, under
 Resend's free-tier 100. The pools are separate so invites, which anyone can
 send because accounts are free, cannot spend the mail a locked-out user needs.
+
+The 45 resets are themselves two counters (ONL-229). A reserve of 35 is for
+**established** accounts: a verified address, or an account created at least
+seven days ago. An open share of 10 is for everyone else. An established
+account draws on the reserve first and spills into the open share when the
+reserve is spent; any other account draws on the open share alone. So a burst
+of fresh accounts can spend at most 10 a day. Each account may also take at
+most six resets per 24 hours whatever addresses it has held, because an
+account keeps its age through an email change and the per-address caps alone
+would let one aged account change address and spend the reserve.
 The counters are a D1 table, `mail_sends`, pruned by the five-minute cron.
 forgot-password answers a refusal with its usual 200, so the cap cannot say
 which addresses have accounts. The other two answer 429 with `Retry-After`.
-A spent pool raises a Sentry issue tagged `mail_kind`, once per pool per UTC
-day, because from then until UTC midnight legitimate mail of that kind is
-refused too. Every later refusal that day is logged as `mail_global_ceiling`
-without raising another. Capped addresses and inviters log
+A spent pool raises a Sentry issue tagged `mail_kind` and `mail_pool`, once per
+pool per UTC day, because from then until UTC midnight legitimate mail of that
+kind is refused too. Every later refusal that day is logged as
+`mail_global_ceiling` without raising another. For resets there are two
+alerts, and they mean different things:
+
+- `reset-reserved` is raised by the first spill of the day. The reserve is
+  spent, and established accounts now draw on the open share. Usually that
+  spill is still sent, so it is the early warning. If the open share is spent
+  too, the same request is refused, and `reset-open` is raised beside it.
+- `reset-open` is raised by the open share's first refusal. New, unverified
+  accounts are refused, and so are established ones if the reserve is spent
+  too. This is the one to act on.
+
+**The reset fingerprint changed.** It was `["mail_global_ceiling","reset"]`;
+it is now `["mail_global_ceiling","reset-reserved"]` and
+`["mail_global_ceiling","reset-open"]`. A Sentry alert rule keyed on the old
+fingerprint stops matching and must be re-pointed at the new ones (or at the
+`mail_pool` tag). Capped addresses and inviters log
 `mail_address_capped` and `mail_inviter_capped` and raise nothing.
 
 What does exist is **one** Cloudflare rate limiting rule on the `onlooker.dev`

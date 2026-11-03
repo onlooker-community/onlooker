@@ -2,6 +2,8 @@ import {
 	DAILY_MAIL_CEILINGS,
 	type MailClaim,
 	type MailKind,
+	type MailPool,
+	RESET_POOLS,
 } from "../db/mail-sends.js";
 import { monitor } from "../monitoring";
 import { ApiError } from "../types";
@@ -38,38 +40,80 @@ const REFUSAL_MESSAGES: Record<MailRefusal["scope"], string> = {
 	global: "Too many emails are being sent right now. Try again later.",
 };
 
+const POOL_CEILINGS: Record<MailPool, number> = {
+	"reset-reserved": RESET_POOLS.reserved,
+	"reset-open": RESET_POOLS.open,
+	verify: DAILY_MAIL_CEILINGS.verify,
+	invite: DAILY_MAIL_CEILINGS.invite,
+};
+
+/** What a spent pool means for mail, until UTC midnight. */
+const CONSEQUENCES: Record<MailPool, string> = {
+	"reset-reserved":
+		"established accounts are still served, from the open share, but nobody is refused yet",
+	"reset-open":
+		"resets for new, unverified accounts are refused, and so are established ones once the reserve is spent",
+	verify: "refusing verify mail until UTC midnight",
+	invite: "refusing invite mail until UTC midnight",
+};
+
+/** One alert per pool per day, in one shape, so each pool is its own issue. */
+function raisePoolSpent(
+	pool: MailPool,
+	kind: MailKind,
+	deps: MailCapDeps,
+): void {
+	deps.monitor.captureException(
+		new Error(
+			`mail: the daily ${pool} pool of ${POOL_CEILINGS[pool]} sends is spent; ${CONSEQUENCES[pool]}`,
+		),
+		{
+			tags: { kind: "mail_global_ceiling", mail_kind: kind, mail_pool: pool },
+			fingerprint: ["mail_global_ceiling", pool],
+		},
+	);
+}
+
 /**
- * Log every refusal, and raise an issue on a pool's first refusal of the day.
+ * Log every refusal, and raise an issue on a pool's first refusal of the day
+ * and on the day the reset reserve is first found spent.
  *
  * Only a pool pages anybody. A capped address or inviter is the cap working;
- * a spent pool means legitimate mail of that kind is being refused until UTC
- * midnight - possibly because someone holding many valid addresses is driving
+ * a spent pool means legitimate mail is being refused until UTC midnight -
+ * possibly because someone holding many valid addresses is driving
  * forgot-password - and without this it would first surface as Resend
- * refusing to send. Tagged with the kind, so a full invite pool is told apart
- * from a full reset pool.
+ * refusing to send. Tagged with the kind and the pool, so a full invite pool
+ * is told apart from a full reset pool.
+ *
+ * The reserve spilling into the open share refuses nobody, so it arrives on a
+ * claim as `reserveSpent`, sent or refused, and is the early warning that the
+ * open share is next.
  *
  * Once per pool per UTC day, not once per refusal: a looped invite would
  * otherwise raise an event per request. Every refusal still logs its line.
  *
- * The line names the kind and never the address or the inviter.
+ * The line names the kind, and the pool for a pool refusal, and never the
+ * address or the inviter.
  */
-export function reportMailRefusal(
-	refusal: MailRefusal,
+export function reportMailClaim(
+	claim: MailClaim,
 	kind: MailKind,
 	deps: MailCapDeps = realDeps,
 ): void {
-	deps.log(JSON.stringify({ event: REFUSAL_EVENTS[refusal.scope], kind }));
-	if (refusal.scope === "global" && refusal.first) {
-		deps.monitor.captureException(
-			new Error(
-				`mail: the daily ${kind} pool of ${DAILY_MAIL_CEILINGS[kind]} sends is spent; refusing ${kind} mail until UTC midnight`,
-			),
-			{
-				tags: { kind: "mail_global_ceiling", mail_kind: kind },
-				fingerprint: ["mail_global_ceiling", kind],
-			},
+	if (!claim.ok) {
+		deps.log(
+			JSON.stringify({
+				event: REFUSAL_EVENTS[claim.scope],
+				kind,
+				...(claim.scope === "global" ? { pool: claim.pool } : {}),
+			}),
 		);
+		if (claim.scope === "global" && claim.first) {
+			raisePoolSpent(claim.pool, kind, deps);
+		}
 	}
+	if ("reserveSpent" in claim && claim.reserveSpent)
+		raisePoolSpent("reset-reserved", kind, deps);
 }
 
 /**

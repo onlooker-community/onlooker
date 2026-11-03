@@ -9,7 +9,7 @@ import {
 import { getOrgName, isOrgRole, listMembers } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import { sendEmail } from "../email";
-import { mailRateLimitError, reportMailRefusal } from "../email/cap.js";
+import { mailRateLimitError, reportMailClaim } from "../email/cap.js";
 import { orgInviteEmail } from "../email/templates.js";
 import { requireOrgRole } from "../orgs/authorize.js";
 import { resolveInviteWindow } from "../orgs/invite-window.js";
@@ -71,7 +71,7 @@ export async function handleCreateInvite(
 		inviterId: userId,
 	});
 	if (!claim.ok) {
-		reportMailRefusal(claim, "invite");
+		reportMailClaim(claim, "invite");
 		throw mailRateLimitError(claim);
 	}
 
