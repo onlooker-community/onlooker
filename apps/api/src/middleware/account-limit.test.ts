@@ -1,12 +1,13 @@
 import { env } from "cloudflare:test";
 import type { RateLimit } from "@cloudflare/workers-types";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type WorkerEnv } from "../types";
 import {
 	ACCOUNT_LIMIT,
 	type AccountLimitDeps,
 	accountLimitKey,
 	enforceAccountLimit,
+	resetLimiterFailureReport,
 } from "./account-limit";
 
 /**
@@ -66,6 +67,10 @@ describe("accountLimitKey", () => {
 });
 
 describe("enforceAccountLimit", () => {
+	// The failure report's timestamp is module state, shared by every test in
+	// this file.
+	beforeEach(() => resetLimiterFailureReport());
+
 	it("allows a request the limiter allows, and reports nothing", async () => {
 		const limiter = fakeLimiter(true);
 		const d = deps();
@@ -197,6 +202,44 @@ describe("enforceAccountLimit", () => {
 				},
 			},
 		]);
+	});
+
+	it("reports a limiter failure once a minute, not on every request", async () => {
+		const d = { ...deps(), now: () => 1_000_000 };
+		const bindings = withBindings({
+			ACCOUNT_LIMITER: {
+				limit: async () => {
+					throw new Error("limiter down");
+				},
+			},
+		});
+		await enforceAccountLimit(bindings, "u1", ROUTE, d);
+		await enforceAccountLimit(bindings, "u2", ROUTE, d);
+		await enforceAccountLimit(bindings, "u1", ROUTE, {
+			...d,
+			now: () => 1_000_000 + 59_999,
+		});
+		expect(d.captured).toHaveLength(1);
+	});
+
+	it("reports a limiter failure again after a minute", async () => {
+		const d = deps();
+		const bindings = withBindings({
+			ACCOUNT_LIMITER: {
+				limit: async () => {
+					throw new Error("limiter down");
+				},
+			},
+		});
+		await enforceAccountLimit(bindings, "u1", ROUTE, {
+			...d,
+			now: () => 1_000_000,
+		});
+		await enforceAccountLimit(bindings, "u1", ROUTE, {
+			...d,
+			now: () => 1_000_000 + 60_000,
+		});
+		expect(d.captured).toHaveLength(2);
 	});
 
 	it("uses the shared monitor when no deps are passed", async () => {

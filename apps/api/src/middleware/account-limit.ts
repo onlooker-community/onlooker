@@ -21,9 +21,28 @@ export const ACCOUNT_LIMIT = { requests: 1000, periodSeconds: 60 } as const;
 /** Injectable because the Workers pool cannot mock modules. */
 export type AccountLimitDeps = {
 	monitor: Pick<typeof monitor, "captureException">;
+	/** Milliseconds since the epoch; injectable so a test can move the clock. */
+	now?: () => number;
 };
 
 const realDeps: AccountLimitDeps = { monitor };
+
+/**
+ * When this isolate last reported a limiter failure. A degraded rate-limit
+ * service makes every signed-in request throw, and each one would otherwise
+ * become a Sentry event. Nobody sees the requests fail, since they fail open,
+ * so the only effect would be burning the quota that error reporting needs for
+ * the rest of the billing period. This is isolate state rather than the
+ * `LIMIT_REPORT_GATE` binding because that binding is likely failing at the
+ * same moment.
+ */
+const LIMITER_FAILURE_REPORT_INTERVAL_MS = 60_000;
+let lastLimiterFailureReportAt = Number.NEGATIVE_INFINITY;
+
+/** Forget the last failure report, so tests start from a clean isolate. */
+export function resetLimiterFailureReport(): void {
+	lastLimiterFailureReportAt = Number.NEGATIVE_INFINITY;
+}
 
 export function accountLimitKey(userId: string): string {
 	return `user:${userId}`;
@@ -37,7 +56,7 @@ export function accountLimitKey(userId: string): string {
  *
  * Fails open. A missing limiter, which is the test pool's and any
  * misconfigured environment's state, allows the request silently; a throwing
- * one allows it and reports. A broken limiter must not take the API down.
+ * one allows it and reports, at most once a minute per isolate. A broken limiter must not take the API down.
  */
 export async function enforceAccountLimit(
 	env: WorkerEnv,
@@ -54,10 +73,17 @@ export async function enforceAccountLimit(
 			key: accountLimitKey(userId),
 		}));
 	} catch (error) {
-		deps.monitor.captureException(error, {
-			tags: { kind: "account_limiter_failed", route },
-			fingerprint: ["account_limiter_failed"],
-		});
+		const now = (deps.now ?? Date.now)();
+		if (
+			now - lastLimiterFailureReportAt >=
+			LIMITER_FAILURE_REPORT_INTERVAL_MS
+		) {
+			lastLimiterFailureReportAt = now;
+			deps.monitor.captureException(error, {
+				tags: { kind: "account_limiter_failed", route },
+				fingerprint: ["account_limiter_failed"],
+			});
+		}
 		return;
 	}
 	if (allowed) return;

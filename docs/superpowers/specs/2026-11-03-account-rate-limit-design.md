@@ -46,7 +46,9 @@ one NAT from one attacker, and the plan allows one zone rule, which is used.
 ## The policy *(approved)*
 
 - **The threat is a runaway or stolen token**, not fair use between accounts.
-  The limit protects D1 writes and Worker CPU.
+  The limit protects the handler's work (the pushes, reports and pool reads)
+  and Worker CPU, not every D1 write: a refused request with a valid token
+  still pays its verification read and the `last_used_at` write.
 - **One budget per account:** 1,000 requests per 60 seconds, keyed
   `user:<user id>`, shared by the browser and the CLI, across every machine on
   the account.
@@ -128,7 +130,11 @@ problem. So a refusal reports only when `LIMIT_REPORT_GATE` allows it, keyed
 
 If `limit()` throws, or either binding is missing, the request goes through. A
 broken limiter shouldn't take the API down with it. A throw is reported,
-fingerprinted `["account_limiter_failed"]`. A missing binding isn't reported,
+fingerprinted `["account_limiter_failed"]`, at most once a minute per isolate.
+Every signed-in request throws while the service is degraded, and an event per
+request would burn the Sentry quota with nothing for a user to notice. The
+timestamp is isolate state, not `LIMIT_REPORT_GATE`, which is likely failing at
+the same moment. A missing binding isn't reported,
 because it's the expected state in tests and local dev.
 
 ## Tests *(proposed)*
@@ -170,3 +176,6 @@ Filed in Linear rather than built here:
   count against the same account.
 - **Limiting machine-token minting.** That's a separate control on
   `POST /api/machines`.
+- **The token check on machine paths.** A bogus but well-formed machine token
+  still costs an unmetered D1 read on `/lessons` and `/machine/*`, and the zone
+  rule doesn't cover those paths. Accepted.

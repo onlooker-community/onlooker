@@ -457,10 +457,12 @@ clients is the mail cap described above, not the zone rule.
 
 #### Per-account limit (signed-in routes)
 
-Every request that carries a credential, whether a session, a machine token or
+Every request whose credential verifies, whether a session, a machine token or
 the operator's, counts against one budget per account: 1,000 requests per 60
 seconds, keyed by user id. The browser and every machine on the account share
-it.
+it. A request whose credential is refused isn't counted, and neither are
+`/auth/refresh` and `/auth/logout`, which carry a refresh token on routes with
+no principal.
 
 **Why 1,000.** The worst legitimate sync measured on 2026-11-03 is about 74
 requests in 15 to 30 seconds. Two machines syncing at once come to about 600 a
@@ -475,9 +477,11 @@ Cloudflare location, and it costs no D1 read or write. It runs in `dispatch`
 after the principal resolves, so a flood with a valid token still pays the
 credential check but not the handler. A source guard pins that order. Routes
 with no credential have no principal and are not counted here; the zone rule
-above is their limit.
+above is their limit. A bogus but well-formed machine token still costs an
+unmetered D1 read on `/lessons` and `/machine/*`, and the zone rule doesn't
+cover those paths; that is accepted.
 
-**Alerting.** The first refusal per account per minute raises a Sentry issue
+**Alerting.** The first refusal per account per location per minute raises a Sentry issue
 fingerprinted `["account_rate_limited"]`, tagged with the route, with `user_id`
 in extra. `LIMIT_REPORT_GATE`, a second binding allowing one call per account
 per minute, decides which refusal that is. Later refusals in the minute are
@@ -485,10 +489,12 @@ refused without raising another.
 
 **It fails open.** With no binding the limit is off, which is the state of the
 test pool. A binding that throws is reported as `["account_limiter_failed"]`
-and the request goes through.
+and the request goes through. Those failures report at most once a minute per
+isolate, so a degraded limiter can't flood Sentry.
 
 The CLI does not yet read `Retry-After`, so a 429 can abort a push. That
-follow-up is ONL-242.
+follow-up is ONL-242. The web app doesn't handle 429 well yet either; see
+ONL-243.
 
 ### Public lesson reads
 
