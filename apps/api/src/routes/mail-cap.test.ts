@@ -215,22 +215,27 @@ describe("POST /auth/forgot-password under the cap", () => {
 	// monitor is spied on rather than injected: it is an object whose method
 	// the route reaches through, which the Workers pool can replace.
 	it("raises the reserve's alert when an established account spills", async () => {
+		// Restored in `finally`: the monitor is shared across the suite, and a
+		// failed assertion must not leave the spy on it.
 		const capture = vi.spyOn(monitor, "captureException");
-		await spendThePool("reset-reserved");
-		await db()
-			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
-			.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
-			.run();
+		try {
+			await spendThePool("reset-reserved");
+			await db()
+				.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+				.bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), ada.id)
+				.run();
 
-		const response = await post("/auth/forgot-password", { email: ADA });
+			const response = await post("/auth/forgot-password", { email: ADA });
 
-		expect(response.status).toBe(200);
-		expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
-		expect(capture).toHaveBeenCalledTimes(1);
-		expect(capture.mock.calls[0]?.[1]).toMatchObject({
-			tags: { mail_pool: "reset-reserved" },
-		});
-		capture.mockRestore();
+			expect(response.status).toBe(200);
+			expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
+			expect(capture).toHaveBeenCalledTimes(1);
+			expect(capture.mock.calls[0]?.[1]).toMatchObject({
+				tags: { mail_pool: "reset-reserved" },
+			});
+		} finally {
+			capture.mockRestore();
+		}
 	});
 
 	// An account keeps its age through an email change, so every new address
@@ -243,9 +248,7 @@ describe("POST /auth/forgot-password under the cap", () => {
 
 		let email = ADA;
 		for (let i = 0; i < 6; i++) {
-			expect(
-				(await post("/auth/forgot-password", { email })).status,
-			).toBe(200);
+			expect((await post("/auth/forgot-password", { email })).status).toBe(200);
 			expect(await tokenHashes(ada.id, "reset")).toHaveLength(1);
 			const next = `ada-${i}@example.com`;
 			const changed = await call("/auth/profile", ada.token, {

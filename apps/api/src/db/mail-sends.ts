@@ -217,8 +217,11 @@ function msUntilWindowEnds(
  * address's slots and no pool slot, an address refused hourly spends no daily
  * slot, and a capped address spends no pool slot. The reverse is not true: a
  * refusal at an address has spent the inviter's own slot, and one at the pool
- * has spent the address's and the inviter's. A daily refusal is scope
- * "address", answering the end of that 24-hour window.
+ * has spent the address's and the inviter's. An account refused has spent its
+ * address's slots, and a pool refusal has spent the account's; that costs only
+ * the account's own addresses, since both daily caps are six. A daily refusal,
+ * of an address or an account, is scope "address", answering the end of that
+ * 24-hour window.
  * A claim counts even if the send then fails, so a Resend outage cannot be
  * retried into a burst.
  *
@@ -322,7 +325,11 @@ export async function claimMailSend(
 			return {
 				ok: false,
 				scope: "address",
-				retryAfterMs: msUntilWindowEnds(account, USER_RESET_LIMIT.windowMs, now),
+				retryAfterMs: msUntilWindowEnds(
+					account,
+					USER_RESET_LIMIT.windowMs,
+					now,
+				),
 			};
 		}
 	}

@@ -89,9 +89,10 @@ route still cannot say whether an address has an account or which kind it is.
 `reportMailRefusal` raises once per pool per UTC day, as it does today,
 fingerprinted per pool:
 
-- `reset-reserved` spent: raised by the first spill of the day, on a send.
-  Established users are still served, from the open share, so nobody is
-  refused yet. This is the early warning.
+- `reset-reserved` spent: raised by the first spill of the day. Established
+  users now draw on the open share and are usually still served, so this is the
+  early warning. If the open share is spent too, that spill is refused and
+  `reset-open` is raised beside it.
 - `reset-open` spent: new, unverified accounts are refused, and so are
   established ones once the reserve is spent too. Probably someone farming
   accounts. This is the one to act on if the reserve is also spent.

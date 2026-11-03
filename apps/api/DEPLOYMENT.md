@@ -344,9 +344,10 @@ kind is refused too. Every later refusal that day is logged as
 `mail_global_ceiling` without raising another. For resets there are two
 alerts, and they mean different things:
 
-- `reset-reserved` is raised by the first spill of the day, on a send. The
-  reserve is spent, but established accounts are still served from the open
-  share, so nobody is refused yet. It is the early warning.
+- `reset-reserved` is raised by the first spill of the day. The reserve is
+  spent, and established accounts now draw on the open share. Usually that
+  spill is still sent, so it is the early warning. If the open share is spent
+  too, the same request is refused, and `reset-open` is raised beside it.
 - `reset-open` is raised by the open share's first refusal. New, unverified
   accounts are refused, and so are established ones if the reserve is spent
   too. This is the one to act on.
