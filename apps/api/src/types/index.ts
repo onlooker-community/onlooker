@@ -1,4 +1,8 @@
-import type { D1Database, KVNamespace } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	KVNamespace,
+	RateLimit,
+} from "@cloudflare/workers-types";
 
 export * from "./requests";
 export * from "./responses";
@@ -89,6 +93,15 @@ export interface WorkerEnv {
 
 	// Optional: KV namespace for token revocation (future)
 	TOKEN_REVOCATION?: KVNamespace;
+
+	// Workers rate limiting bindings for the per-account circuit breaker, see
+	// middleware/account-limit.ts. ACCOUNT_LIMITER counts every signed-in
+	// request per account; LIMIT_REPORT_GATE lets one refusal a minute per
+	// account through to Sentry. Optional because the test pool's miniflare
+	// config declares neither, and a missing limiter fails open rather than
+	// taking the API down. Each environment in wrangler.toml declares both.
+	ACCOUNT_LIMITER?: RateLimit;
+	LIMIT_REPORT_GATE?: RateLimit;
 
 	// The accounts that may act as an operator, comma-separated. Read by
 	// resolvePrincipal for `auth: "operator"` routes rather than looked up in

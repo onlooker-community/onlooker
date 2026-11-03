@@ -5,6 +5,7 @@
 
 import type { Principal } from "./db/pool.js";
 import { errorHandler } from "./middleware";
+import { enforceAccountLimit } from "./middleware/account-limit";
 import type { RouteAuth, RouteCors } from "./middleware/principal.js";
 import { resolvePrincipal } from "./middleware/principal.js";
 import {
@@ -701,6 +702,17 @@ export async function dispatch(
 		// copy of the list, and the two drifted apart the moment a fourth
 		// handler was added. One list to keep correct is the point.
 		const principal = await resolvePrincipal(request, env, matched.route.auth);
+		// After the principal, so the key comes from a verified credential
+		// rather than a claimed one, and before the handler, which is where the
+		// cost is. A route with no credential has no principal and isn't
+		// counted; the zone rule covers those. See middleware/account-limit.ts.
+		if (principal) {
+			await enforceAccountLimit(
+				env,
+				principal.userId,
+				`${matched.route.method} ${matched.route.path}`,
+			);
+		}
 		return await matched.route.handler(request, env, matched.params, principal);
 	} catch (error) {
 		return errorHandler(error);

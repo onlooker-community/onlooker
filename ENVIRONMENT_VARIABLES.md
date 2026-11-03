@@ -285,6 +285,8 @@ These are automatically injected via wrangler configuration.
 | Binding | Type | Bound where |
 |---------|------|-------------|
 | `DB` | D1Database | `[[env.*.d1_databases]]` in `wrangler.toml`, all three environments |
+| `ACCOUNT_LIMITER` | RateLimit | `[[env.*.ratelimits]]` in `wrangler.toml`, all three environments. 1,000 signed-in requests per 60 seconds per account — see [DEPLOYMENT.md](apps/api/DEPLOYMENT.md#rate-limiting) |
+| `LIMIT_REPORT_GATE` | RateLimit | `[[env.*.ratelimits]]` in `wrangler.toml`, all three environments. Lets one refusal a minute per account through to Sentry |
 | `TOKEN_REVOCATION` | KVNamespace | Nowhere — see below |
 
 #### D1 Database Binding
