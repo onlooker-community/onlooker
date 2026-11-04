@@ -51,6 +51,12 @@ assume the header can be read (the comment at `client.ts:159-162`).
   applies only to the refresh call.
 - **Anything else is transient:** 429, 5xx, a network failure or a timeout.
   Keep the tokens and retry.
+- **A failure that leaves no token behind is a sign-out**, whatever was
+  thrown. The web app's `refreshTokens` returns only `true` or `false`, and it
+  clears the tokens itself on a 400 or 401, so `refreshSession` throws a plain
+  `Error` either way. The auth layer checks whether the access token is still
+  stored instead of trusting the error's type. Otherwise a rejected refresh
+  would retry forever with nothing to retry with.
 
 ## What the person sees *(approved)*
 
@@ -105,9 +111,20 @@ HTTP date), and left undefined when the header is missing or unparseable.
   sees the loading screen, not a sign-out.
 - `retry` runs a hydrate immediately and cancels the scheduled one.
 
-**Web: `apps/web/src/api/client.ts`.** `performRefresh` clears the tokens only
-on 400 or 401. On any other non-OK status it keeps them and returns `false`,
-as it already does for a network error.
+**Web: `apps/web/src/api/client.ts`.**
+
+- `performRefresh` clears the tokens only on 400 or 401. On any other non-OK
+  status it keeps them and returns `false`, as it already does for a network
+  error.
+- The reactive path in `authenticatedFetch` is a fifth sign-out: a request
+  answered 401, the refresh failed, and it calls `tokenStore.clear()` and
+  `onUnauthorized` (about :270-278). It should do that only when the refresh
+  token is gone, which means `performRefresh` saw a 400 or 401. When the
+  refresh failed transiently, it keeps the tokens and answers the caller with
+  a synthesized **503**, code `session_unavailable`, not the original 401.
+  Passing the 401 on would undo the fix: `createAuthApiClient` clears the
+  access token on any 401 it sees (`packages/auth-react/src/index.tsx`, about
+  :96-99). A 503 reaches auth-react as a transient failure, and it retries.
 
 **Web: `apps/web/src/App.tsx`.** `Protected` passes an `unavailableFallback`
 that renders the `AppShell` with the notice and the button. The countdown
@@ -132,7 +149,9 @@ updates once a second.
     `loadingFallback` without one, and never redirects while unavailable.
   - `createAuthApiClient` parses `Retry-After` in both forms.
 - **Web (`api/client.test.ts`):** `performRefresh` keeps the tokens on 429 and
-  503, and clears them on 400 and 401.
+  503, and clears them on 400 and 401. A request that 401s while the refresh
+  gets a 429 keeps the tokens, answers 503 `session_unavailable`, and doesn't
+  call `onUnauthorized`.
 - **Web:** the `Protected` route renders the notice, and **Try again** re-runs
   the check.
 
