@@ -4,6 +4,7 @@ import {
 	ApiError,
 	chunkSessionReport,
 	createClient,
+	type RetryOptions,
 } from "../api";
 import { readConfig } from "../config";
 import { readEventEnvelopes } from "../eventlog";
@@ -19,6 +20,8 @@ export interface SyncDeps {
 	env?: NodeJS.ProcessEnv;
 	fetchImpl?: typeof fetch;
 	theme?: Theme;
+	/** How the client waits out a 429; tests pass a sleep that returns at once. */
+	retry?: RetryOptions;
 }
 
 /**
@@ -185,6 +188,7 @@ export async function sync({
 	env = process.env,
 	fetchImpl,
 	theme = PLAIN,
+	retry,
 }: SyncDeps): Promise<string> {
 	const config = readConfig(env);
 	if (!config.machineToken) {
@@ -197,6 +201,7 @@ export async function sync({
 		config.apiBaseUrl,
 		config.machineToken,
 		fetchImpl,
+		retry,
 	);
 
 	// Before the lesson paths, not after.
@@ -282,8 +287,20 @@ export async function sync({
 	// Id to digest, for every lesson the pool confirmed it holds. Written to
 	// the pushed record at the end, so `status` can tell sent from unsent.
 	const held: Record<string, string> = {};
+	// Why the push stopped early, when it did. Said once rather than on each
+	// of the lessons it left unsent.
+	let stopped: string | null = null;
 
 	for (const chunk of batch(lessons, MAX_BATCH)) {
+		// A refusal that waiting fixes - a 429 the client already waited out
+		// once, an outage - will refuse the next batch too, so the rest are
+		// held for the next run rather than sent into it (ONL-242). Recorded
+		// rather than thrown: thrown, it skipped writing what the earlier
+		// batches stored and skipped the pull.
+		if (stopped !== null) {
+			for (const lesson of chunk) retryable.push(`${lesson.id}: not sent`);
+			continue;
+		}
 		// Every distinct digest sent under each id. The pool answers per id, so
 		// an id whose copies disagree cannot say which copy it holds, and
 		// recording either would be a guess.
@@ -298,7 +315,19 @@ export async function sync({
 			if (seen?.size === 1) held[id] = [...seen][0];
 		};
 
-		const response = await client.push(chunk);
+		let response: Awaited<ReturnType<ApiClient["push"]>>;
+		try {
+			response = await client.push(chunk);
+		} catch (error) {
+			// Anything else - a revoked token, a moved endpoint - is not fixed by
+			// running sync again, and its exit code must not say it is.
+			if (!(error instanceof ApiError) || error.failure.kind !== "transient") {
+				throw error;
+			}
+			stopped = error.message;
+			for (const lesson of chunk) retryable.push(`${lesson.id}: not sent`);
+			continue;
+		}
 		// `api.ts` casts the response body rather than validating it, so this is
 		// the first place a body that is not the promised shape can be noticed.
 		const results = Array.isArray(response.results) ? response.results : [];
@@ -398,6 +427,7 @@ export async function sync({
 	if (retryable.length > 0) {
 		problems.push(
 			`${retryable.length} lesson(s) were not stored. Run sync again.`,
+			...(stopped === null ? [] : [`The push stopped early: ${stopped}`]),
 			...retryable,
 		);
 	}
