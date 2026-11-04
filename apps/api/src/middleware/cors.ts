@@ -29,6 +29,14 @@ const ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 const ALLOW_HEADERS = ["Content-Type", "Authorization", ...TRACE_HEADERS].join(
 	", ",
 );
+/**
+ * Response headers a cross-origin caller may read beyond the safelisted ones.
+ * Retry-After is the one the web app acts on: the login backoff, the mail
+ * caps and the per-account limit all answer 429 with it, and without this the
+ * browser hands the page null (ONL-243). Not sent on preflight, where it means
+ * nothing.
+ */
+const EXPOSE_HEADERS = "Retry-After";
 // The "any" branch's own allowlist, deliberately narrower than ALLOW_HEADERS
 // above and NOT shared with it. ALLOW_HEADERS grants Authorization and the
 // trace headers, which is the right posture for the single fixed origin the
@@ -106,6 +114,7 @@ export function withCors(
 		response.headers.set("Access-Control-Allow-Origin", "*");
 		response.headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
 		response.headers.set("Access-Control-Allow-Headers", ANY_ALLOW_HEADERS);
+		response.headers.set("Access-Control-Expose-Headers", EXPOSE_HEADERS);
 		return response;
 	}
 
@@ -116,6 +125,7 @@ export function withCors(
 		response.headers.set("Access-Control-Allow-Origin", origin);
 		response.headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
 		response.headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
+		response.headers.set("Access-Control-Expose-Headers", EXPOSE_HEADERS);
 	}
 
 	return response;

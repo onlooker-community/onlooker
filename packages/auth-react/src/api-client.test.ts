@@ -1,3 +1,4 @@
+import type { AuthApiError } from "@onlooker/auth-core";
 import { describe, expect, it } from "vitest";
 import { createAuthApiClient } from "./index";
 
@@ -51,5 +52,47 @@ describe("error envelope", () => {
 			code: "unknown_error",
 			message: "Request failed with status 500",
 		});
+	});
+});
+
+describe("Retry-After", () => {
+	it("carries the server's Retry-After on a refused request", async () => {
+		const client = createAuthApiClient({
+			baseUrl: "https://api.test",
+			tokenStorage: noStorage,
+			fetchImpl: async () =>
+				new Response(
+					JSON.stringify({
+						success: false,
+						error: { code: "rate_limited", message: "Too many requests" },
+					}),
+					{
+						status: 429,
+						headers: {
+							"Content-Type": "application/json",
+							"Retry-After": "60",
+						},
+					},
+				),
+		});
+
+		await expect(client.get("/auth/me")).rejects.toMatchObject({
+			status: 429,
+			code: "rate_limited",
+			retryAfterMs: 60_000,
+		});
+	});
+
+	it("leaves it undefined when the server sent none", async () => {
+		const client = createAuthApiClient({
+			baseUrl: "https://api.test",
+			tokenStorage: noStorage,
+			fetchImpl: async () => new Response("{}", { status: 503 }),
+		});
+
+		const failure = client.get("/auth/me").catch((e) => e);
+		const error = (await failure) as AuthApiError;
+		expect(error.status).toBe(503);
+		expect(error.retryAfterMs).toBeUndefined();
 	});
 });

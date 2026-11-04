@@ -61,7 +61,8 @@ export const auth = createReactAuth<User, AppAuthState>({
 	autoRefreshLeadMs: AUTO_REFRESH_LEAD_MS,
 	expiryWarningLeadMs: EXPIRY_WARNING_LEAD_MS,
 	loadSession: async (): Promise<AuthSession<User, AppAuthState>> => {
-		// Throws on failure (e.g. unrecoverable 401); createReactAuth resets state.
+		// Throws on failure; createReactAuth signs out only if no token is left,
+		// and otherwise keeps the session and retries.
 		const response = await apiClient.get<MeResponse>(AUTH_ENDPOINTS.me);
 		return { user: response.user };
 	},
@@ -109,7 +110,8 @@ export const auth = createReactAuth<User, AppAuthState>({
 	// WS3: proactive, scheduled refresh (fires ~1 min before token expiry),
 	// layered on top of the reactive on-401 refresh in ./api/client. Both reuse
 	// the same single-flight refreshTokens(), so proactive and reactive refresh
-	// can never race. Throwing forces the factory to re-login.
+	// can never race. Throwing re-logs in only when the refresh cleared the
+	// tokens; otherwise the factory keeps the session and retries.
 	refreshSession: async (): Promise<AuthSession<User, AppAuthState>> => {
 		const refreshed = await refreshTokens();
 		if (!refreshed) {

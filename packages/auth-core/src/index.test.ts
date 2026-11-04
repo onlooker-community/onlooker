@@ -157,6 +157,22 @@ describe("auth-core", () => {
 			expect(error.details).toEqual(details);
 		});
 
+		it("carries retryAfterMs when given one", () => {
+			const error = new AuthApiError(
+				429,
+				"rate_limited",
+				"Slow down",
+				undefined,
+				60_000,
+			);
+			expect(error.retryAfterMs).toBe(60_000);
+		});
+
+		it("leaves retryAfterMs undefined by default", () => {
+			const error = new AuthApiError(500, "internal_error", "Oops");
+			expect(error.retryAfterMs).toBeUndefined();
+		});
+
 		it("sets name to AuthApiError", () => {
 			const error = new AuthApiError(
 				401,

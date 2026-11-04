@@ -6,6 +6,7 @@ import {
 import { createContext, useContext } from "react";
 import { getTokenExpiration as defaultGetTokenExpiration } from "./jwt";
 import { computeExpirySchedule } from "./schedule";
+import { isSessionGone, parseRetryAfter, retryDelayMs } from "./transient";
 
 // ============================================================================
 // Token Storage
@@ -118,6 +119,7 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 				envelope.error?.message ??
 					`Request failed with status ${response.status}`,
 				envelope.error?.details,
+				parseRetryAfter(response.headers.get("Retry-After"), Date.now()),
 			);
 		}
 
@@ -150,6 +152,7 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { Navigate, useLocation } from "react-router-dom";
@@ -233,11 +236,18 @@ export type ReactAuthState<TUser, TExtra extends object> = {
 	sessionExpiresAt: number | null;
 	/** True within the expiry-warning window before `sessionExpiresAt`. */
 	sessionExpiringSoon: boolean;
+	/**
+	 * Set when the last session check failed for a reason other than a 401
+	 * and a retry is scheduled. The tokens are kept; RequireAuth renders its
+	 * unavailableFallback instead of redirecting (ONL-243).
+	 */
+	unavailable: { retryAt: number } | null;
 } & TExtra & {
 		login: (email: string, password: string) => Promise<void>;
 		signup: (email: string, password: string, name?: string) => Promise<void>;
 		logout: () => Promise<void>;
 		refresh: () => Promise<void>;
+		retrySession: () => void;
 	};
 
 export function createReactAuth<TUser, TExtra extends object>(
@@ -290,6 +300,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 				user: null,
 				loading: hasToken,
 				error: null,
+				unavailable: null,
 				sessionExpiresAt: hasToken ? currentTokenExpiry() : null,
 				sessionExpiringSoon: false,
 				...initialExtraState,
@@ -308,6 +319,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 				user,
 				loading: false,
 				error: null,
+				unavailable: null,
 				sessionExpiresAt: currentTokenExpiry(),
 				sessionExpiringSoon: false,
 			}));
@@ -319,10 +331,79 @@ export function createReactAuth<TUser, TExtra extends object>(
 				user: null,
 				loading: false,
 				error: null,
+				unavailable: null,
 				sessionExpiresAt: null,
 				sessionExpiringSoon: false,
 			});
 		}, [initialExtraState]);
+
+		// --- ONL-243: a session that is unreachable, not gone -------------------
+		// One timer for hydrate, the proactive refresh and the cross-tab
+		// re-hydrate: whichever retry is pending, a newer one supersedes it.
+		const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+		const failures = useRef(0);
+		const mounted = useRef(true);
+
+		const clearRetry = useCallback(() => {
+			if (retryTimer.current) {
+				clearTimeout(retryTimer.current);
+				retryTimer.current = null;
+			}
+		}, []);
+
+		useEffect(() => {
+			mounted.current = true;
+			return () => {
+				mounted.current = false;
+				clearRetry();
+			};
+		}, [clearRetry]);
+
+		// A failure that leaves no token behind is a sign-out, whatever was
+		// thrown: the web app's refreshSession throws a plain Error both when the
+		// refresh was rejected (and it cleared the tokens) and when it was only
+		// unreachable.
+		const sessionGone = useCallback(
+			(error: unknown) =>
+				isSessionGone(error) || !options.tokenStorage.getToken(),
+			[],
+		);
+
+		const scheduleRetry = useCallback(
+			(error: unknown, rerun: () => void, visible: boolean) => {
+				const delay = retryDelayMs(error, failures.current);
+				failures.current += 1;
+				clearRetry();
+				retryTimer.current = setTimeout(() => {
+					retryTimer.current = null;
+					rerun();
+				}, delay);
+				if (visible) {
+					setPartialState({
+						loading: false,
+						unavailable: { retryAt: Date.now() + delay },
+					});
+				}
+			},
+			[clearRetry, setPartialState],
+		);
+
+		const succeed = useCallback(
+			(session: AuthSession<TUser, TExtra>) => {
+				failures.current = 0;
+				clearRetry();
+				applySession(session);
+			},
+			[applySession, clearRetry],
+		);
+
+		const clearLocalSession = useCallback(() => {
+			failures.current = 0;
+			clearRetry();
+			options.tokenStorage.clearToken();
+			options.onLogoutCleanup?.();
+			resetState();
+		}, [clearRetry, resetState]);
 
 		// --- Task 3.3: logout with API-first cleanup ---------------------------
 		// Call the logout endpoint while the token is still present so the server
@@ -332,6 +413,8 @@ export function createReactAuth<TUser, TExtra extends object>(
 		// endpoint again would be redundant or loop.
 		const performLogout = useCallback(
 			async ({ callApi }: { callApi: boolean }) => {
+				failures.current = 0;
+				clearRetry();
 				if (callApi) {
 					try {
 						await options.logout?.();
@@ -343,7 +426,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 				options.onLogoutCleanup?.();
 				resetState();
 			},
-			[resetState],
+			[clearRetry, resetState],
 		);
 
 		const logout = useCallback(
@@ -356,55 +439,62 @@ export function createReactAuth<TUser, TExtra extends object>(
 				const session = options.refreshSession
 					? await options.refreshSession()
 					: await options.loadSession();
-				applySession(session);
-			} catch {
-				// Task 3.2: force re-login when refresh fails. Local-only cleanup —
-				// the refresh already proved the session is gone server-side.
-				await performLogout({ callApi: false });
-			}
-		}, [applySession, performLogout]);
-
-		// --- Task 3.1: session hydration on app load ---------------------------
-		useEffect(() => {
-			const token = options.tokenStorage.getToken();
-			if (!token) return;
-
-			let cancelled = false;
-			const expiresAt = getExpiration(token);
-
-			const hydrate = async () => {
-				// Token already expired: refresh if we can, otherwise clear + show login.
-				if (expiresAt !== null && Date.now() >= expiresAt) {
-					if (options.refreshSession) {
-						try {
-							const session = await options.refreshSession();
-							if (!cancelled) applySession(session);
-							return;
-						} catch {
-							// fall through to clear
-						}
-					}
-					options.tokenStorage.clearToken();
-					options.onLogoutCleanup?.();
-					if (!cancelled) resetState();
+				succeed(session);
+			} catch (error) {
+				if (!mounted.current) return;
+				// Task 3.2: a refresh the server refused forces re-login. Local-only
+				// cleanup, since the refusal already proved the session is gone.
+				if (sessionGone(error)) {
+					await performLogout({ callApi: false });
 					return;
 				}
+				// Anything else: the person is signed in and the access token is still
+				// good for a while, so retry quietly (ONL-243).
+				scheduleRetry(error, () => void refreshRef.current(), false);
+			}
+		}, [succeed, sessionGone, performLogout, scheduleRetry]);
+		const refreshRef = useRef(refresh);
+		refreshRef.current = refresh;
 
-				try {
-					const session = await options.loadSession();
-					if (!cancelled) applySession(session);
-				} catch {
-					options.tokenStorage.clearToken();
-					options.onLogoutCleanup?.();
-					if (!cancelled) resetState();
+		// --- Task 3.1: session hydration on app load ---------------------------
+		const hydrate = useCallback(async (): Promise<void> => {
+			const token = options.tokenStorage.getToken();
+			if (!token) return;
+			const expiresAt = getExpiration(token);
+			const expired = expiresAt !== null && Date.now() >= expiresAt;
+
+			// Token already expired with no way to refresh it: nothing to retry.
+			if (expired && !options.refreshSession) {
+				clearLocalSession();
+				return;
+			}
+
+			try {
+				const session =
+					expired && options.refreshSession
+						? await options.refreshSession()
+						: await options.loadSession();
+				if (mounted.current) succeed(session);
+			} catch (error) {
+				if (!mounted.current) return;
+				if (sessionGone(error)) {
+					clearLocalSession();
+					return;
 				}
-			};
+				scheduleRetry(error, () => void hydrateRef.current(), true);
+			}
+		}, [clearLocalSession, succeed, sessionGone, scheduleRetry]);
+		const hydrateRef = useRef(hydrate);
+		hydrateRef.current = hydrate;
 
-			void hydrate();
-			return () => {
-				cancelled = true;
-			};
-		}, [applySession, resetState]);
+		useEffect(() => {
+			void hydrateRef.current();
+		}, []);
+
+		const retrySession = useCallback(() => {
+			clearRetry();
+			void hydrateRef.current();
+		}, [clearRetry]);
 
 		// --- Task 3.2: expiry warning + proactive auto-refresh -----------------
 		const sessionExpiresAt: number | null = state.sessionExpiresAt;
@@ -460,6 +550,9 @@ export function createReactAuth<TUser, TExtra extends object>(
 				const token = options.tokenStorage.getToken();
 				if (!token) {
 					// Logged out in another tab: local cleanup only (no API call).
+					// Forget any pending retry too, or it fires against no session.
+					failures.current = 0;
+					clearRetry();
 					options.onLogoutCleanup?.();
 					resetState();
 					return;
@@ -468,20 +561,30 @@ export function createReactAuth<TUser, TExtra extends object>(
 				// Logged in / refreshed in another tab: re-hydrate this tab.
 				options
 					.loadSession()
-					.then(applySession)
-					.catch(() => {
-						options.tokenStorage.clearToken();
-						options.onLogoutCleanup?.();
-						resetState();
+					.then(succeed)
+					.catch((error: unknown) => {
+						if (sessionGone(error)) {
+							clearLocalSession();
+							return;
+						}
+						scheduleRetry(error, () => void hydrateRef.current(), true);
 					});
 			};
 
 			target.addEventListener("storage", handler);
 			return () => target.removeEventListener("storage", handler);
-		}, [applySession, resetState]);
+		}, [
+			succeed,
+			sessionGone,
+			clearLocalSession,
+			scheduleRetry,
+			clearRetry,
+			resetState,
+		]);
 
 		// --- Task 3.3 (reactive): local logout for the transport layer ---------
-		// A mid-session request whose token refresh fails is a terminal 401. The
+		// A mid-session request whose token refresh is refused is a terminal 401
+		// (an unreachable refresh is not: it keeps the session). The
 		// API client routes that here via the registered unauthorized handler.
 		// callApi:false so we never re-POST /auth/logout (that would 401 and loop
 		// back through the same path); clearing state makes RequireAuth redirect.
@@ -508,7 +611,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 								TExtra
 							>);
 
-					applySession(session);
+					succeed(session);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : "Login failed";
@@ -516,7 +619,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 					throw error;
 				}
 			},
-			[applySession, initialExtraState, setPartialState],
+			[succeed, initialExtraState, setPartialState],
 		);
 
 		const signup = useCallback(
@@ -533,7 +636,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 								TExtra
 							>);
 
-					applySession(session);
+					succeed(session);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : "Signup failed";
@@ -541,7 +644,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 					throw error;
 				}
 			},
-			[applySession, initialExtraState, setPartialState],
+			[succeed, initialExtraState, setPartialState],
 		);
 
 		return {
@@ -550,6 +653,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 			signup,
 			logout,
 			refresh,
+			retrySession,
 		} as AuthState;
 	}
 
@@ -561,16 +665,39 @@ export function createReactAuth<TUser, TExtra extends object>(
 	function RequireAuth({
 		children,
 		loadingFallback = null,
+		unavailableFallback,
 		redirectTo = "/login",
 	}: {
 		children: ReactNode;
 		loadingFallback?: ReactNode;
+		/**
+		 * What to show while the session can't be checked but hasn't been
+		 * refused - a 429, a 5xx, offline. Without one, the loading fallback
+		 * shows instead: never a redirect, which would treat an unreachable
+		 * session as a gone one (ONL-243).
+		 */
+		unavailableFallback?: (state: {
+			retryAt: number;
+			retry: () => void;
+		}) => ReactNode;
 		redirectTo?: string;
 	}) {
 		const auth = useAuth();
 		const location = useLocation();
 
 		if (auth.loading) return <>{loadingFallback}</>;
+		if (!auth.user && auth.unavailable) {
+			return (
+				<>
+					{unavailableFallback
+						? unavailableFallback({
+								retryAt: auth.unavailable.retryAt,
+								retry: auth.retrySession,
+							})
+						: loadingFallback}
+				</>
+			);
+		}
 		if (!auth.user) {
 			return <Navigate to={redirectTo} state={{ from: location }} replace />;
 		}
@@ -594,5 +721,13 @@ export {
 	type ExpirySchedule,
 	type ExpiryScheduleInput,
 } from "./schedule";
+export {
+	isSessionGone,
+	MAX_RETRY_MS,
+	MIN_RETRY_MS,
+	parseRetryAfter,
+	RETRY_BACKOFF_MS,
+	retryDelayMs,
+} from "./transient";
 export type { AuthResponse, AuthSession };
 export { AuthApiError };

@@ -227,6 +227,47 @@ describe("withCors", () => {
 
 		expect(res.headers.get("Content-Type")).toBe("application/json");
 	});
+
+	// A cross-origin page can read only the CORS-safelisted response headers
+	// unless the server names more. Retry-After isn't safelisted, so without
+	// this the web app read null for it on every 429 (ONL-243).
+	it("exposes Retry-After to an allowed origin", () => {
+		const res = withCors(
+			new Response("slow down", {
+				status: 429,
+				headers: { "Retry-After": "60" },
+			}),
+			request(PRODUCTION),
+			env(PRODUCTION),
+		);
+
+		expect(res.headers.get("Access-Control-Expose-Headers")).toBe(
+			"Retry-After",
+		);
+	});
+
+	it("exposes Retry-After on the public posture too", () => {
+		const res = withCors(
+			new Response("ok"),
+			request("https://elsewhere.example"),
+			env(PRODUCTION),
+			"any",
+		);
+
+		expect(res.headers.get("Access-Control-Expose-Headers")).toBe(
+			"Retry-After",
+		);
+	});
+
+	it("exposes nothing to an origin that is not on the list", () => {
+		const res = withCors(
+			new Response("ok"),
+			request("https://evil.example"),
+			env(PRODUCTION),
+		);
+
+		expect(res.headers.get("Access-Control-Expose-Headers")).toBeNull();
+	});
 });
 
 describe("preflightResponse", () => {
