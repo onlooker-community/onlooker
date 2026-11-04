@@ -272,6 +272,43 @@ describe("re-hydrating when another tab changes the token", () => {
 		await advance(5_000);
 		expect(loadSession).toHaveBeenCalledTimes(3);
 	});
+
+	it("forgets a pending refresh retry when another tab signs out", async () => {
+		let listener: ((event: StorageEvent) => void) | undefined;
+		const target: StorageEventTarget = {
+			addEventListener: (_type, l) => {
+				listener = l;
+			},
+			removeEventListener: () => {},
+		};
+		const refreshSession = vi
+			.fn()
+			.mockRejectedValueOnce(rateLimited(10_000))
+			.mockRejectedValue(new TypeError("Failed to fetch"));
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+			storageEventTarget: target,
+		});
+		h.renderProbe();
+		await flush();
+
+		await act(async () => {
+			await h.state().refresh();
+		});
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			h.clearStoredToken();
+			listener?.(new StorageEvent("storage", { key: "auth_token" }));
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(h.state().user).toBeNull();
+
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+		expect(h.onLogoutCleanup).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("RequireAuth while the session is unreachable", () => {

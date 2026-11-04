@@ -550,6 +550,9 @@ export function createReactAuth<TUser, TExtra extends object>(
 				const token = options.tokenStorage.getToken();
 				if (!token) {
 					// Logged out in another tab: local cleanup only (no API call).
+					// Forget any pending retry too, or it fires against no session.
+					failures.current = 0;
+					clearRetry();
 					options.onLogoutCleanup?.();
 					resetState();
 					return;
@@ -570,7 +573,14 @@ export function createReactAuth<TUser, TExtra extends object>(
 
 			target.addEventListener("storage", handler);
 			return () => target.removeEventListener("storage", handler);
-		}, [succeed, sessionGone, clearLocalSession, scheduleRetry, resetState]);
+		}, [
+			succeed,
+			sessionGone,
+			clearLocalSession,
+			scheduleRetry,
+			clearRetry,
+			resetState,
+		]);
 
 		// --- Task 3.3 (reactive): local logout for the transport layer ---------
 		// A mid-session request whose token refresh fails is a terminal 401. The
@@ -600,7 +610,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 								TExtra
 							>);
 
-					applySession(session);
+					succeed(session);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : "Login failed";
@@ -608,7 +618,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 					throw error;
 				}
 			},
-			[applySession, initialExtraState, setPartialState],
+			[succeed, initialExtraState, setPartialState],
 		);
 
 		const signup = useCallback(
@@ -625,7 +635,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 								TExtra
 							>);
 
-					applySession(session);
+					succeed(session);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : "Signup failed";
@@ -633,7 +643,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 					throw error;
 				}
 			},
-			[applySession, initialExtraState, setPartialState],
+			[succeed, initialExtraState, setPartialState],
 		);
 
 		return {
