@@ -31,6 +31,27 @@ describe("retryDelayMs", () => {
 		expect(retryDelayMs(error, 4)).toBe(30_000);
 	});
 
+	it("raises a zero Retry-After to a second", () => {
+		const error = new AuthApiError(429, "rate_limited", "x", undefined, 0);
+		expect(retryDelayMs(error, 0)).toBe(1_000);
+	});
+
+	it("caps a Retry-After past setTimeout's range at an hour", () => {
+		const error = new AuthApiError(
+			429,
+			"rate_limited",
+			"x",
+			undefined,
+			2 ** 31,
+		);
+		expect(retryDelayMs(error, 0)).toBe(3_600_000);
+	});
+
+	it("leaves a Retry-After inside the bounds alone", () => {
+		const error = new AuthApiError(429, "rate_limited", "x", undefined, 30_000);
+		expect(retryDelayMs(error, 0)).toBe(30_000);
+	});
+
 	it("backs off 5, 10, 20, 40, then 60 seconds, capped", () => {
 		const error = new TypeError("Failed to fetch");
 		expect([0, 1, 2, 3, 4, 5, 9].map((n) => retryDelayMs(error, n))).toEqual([

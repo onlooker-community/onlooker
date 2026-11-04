@@ -723,6 +723,8 @@ export {
 export {
 	isSessionGone,
 	parseRetryAfter,
+	MAX_RETRY_MS,
+	MIN_RETRY_MS,
 	RETRY_BACKOFF_MS,
 	retryDelayMs,
 } from "./transient";

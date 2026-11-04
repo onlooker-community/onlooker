@@ -18,10 +18,19 @@ export function isSessionGone(error: unknown): boolean {
 	return error instanceof AuthApiError && error.status === 401;
 }
 
+/**
+ * The bounds on a server-sent Retry-After. A 0 (or a past date) is a tight
+ * retry loop, and anything past about 24.8 days (2^31-1 ms) overflows
+ * `setTimeout`, which then fires at once. An hour is far past anything the API
+ * sends: the account limit sends 60 s and a Cloudflare 429 at most a day.
+ */
+export const MIN_RETRY_MS = 1_000;
+export const MAX_RETRY_MS = 3_600_000;
+
 /** The server's Retry-After when it sent one, otherwise the backoff. */
 export function retryDelayMs(error: unknown, failures: number): number {
 	if (error instanceof AuthApiError && error.retryAfterMs !== undefined) {
-		return error.retryAfterMs;
+		return Math.min(MAX_RETRY_MS, Math.max(MIN_RETRY_MS, error.retryAfterMs));
 	}
 	return RETRY_BACKOFF_MS[Math.min(failures, RETRY_BACKOFF_MS.length - 1)];
 }

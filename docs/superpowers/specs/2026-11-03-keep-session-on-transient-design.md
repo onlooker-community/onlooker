@@ -74,6 +74,9 @@ assume the header can be read (the comment at `client.ts:159-162`).
 ## When to retry *(approved)*
 
 - After `Retry-After`, when the server sent one.
+- The server's value is held between 1 second and 1 hour: a zero would retry
+  in a tight loop, and anything past about 24.8 days overflows the browser's
+  timer.
 - Otherwise a backoff of 5, 10, 20, 40, then 60 seconds, capped at 60. The
   count resets after a success.
 
