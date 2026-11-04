@@ -1,16 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = {
 	user: null as { id: string; email: string } | null,
 	loading: false,
+	unavailable: null as { retryAt: number } | null,
 };
+const retrySession = vi.fn();
 
 vi.mock("../auth", () => ({
 	auth: {
 		useAuth: () => ({
 			...authState,
+			retrySession,
 			logout: vi.fn(),
 			refresh: vi.fn(),
 			sessionExpiresAt: null,
@@ -37,6 +40,8 @@ describe("/", () => {
 	beforeEach(() => {
 		authState.user = null;
 		authState.loading = false;
+		authState.unavailable = null;
+		retrySession.mockClear();
 	});
 
 	it("sends a signed-out visitor to log in", async () => {
@@ -77,5 +82,25 @@ describe("/", () => {
 
 		expect(screen.queryByLabelText(/password/i)).toBeNull();
 		expect(screen.getByRole("status").textContent).toMatch(/loading/i);
+	});
+
+	// ONL-243: an unreachable session is not a signed-out one. Sending it to
+	// /login would read as having been logged out during a 429.
+	it("says it can't reach Onlooker, rather than logging in, while the session is unreachable", () => {
+		authState.unavailable = { retryAt: Date.now() + 30_000 };
+
+		render(
+			<MemoryRouter initialEntries={["/"]}>
+				<App />
+			</MemoryRouter>,
+		);
+
+		expect(screen.queryByLabelText(/password/i)).toBeNull();
+		expect(screen.getByRole("status").textContent).toMatch(
+			/can't reach onlooker right now/i,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(retrySession).toHaveBeenCalledTimes(1);
 	});
 });

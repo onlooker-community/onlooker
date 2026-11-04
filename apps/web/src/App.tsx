@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { auth } from "./auth";
 import AppShell from "./components/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { Loading } from "./components/ui";
+import { Button, Loading } from "./components/ui";
 import { monitor } from "./monitoring";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ActivityPage from "./pages/ActivityPage";
@@ -25,6 +25,36 @@ import { InertWhileRevealed, RevealHost, RevealProvider } from "./reveal";
 import { useDocumentTitle } from "./titles";
 
 /**
+ * What an authenticated route shows while the session can't be checked - a
+ * 429, a 5xx, offline - but hasn't been refused. The tokens are kept and
+ * auth-react retries at `retryAt`; Try again runs the check now (ONL-243).
+ */
+function SessionUnavailable({
+	retryAt,
+	retry,
+}: {
+	retryAt: number;
+	retry: () => void;
+}) {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const id = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, []);
+	const seconds = Math.max(0, Math.ceil((retryAt - now) / 1000));
+
+	return (
+		<div>
+			<p role="status" aria-live="polite">
+				Can't reach Onlooker right now.{" "}
+				{seconds > 0 ? `Trying again in ${seconds} s.` : "Trying again…"}
+			</p>
+			<Button onClick={retry}>Try again</Button>
+		</div>
+	);
+}
+
+/**
  * Every authenticated route: the guard, the chrome, and what to show while the
  * session is still resolving.
  *
@@ -42,6 +72,9 @@ import { useDocumentTitle } from "./titles";
  * RequireAuth redirects them to /login. That is the accepted cost: the
  * alternative was a blank screen for everyone, including the signed-in case,
  * which is the common one.
+ *
+ * The unreachable case gets the same frame, with a notice instead of the
+ * loading line.
  */
 function Protected({ children }: { children: ReactNode }) {
 	return (
@@ -51,6 +84,11 @@ function Protected({ children }: { children: ReactNode }) {
 					<Loading label="Loading your session…" />
 				</AppShell>
 			}
+			unavailableFallback={({ retryAt, retry }) => (
+				<AppShell>
+					<SessionUnavailable retryAt={retryAt} retry={retry} />
+				</AppShell>
+			)}
 		>
 			<AppShell>{children}</AppShell>
 		</auth.RequireAuth>
@@ -69,13 +107,22 @@ function Protected({ children }: { children: ReactNode }) {
  * one would send a signed-in person refreshing / to /login and then back,
  * which reads as having been logged out.
  *
+ * It doesn't redirect while the session is unreachable either: a 429 or a 5xx
+ * is not a sign-out, and /login would read as one.
+ *
  * AppShell's Sign out navigates here, so signing out resolves through this one
  * decision rather than through a second copy of it.
  */
 function RootRedirect() {
-	const { user, loading } = auth.useAuth();
+	const { user, loading, unavailable, retrySession } = auth.useAuth();
 
 	if (loading) return <Loading label="Loading your session…" />;
+
+	if (!user && unavailable) {
+		return (
+			<SessionUnavailable retryAt={unavailable.retryAt} retry={retrySession} />
+		);
+	}
 
 	return <Navigate to={user ? "/lessons" : "/login"} replace />;
 }

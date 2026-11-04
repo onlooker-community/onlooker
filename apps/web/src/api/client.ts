@@ -205,8 +205,13 @@ export function createApiClient(
 			);
 
 			if (!response.ok) {
-				// Refresh token rejected — the session cannot be recovered.
-				tokenStore.clear();
+				// Only a 400 (no refresh token) or a 401 (refused) means the session
+				// cannot be recovered. A 429 - the zone rule meters /auth/* per IP -
+				// or a 5xx says nothing about the token, and clearing it signed
+				// people out over a moment of unavailability (ONL-243).
+				if (response.status === 400 || response.status === 401) {
+					tokenStore.clear();
+				}
 				return false;
 			}
 
@@ -272,9 +277,24 @@ export function createApiClient(
 			const refreshed = await refreshTokens();
 			if (refreshed) {
 				response = await resilientFetch(method, url, withAuthHeader(init));
-			} else {
+			} else if (tokenStore.getRefreshToken() === null) {
+				// performRefresh cleared it: the server refused the session.
 				tokenStore.clear();
 				options.onUnauthorized?.();
+			} else {
+				// The refresh was unreachable, not refused. Answer 503 rather than the
+				// 401: auth-react clears the access token on any 401 it sees, which
+				// would sign out a session the server still honors (ONL-243).
+				response = new Response(
+					JSON.stringify({
+						success: false,
+						error: {
+							code: "session_unavailable",
+							message: "Can't reach Onlooker right now.",
+						},
+					}),
+					{ status: 503, headers: { "Content-Type": "application/json" } },
+				);
 			}
 		}
 

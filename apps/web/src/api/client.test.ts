@@ -441,6 +441,64 @@ describe("createApiClient — token refresh", () => {
 		});
 		expect(response.status).toBe(401);
 	});
+
+	// ONL-243: only a 400 or 401 from /auth/refresh means the refresh token
+	// can't work. A 429 (the zone rule allows 6 /auth/* requests per 10s per
+	// IP) or a 5xx says nothing about it, and clearing it signed people out.
+	it.each([
+		429, 503,
+	])("keeps the tokens when the refresh answers %i, and answers session_unavailable", async (status) => {
+		store.setTokens({ accessToken: "old", refreshToken: "rt-ok" });
+		const onUnauthorized = vi.fn();
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				return json(status, apiError("rate_limited"));
+			}
+			return json(401, apiError("unauthorized"));
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig({ maxRetries: 0 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+			onUnauthorized,
+		});
+
+		await expect(apiClient.get("/auth/me")).rejects.toMatchObject({
+			status: 503,
+			code: "session_unavailable",
+		});
+		expect(store.getToken()).toBe("old");
+		expect(store.getRefreshToken()).toBe("rt-ok");
+		expect(onUnauthorized).not.toHaveBeenCalled();
+	});
+
+	it("clears the tokens when the refresh answers 400", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "bad" });
+		const onUnauthorized = vi.fn();
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				return json(400, apiError("invalid_input"));
+			}
+			return json(401, apiError("unauthorized"));
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+			onUnauthorized,
+		});
+
+		await expect(apiClient.get("/auth/me")).rejects.toBeInstanceOf(
+			AuthApiError,
+		);
+		expect(store.getToken()).toBeNull();
+		expect(store.getRefreshToken()).toBeNull();
+		expect(onUnauthorized).toHaveBeenCalled();
+	});
 });
 
 describe("createApiClient — retry & backoff", () => {
