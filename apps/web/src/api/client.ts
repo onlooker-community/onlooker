@@ -321,7 +321,8 @@ let unauthorizedHandler: (() => void) | null = null;
 
 /**
  * Register the handler invoked when the shared client hits an unrecoverable 401
- * (refresh failed or no refresh token). Wire this to session teardown — a
+ * (the refresh was refused with a 400 or 401, or there was no refresh token;
+ * an unreachable refresh answers a synthesized 503 instead). Wire this to session teardown — a
  * LOCAL logout that resets auth state and redirects. Registering replaces any
  * previous handler; pass `null` to clear.
  *

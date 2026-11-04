@@ -27,6 +27,7 @@ function harness(options: {
 	loadSession: () => Promise<{ user: typeof USER }>;
 	refreshSession?: () => Promise<{ user: typeof USER }>;
 	storageEventTarget?: StorageEventTarget | null;
+	getTokenExpiration?: (token: string) => number | null;
 }) {
 	let token: string | null = "tok";
 	const onLogoutCleanup = vi.fn();
@@ -43,6 +44,7 @@ function harness(options: {
 		initialState: {},
 		loadSession: options.loadSession,
 		refreshSession: options.refreshSession,
+		getTokenExpiration: options.getTokenExpiration,
 		login: async () => ({ token: "", user: USER }),
 		signup: async () => ({ token: "", user: USER }),
 		onLogoutCleanup,
@@ -177,6 +179,56 @@ describe("hydrating on page load", () => {
 		expect(h.onLogoutCleanup).toHaveBeenCalled();
 		await advance(60_000);
 		expect(loadSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps an expired token and retries when its refresh fails plainly", async () => {
+		// Expired (at fake time 0) until a refresh succeeds, as a real one would
+		// replace the token; a token that stays expired refreshes in a loop.
+		let expiresAt = -1;
+		const refreshSession = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("Session refresh failed"))
+			.mockImplementation(async () => {
+				expiresAt = 900_000_000;
+				return { user: USER };
+			});
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+			getTokenExpiration: () => expiresAt,
+		});
+		h.renderProbe();
+		await flush();
+
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+		expect(h.token()).toBe("tok");
+		expect(h.onLogoutCleanup).not.toHaveBeenCalled();
+		expect(h.state().unavailable).toEqual({ retryAt: 5_000 });
+
+		await advance(5_000);
+		expect(refreshSession).toHaveBeenCalledTimes(2);
+		expect(h.state().user).toEqual(USER);
+		expect(h.state().unavailable).toBeNull();
+	});
+
+	it("signs out when an expired token's refresh clears it and fails", async () => {
+		let h: ReturnType<typeof harness>;
+		const refreshSession = vi.fn(async () => {
+			h.clearStoredToken();
+			throw new Error("Session refresh failed");
+		});
+		h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+			getTokenExpiration: () => -1,
+		});
+		h.renderProbe();
+		await flush();
+
+		expect(h.state().unavailable).toBeNull();
+		expect(h.onLogoutCleanup).toHaveBeenCalled();
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
 	});
 
 	it("retries at once on retrySession, and drops the scheduled retry", async () => {

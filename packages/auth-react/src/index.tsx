@@ -583,7 +583,8 @@ export function createReactAuth<TUser, TExtra extends object>(
 		]);
 
 		// --- Task 3.3 (reactive): local logout for the transport layer ---------
-		// A mid-session request whose token refresh fails is a terminal 401. The
+		// A mid-session request whose token refresh is refused is a terminal 401
+		// (an unreachable refresh is not: it keeps the session). The
 		// API client routes that here via the registered unauthorized handler.
 		// callApi:false so we never re-POST /auth/logout (that would 401 and loop
 		// back through the same path); clearing state makes RequireAuth redirect.
@@ -722,9 +723,9 @@ export {
 } from "./schedule";
 export {
 	isSessionGone,
-	parseRetryAfter,
 	MAX_RETRY_MS,
 	MIN_RETRY_MS,
+	parseRetryAfter,
 	RETRY_BACKOFF_MS,
 	retryDelayMs,
 } from "./transient";
