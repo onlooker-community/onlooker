@@ -6,6 +6,7 @@ import {
 import { createContext, useContext } from "react";
 import { getTokenExpiration as defaultGetTokenExpiration } from "./jwt";
 import { computeExpirySchedule } from "./schedule";
+import { parseRetryAfter } from "./transient";
 
 // ============================================================================
 // Token Storage
@@ -118,6 +119,7 @@ export function createAuthApiClient(options: AuthApiClientOptions) {
 				envelope.error?.message ??
 					`Request failed with status ${response.status}`,
 				envelope.error?.details,
+				parseRetryAfter(response.headers.get("Retry-After"), Date.now()),
 			);
 		}
 
@@ -594,5 +596,11 @@ export {
 	type ExpirySchedule,
 	type ExpiryScheduleInput,
 } from "./schedule";
+export {
+	isSessionGone,
+	parseRetryAfter,
+	RETRY_BACKOFF_MS,
+	retryDelayMs,
+} from "./transient";
 export type { AuthResponse, AuthSession };
 export { AuthApiError };

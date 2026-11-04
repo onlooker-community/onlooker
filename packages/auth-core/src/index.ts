@@ -112,17 +112,25 @@ export class AuthApiError extends Error {
 	readonly status: number;
 	readonly code: string;
 	readonly details?: unknown;
+	/**
+	 * How long the server asked the caller to wait, from Retry-After, when it
+	 * sent one. Read by auth-react to schedule a retry instead of signing the
+	 * person out (ONL-243).
+	 */
+	readonly retryAfterMs?: number;
 
 	constructor(
 		status: number,
 		code: string,
 		message: string,
 		details?: unknown,
+		retryAfterMs?: number,
 	) {
 		super(message);
 		this.name = "AuthApiError";
 		this.status = status;
 		this.code = code;
 		this.details = details;
+		this.retryAfterMs = retryAfterMs;
 	}
 }
