@@ -186,16 +186,60 @@ export interface ApiClient {
 	readDelta(since: number, limit: number): Promise<DeltaResponse>;
 }
 
+/** The longest a 429 may hold a request, whatever its Retry-After says. */
+export const MAX_RETRY_AFTER_SECONDS = 60;
+
+/**
+ * How long a 429 asks to wait, in whole seconds between 1 and the cap.
+ *
+ * Retry-After is either a count of seconds or an HTTP date. Missing or
+ * unreadable reads as the cap rather than as the floor: the API's limit is per
+ * minute (ONL-222), so a retry a second later would most likely spend the one
+ * retry there is on a second 429.
+ */
+export function retryAfterSeconds(
+	header: string | null | undefined,
+	now: number = Date.now(),
+): number {
+	const clamp = (seconds: number) =>
+		Math.min(MAX_RETRY_AFTER_SECONDS, Math.max(1, Math.ceil(seconds)));
+	const value = header?.trim();
+	if (!value) return MAX_RETRY_AFTER_SECONDS;
+	if (/^-?\d+$/.test(value)) return clamp(Number(value));
+	const at = Date.parse(value);
+	return Number.isNaN(at) ? MAX_RETRY_AFTER_SECONDS : clamp((at - now) / 1000);
+}
+
+export interface RetryOptions {
+	/** Injected so tests do not wait out a real Retry-After. */
+	sleep?: (ms: number) => Promise<void>;
+	/** Told before each wait, so a sync that pauses for a minute says why. */
+	onWait?: (seconds: number) => void;
+}
+
+const realSleep = (ms: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const sayWaiting = (seconds: number) =>
+	console.error(
+		`The API is rate limiting this account. Waiting ${seconds}s, then trying once more.`,
+	);
+
 export function createClient(
 	baseUrl: string,
 	token: string,
 	fetchImpl: typeof fetch = fetch,
+	{ sleep = realSleep, onWait = sayWaiting }: RetryOptions = {},
 ): ApiClient {
-	async function call<T>(path: string, init?: RequestInit): Promise<T> {
-		const url = `${baseUrl}${path}`;
-		let response: Response;
+	// Set once a wait has failed to clear the limit (ONL-242). The limit is per
+	// account, so the next request would meet the same 429, and waiting a
+	// minute for each of a sync's requests would hold it for several minutes
+	// to fail the same way. Cleared by any request that gets through.
+	let stillLimited = false;
+
+	async function send(url: string, init?: RequestInit): Promise<Response> {
 		try {
-			response = await fetchImpl(url, {
+			return await fetchImpl(url, {
 				...init,
 				headers: {
 					Authorization: `Bearer ${token}`,
@@ -211,6 +255,24 @@ export function createClient(
 				kind: "transient",
 				message: `Could not reach ${baseUrl}: ${(error as Error).message}`,
 			});
+		}
+	}
+
+	async function call<T>(path: string, init?: RequestInit): Promise<T> {
+		const url = `${baseUrl}${path}`;
+		let response = await send(url, init);
+
+		// 429 only. It is the one refusal that says how long to wait, so waiting
+		// is following an instruction; a 503 or a dropped connection says
+		// nothing of the kind, and stays the person's call to retry.
+		if (response.status === 429 && !stillLimited) {
+			const seconds = retryAfterSeconds(response.headers?.get("Retry-After"));
+			onWait(seconds);
+			await sleep(seconds * 1000);
+			response = await send(url, init);
+			stillLimited = response.status === 429;
+		} else if (response.status !== 429) {
+			stillLimited = false;
 		}
 
 		const body = await response.json().catch(() => ({}));

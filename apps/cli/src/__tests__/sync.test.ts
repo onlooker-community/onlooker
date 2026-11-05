@@ -1172,3 +1172,147 @@ describe("sync styling", () => {
 		expect(stripSgr(colored)).toBe(plain);
 	});
 });
+
+// ONL-242. Past 1,000 requests a minute the API answers 429 with Retry-After.
+describe("sync on 429", () => {
+	const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+	/** `count` approved lessons, each with its own id, in send order. */
+	function withDistinctLessons(env: NodeJS.ProcessEnv, count: number) {
+		const dir = join(
+			env.ONLOOKER_DIR as string,
+			"librarian",
+			"4c1de90ab372",
+			"lessons",
+			"approved",
+		);
+		mkdirSync(dir, { recursive: true });
+		const fixture = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+		const ids: string[] = [];
+		for (let i = 0; i < count; i++) {
+			const id = `01KZ45MKAM734ZS7JK24D2D${CROCKFORD[Math.floor(i / 32)]}${CROCKFORD[i % 32]}0`;
+			ids.push(id);
+			// Zero-padded so the files list, and so batch, in this order.
+			writeFileSync(
+				join(dir, `lesson-${String(i).padStart(3, "0")}.json`),
+				JSON.stringify({ ...fixture, id }),
+			);
+		}
+		return ids;
+	}
+
+	const limited = {
+		ok: false,
+		status: 429,
+		headers: new Headers({ "Retry-After": "60" }),
+		json: async () => ({
+			error: { code: "rate_limited", message: "Too many requests" },
+		}),
+	};
+
+	/** The push leg answers from `pushReplies` in order, then succeeds. */
+	const pushAnswers = (pushReplies: Array<"429" | "ok" | "401">) => {
+		let push = 0;
+		const ok = routed();
+		return vi
+			.fn()
+			.mockImplementation(async (url: unknown, init: { body: string }) => {
+				if (leg(String(url)) !== "push") return ok(url, init);
+				const reply = pushReplies[push++] ?? "ok";
+				if (reply === "429") return limited;
+				if (reply === "401")
+					return { ok: false, status: 401, json: async () => ({}) };
+				return ok(url, init);
+			});
+	};
+
+	const retry = () => ({
+		sleep: vi.fn().mockResolvedValue(undefined),
+		onWait: vi.fn(),
+	});
+
+	it("waits out a 429 on a push and finishes the sync", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		const options = retry();
+		const message = await sync({
+			env,
+			fetchImpl: pushAnswers(["429"]),
+			retry: options,
+		});
+		expect(message).toMatch(/synced 1 lesson: 1 new/i);
+		expect(options.sleep).toHaveBeenCalledWith(60_000);
+	});
+
+	// Before this, the 429 escaped the push loop: nothing recorded what the
+	// first batch stored, and the pull never ran.
+	describe("when a later batch stays limited", () => {
+		async function run() {
+			const env = linked();
+			const ids = withDistinctLessons(env, 150);
+			const fetchImpl = pushAnswers(["ok", "429", "429"]);
+			const error = await sync({ env, fetchImpl, retry: retry() }).catch(
+				(caught) => caught,
+			);
+			return { env, ids, fetchImpl, error };
+		}
+
+		it("fails as transient, so the exit code says run it again", async () => {
+			const { error } = await run();
+			expect(error).toMatchObject({ failure: { kind: "transient" } });
+		});
+
+		it("names the lessons that were not sent, and why", async () => {
+			const { ids, error } = await run();
+			expect(error.message).toMatch(/50 lesson\(s\) were not stored/);
+			expect(error.message).toMatch(/429: Too many requests/);
+			expect(error.message).toContain(ids[149]);
+			expect(error.message).not.toContain(`${ids[0]}:`);
+		});
+
+		it("keeps the count of what landed", async () => {
+			const { error } = await run();
+			expect(error.message).toMatch(/synced 150 lessons: 100 new/i);
+		});
+
+		it("records the batch that landed", async () => {
+			const { env, ids } = await run();
+			const record = readPushed(env);
+			expect(record.kind).toBe("found");
+			if (record.kind !== "found") return;
+			expect(Object.keys(record.lessons).sort()).toEqual(
+				ids.slice(0, 100).sort(),
+			);
+		});
+
+		it("still pulls", async () => {
+			const { fetchImpl, error } = await run();
+			const legs = fetchImpl.mock.calls.map(([url]) => leg(String(url)));
+			expect(legs).toContain("pull");
+			expect(error.message).toMatch(/received nothing/i);
+		});
+
+		it("sends no batch after the one that was refused", async () => {
+			const env = linked();
+			withDistinctLessons(env, 250);
+			const fetchImpl = pushAnswers(["ok", "429", "429"]);
+			const error = await sync({ env, fetchImpl, retry: retry() }).catch(
+				(caught) => caught,
+			);
+			// One accepted, one refused and its one retry. The third batch would
+			// meet the same limit, so it is reported rather than sent.
+			expect(lessonPushes(fetchImpl)).toHaveLength(3);
+			expect(error.message).toMatch(/150 lesson\(s\) were not stored/);
+		});
+	});
+
+	// Only a transient refusal is held for the next run. A revoked token is
+	// not fixed by running sync again, and its exit code must not say so.
+	it("still fails a push 401 as unauthorized", async () => {
+		const env = linked();
+		withLessons(env, 1);
+		await expect(
+			sync({ env, fetchImpl: pushAnswers(["401"]), retry: retry() }),
+		).rejects.toMatchObject({ failure: { kind: "unauthorized" } });
+	});
+});

@@ -120,6 +120,161 @@ describe("createClient", () => {
 	});
 });
 
+// ONL-242. The API refuses an account past 1,000 requests a minute with 429
+// and `Retry-After: 60`. Telling someone to run the command again by hand is
+// the wait they would have done anyway, so the client does it for them - once.
+describe("createClient on 429", () => {
+	/** Answers each call with the next response in `statuses`, then 200. */
+	function sequence(
+		statuses: Array<{ status: number; retryAfter?: string }>,
+		body: unknown = { results: [] },
+	) {
+		let call = 0;
+		return vi.fn().mockImplementation(async () => {
+			const next = statuses[call++];
+			const status = next?.status ?? 200;
+			return {
+				ok: status < 400,
+				status,
+				headers: new Headers(
+					next?.retryAfter === undefined
+						? {}
+						: { "Retry-After": next.retryAfter },
+				),
+				json: async () => (status < 400 ? body : {}),
+			};
+		});
+	}
+
+	const retrying = (fetchImpl: typeof fetch) => {
+		const sleep = vi.fn().mockResolvedValue(undefined);
+		const onWait = vi.fn();
+		const client = createClient("https://api.test", "tok", fetchImpl, {
+			sleep,
+			onWait,
+		});
+		return { client, sleep, onWait };
+	};
+
+	it("waits for Retry-After and retries once", async () => {
+		const fetchImpl = sequence([{ status: 429, retryAfter: "7" }]);
+		const { client, sleep } = retrying(fetchImpl);
+		await expect(client.push([{ id: "x" }])).resolves.toEqual({
+			results: [],
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sleep).toHaveBeenCalledWith(7_000);
+	});
+
+	it("sends the same request again, body and all", async () => {
+		const fetchImpl = sequence([{ status: 429, retryAfter: "1" }]);
+		await retrying(fetchImpl).client.push([{ id: "x" }]);
+		const [first, second] = fetchImpl.mock.calls;
+		expect(second).toEqual(first);
+	});
+
+	it("says it is waiting, and for how long", async () => {
+		const { client, onWait } = retrying(
+			sequence([{ status: 429, retryAfter: "12" }]),
+		);
+		await client.push([]);
+		expect(onWait).toHaveBeenCalledWith(12);
+	});
+
+	// The cap is what keeps a misbehaving header from parking a sync for an
+	// hour, and the floor keeps "0" from turning into a hot retry.
+	it.each([
+		["3600", 60],
+		["0", 1],
+		["-5", 1],
+	])("clamps Retry-After %s to %ds", async (header, seconds) => {
+		const { client, sleep } = retrying(
+			sequence([{ status: 429, retryAfter: header }]),
+		);
+		await client.push([]);
+		expect(sleep).toHaveBeenCalledWith(seconds * 1000);
+	});
+
+	it("reads an HTTP-date Retry-After", async () => {
+		const at = new Date(Date.now() + 20_000).toUTCString();
+		const { client, sleep } = retrying(
+			sequence([{ status: 429, retryAfter: at }]),
+		);
+		await client.push([]);
+		const waited = sleep.mock.calls[0][0] as number;
+		// toUTCString drops milliseconds, so allow a second either way.
+		expect(waited).toBeGreaterThanOrEqual(18_000);
+		expect(waited).toBeLessThanOrEqual(21_000);
+	});
+
+	// The API's limit is per minute, so a 429 without the header most likely
+	// clears when the minute does. Retrying sooner would just spend the retry.
+	it.each([
+		[undefined, "missing"],
+		["soon", "unreadable"],
+	])("waits the full cap when Retry-After is %s (%s)", async (header, _) => {
+		const { client, sleep } = retrying(
+			sequence([{ status: 429, retryAfter: header }]),
+		);
+		await client.push([]);
+		expect(sleep).toHaveBeenCalledWith(60_000);
+	});
+
+	it("gives up after one retry, still transient", async () => {
+		const fetchImpl = sequence([
+			{ status: 429, retryAfter: "1" },
+			{ status: 429, retryAfter: "1" },
+		]);
+		const { client, sleep } = retrying(fetchImpl);
+		await expect(client.push([])).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sleep).toHaveBeenCalledTimes(1);
+	});
+
+	// A sync makes several requests. If the wait did not clear the limit, it
+	// will not clear for the next request either, and waiting a minute per
+	// request would hold a sync for several minutes to fail the same way.
+	it("stops waiting once a wait has not cleared the limit", async () => {
+		const fetchImpl = sequence([
+			{ status: 429, retryAfter: "1" },
+			{ status: 429, retryAfter: "1" },
+			{ status: 429, retryAfter: "1" },
+		]);
+		const { client, sleep } = retrying(fetchImpl);
+		await expect(client.push([])).rejects.toBeDefined();
+		await expect(client.readDelta(0, 50)).rejects.toMatchObject({
+			failure: { kind: "transient" },
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(3);
+		expect(sleep).toHaveBeenCalledTimes(1);
+	});
+
+	it("waits again for a later request once a retry has succeeded", async () => {
+		const fetchImpl = sequence([
+			{ status: 429, retryAfter: "1" },
+			{ status: 200 },
+			{ status: 429, retryAfter: "1" },
+		]);
+		const { client, sleep } = retrying(fetchImpl);
+		await client.push([]);
+		await client.push([]);
+		expect(sleep).toHaveBeenCalledTimes(2);
+		expect(fetchImpl).toHaveBeenCalledTimes(4);
+	});
+
+	// Only 429 carries a promise that waiting helps. A 503 is retried by the
+	// person running the command, as before.
+	it.each([401, 500, 503])("does not retry a %d", async (status) => {
+		const fetchImpl = sequence([{ status, retryAfter: "1" }]);
+		const { client, sleep } = retrying(fetchImpl);
+		await expect(client.push([])).rejects.toBeDefined();
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(sleep).not.toHaveBeenCalled();
+	});
+});
+
 /** A session summary whose plugin list pads it to roughly `pad` bytes. */
 const summary = (session_id: string, pad = 0): SessionSummary => ({
 	session_id,
