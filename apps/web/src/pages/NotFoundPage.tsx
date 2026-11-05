@@ -18,15 +18,23 @@ import { EmptyState, Loading } from "../components/ui";
  * flash. What both share is that neither says "not found" before it knows.
  */
 export default function NotFoundPage() {
-	const { user, loading } = auth.useAuth();
+	const { user, loading, unavailable } = auth.useAuth();
 
 	if (loading) return <Loading label="Loading your session…" />;
+
+	// Unreachable is not signed out, so it is not offered a sign-in (ONL-247).
+	// `/` decides once the session answers.
+	const link = user
+		? { to: "/lessons", label: "Back to the pool" }
+		: unavailable
+			? { to: "/", label: "Continue to Onlooker" }
+			: { to: "/login", label: "Sign in" };
 
 	const body = (
 		<EmptyState headingLevel={1} title="Page not found" icon="Eye">
 			That address does not match anything here.{" "}
-			<Link to={user ? "/lessons" : "/login"} style={{ color: PALETTE.accent }}>
-				{user ? "Back to the pool" : "Sign in"}
+			<Link to={link.to} style={{ color: PALETTE.accent }}>
+				{link.label}
 			</Link>
 		</EmptyState>
 	);

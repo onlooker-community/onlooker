@@ -72,8 +72,7 @@ describe("parseRetryAfter", () => {
 		expect(parseRetryAfter("Tue, 03 Nov 2026 12:00:30 GMT", now)).toBe(30_000);
 	});
 
-	it("never answers a negative wait", () => {
-		expect(parseRetryAfter("-5", 0)).toBe(0);
+	it("never answers a negative wait for a date already past", () => {
 		const now = Date.parse("2026-11-03T12:00:00Z");
 		expect(parseRetryAfter("Tue, 03 Nov 2026 11:00:00 GMT", now)).toBe(0);
 	});
@@ -82,5 +81,20 @@ describe("parseRetryAfter", () => {
 		expect(parseRetryAfter(null, 0)).toBeUndefined();
 		expect(parseRetryAfter("", 0)).toBeUndefined();
 		expect(parseRetryAfter("soon", 0)).toBeUndefined();
+	});
+
+	// ONL-247. RFC 9110 delta-seconds is digits only. `Number()` read all of
+	// these, and V8's Date.parse reads "1.5" and "-5" as dates in 2001 - a
+	// wait of zero - so each has to fail both readings.
+	it.each([
+		"1.5",
+		"0x10",
+		"1e3",
+		"-5",
+		"+5",
+	])("is undefined for %s", (header) => {
+		expect(
+			parseRetryAfter(header, Date.parse("2026-11-03T12:00:00Z")),
+		).toBeUndefined();
 	});
 });

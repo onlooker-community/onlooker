@@ -12,7 +12,7 @@
  * typed convenience wrapper used by the auth layer.
  */
 
-import { createAuthApiClient } from "@onlooker/auth-react";
+import { createAuthApiClient, parseRetryAfter } from "@onlooker/auth-react";
 import { type ApiConfig, apiConfig } from "./config";
 import { createApiLogger } from "./logger";
 import { createMockFetch } from "./mockApi";
@@ -126,14 +126,11 @@ export function createApiClient(
 		return Math.random() * capped; // full jitter
 	}
 
+	// The one Retry-After reader, shared with auth-react (ONL-247).
 	function retryAfterMs(response: Response): number | null {
-		const header = response.headers.get("Retry-After");
-		if (!header) return null;
-		const seconds = Number(header);
-		if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-		const date = Date.parse(header);
-		if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
-		return null;
+		return (
+			parseRetryAfter(response.headers.get("Retry-After"), Date.now()) ?? null
+		);
 	}
 
 	function isRetryableError(err: unknown): boolean {
@@ -187,11 +184,21 @@ export function createApiClient(
 	}
 
 	// --- auth refresh (single-flight) -------------------------------------
-	let refreshInFlight: Promise<boolean> | null = null;
+	/**
+	 * What a refresh came back with. `retryAfter` is the refusal's own header,
+	 * kept so the 503 that stands in for it can carry it on (ONL-247).
+	 */
+	interface RefreshOutcome {
+		refreshed: boolean;
+		retryAfter: string | null;
+	}
+	const notRefreshed: RefreshOutcome = { refreshed: false, retryAfter: null };
 
-	async function performRefresh(): Promise<boolean> {
+	let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+	async function performRefresh(): Promise<RefreshOutcome> {
 		const refreshToken = tokenStore.getRefreshToken();
-		if (!refreshToken) return false;
+		if (!refreshToken) return notRefreshed;
 
 		try {
 			const body: RefreshRequest = { refreshToken };
@@ -212,7 +219,10 @@ export function createApiClient(
 				if (response.status === 400 || response.status === 401) {
 					tokenStore.clear();
 				}
-				return false;
+				return {
+					refreshed: false,
+					retryAfter: response.headers.get("Retry-After"),
+				};
 			}
 
 			const data = (await response
@@ -221,30 +231,34 @@ export function createApiClient(
 			// A 200 whose body is not a token pair - a proxy's error page, a
 			// truncated response - says nothing about the refresh token either,
 			// so it is kept, as for a 5xx (ONL-246).
-			if (!data?.token || !data?.refreshToken) return false;
+			if (!data?.token || !data?.refreshToken) return notRefreshed;
 
 			// Cleared or replaced while the request was out - a logout, or another
 			// tab signing in. Writing the rotated pair back would undo that.
-			if (tokenStore.getRefreshToken() !== refreshToken) return false;
+			if (tokenStore.getRefreshToken() !== refreshToken) return notRefreshed;
 
 			tokenStore.setTokens({
 				accessToken: data.token,
 				refreshToken: data.refreshToken,
 			});
-			return true;
+			return { refreshed: true, retryAfter: null };
 		} catch {
 			// Transient failure (network/timeout): keep tokens, report no refresh.
-			return false;
+			return notRefreshed;
 		}
 	}
 
-	function refreshTokens(): Promise<boolean> {
+	function refreshOnce(): Promise<RefreshOutcome> {
 		if (!refreshInFlight) {
 			refreshInFlight = performRefresh().finally(() => {
 				refreshInFlight = null;
 			});
 		}
 		return refreshInFlight;
+	}
+
+	function refreshTokens(): Promise<boolean> {
+		return refreshOnce().then((outcome) => outcome.refreshed);
 	}
 
 	// --- auth header injection --------------------------------------------
@@ -278,7 +292,7 @@ export function createApiClient(
 			tokenStore.getRefreshToken() !== null;
 
 		if (eligibleForRefresh) {
-			const refreshed = await refreshTokens();
+			const { refreshed, retryAfter } = await refreshOnce();
 			if (refreshed) {
 				response = await resilientFetch(method, url, withAuthHeader(init));
 			} else if (tokenStore.getRefreshToken() === null) {
@@ -288,7 +302,11 @@ export function createApiClient(
 			} else {
 				// The refresh was unreachable, not refused. Answer 503 rather than the
 				// 401: auth-react clears the access token on any 401 it sees, which
-				// would sign out a session the server still honors (ONL-243).
+				// would sign out a session the server still honors (ONL-243). It
+				// carries the refresh's Retry-After, so auth-react waits as long as
+				// the server asked rather than its own 5s (ONL-247).
+				const headers = new Headers({ "Content-Type": "application/json" });
+				if (retryAfter !== null) headers.set("Retry-After", retryAfter);
 				response = new Response(
 					JSON.stringify({
 						success: false,
@@ -297,7 +315,7 @@ export function createApiClient(
 							message: "Can't reach Onlooker right now.",
 						},
 					}),
-					{ status: 503, headers: { "Content-Type": "application/json" } },
+					{ status: 503, headers },
 				);
 			}
 		}

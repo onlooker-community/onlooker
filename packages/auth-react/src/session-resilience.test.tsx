@@ -1,5 +1,6 @@
 import { AuthApiError } from "@onlooker/auth-core";
 import { act, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createReactAuth, type StorageEventTarget } from "./index";
@@ -28,6 +29,8 @@ function harness(options: {
 	refreshSession?: () => Promise<{ user: typeof USER }>;
 	storageEventTarget?: StorageEventTarget | null;
 	getTokenExpiration?: (token: string) => number | null;
+	autoRefreshLeadMs?: number;
+	expiryWarningLeadMs?: number;
 }) {
 	let token: string | null = "tok";
 	const onLogoutCleanup = vi.fn();
@@ -45,8 +48,11 @@ function harness(options: {
 		loadSession: options.loadSession,
 		refreshSession: options.refreshSession,
 		getTokenExpiration: options.getTokenExpiration,
-		login: async () => ({ token: "", user: USER }),
-		signup: async () => ({ token: "", user: USER }),
+		autoRefreshLeadMs: options.autoRefreshLeadMs,
+		expiryWarningLeadMs: options.expiryWarningLeadMs,
+		// A real token: an empty one reads as signed out to every later check.
+		login: async () => ({ token: "tok", user: USER }),
+		signup: async () => ({ token: "tok", user: USER }),
 		onLogoutCleanup,
 		tokenStorageKey: "auth_token",
 		storageEventTarget: options.storageEventTarget ?? null,
@@ -60,6 +66,7 @@ function harness(options: {
 
 	return {
 		auth,
+		Probe,
 		onLogoutCleanup,
 		token: () => token,
 		clearStoredToken: () => {
@@ -277,6 +284,42 @@ describe("the proactive refresh", () => {
 		expect(h.state().user).toEqual(USER);
 	});
 
+	// ONL-247. The web app refreshes 3 minutes out and warns at 2. A refresh
+	// that failed at T-3 left a retry pending, and the warning at T-2 re-ran
+	// the schedule, which refreshed again at once - inside the window the
+	// server had named, counting the failure twice.
+	it("does not refresh again when the warning fires while a retry is pending", async () => {
+		// A real refresh rotates the token to a later expiry. Left fixed, a
+		// success would re-arm the schedule against the same past deadline.
+		let expiresAt = 10 * 60_000;
+		const refreshSession = vi
+			.fn()
+			.mockRejectedValueOnce(rateLimited(120_000))
+			.mockImplementation(async () => {
+				expiresAt = 60 * 60_000;
+				return { user: USER };
+			});
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+			getTokenExpiration: () => expiresAt,
+			autoRefreshLeadMs: 3 * 60_000,
+			expiryWarningLeadMs: 2 * 60_000,
+		});
+		h.renderProbe();
+		await flush();
+
+		await advance(7 * 60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+		expect(h.state().sessionExpiringSoon).toBe(true);
+
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(2);
+	});
+
 	it("signs out on a 401", async () => {
 		const h = harness({
 			loadSession: vi.fn().mockResolvedValue({ user: USER }),
@@ -427,6 +470,121 @@ describe("RequireAuth while the session is unreachable", () => {
 		await flush();
 
 		expect(screen.getByText("the login page")).toBeDefined();
+	});
+});
+
+// ONL-247. StrictMode mounts, unmounts and mounts again in development, so
+// the page-load check runs twice. Counted twice, the first backoff was 10 s.
+describe("under StrictMode", () => {
+	it("backs off 5 s on the first failure, not 10", async () => {
+		const h = harness({
+			loadSession: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+		});
+		render(
+			<StrictMode>
+				<h.auth.AuthProvider>
+					<h.Probe />
+				</h.auth.AuthProvider>
+			</StrictMode>,
+		);
+		await flush();
+
+		expect(h.state().unavailable).toEqual({ retryAt: 5_000 });
+	});
+});
+
+// ONL-247. Pending retries are timers, and a timer that outlives its session
+// fires a check against nothing.
+describe("a pending retry", () => {
+	it("is canceled on unmount", async () => {
+		const loadSession = vi.fn().mockRejectedValue(rateLimited(10_000));
+		const h = harness({ loadSession });
+		const view = h.renderProbe();
+		await flush();
+		expect(loadSession).toHaveBeenCalledTimes(1);
+
+		view.unmount();
+		await advance(60_000);
+		expect(loadSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("is canceled on logout", async () => {
+		const refreshSession = vi.fn().mockRejectedValue(rateLimited(10_000));
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+		});
+		h.renderProbe();
+		await flush();
+		await act(async () => {
+			await h.state().refresh();
+		});
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			await h.state().logout();
+		});
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+	});
+
+	// The hydrate-retry counterpart of "forgets a pending refresh retry".
+	it("on page load is forgotten when another tab signs out", async () => {
+		let listener: ((event: StorageEvent) => void) | undefined;
+		const target: StorageEventTarget = {
+			addEventListener: (_type, l) => {
+				listener = l;
+			},
+			removeEventListener: () => {},
+		};
+		const loadSession = vi.fn().mockRejectedValue(rateLimited(10_000));
+		const h = harness({ loadSession, storageEventTarget: target });
+		h.renderProbe();
+		await flush();
+		expect(h.state().unavailable).not.toBeNull();
+
+		await act(async () => {
+			h.clearStoredToken();
+			listener?.(new StorageEvent("storage", { key: "auth_token" }));
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(h.state().unavailable).toBeNull();
+
+		await advance(60_000);
+		expect(loadSession).toHaveBeenCalledTimes(1);
+	});
+
+	// The backoff climbs 5, 10, 20 s across failures. A login is a fresh
+	// session, so its first failure waits 5 s again rather than 40.
+	it.each([
+		"login",
+		"signup",
+	] as const)("backs off from the start again after %s", async (entry) => {
+		const loadSession = vi
+			.fn()
+			.mockRejectedValue(new TypeError("Failed to fetch"));
+		const refreshSession = vi
+			.fn()
+			.mockRejectedValue(new TypeError("Failed to fetch"));
+		const h = harness({ loadSession, refreshSession });
+		h.renderProbe();
+		await flush();
+		await advance(5_000);
+		await advance(10_000);
+		expect(loadSession).toHaveBeenCalledTimes(3);
+
+		await act(async () => {
+			if (entry === "login") await h.state().login("a@example.com", "pw");
+			else await h.state().signup("a@example.com", "pw");
+		});
+		expect(h.state().user).toEqual(USER);
+
+		await act(async () => {
+			await h.state().refresh();
+		});
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+		await advance(5_000);
+		expect(refreshSession).toHaveBeenCalledTimes(2);
 	});
 });
 

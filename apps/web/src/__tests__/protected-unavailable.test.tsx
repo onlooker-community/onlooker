@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,5 +50,32 @@ describe("an authenticated route while the session can't be checked", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		expect(retry).toHaveBeenCalledTimes(1);
+	});
+
+	// ONL-247. Past zero the notice reads "Trying again…" and has nothing left
+	// to count, so its interval goes.
+	it("stops counting down once it reaches zero", () => {
+		vi.useFakeTimers({ now: RETRY_AT - 2_000 });
+		try {
+			render(
+				<MemoryRouter initialEntries={["/machines"]}>
+					<App />
+				</MemoryRouter>,
+			);
+			const counting = vi.getTimerCount();
+
+			act(() => {
+				vi.advanceTimersByTime(3_000);
+			});
+			expect(screen.getByRole("status").textContent).toMatch(/trying again…/i);
+			expect(vi.getTimerCount()).toBe(counting - 1);
+
+			act(() => {
+				vi.advanceTimersByTime(5_000);
+			});
+			expect(vi.getTimerCount()).toBe(counting - 1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

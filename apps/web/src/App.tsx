@@ -37,10 +37,19 @@ function SessionUnavailable({
 	retry: () => void;
 }) {
 	const [now, setNow] = useState(() => Date.now());
+	// Stops at zero, where the notice has nothing left to count, and starts
+	// again when a later failure sets a new retryAt (ONL-247).
 	useEffect(() => {
-		const id = setInterval(() => setNow(Date.now()), 1000);
+		// Resync first: after a stop, `now` is as old as the last tick.
+		setNow(Date.now());
+		if (Date.now() >= retryAt) return;
+		const id = setInterval(() => {
+			const next = Date.now();
+			setNow(next);
+			if (next >= retryAt) clearInterval(id);
+		}, 1000);
 		return () => clearInterval(id);
-	}, []);
+	}, [retryAt]);
 	const seconds = Math.max(0, Math.ceil((retryAt - now) / 1000));
 
 	return (
