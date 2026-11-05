@@ -218,10 +218,14 @@ export function createApiClient(
 			const data = (await response
 				.json()
 				.catch(() => null)) as RefreshResponse | null;
-			if (!data?.token || !data?.refreshToken) {
-				tokenStore.clear();
-				return false;
-			}
+			// A 200 whose body is not a token pair - a proxy's error page, a
+			// truncated response - says nothing about the refresh token either,
+			// so it is kept, as for a 5xx (ONL-246).
+			if (!data?.token || !data?.refreshToken) return false;
+
+			// Cleared or replaced while the request was out - a logout, or another
+			// tab signing in. Writing the rotated pair back would undo that.
+			if (tokenStore.getRefreshToken() !== refreshToken) return false;
 
 			tokenStore.setTokens({
 				accessToken: data.token,

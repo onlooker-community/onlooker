@@ -499,6 +499,63 @@ describe("createApiClient — token refresh", () => {
 		expect(store.getRefreshToken()).toBeNull();
 		expect(onUnauthorized).toHaveBeenCalled();
 	});
+
+	// ONL-246. A garbled 200 - a proxy's error page, a truncated body - says
+	// nothing about the refresh token, the same as a 5xx.
+	it("keeps the tokens when the refresh answers 200 with a body it cannot read", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "rt-ok" });
+		const onUnauthorized = vi.fn();
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				return new Response("<html>bad gateway</html>", { status: 200 });
+			}
+			return json(401, apiError("unauthorized"));
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+			onUnauthorized,
+		});
+
+		await expect(apiClient.get("/auth/me")).rejects.toMatchObject({
+			status: 503,
+			code: "session_unavailable",
+		});
+		expect(store.getToken()).toBe("old");
+		expect(store.getRefreshToken()).toBe("rt-ok");
+		expect(onUnauthorized).not.toHaveBeenCalled();
+	});
+
+	// ONL-246. A refresh still out when the person logs out must not write
+	// the rotated pair back, or the next page load finds them signed in.
+	it("does not write rotated tokens back when they were cleared mid-refresh", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "rt-ok" });
+		let answer!: (response: Response) => void;
+		const baseFetch = vi.fn(
+			(url: string) =>
+				new Promise<Response>((resolve) => {
+					if (url.endsWith("/auth/refresh")) answer = resolve;
+					else resolve(json(401, apiError("unauthorized")));
+				}),
+		);
+
+		const { refreshTokens } = createApiClient({
+			config: testConfig(),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const refreshing = refreshTokens();
+		store.clear();
+		answer(json(200, { token: "new", refreshToken: "rt-new" }));
+
+		await expect(refreshing).resolves.toBe(false);
+		expect(store.getToken()).toBeNull();
+		expect(store.getRefreshToken()).toBeNull();
+	});
 });
 
 describe("createApiClient — retry & backoff", () => {

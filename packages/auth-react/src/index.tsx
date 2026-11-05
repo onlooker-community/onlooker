@@ -344,6 +344,18 @@ export function createReactAuth<TUser, TExtra extends object>(
 		const failures = useRef(0);
 		const mounted = useRef(true);
 
+		// ONL-246: which settling of the session is current. A check notes it
+		// when it starts and acts on its answer only if nothing has settled the
+		// session since - a logout, a login, or another check's success.
+		// Without it, a refresh still in flight at logout put the user back,
+		// and a stale refusal signed out a session that had just refreshed.
+		const generation = useRef(0);
+		const settle = () => {
+			generation.current += 1;
+		};
+		const isCurrent = (started: number) =>
+			mounted.current && started === generation.current;
+
 		const clearRetry = useCallback(() => {
 			if (retryTimer.current) {
 				clearTimeout(retryTimer.current);
@@ -390,6 +402,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 
 		const succeed = useCallback(
 			(session: AuthSession<TUser, TExtra>) => {
+				settle();
 				failures.current = 0;
 				clearRetry();
 				applySession(session);
@@ -398,6 +411,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 		);
 
 		const clearLocalSession = useCallback(() => {
+			settle();
 			failures.current = 0;
 			clearRetry();
 			options.tokenStorage.clearToken();
@@ -413,6 +427,9 @@ export function createReactAuth<TUser, TExtra extends object>(
 		// endpoint again would be redundant or loop.
 		const performLogout = useCallback(
 			async ({ callApi }: { callApi: boolean }) => {
+				// Before the API call, not after: a check that lands while the
+				// logout request is out is already stale.
+				settle();
 				failures.current = 0;
 				clearRetry();
 				if (callApi) {
@@ -435,13 +452,14 @@ export function createReactAuth<TUser, TExtra extends object>(
 		);
 
 		const refresh = useCallback(async () => {
+			const started = generation.current;
 			try {
 				const session = options.refreshSession
 					? await options.refreshSession()
 					: await options.loadSession();
-				succeed(session);
+				if (isCurrent(started)) succeed(session);
 			} catch (error) {
-				if (!mounted.current) return;
+				if (!isCurrent(started)) return;
 				// Task 3.2: a refresh the server refused forces re-login. Local-only
 				// cleanup, since the refusal already proved the session is gone.
 				if (sessionGone(error)) {
@@ -469,14 +487,15 @@ export function createReactAuth<TUser, TExtra extends object>(
 				return;
 			}
 
+			const started = generation.current;
 			try {
 				const session =
 					expired && options.refreshSession
 						? await options.refreshSession()
 						: await options.loadSession();
-				if (mounted.current) succeed(session);
+				if (isCurrent(started)) succeed(session);
 			} catch (error) {
-				if (!mounted.current) return;
+				if (!isCurrent(started)) return;
 				if (sessionGone(error)) {
 					clearLocalSession();
 					return;
@@ -551,6 +570,7 @@ export function createReactAuth<TUser, TExtra extends object>(
 				if (!token) {
 					// Logged out in another tab: local cleanup only (no API call).
 					// Forget any pending retry too, or it fires against no session.
+					settle();
 					failures.current = 0;
 					clearRetry();
 					options.onLogoutCleanup?.();
@@ -559,10 +579,14 @@ export function createReactAuth<TUser, TExtra extends object>(
 				}
 
 				// Logged in / refreshed in another tab: re-hydrate this tab.
+				const started = generation.current;
 				options
 					.loadSession()
-					.then(succeed)
+					.then((session) => {
+						if (isCurrent(started)) succeed(session);
+					})
 					.catch((error: unknown) => {
+						if (!isCurrent(started)) return;
 						if (sessionGone(error)) {
 							clearLocalSession();
 							return;

@@ -429,3 +429,122 @@ describe("RequireAuth while the session is unreachable", () => {
 		expect(screen.getByText("the login page")).toBeDefined();
 	});
 });
+
+/** A promise the test settles by hand, for a check still in flight. */
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+// ONL-246. A check already in flight used to be applied whenever it landed,
+// even after something newer had settled the session.
+describe("a check that lands after something newer", () => {
+	it("keeps a person signed out when a refresh resolves after logout", async () => {
+		const pending = deferred<{ user: typeof USER }>();
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession: vi.fn().mockReturnValue(pending.promise),
+		});
+		h.renderProbe();
+		await flush();
+
+		let refreshing: Promise<void> | undefined;
+		act(() => {
+			refreshing = h.state().refresh();
+		});
+		await act(async () => {
+			await h.state().logout();
+		});
+		expect(h.state().user).toBeNull();
+
+		await act(async () => {
+			pending.resolve({ user: USER });
+			await refreshing;
+		});
+		expect(h.state().user).toBeNull();
+		expect(h.token()).toBeNull();
+	});
+
+	it("keeps a person signed out when a hydrate resolves after logout", async () => {
+		const pending = deferred<{ user: typeof USER }>();
+		const h = harness({
+			loadSession: vi.fn().mockReturnValue(pending.promise),
+		});
+		h.renderProbe();
+
+		await act(async () => {
+			await h.state().logout();
+		});
+		await act(async () => {
+			pending.resolve({ user: USER });
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(h.state().user).toBeNull();
+		expect(h.state().loading).toBe(false);
+	});
+
+	it("ignores a stale failure that lands after a newer success", async () => {
+		const stale = deferred<{ user: typeof USER }>();
+		const refreshSession = vi
+			.fn()
+			.mockReturnValueOnce(stale.promise)
+			.mockResolvedValue({ user: USER });
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+		});
+		h.renderProbe();
+		await flush();
+
+		let first: Promise<void> | undefined;
+		act(() => {
+			first = h.state().refresh();
+		});
+		await act(async () => {
+			await h.state().refresh();
+		});
+		await act(async () => {
+			stale.reject(rateLimited(10_000));
+			await first;
+		});
+		expect(h.state().unavailable).toBeNull();
+
+		// No retry was scheduled on the stale failure's behalf.
+		await advance(60_000);
+		expect(refreshSession).toHaveBeenCalledTimes(2);
+		expect(h.state().user).toEqual(USER);
+	});
+
+	it("ignores a stale refusal that lands after a newer success", async () => {
+		const stale = deferred<{ user: typeof USER }>();
+		const refreshSession = vi
+			.fn()
+			.mockReturnValueOnce(stale.promise)
+			.mockResolvedValue({ user: USER });
+		const h = harness({
+			loadSession: vi.fn().mockResolvedValue({ user: USER }),
+			refreshSession,
+		});
+		h.renderProbe();
+		await flush();
+
+		let first: Promise<void> | undefined;
+		act(() => {
+			first = h.state().refresh();
+		});
+		await act(async () => {
+			await h.state().refresh();
+		});
+		await act(async () => {
+			stale.reject(new AuthApiError(401, "unauthorized", "x"));
+			await first;
+		});
+		expect(h.state().user).toEqual(USER);
+		expect(h.token()).toBe("tok");
+	});
+});
