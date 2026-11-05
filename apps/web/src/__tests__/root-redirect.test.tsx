@@ -103,4 +103,20 @@ describe("/", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		expect(retrySession).toHaveBeenCalledTimes(1);
 	});
+
+	// ONL-247. A retry in flight sets loading again while the last failure's
+	// unavailable is still there. Loading wins: the check is running now.
+	it("shows loading, not the notice, while a retry is in flight", () => {
+		authState.loading = true;
+		authState.unavailable = { retryAt: Date.now() + 30_000 };
+
+		render(
+			<MemoryRouter initialEntries={["/"]}>
+				<App />
+			</MemoryRouter>,
+		);
+
+		expect(screen.queryByLabelText(/password/i)).toBeNull();
+		expect(screen.getByRole("status").textContent).toMatch(/loading/i);
+	});
 });

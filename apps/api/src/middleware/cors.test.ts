@@ -306,6 +306,24 @@ describe("preflightResponse", () => {
 		expect(res.headers.get("Access-Control-Max-Age")).toBe("86400");
 	});
 
+	// ONL-247. Expose-Headers governs what a page may read from an actual
+	// response, and a preflight's headers are never handed to the page. It
+	// belongs on withCors alone, so a preflight that grew it would be the two
+	// lists drifting together rather than a fix.
+	it.each([
+		["app", PRODUCTION],
+		["any", "https://elsewhere.example"],
+	] as const)("leaves Expose-Headers off a %s preflight", (posture, origin) => {
+		const res = preflightResponse(
+			request(origin, "OPTIONS"),
+			env(PRODUCTION),
+			posture,
+		);
+
+		expect(res.headers.get("Access-Control-Allow-Origin")).not.toBeNull();
+		expect(res.headers.get("Access-Control-Expose-Headers")).toBeNull();
+	});
+
 	// apps/web sends these on every traced call to the API. A preflight that does
 	// not allow them fails, and the browser drops the request outright.
 	it("lets a browser carry its trace into the API", () => {

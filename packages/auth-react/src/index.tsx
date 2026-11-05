@@ -367,6 +367,10 @@ export function createReactAuth<TUser, TExtra extends object>(
 			mounted.current = true;
 			return () => {
 				mounted.current = false;
+				// A check started before an unmount is stale. In development,
+				// StrictMode mounts twice, and both page-load checks counted
+				// toward the backoff, so the first wait was 10 s (ONL-247).
+				settle();
 				clearRetry();
 			};
 		}, [clearRetry]);
@@ -547,8 +551,13 @@ export function createReactAuth<TUser, TExtra extends object>(
 			}
 
 			if (refreshInMs !== null) {
-				if (refreshInMs === 0) void refresh();
-				else timers.push(setTimeout(() => void refresh(), refreshInMs));
+				// Already due, but a retry is pending: that retry is this refresh,
+				// timed to the server's Retry-After. The warning re-runs this effect
+				// after a refresh fails, and refreshing again here landed inside
+				// that window and counted the failure twice (ONL-247).
+				if (refreshInMs === 0) {
+					if (!retryTimer.current) void refresh();
+				} else timers.push(setTimeout(() => void refresh(), refreshInMs));
 			}
 
 			return () => {

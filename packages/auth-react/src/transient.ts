@@ -38,6 +38,11 @@ export function retryDelayMs(error: unknown, failures: number): number {
 /**
  * Retry-After as milliseconds from `now`: delta-seconds or an HTTP date.
  * Undefined when the header is missing or unreadable, and never negative.
+ *
+ * Strict on both forms (ONL-247). Delta-seconds is digits only, per RFC 9110,
+ * where `Number()` also took "1.5", "0x10" and "1e3". And an HTTP date always
+ * names its day or month, which keeps V8's lenient Date.parse from reading
+ * "1.5" or "-5" as a date in 2001 and answering a wait of zero.
  */
 export function parseRetryAfter(
 	header: string | null,
@@ -45,9 +50,8 @@ export function parseRetryAfter(
 ): number | undefined {
 	if (header === null) return undefined;
 	const value = header.trim();
-	if (value === "") return undefined;
-	const seconds = Number(value);
-	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+	if (/^\d+$/.test(value)) return Number(value) * 1000;
+	if (!/[A-Za-z]/.test(value)) return undefined;
 	const date = Date.parse(value);
 	if (!Number.isNaN(date)) return Math.max(0, date - now);
 	return undefined;

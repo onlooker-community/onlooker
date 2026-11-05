@@ -474,6 +474,53 @@ describe("createApiClient — token refresh", () => {
 		expect(onUnauthorized).not.toHaveBeenCalled();
 	});
 
+	// ONL-247. The 503 stands in for the refresh's own answer, so it carries
+	// the refresh's Retry-After. Without it auth-react backed off from 5s,
+	// inside a window the server had already named.
+	it("carries the refresh's Retry-After on the session_unavailable 503", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "rt-ok" });
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				return json(429, apiError("rate_limited"), { "Retry-After": "30" });
+			}
+			return json(401, apiError("unauthorized"));
+		});
+
+		const { apiClient } = createApiClient({
+			config: testConfig({ maxRetries: 0 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		await expect(apiClient.get("/auth/me")).rejects.toMatchObject({
+			status: 503,
+			code: "session_unavailable",
+			retryAfterMs: 30_000,
+		});
+	});
+
+	it("sends no Retry-After on the 503 when the refresh gave none", async () => {
+		store.setTokens({ accessToken: "old", refreshToken: "rt-ok" });
+
+		const baseFetch = vi.fn(async (url: string) => {
+			if (url.endsWith("/auth/refresh")) {
+				throw new TypeError("Failed to fetch");
+			}
+			return json(401, apiError("unauthorized"));
+		});
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 0 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+		expect(response.status).toBe(503);
+		expect(response.headers.get("Retry-After")).toBeNull();
+	});
+
 	it("clears the tokens when the refresh answers 400", async () => {
 		store.setTokens({ accessToken: "old", refreshToken: "bad" });
 		const onUnauthorized = vi.fn();
@@ -628,6 +675,26 @@ describe("createApiClient — retry & backoff", () => {
 
 		expect(response.status).toBe(429);
 		expect(baseFetch).toHaveBeenCalledTimes(1);
+	});
+
+	// ONL-247. "1e3" is not delta-seconds, so it is no instruction at all and
+	// the client backs off on its own. Read loosely, it was 1,000 seconds and
+	// handed the 429 straight back.
+	it("backs off on its own when Retry-After is not delta-seconds", async () => {
+		const baseFetch = vi.fn(async () =>
+			json(429, apiError("rate_limit_exceeded"), { "Retry-After": "1e3" }),
+		);
+
+		const { authenticatedFetch } = createApiClient({
+			config: testConfig({ maxRetries: 2, retryMaxDelayMs: 5_000 }),
+			tokenStore: store,
+			baseFetch: baseFetch as unknown as typeof fetch,
+		});
+
+		const response = await authenticatedFetch("/data");
+
+		expect(response.status).toBe(429);
+		expect(baseFetch).toHaveBeenCalledTimes(3);
 	});
 
 	it("still retries a 429 whose Retry-After is short", async () => {
