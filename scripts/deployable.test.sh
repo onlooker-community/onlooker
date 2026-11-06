@@ -129,6 +129,20 @@ expect_match "false" "a bare readme does not" "README.md"
 expect_match "false" "a doc that merely names a deployable path does not" \
 	"docs/apps/api/overview.md"
 
+# Markdown under a deployable path is documentation, and rebuilding unchanged
+# code for it is a deploy run spent on nothing (ONL-251). Under src/ it is
+# exempt from that: a content collection or a `?raw` import puts Markdown in
+# the bundle, and a filter that skipped it would strand a real change.
+expect_match "false" "an app's markdown does not" "apps/api/DEV.md"
+expect_match "false" "a package's markdown does not" "packages/brand/ATTRIBUTION.md"
+expect_match "false" "several app docs together do not" \
+	"apps/web/API_INTEGRATION.md" "apps/web/INTEGRATION_TEST_CHECKLIST.md" \
+	"apps/api/DEPLOYMENT.md"
+expect_match "true" "markdown under src/ deploys" \
+	"apps/website/src/content/post.md"
+expect_match "true" "an app doc alongside its code deploys" \
+	"apps/api/DEV.md" "apps/api/src/router.ts"
+
 expect_match "false" "nothing changed at all" ""
 expect_match "true" "one deployable file among many that are not" \
 	"README.md" "docs/notes.md" "apps/api/src/index.ts" ".beads/issues.jsonl"
