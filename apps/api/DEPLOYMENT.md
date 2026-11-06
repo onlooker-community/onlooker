@@ -231,25 +231,15 @@ ever revisited. See the KV Namespace Binding section in
 
 ## Endpoints
 
-All endpoints are prefixed with `/auth/` or `/api/`:
+The full list, with each route's credential, is in [DEV.md](DEV.md#api-endpoints),
+and `src/router.ts` is the source of truth. What matters when deploying is the
+four prefixes, because the zone's rate limit matches on paths (see below):
 
-```
-POST   /auth/login
-POST   /auth/signup
-POST   /auth/refresh
-GET    /auth/me
-POST   /auth/logout
-GET    /auth/profile
-PATCH  /auth/profile
-POST   /auth/change-password
-DELETE /auth/account
-POST   /auth/verify-email
-POST   /auth/resend-verification
-POST   /auth/forgot-password
-GET    /auth/reset-password/verify
-POST   /auth/reset-password
-GET    /api/users/me
-```
+- `/auth/` - sign-in and account management, called by the browser
+- `/api/` - everything else the browser calls, session-authenticated except
+  `/api/client-errors`, `/api/public/lessons/:id` and `/api/orgs/invites/verify`
+- `/lessons` - the lesson sync protocol, called by plugins with a machine token
+- `/machine/` - a machine reporting its own inventory and sessions
 
 ## Error Handling
 

@@ -66,6 +66,36 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] ✅ DevTools: GET /api/users/me includes Authorization header
 - [ ] ✅ DevTools: Response status 200, correct user data returned
 
+### Lessons Page
+- [ ] Login successfully; you land on http://localhost:5173/lessons
+- [ ] ✅ DevTools: GET /api/lessons returns 200 with a page of lessons
+- [ ] Choose a status filter (Active, Retracted, Refuted, Superseded)
+- [ ] ✅ DevTools: the request carries `?status=<value>`; All sends no status
+- [ ] Select a lesson already in the list
+- [ ] ✅ Detail opens at /lessons/:id with no new request
+- [ ] If more lessons exist, click "Load more"
+- [ ] ✅ DevTools: GET /api/lessons carries `cursor`
+- [ ] Retract one of your own lessons and confirm
+- [ ] ✅ DevTools: PATCH /api/lessons/:id/status returns 200; the badge reads Retracted
+- [ ] Make it active again
+- [ ] ✅ The badge reads Active
+
+### Machines Page
+- [ ] Navigate to http://localhost:5173/machines
+- [ ] ✅ DevTools: GET /api/machines returns 200
+- [ ] Enter a machine name, keep "Keep this token private", and click "Mint token"
+- [ ] ✅ DevTools: POST /api/machines returns the token, and the page shows it
+- [ ] ✅ The new machine is listed with "Never used" and "Never reported", with
+      no inventory control
+- [ ] Reload the page
+- [ ] ✅ The machine is still listed; the token is not shown again
+- [ ] For a machine a plugin has reported from, expand its inventory
+- [ ] ✅ DevTools: GET /api/machines/:id/inventory returns 200
+- [ ] Click Revoke and confirm
+- [ ] ✅ DevTools: DELETE /api/machines/:id returns 200; the row shows Revoked
+- [ ] Click Delete and confirm
+- [ ] ✅ DevTools: POST /api/machines/:id/remove returns 200; the row is gone
+
 ## Account Management
 
 ### Password Change
@@ -135,6 +165,12 @@ Use this checklist when testing the web app against the real Cloudflare Workers 
 - [ ] Reload page (F5)
 - [ ] ✅ Tokens persisted in localStorage
 - [ ] ✅ Session restored automatically
+- [ ] Open a lesson at /lessons/:id and reload
+- [ ] ✅ The same lesson is shown, not the first one in the list
+- [ ] Reload on /machines
+- [ ] ✅ The list reloads; no minted token is shown
+- [ ] Logout, then open a /lessons/:id URL directly
+- [ ] ✅ Redirected to /login; after login, returned to that lesson
 
 ### Tab Sync (WS3)
 - [ ] Login in Tab A

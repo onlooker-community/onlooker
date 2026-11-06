@@ -220,8 +220,9 @@ export default function LessonDetail() {
 			})
 			.catch((error) => {
 				// A fallback distinct from the EmptyState title below, so a
-				// non-Error rejection - which describeError has no way to
-				// produce today - would not print the same sentence twice.
+				// non-Error rejection would not print the same sentence twice.
+				// Nothing in the client rejects with a non-Error today, so
+				// describeError never reaches this fallback; it is a guard.
 				if (live)
 					setFetchError(describeError(error, "That lesson could not be read."));
 			});
