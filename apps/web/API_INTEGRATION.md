@@ -101,7 +101,12 @@ These are different origins, so the browser enforces CORS. The API includes appr
 
 ## API Endpoints
 
-All endpoints are documented in `src/api/types.ts`. Here's a quick reference:
+The complete list, including the machine-authenticated routes the browser never
+calls, is in [apps/api/DEV.md](../api/DEV.md#api-endpoints). Request and
+response types live beside each surface's client: `src/api/types.ts` for auth
+and account, and `lessonsApi.ts`, `machinesApi.ts`, `orgsApi.ts`,
+`sessionsApi.ts`, `projectsApi.ts` and `labelsApi.ts` for the rest. Here are
+the routes this app calls:
 
 ### Authentication Endpoints (public)
 
@@ -133,6 +138,37 @@ All endpoints are documented in `src/api/types.ts`. Here's a quick reference:
 |--------|------|---------|
 | GET | `/api/users/me` | Get user profile (includes metadata) |
 
+### Lessons Endpoints (requires auth) — `/lessons`
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/lessons` | One page of the reader's lessons. `status` and `project` repeat once per value; `cursor` and `limit` page |
+| GET | `/api/lessons/:id` | One lesson, only for a deep link to an id on no loaded page |
+| PATCH | `/api/lessons/:id/status` | Retract a lesson, or make it active again |
+| POST | `/api/orgs/:id/lessons/:lessonId/retract` | Retract a lesson shared with an org you own. One-way |
+| GET | `/api/activity` | The reader's activity feed (`/activity`) |
+
+The list returns full bodies, so selecting a lesson that is already loaded
+issues no request at all.
+
+### Machines Endpoints (requires auth) — `/machines`
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/machines` | Mint a machine token. `org_id` scopes it to an org; omitted, it is private |
+| GET | `/api/machines` | List this account's machines |
+| GET | `/api/machines/:id/inventory` | One machine's full inventory, fetched when its row is opened |
+| DELETE | `/api/machines/:id` | Revoke a machine's token |
+| POST | `/api/machines/:id/remove` | Delete a revoked machine. Its sessions stay |
+
+The minted token is in the `POST` response and nowhere else. The page shows it
+once and cannot show it again.
+
+### Other Pages (requires auth)
+
+`/sessions` reads `GET /api/sessions`, `/projects` reads `GET /api/projects`
+and `GET`/`PUT /api/project-labels`, and `/orgs` uses the `/api/orgs` routes.
+
 ## Testing Integration
 
 Before committing changes to the API client, verify the integration locally. Here's a checklist:
@@ -143,7 +179,7 @@ Before committing changes to the API client, verify the integration locally. Her
 - [ ] Submit form
 - [ ] Verify success response (JWT tokens received)
 - [ ] Verify tokens in localStorage (`auth_token`, `auth_refresh_token`)
-- [ ] Verify automatic redirect to /lessons or onboarding
+- [ ] Verify automatic redirect to /lessons
 
 ### Login Flow
 - [ ] Load `http://localhost:5173/login`
@@ -164,6 +200,22 @@ Before committing changes to the API client, verify the integration locally. Her
 - [ ] After login, navigate to `/profile`
 - [ ] Verify user data loads (name, email, created/last login dates)
 - [ ] In DevTools, confirm request includes `Authorization: Bearer <token>` header
+
+### Lessons
+- [ ] After login, `/lessons` loads with `GET /api/lessons`
+- [ ] Pick a status filter; the request carries `?status=<value>`
+- [ ] Select a loaded lesson; the detail opens with no new request
+- [ ] Retract one of your own lessons, then make it active again; each is a
+      `PATCH /api/lessons/:id/status`
+- [ ] Paste a `/lessons/<id>` URL into a fresh tab, for a lesson past the
+      first page; the detail loads with `GET /api/lessons/:id`
+
+### Machines
+- [ ] Navigate to `/machines`; it loads with `GET /api/machines`
+- [ ] Mint a token; `POST /api/machines` returns it and the page shows it once
+- [ ] Reload; the machine is listed and the token is not shown again
+- [ ] Revoke it (`DELETE /api/machines/:id`); the row shows Revoked
+- [ ] Delete it (`POST /api/machines/:id/remove`); the row is gone
 
 ### Password Change
 - [ ] Navigate to `/settings`
@@ -283,6 +335,11 @@ If it happens anyway, check:
 - `src/pages/SignupPage.tsx` — Signup form
 - `src/pages/ProfilePage.tsx` — User profile (authenticated)
 - `src/pages/SettingsPage.tsx` — Settings including password change
+- `src/pages/LessonsPage.tsx` — `/lessons`, the list pane and its filters
+- `src/pages/LessonDetail.tsx` — `/lessons/:id`, one lesson and its status control
+- `src/pages/MachinesPage.tsx` — `/machines`, minting, revoking and deleting tokens
+
+`src/App.tsx` holds the full route table.
 
 ## Future Work
 
