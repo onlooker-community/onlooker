@@ -64,7 +64,12 @@ match_paths() {
 	# writer to still be writing. A filter that fails intermittently blocks
 	# every deploy behind it, which is worse than anything it was built to
 	# prevent. Reading the whole list costs nothing at this size.
-	if grep -E "${DEPLOYABLE_PATHS}" >/dev/null; then
+	#
+	# Markdown is dropped first, so a change made only of docs deploys nothing
+	# (ONL-251) - except under a src/ directory, where a content collection or
+	# a `?raw` import can put it in the bundle. awk reads its whole input and
+	# always exits 0, so it neither takes nor causes the SIGPIPE above.
+	if awk '!(/\.md$/ && !/\/src\//)' | grep -E "${DEPLOYABLE_PATHS}" >/dev/null; then
 		echo "true"
 	else
 		echo "false"
