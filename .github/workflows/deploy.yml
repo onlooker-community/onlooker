@@ -291,6 +291,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/cli-version.sh
 
+  # The same gate for a commit that reached main without a pull request.
+  #
+  # cli-version runs on pull requests only, and the repository owner can
+  # bypass the ruleset and push to main directly - which has happened. Such a
+  # push skipped the gate entirely. ONL-59.
+  #
+  # Scoped to direct pushes, not every push to main. Checking every push
+  # against the newest cli-v* tag would turn main red for the length of a
+  # deliberate cli-batch, which has already been approved on each pull request
+  # by its label. A merged pull request's commit passed the gate before it
+  # merged, so only a commit no pull request produced is checked here.
+  #
+  # Not part of `required` and not a dependency of any deploy: the push has
+  # already landed, so blocking a deploy would not undo it. A red run on main
+  # is the flag, and GitHub mails the pusher about it.
+  cli-direct-push:
+    name: CLI released with a direct push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Asked of GitHub, which records the pull request a squash merge
+      # created. Fails closed like the gate it extends: an unreachable API
+      # turns this run red rather than letting a direct push through
+      # unexamined, and a re-run clears it.
+      - name: Find the pull request behind this commit
+        id: origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! merged="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq 'map(select(.merged_at != null)) | length')"; then
+            echo "::error title=CLI direct-push check cannot reach GitHub::Could not ask which pull request produced ${GITHUB_SHA}. Blocking rather than guessing; re-run this job."
+            exit 1
+          fi
+          if [ "${merged}" -gt 0 ]; then
+            echo "cli-direct-push: ${GITHUB_SHA} came from a merged pull request, which the gate already checked"
+            echo "direct=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cli-direct-push: no merged pull request produced ${GITHUB_SHA}; checking it here"
+            echo "direct=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Measured from github.event.before, which is exactly what this push
+      # added. No PR_NUMBER, so no label is read and cli-batch cannot apply:
+      # a batch goes through pull requests.
+      - name: Fail if CLI source changed without a release
+        if: steps.origin.outputs.direct == 'true'
+        env:
+          BASE_REF: ${{ github.event.before }}
+          CLI_VERSION_EVENT: push
+        run: bash scripts/cli-version.sh
+
   # ============================================================================
   # PUBLISH THE LESSON CONTRACT
   # ============================================================================

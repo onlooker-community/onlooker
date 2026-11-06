@@ -539,6 +539,15 @@ case "${verdict}" in
 		exit 1
 		;;
 	fail:no-bump)
+		# deploy.yml's cli-direct-push job sets CLI_VERSION_EVENT=push for a
+		# commit on main that no pull request merged (ONL-59). The verdict is the
+		# same, but the change has already landed and there is no pull request
+		# to label, so the label advice would send the reader looking for
+		# something that does not exist.
+		if [[ "${CLI_VERSION_EVENT:-}" == "push" ]]; then
+			echo "::error title=CLI source changed without a release::${touched} changed, but apps/cli/package.json is still ${new_version}, and this was pushed straight to main, so the pull request gate never ran. Nothing releases the CLI until the version moves, so every installed \`onlooker\` keeps running the old binary - the failure in #141 and #167. Cut a release by bumping the version in a follow-up pull request."
+			exit 1
+		fi
 		echo "::error title=CLI source changed without a release::${touched} changed, but apps/cli/package.json is still ${new_version}. tag-cli.yml releases on a version change and nothing else, so this merges, deploys the API and the web app, and leaves every installed \`onlooker\` running the old binary - the failure in #141 and #167. Bump the version here, or add the \`${BATCH_LABEL}\` label and re-run this job to release these changes together later."
 		exit 1
 		;;

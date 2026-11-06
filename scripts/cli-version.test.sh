@@ -524,6 +524,15 @@ expect_run 1 "CLI source changed without a release" \
 expect_run 1 "apps/cli/src/sessions.ts" \
 	"the failure names the file that tripped it" "${work}/run-nobump" "${base}"
 
+# A direct push to main gets the same verdict, but not the same advice. There
+# is no pull request to label, so "add the cli-batch label" would send the
+# reader looking for something that does not exist. ONL-59.
+CLI_VERSION_EVENT=push expect_run 1 "pushed straight to main" \
+	"a direct push says so instead of suggesting a label" "${work}/run-nobump" "${base}"
+
+CLI_VERSION_EVENT=push expect_run 1 "CLI source changed without a release" \
+	"a direct push is still the same failure" "${work}/run-nobump" "${base}"
+
 base="$(make_repo "${work}/run-bumped" "${SAME}" "${BUMPED}" "apps/cli/src/sessions.ts")"
 expect_run 0 "2.6.0 -> 2.7.0" \
 	"CLI source changed and the version moved" "${work}/run-bumped" "${base}"
