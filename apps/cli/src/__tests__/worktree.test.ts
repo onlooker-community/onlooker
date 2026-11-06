@@ -5,11 +5,26 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { changedFiles, matchesPattern } from "../worktree";
 
+/**
+ * The fixtures' git, cut off from the developer's global and system config.
+ *
+ * Inherited, that config costs ~400ms a commit on a machine that signs and
+ * seeds hooks through init.templateDir: `git init` copies the template's
+ * pre-commit and prepare-commit-msg into every fixture, and each commit then
+ * runs them and signs. Under a full parallel run that pushed four of these
+ * tests past vitest's 5s timeout. ONL-240.
+ */
+const isolatedGit = {
+	...process.env,
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_CONFIG_NOSYSTEM: "1",
+};
+
 /** A real repository, because this module's whole risk is the subprocess. */
 function repo(): { root: string; git: (...args: string[]) => void } {
 	const root = mkdtempSync(join(tmpdir(), "onlooker-repo-"));
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: root, stdio: "ignore" });
+		execFileSync("git", args, { cwd: root, stdio: "ignore", env: isolatedGit });
 	git("init");
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "T");
