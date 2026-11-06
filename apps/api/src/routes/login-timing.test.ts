@@ -50,11 +50,37 @@ async function timeRefusal(email: string): Promise<number> {
 	return elapsed;
 }
 
-/** Median of three, so one scheduling hiccup cannot decide the result. */
-async function medianRefusal(email: string): Promise<number> {
-	const runs: number[] = [];
-	for (let i = 0; i < 3; i++) runs.push(await timeRefusal(email));
-	return runs.sort((a, b) => a - b)[1];
+const median = (runs: number[]) =>
+	[...runs].sort((a, b) => a - b)[Math.floor(runs.length / 2)];
+
+/**
+ * Both paths' timings, taken in alternating rounds rather than one path after
+ * the other.
+ *
+ * Under a full parallel `pnpm test`, every other package competes for the
+ * CPU, and that load comes in bursts. Timed back to back, a burst that covers
+ * only the known-account samples moves the ratio by itself: measured
+ * 2026-11-05, one of 13 full runs read known 123/139/140ms against unknown
+ * 70/93/83ms, a ratio of 0.60 against a bar of 0.5. ONL-249. Interleaved, a
+ * burst lands on both paths, and the median of five absorbs the round it
+ * lands on. The order flips each round so neither path always goes first.
+ */
+async function interleavedRefusals(): Promise<{
+	known: number[];
+	unknown: number[];
+}> {
+	const known: number[] = [];
+	const unknown: number[] = [];
+	for (let i = 0; i < 5; i++) {
+		if (i % 2 === 0) {
+			known.push(await timeRefusal(KNOWN));
+			unknown.push(await timeRefusal(UNKNOWN));
+		} else {
+			unknown.push(await timeRefusal(UNKNOWN));
+			known.push(await timeRefusal(KNOWN));
+		}
+	}
+	return { known, unknown };
 }
 
 beforeEach(async () => {
@@ -68,20 +94,23 @@ beforeEach(async () => {
 
 describe("POST /auth/login timing", () => {
 	it("spends the same bcrypt cost on an address with no account", async () => {
-		const known = await medianRefusal(KNOWN);
-		const unknown = await medianRefusal(UNKNOWN);
+		const samples = await interleavedRefusals();
+		const known = median(samples.known);
+		const unknown = median(samples.unknown);
+		// Every sample, so a failure says which side moved.
+		const seen = `known ${samples.known.map(Math.round).join("/")}ms, unknown ${samples.unknown.map(Math.round).join("/")}ms`;
 
 		// The floor first: if the known-account path did not reach bcrypt, the
 		// ratio below is comparing two cheap paths and would pass while proving
 		// nothing. bcryptjs at cost 10 is pure JavaScript and has never come in
 		// under this on any machine this suite runs on.
-		expect(known).toBeGreaterThan(20);
+		expect(known, seen).toBeGreaterThan(20);
 
 		// Half, with the headroom spent on CI rather than on sensitivity.
 		// Measured locally 2026-10-15: equalized, this ratio clears 0.9 three
 		// runs out of three; unequalized it was 0.05, because the unknown path
 		// skipped the whole ~100ms of bcrypt. Nothing real sits between those,
 		// so the threshold only has to separate them.
-		expect(unknown).toBeGreaterThan(known * 0.5);
+		expect(unknown, seen).toBeGreaterThan(known * 0.5);
 	}, 30_000);
 });
