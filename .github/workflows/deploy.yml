@@ -482,7 +482,8 @@ jobs:
       contents: read
       deployments: read
     outputs:
-      deployable: ${{ steps.filter.outputs.deployable }}
+      staging: ${{ steps.filter.outputs.staging }}
+      production: ${{ steps.filter.outputs.production }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -504,14 +505,14 @@ jobs:
           #
           # It answers per environment because production sits behind a
           # required reviewer and can trail staging while an approval waits.
-          # The run deploys if EITHER environment is missing something.
+          # Each deploy job reads its own environment's answer.
           #
-          # That OR is the fix for the case a single answer cannot express:
-          # staging deploying successfully while production fails. Anchored on
-          # staging alone the next push would see nothing new and skip, leaving
-          # a change that never reached production with two green runs behind
-          # it. Asking both means the work stays pending until it has actually
-          # shipped everywhere. See onlooker-txcu.7.
+          # These used to be ORed into one `deployable`, which kept production
+          # from losing a change (onlooker-txcu.7) only by redeploying staging
+          # every time production was behind - production had no answer of its
+          # own, so it could ship only when staging ran. Split, a staging that
+          # is already current skips, and production still deploys whatever it
+          # is missing. See ONL-63.
           #
           # Erring toward deploying is deliberate throughout: a redundant
           # deploy costs a few minutes, a skipped one ships nothing and says it
@@ -519,7 +520,8 @@ jobs:
           if [ "${{ github.event_name }}" != "push" ]; then
             # Nothing below main deploys anyway - every deploy job is gated on
             # the ref - so there is no diff worth computing here.
-            echo "deployable=true" >> "$GITHUB_OUTPUT"
+            echo "staging=true" >> "$GITHUB_OUTPUT"
+            echo "production=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -545,11 +547,8 @@ jobs:
           fi
           echo "staging=${STAGING} production=${PRODUCTION}"
 
-          if [ "$STAGING" = "true" ] || [ "$PRODUCTION" = "true" ]; then
-            echo "deployable=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "deployable=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "staging=${STAGING}" >> "$GITHUB_OUTPUT"
+          echo "production=${PRODUCTION}" >> "$GITHUB_OUTPUT"
 
   # ============================================================================
   # DEPLOY TO STAGING
@@ -570,9 +569,10 @@ jobs:
       group: deploy-staging
       cancel-in-progress: false
     # Staging tracks main. There is no long-lived staging branch to keep in sync,
-    # and production below will not run unless this succeeds first.
+    # and production below runs only after this succeeds, or after it skips
+    # because staging is already running this code.
     #
-    # `changes.deployable` keeps a CLI-only merge from redeploying the API, web
+    # `changes.staging` keeps a CLI-only merge from redeploying the API, web
     # and website with identical code.
     #
     # That used to be justified here by cancel-in-progress being able to cancel
@@ -593,7 +593,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main'
       && (
-        (github.event_name == 'push' && needs.changes.outputs.deployable == 'true')
+        (github.event_name == 'push' && needs.changes.outputs.staging == 'true')
         || github.event_name == 'workflow_dispatch'
       )
     environment:
@@ -750,16 +750,45 @@ jobs:
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-    # Depends on deploy-staging, not test: production never ships a build that
-    # has not already migrated and deployed cleanly to staging. The approval
-    # gate on the production environment still applies on top of this.
-    needs: deploy-staging
+    # Production never ships a build that has not already migrated and deployed
+    # cleanly to staging. That holds two ways:
+    #
+    # - staging deployed it in this run, or
+    # - staging skipped because `changes.staging` said it was already current:
+    #   nothing deployable differs between staging's last successful deploy
+    #   and this commit, so staging is already running exactly this code.
+    #
+    # The second is ONL-63. With `needs: deploy-staging` alone, a skipped
+    # staging skipped production too, so production deployed only when staging
+    # happened to run - after a rejected approval or a failed production
+    # deploy, the change waited for the next deployable push to carry it.
+    #
+    # !cancelled() rather than always(), and test is checked explicitly,
+    # because once this job opts out of the default success() check a skipped
+    # deploy-staging is ambiguous: it also reads "skipped" when test failed.
+    # An empty `changes.staging` (the changes job failed) is not 'false', so
+    # that path blocks too. The approval gate on the production environment
+    # still applies on top of all of this.
+    needs: [test, changes, deploy-staging]
     # A manual run reaches production the same way a push does: only after
     # staging has migrated and deployed cleanly, and only through the approval
     # gate below. The button skips the change filter, never the gate.
     if: >-
-      github.ref == 'refs/heads/main'
-      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      !cancelled()
+      && github.ref == 'refs/heads/main'
+      && needs.test.result == 'success'
+      && (
+        needs.deploy-staging.result == 'success'
+        || (
+          needs.deploy-staging.result == 'skipped'
+          && github.event_name == 'push'
+          && needs.changes.outputs.staging == 'false'
+        )
+      )
+      && (
+        (github.event_name == 'push' && needs.changes.outputs.production == 'true')
+        || github.event_name == 'workflow_dispatch'
+      )
     environment:
       name: production
       url: https://app.onlooker.dev
