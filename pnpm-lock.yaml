@@ -131,8 +131,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/lesson-contract
       '@onlooker-community/schema':
-        specifier: 3.3.1
-        version: 3.3.1
+        specifier: 3.8.0
+        version: 3.8.0
       '@onlooker/api-contract':
         specifier: workspace:*
         version: link:../../packages/api-contract
@@ -1873,8 +1873,8 @@ packages:
   '@nodable/entities@2.2.0':
     resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
 
-  '@onlooker-community/schema@3.3.1':
-    resolution: {integrity: sha512-yaibbkgplwAdBQKMwWL4xtpWfjNrMS1uaqzi+hOQQse7jmiPuTncp2rMkLizIIm9L52HMbzLc+EgpWry8CyRyw==}
+  '@onlooker-community/schema@3.8.0':
+    resolution: {integrity: sha512-uuR6vBhOseHmuVRFIJ1v//Ua6tcMMtaC0ZDTMju2UBbu9PjdVfNJOZic5AsfzD9qflHcARuFmZG5RhDMSLz8xw==}
 
   '@opentelemetry/api-logs@0.220.0':
     resolution: {integrity: sha512-CmVa4ImJ+ynfrPMNaAXHET6Bhb44SwzmfyVJFq9ni2jgXJR/l7C6gfVFddNmHP+ZOkP9cf4f9DBe68qVLTHc9w==}
@@ -5842,7 +5842,7 @@ snapshots:
 
   '@nodable/entities@2.2.0': {}
 
-  '@onlooker-community/schema@3.3.1':
+  '@onlooker-community/schema@3.8.0':
     dependencies:
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
