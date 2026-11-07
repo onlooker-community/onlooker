@@ -64,8 +64,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Chips({ values }: { values: string[] }) {
 	return (
 		<div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-			{values.map((value) => (
-				<Chip key={value}>{value}</Chip>
+			{/*
+			  Keyed by position, not value: ZAppliesTo does not require these
+			  to be unique, so ["vite", "vite"] is a valid lesson. The list is
+			  never reordered in place, so a position is a stable key here.
+			*/}
+			{values.map((value, index) => (
+				<Chip key={index}>{value}</Chip>
 			))}
 		</div>
 	);

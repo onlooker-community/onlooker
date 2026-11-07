@@ -1338,6 +1338,52 @@ function renderLessonsPageAt(path: string) {
 	);
 }
 
+// The layout used to decide which pane to show by matching "/lessons/:id"
+// itself, a second copy of App's child path. Renaming that path left the
+// layout on its placeholder while the router had matched the child, and the
+// narrow layout hid the detail pane entirely (ONL-75).
+describe("the two-pane layout", () => {
+	it("shows the detail pane for whatever path the child route uses", async () => {
+		withPool([VITE]);
+		render(
+			<MemoryRouter initialEntries={[`/lessons/read/${VITE.id}`]}>
+				<Routes>
+					<Route path="/lessons" element={<LessonsPage />}>
+						<Route path="read/:id" element={<p>the child</p>} />
+					</Route>
+				</Routes>
+			</MemoryRouter>,
+		);
+
+		expect(await screen.findByText("the child")).toBeDefined();
+		expect(
+			document.querySelector(".lessons-layout")?.getAttribute("data-pane"),
+		).toBe("detail");
+	});
+});
+
+// ZAppliesTo puts no uniqueness rule on these lists, so a contract-valid
+// lesson can name a stack twice. Keyed by value, the two chips collided.
+describe("a lesson that repeats a stack", () => {
+	it("renders each chip without a key collision", async () => {
+		const repeated = {
+			...VITE,
+			applies_to: { ...VITE.applies_to, stack: ["vite", "vite"] },
+		};
+		withPool([repeated]);
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await at(`/lessons/${VITE.id}`);
+			await screen.findByRole("heading", { name: VITE.claim });
+			expect(
+				errors.mock.calls.some((call) => String(call[0]).includes("same key")),
+			).toBe(false);
+		} finally {
+			errors.mockRestore();
+		}
+	});
+});
+
 describe("org retract authority", () => {
 	// setRetractableIn merges a loaded-more page into what is already on
 	// screen, the same way setAuthors does just above it in LessonsPage - and
