@@ -1242,6 +1242,148 @@ Through `/git-workflow:commit`, staging `blog-posts.ts`, `rss.xml.ts`, `blog-pos
 
 ---
 
+### Task 5a: Name the blog on the launch gate
+
+Added 2026-11-07 after Task 5 found the spec's premise wrong: Astro runs `middleware.ts` while it prerenders, so with `SITE_LAUNCHED` false every page but `/` builds as a "Redirecting to: /" document, blog included. `https://onlooker.dev/plugins/` serves exactly that today. The user chose to name `/blog` on the gate and keep `/plugins` gated until ONL-263 and ONL-264 land.
+
+**Files:**
+- Create: `apps/website/src/lib/launch-gate.ts`
+- Modify: `apps/website/src/middleware.ts`, `apps/website/src/layouts/Layout.astro`, `apps/website/src/__tests__/layout-meta.test.ts`, `apps/website/src/__tests__/blog-routes.test.ts` (comment only)
+- Test: `apps/website/src/__tests__/launch-gate.test.ts`
+
+**Interfaces:**
+- Produces: `isPublicBeforeLaunch(pathname: string): boolean` from `src/lib/launch-gate.ts`. ONL-264 will extend it with `/plugins`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`apps/website/src/__tests__/launch-gate.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { isPublicBeforeLaunch } from "../lib/launch-gate";
+
+describe("isPublicBeforeLaunch", () => {
+	for (const path of [
+		"/",
+		"/blog",
+		"/blog/",
+		"/blog/contrast-arena",
+		"/blog/contrast-arena/",
+		"/blog/tags/measurements",
+		"/blog/rss.xml",
+	]) {
+		it(`lets ${path} through`, () => {
+			expect(isPublicBeforeLaunch(path)).toBe(true);
+		});
+	}
+
+	// /plugins stays behind the gate until its pages match the marketplace
+	// (ONL-263); ONL-264 adds it here. /blogx is the prefix match a careless
+	// startsWith("/blog") would let through.
+	for (const path of ["/plugins", "/plugins/archivist", "/blogx", "/signup", ""]) {
+		it(`keeps ${JSON.stringify(path)} behind the gate`, () => {
+			expect(isPublicBeforeLaunch(path)).toBe(false);
+		});
+	}
+});
+```
+
+In `apps/website/src/__tests__/layout-meta.test.ts`, replace the `Layout nav` block:
+
+```ts
+describe("Layout nav", () => {
+	it("links the blog", async () => {
+		expect(await render({})).toMatch(/<a[^>]*href="\/blog"[^>]*>Blog<\/a>/);
+	});
+
+	// /plugins still builds as a redirect to / while the site is unlaunched,
+	// so a nav link there would send every reader home. ONL-264 restores it.
+	it("does not link the plugin pages yet", async () => {
+		expect(await render({})).not.toMatch(/href="\/plugins"/);
+	});
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `pnpm --filter @onlooker/website test launch-gate`, then `pnpm --filter @onlooker/website test layout-meta`
+Expected: `launch-gate` FAILS (cannot resolve `../lib/launch-gate`). `layout-meta` FAILS on "does not link the plugin pages yet".
+
+- [ ] **Step 3: Write the implementation**
+
+`apps/website/src/lib/launch-gate.ts`:
+
+```ts
+/**
+ * The paths a reader can open while SITE_LAUNCHED is false. Everything else
+ * redirects to the coming-soon page.
+ *
+ * Named rather than inferred. Astro runs middleware while it prerenders, so
+ * prerendering a page does not get it past the gate: the page is built as a
+ * redirect document instead (measured 2026-11-07, and what
+ * onlooker.dev/plugins/ served at the time).
+ */
+export function isPublicBeforeLaunch(pathname: string): boolean {
+	return pathname === "/" || pathname === "/blog" || pathname.startsWith("/blog/");
+}
+```
+
+`apps/website/src/middleware.ts`, whole file:
+
+```ts
+import { SITE_LAUNCHED } from "astro:env/server";
+import { defineMiddleware } from "astro:middleware";
+import { isPublicBeforeLaunch } from "./lib/launch-gate";
+
+// While SITE_LAUNCHED is false, only the paths launch-gate.ts names are
+// reachable, and every other URL bounces to the coming-soon page. This runs
+// for prerendered pages too, at build time, so a page is public only if it is
+// named there.
+export const onRequest = defineMiddleware((context, next) => {
+	if (SITE_LAUNCHED || isPublicBeforeLaunch(context.url.pathname)) return next();
+	return context.redirect("/", 307);
+});
+```
+
+In `apps/website/src/layouts/Layout.astro`, delete the line `<a class="nav-link" href="/plugins">Plugins</a>`.
+
+In `apps/website/src/__tests__/blog-routes.test.ts`, replace the comment above `describe("blog routes"` (it states the premise that turned out false) with:
+
+```ts
+// The blog is static content, so every route prerenders. That is about cost,
+// not reachability: launch-gate.ts decides what is public, and the gate runs
+// at build time for prerendered pages as well.
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `pnpm --filter @onlooker/website test launch-gate`, then `pnpm --filter @onlooker/website test layout-meta`, then `pnpm --filter @onlooker/website test blog-routes`
+Expected: all PASS.
+
+- [ ] **Step 5: Prove the fix against a real build, with the gate closed**
+
+```bash
+cd apps/website
+env -u SITE_LAUNCHED pnpm build
+head -c 120 dist/client/blog/index.html; echo
+head -c 120 dist/client/blog/rss.xml; echo
+head -c 120 dist/client/plugins/index.html; echo
+```
+
+Expected: `blog/index.html` is the real page (it contains "Nothing published yet."), `rss.xml` starts with `<?xml`, and `plugins/index.html` still starts with `<!doctype html><title>Redirecting to: /`. Paste all three into the report. Then revert the `isPublicBeforeLaunch` body to `return pathname === "/";`, rebuild, and confirm `blog/index.html` becomes a redirect. Paste that too, restore the body, and rebuild once more.
+
+- [ ] **Step 6: Run every gate and commit**
+
+```bash
+pnpm --filter @onlooker/website test
+pnpm --filter @onlooker/website typecheck
+pnpm --filter @onlooker/website lint
+```
+
+Through `/git-workflow:commit`, staging the five files above plus `launch-gate.test.ts`. Suggested subject: `fix(website): name the blog on the launch gate instead of trusting prerender`.
+
+---
+
 ### Task 6: The diagram pattern and its first diagram
 
 **Files:**
@@ -1506,4 +1648,4 @@ Through `/git-workflow:commit`, staging `contrast-arena.mdx` and the `.gitkeep` 
 ### Task 8: Hand off
 
 - [ ] **Step 1: Close the child beads, and add a note on the parent** recording the verification output from Task 7, Steps 5–7: `bd update <bead-id> --append-notes "..."`.
-- [ ] **Step 2: Ask the user before opening a PR.** On a yes, use `/git-workflow:pr`. A merge deploys straight to onlooker.dev (no staging), so the PR description should say what ships publicly: `/blog`, its tag pages, the feed, the first post, and nav links to `/blog` and `/plugins`.
+- [ ] **Step 2: Ask the user before opening a PR.** On a yes, use `/git-workflow:pr`. A merge deploys straight to onlooker.dev (no staging), so the PR description should say what ships publicly: `/blog`, its tag pages, the feed, the first post, a nav link to `/blog`, and the launch gate's new allowlist. It should also say that `/plugins` stays gated (ONL-263, ONL-264).
