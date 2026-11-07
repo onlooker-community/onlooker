@@ -139,10 +139,11 @@ async function at(path: string) {
 	return result;
 }
 
-// The two places one lesson's status shows at once: its row in the list and
-// the badge over its claim in the detail. Asserting within each, rather than
-// counting matches page-wide, holds when a fixture carries a second lesson
-// in the same status, and says which pane went wrong when one does.
+// The two places one lesson shows at once: its row in the list and the
+// detail. Its status, stack and author appear in both. Asserting within
+// each, rather than counting matches page-wide, holds when a fixture carries
+// a second lesson that shares the value, and says which pane went wrong when
+// one does.
 const rowFor = (lesson: { claim: string }) =>
 	within(screen.getByRole("navigation", { name: "Lessons" })).getByRole(
 		"link",
@@ -276,17 +277,16 @@ describe("the detail pane", () => {
 	});
 
 	it("leads with the claim, then the rationale and what it applies to", async () => {
-		withPool([VITE]);
+		withPool([VITE, D1]);
 		await at(`/lessons/${VITE.id}`);
 		expect(
 			await screen.findByRole("heading", { name: VITE.claim }),
 		).toBeDefined();
 		expect(screen.getByText(VITE.rationale)).toBeDefined();
-		// Twice, not once: the row's meta-line chip and the detail's Applies to
-		// panel both carry the stack tag now, so a single-match query is no
-		// longer the right shape for this assertion - the row growing a stack
-		// Chip of its own is Step 5, not a divergence between the two.
-		expect(screen.getAllByText("vite").length).toBe(2);
+		// The row's meta-line chip and the detail's Applies to panel both carry
+		// the stack tag, so each pane is asked for its own.
+		expect(within(rowFor(VITE)).getByText("vite")).toBeDefined();
+		expect(within(detailPane()).getByText("vite")).toBeDefined();
 		expect(screen.getByText(/3 of 3/)).toBeDefined();
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
 	});
@@ -295,16 +295,15 @@ describe("the detail pane", () => {
 	// the row reads, carried on through LessonsContext rather than refetched -
 	// the same split LessonDetail.tsx's `own` already makes for ownership.
 	it("also names the author in the detail pane for a listed lesson", async () => {
-		withPool([VITE], { authors: { [VITE.id]: "Bob" } });
+		withPool([VITE, D1], { authors: { [VITE.id]: "Bob", [D1.id]: "Bob" } });
 		await at(`/lessons/${VITE.id}`);
 		await screen.findByRole("heading", { name: VITE.claim });
 
-		// Two matches, not one - matching the "vite" tag's own precedent
-		// above: the row's own line (covered by "names the author of an org
-		// lesson" in the org authorship block) plus the detail pane's. A
-		// single match would mean only the row rendered it and the detail
-		// pane did not.
-		expect(screen.getAllByText("Bob").length).toBe(2);
+		// The detail pane is the subject here. The row's line is covered by
+		// "names the author of an org lesson" in the org authorship block, and
+		// is checked again so a regression says which pane lost the name.
+		expect(within(detailPane()).getByText("Bob")).toBeDefined();
+		expect(within(rowFor(VITE)).getByText("Bob")).toBeDefined();
 	});
 
 	// Same listed/fetched split authorName uses; seed former_authors with the
