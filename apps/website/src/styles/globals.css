@@ -68,6 +68,9 @@
 	--astro-code-token-parameter: var(--ink);
 	--astro-code-token-punctuation: var(--ink-dim);
 	--astro-code-token-link: var(--teal);
+	--astro-code-token-inserted: var(--teal);
+	--astro-code-token-deleted: var(--red);
+	--astro-code-token-changed: var(--gold);
 }
 
 .astro-code {

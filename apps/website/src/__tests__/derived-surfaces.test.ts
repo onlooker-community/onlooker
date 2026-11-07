@@ -118,7 +118,10 @@ describe("--bg-3, the hover surface derived from --panel", () => {
 
 // The css-variables theme colors every token through these properties. Each
 // one globals.css leaves undefined renders in the theme's fallback, which
-// knows nothing about either brand theme, so the set is asserted whole.
+// knows nothing about either brand theme, so the set is asserted whole. It
+// mirrors Shiki's createCssVariablesTheme minus the ansi-* colors, which only
+// apply to ANSI output; the token-inserted, -deleted and -changed entries are
+// what color ```diff blocks.
 const ASTRO_CODE = [
 	"--astro-code-foreground",
 	"--astro-code-background",
@@ -131,6 +134,9 @@ const ASTRO_CODE = [
 	"--astro-code-token-string-expression",
 	"--astro-code-token-punctuation",
 	"--astro-code-token-link",
+	"--astro-code-token-inserted",
+	"--astro-code-token-deleted",
+	"--astro-code-token-changed",
 ];
 
 /** `--astro-code-x: var(--brand-token)` pairs, read from globals.css. */
