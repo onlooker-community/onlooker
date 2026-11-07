@@ -1,0 +1,22 @@
+---
+import PostList from "../../components/blog/PostList.astro";
+import { publishedPosts } from "../../data/blog";
+import Layout from "../../layouts/Layout.astro";
+
+export const prerender = true;
+
+const posts = await publishedPosts();
+---
+
+<Layout
+  title="Blog — Onlooker"
+  description="How Onlooker and its plugin marketplace are built: the architecture, the measurements, and what they changed."
+>
+  <main class="prose-page">
+    <header class="page-header">
+      <p class="eyebrow">Blog</p>
+      <h1>How Onlooker is built</h1>
+    </header>
+    <PostList posts={posts} />
+  </main>
+</Layout>

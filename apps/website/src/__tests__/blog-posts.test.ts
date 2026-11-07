@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { postSchema, selectPublished, TAGS } from "../lib/blog-posts";
+import {
+	formatDate,
+	postSchema,
+	selectPublished,
+	TAGS,
+	tagsInUse,
+} from "../lib/blog-posts";
 
 const valid = {
 	title: "A post",
@@ -76,5 +82,29 @@ describe("postSchema", () => {
 			"measurements",
 			"marketplace",
 		]);
+	});
+});
+
+describe("tagsInUse", () => {
+	const data = (tags: string[]) => postSchema.parse({ ...valid, tags });
+
+	it("lists each tag a post carries, once, in TAGS order", () => {
+		const posts = [
+			{ id: "a", data: data(["measurements", "architecture"]) },
+			{ id: "b", data: data(["architecture"]) },
+		];
+		expect(tagsInUse(posts)).toEqual(["architecture", "measurements"]);
+	});
+
+	it("gives a tag no page until a published post uses it", () => {
+		expect(tagsInUse([])).toEqual([]);
+	});
+});
+
+describe("formatDate", () => {
+	// UTC, because frontmatter dates are midnight UTC and a reader west of
+	// Greenwich would otherwise see the day before.
+	it("formats a frontmatter date as the day it names", () => {
+		expect(formatDate(new Date("2026-11-01"))).toBe("November 1, 2026");
 	});
 });

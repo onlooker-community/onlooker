@@ -41,3 +41,17 @@ export function selectPublished<
 		.filter((p) => !production || !p.data.draft)
 		.sort((a, b) => b.data.published.valueOf() - a.data.published.valueOf());
 }
+
+export function tagsInUse(posts: readonly PostLike[]): Tag[] {
+	const used = new Set(posts.flatMap((p) => p.data.tags));
+	return TAGS.filter((t) => used.has(t));
+}
+
+const DATE = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "long",
+	timeZone: "UTC",
+});
+
+export function formatDate(d: Date): string {
+	return DATE.format(d);
+}

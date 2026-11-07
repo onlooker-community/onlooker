@@ -1,0 +1,36 @@
+---
+import { formatDate, type PostLike } from "../../lib/blog-posts";
+
+interface Props {
+	posts: PostLike[];
+}
+
+const { posts } = Astro.props;
+---
+
+{
+  posts.length === 0 ? (
+    <p class="post-empty">Nothing published yet.</p>
+  ) : (
+    <ol class="post-list">
+      {posts.map((post) => (
+        <li class="post-item">
+          <time datetime={post.data.published.toISOString()}>
+            {formatDate(post.data.published)}
+          </time>
+          <h2 class="post-title">
+            <a href={`/blog/${post.id}`}>{post.data.title}</a>
+          </h2>
+          <p class="post-description">{post.data.description}</p>
+          <ul class="post-tags">
+            {post.data.tags.map((tag) => (
+              <li>
+                <a href={`/blog/tags/${tag}`}>{tag}</a>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  )
+}
