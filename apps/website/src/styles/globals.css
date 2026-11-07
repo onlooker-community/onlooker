@@ -51,6 +51,36 @@
 	--display: var(--font-display);
 }
 
+/* Code blocks. Shiki's css-variables theme colors every token through these,
+ * so pointing them at brand tokens is what makes code switch themes with the
+ * page. Each pairing is checked at 4.5 against --panel in both themes by
+ * derived-surfaces.test.ts; the lowest, measured 2026-11-07, is --red at
+ * night at 4.67. */
+:root {
+	--astro-code-background: var(--panel);
+	--astro-code-foreground: var(--ink);
+	--astro-code-token-keyword: var(--teal);
+	--astro-code-token-string: var(--gold);
+	--astro-code-token-string-expression: var(--gold);
+	--astro-code-token-comment: var(--ink-dim);
+	--astro-code-token-constant: var(--red);
+	--astro-code-token-function: var(--ink-hi);
+	--astro-code-token-parameter: var(--ink);
+	--astro-code-token-punctuation: var(--ink-dim);
+	--astro-code-token-link: var(--teal);
+}
+
+.astro-code {
+	font-family: var(--mono);
+	font-size: var(--text-data-md);
+	line-height: 1.6;
+	padding: 16px 20px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	/* Long lines scroll inside the block, never the page. */
+	overflow-x: auto;
+}
+
 html {
 	background: var(--bg);
 	color: var(--text-1);

@@ -115,3 +115,56 @@ describe("--bg-3, the hover surface derived from --panel", () => {
 		});
 	}
 });
+
+// The css-variables theme colors every token through these properties. Each
+// one globals.css leaves undefined renders in the theme's fallback, which
+// knows nothing about either brand theme, so the set is asserted whole.
+const ASTRO_CODE = [
+	"--astro-code-foreground",
+	"--astro-code-background",
+	"--astro-code-token-constant",
+	"--astro-code-token-string",
+	"--astro-code-token-comment",
+	"--astro-code-token-keyword",
+	"--astro-code-token-parameter",
+	"--astro-code-token-function",
+	"--astro-code-token-string-expression",
+	"--astro-code-token-punctuation",
+	"--astro-code-token-link",
+];
+
+/** `--astro-code-x: var(--brand-token)` pairs, read from globals.css. */
+function codeMapping(): Record<string, string> {
+	return Object.fromEntries(
+		[...site.matchAll(/(--astro-code-[a-z-]+)\s*:\s*var\((--[a-z-]+)\)/g)].map(
+			(m) => [m[1], m[2]],
+		),
+	);
+}
+
+describe("code blocks, drawn from brand tokens", () => {
+	it("maps every property the css-variables theme emits", () => {
+		expect(Object.keys(codeMapping()).sort()).toEqual([...ASTRO_CODE].sort());
+	});
+
+	const THEMES: Array<[string, string]> = [
+		["night", ":root"],
+		["day", ':root[data-theme="light"]'],
+	];
+
+	for (const [name, selector] of THEMES) {
+		it(`${name}: every code color clears AA on the code background`, () => {
+			const t = tokens(brand, selector);
+			const map = codeMapping();
+			const background = t[map["--astro-code-background"]];
+
+			for (const prop of ASTRO_CODE) {
+				if (prop === "--astro-code-background") continue;
+				expect(
+					contrast(t[map[prop]], background),
+					`${prop} (${map[prop]}) on ${map["--astro-code-background"]} in ${name}`,
+				).toBeGreaterThanOrEqual(4.5);
+			}
+		});
+	}
+});
