@@ -1,0 +1,89 @@
+---
+title: "Running Onlooker's plugins on the repo that isn't theirs"
+description: "We pointed the plugin stack at a TypeScript monorepo instead of its own bash repository, and the most useful finding was a record that wasn't there."
+published: 2026-11-07
+tags: ["measurements", "building-onlooker"]
+draft: false
+---
+
+import ToolCallLedger from "../../components/diagrams/ToolCallLedger.astro";
+
+Onlooker's plugins are written and first run in the [ecosystem repository](https://github.com/onlooker-community/ecosystem), which is mostly shell scripts and markdown. That is where we had been dogfooding them. On 2026-08-30 we turned a subset of them on in a second repository, the one that holds Onlooker's own API, web app and CLI, to see what a different codebase would show us. This post covers what it showed, measured on that day unless a date says otherwise.
+
+## Why a second repo
+
+A repo checks the tools that run in it only as far as it resembles their other users. Ecosystem's inspector configuration runs shellcheck, biome and markdownlint. The Onlooker repo is a pnpm and turbo workspace: 175 `.ts` files, 41 `.tsx`, 74 `.json`, 63 `.md`, 6 `.mjs` and 7 `.sh`. Every assumption inspector makes about "run the check on the file that was just touched" meets a different layout here.
+
+We called this a contrast arena: a second repo where the plugins run so that their behavior can be compared with what the home repo shows. It isn't a second rollout, and it has no wave schedule of its own. It runs a fixed set of plugins, and anything it finds goes back to the repo that ships the fix.
+
+Some plugins stayed out on purpose. The gates (warden, compass, and governor at hard enforcement) were excluded because production Cloudflare Workers deploys and D1 migrations run from this repo. Compass ships with `error_policy: "closed"` and gates every write-class tool call, so its own errors block writes. A misfire during a migration is a much worse outcome here than in a plugin repo, and it would tell us nothing ecosystem can't.
+
+## What we measured
+
+The set was five plugins, enabled from a committed `.claude/settings.json`: `ecosystem` (the base plugin the others depend on), `lineage` (a ledger of which change wrote which line), `inspector` (per-file checks after each edit), `assayer` (audits an agent's claims against the commands it actually ran) and `bursar` (spend). Inspector got a TypeScript-shaped configuration:
+
+```json
+{
+  "inspector": {
+    "checks": {
+      ".ts": [
+        {
+          "name": "biome",
+          "kind": "lint",
+          "argv": ["${repo_root}/node_modules/.bin/biome", "check", "${file}"]
+        }
+      ]
+    }
+  }
+}
+```
+
+Biome is a devDependency here, not a global install, and hooks don't run in an interactive shell. A bare `biome`, which is how ecosystem's own config calls it, would have been skipped without saying so.
+
+Before measuring anything, we checked that the plugins were actually running. We got that wrong first. The original plan assumed that listing a plugin under `enabledPlugins` in committed settings would install it. It doesn't. `enabledPlugins` marks a plugin enabled only if it's already installed, and only `claude plugin install` writes the registry that decides which hooks register. Ecosystem's first rollout wave had been built on the same assumption: five plugins enabled, never installed, and a day of numbers that had to be withdrawn. The plugin cache made it hard to see, because `autoUpdate` keeps version directories fresh for every enabled plugin whether or not it's installed.
+
+So each plugin was installed explicitly at project scope, checked against the registry rather than the cache, and confirmed live in `hook-health.jsonl` before we trusted a measurement.
+
+## The record that wasn't there
+
+Lineage and inspector hooked `PostToolUse`, matched on the `Edit`, `Write` and `MultiEdit` tools. That means they observed a tool call, not a change to the filesystem. An agent that edits a file through the shell, with a heredoc, `sed -i` or a short Python script, changes the same bytes and neither plugin sees it.
+
+We tested it with two edits to the same file, a few minutes apart. The first used the `Edit` tool, and lineage wrote `lineage.change.recorded`. The second appended through Bash. The file changed, the event bus recorded `tool.shell.exec`, and the ledger recorded nothing.
+
+<ToolCallLedger />
+
+The ledger shows how much this mattered. Lineage's store for this project held 348 records: 108 from `Write`, 240 from `Edit`, and none from any shell tool. Over the session we ran the test in, the event bus logged 33 `tool.shell.exec` events against one `tool.file.edit`, and lineage recorded one change, the one made through a tool.
+
+The hole showed up where people would ask lineage a question. `/lineage <file>:<line>` answered "no record" for a line that had demonstrably been written, and the ledger couldn't tell "not recorded" apart from "not changed."
+
+This repo was unusually good at provoking it. The agent harness in use here preferred Bash for anything Bash could do, so almost all editing went around the matcher. Ecosystem was unlikely to surface it, since that's where the plugins are written and nothing there pushes edits toward the shell.
+
+## What else turned up
+
+Echo would have been a permanent no-op. We left echo out of the set on evidence. Its shipped default is `watch_paths: ["plugins/*/agents/*.md"]`, and this repo has no `plugins/` directory. It would have registered, cost its hook time on every call, and matched nothing. Any consumer without the marketplace's directory layout gets the same result.
+
+Inspector, for its part, spent 221 ms deciding it had nothing to run. In the `Edit` arm above, inspector's hook took 221 ms and produced a single `inspector.check.skipped` with `reason: no_extension_match`. The file was markdown, and markdown has no configured check here, since biome doesn't read it and the repo has no markdownlint. With 63 tracked `.md` files, every markdown edit pays that. Ecosystem never sees it, because its config gives `.md` a check.
+
+We also couldn't express a workspace typecheck at all. Inspector substitutes three variables: `${file}`, `${file_relative}` and `${repo_root}`. There's no package root. Running `tsc --noEmit` on a single file ignored the package's `tsconfig.json`, took 2.04 seconds, and reported 8 errors against a tree that `pnpm typecheck` passes. As a `PostToolUse` hook, that would put false positives into the agent's context on every edit. So the repo runs biome only.
+
+## What we'd now read differently
+
+The `Bash` arm of the same test fired two hooks, tool-sequence at 37 ms and tool-history at 139 ms. Added together, that's 176 ms. Ecosystem had measured the same round trip at 178 ms, and at the time we passed the 2 ms gap upstream as independent evidence that ecosystem's measurement was sound.
+
+We wouldn't put it that way now. Measuring the per-edit cost again in October, we found that the `PostToolUse` hooks run in parallel, so an edit costs the wall-clock span of the hooks it fires, not the sum of their durations. Adding up per-hook durations overstated the cost by two to three times. 176 ms is a sum, so its closeness to 178 ms says less than we took it to. Measured as a wall-clock span, an edit to a `.ts` or `.tsx` file here cost 288 ms at the median in October, across 1,496 edits.
+
+## What changed because of it
+
+The matcher belongs to the ecosystem repo, so the one lever this repo had was a rule. Its `CLAUDE.md` and `AGENTS.md` now say:
+
+```md
+Use `Edit`, `Write`, or `MultiEdit` to change tracked files. The shell stays
+right for everything else — running commands, searching, git — and for scratch
+files outside the repo.
+```
+
+That rule has a cost. The arena now shapes its own workload to suit the instrument. Every measurement taken here after 2026-08-30 was taken under a rule written to make lineage work, so this repo can no longer answer "what fraction of real edits does lineage catch?" It can only answer what lineage catches once the agent has been told how to edit.
+
+The findings went where the fixes ship, as issues in the ecosystem repo's tracker. The tool-call gap went in at the highest priority of the three, carrying the two-arm test, the ledger breakdown and a note that this repo's rule is a workaround, not a fix. Inspector's 221 ms and echo's default `watch_paths` went in beside it. The missing package root took longer. The design named it as already evidenced, and then nobody filed it. We found the omission on 2026-10-26, while closing out the arena, and filed it then.
+
+Since then, lineage and inspector 0.9.3 both match `Bash` on `PostToolUse` as well as `Write`, `Edit` and `MultiEdit`, and lineage now uses git to find edits a shell command made. The repo's editing rule is still in place.

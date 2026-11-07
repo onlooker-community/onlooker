@@ -16,7 +16,7 @@
     <title id="tcl-title">An Edit leaves a lineage record; the same change through Bash leaves none</title>
     <desc id="tcl-desc">
       Top lane: the Edit tool changes a file, PostToolUse fires matched on Edit,
-      and lineage writes lineage.change.recorded to the ledger. Bottom lane: sed -i
+      and lineage writes lineage.change.recorded to the ledger. Bottom lane: an append
       through the Bash tool changes the same file, PostToolUse fires matched on
       Bash, only tool.shell.exec is emitted, and the ledger gets nothing.
     </desc>
@@ -46,7 +46,7 @@
     <g class="tcl-lane">
       <text x="180" y="14" class="tcl-label">Bash tool</text>
       <rect x="180" y="26" width="160" height="52" rx="6" class="tcl-box" />
-      <text x="260" y="57" class="tcl-text" text-anchor="middle">sed -i file.ts</text>
+      <text x="260" y="57" class="tcl-text" text-anchor="middle">append to file.ts</text>
 
       <line x1="260" y1="78" x2="260" y2="105" class="tcl-line" marker-end="url(#tcl-arrow)" />
       <rect x="180" y="108" width="160" height="52" rx="6" class="tcl-box" />
