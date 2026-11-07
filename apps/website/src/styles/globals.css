@@ -199,6 +199,14 @@ nav {
 	}
 }
 
+/* At 360px the logo, two links and the tag do not fit in one row, and on a
+ * phone the tag is the widest item and the least necessary. */
+@media (max-width: 400px) {
+	.nav-tag {
+		display: none;
+	}
+}
+
 footer {
 	padding: 24px 48px;
 	border-top: 1px solid var(--border);
