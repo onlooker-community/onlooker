@@ -1,12 +1,24 @@
 ---
 import "../styles/globals.css";
+import { SITE_URL } from "../lib/site";
 
 interface Props {
 	title: string;
 	description: string;
+	ogType?: "website" | "article";
+	publishedTime?: Date;
+	canonicalPath?: string;
 }
 
-const { title, description } = Astro.props;
+const {
+	title,
+	description,
+	ogType = "website",
+	publishedTime,
+	canonicalPath = Astro.url.pathname,
+} = Astro.props;
+
+const canonical = new URL(canonicalPath, SITE_URL).href;
 ---
 
 <!doctype html>
@@ -16,9 +28,15 @@ const { title, description } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <meta property="og:title" content="Onlooker" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:url" content={canonical} />
+    {publishedTime && (
+      <meta property="article:published_time" content={publishedTime.toISOString()} />
+    )}
+    <link rel="alternate" type="application/rss+xml" title="Onlooker blog" href="/blog/rss.xml" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
@@ -28,7 +46,11 @@ const { title, description } = Astro.props;
           <span class="logo-pulse"></span>
           Onlooker
         </a>
-        <span class="nav-tag">Early Access</span>
+        <div class="nav-right">
+          <a class="nav-link" href="/blog">Blog</a>
+          <a class="nav-link" href="/plugins">Plugins</a>
+          <span class="nav-tag">Early Access</span>
+        </div>
       </nav>
 
       <slot />
