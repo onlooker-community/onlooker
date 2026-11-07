@@ -204,7 +204,17 @@ export default function ProjectsPage() {
 												<RepositoryName
 													project={named}
 													name={name}
-													onEdit={() => setEditing(rowKey(project))}
+													// A lesson records no basis, and a name is stored
+													// under a remote or a root identity. Guessing remote
+													// made the row claim "Every machine" after a reload,
+													// and a root session for the key later would not
+													// carry the name (ONL-239). It can be named once a
+													// session says which kind of key it is.
+													onEdit={
+														project.basis === null
+															? undefined
+															: () => setEditing(rowKey(project))
+													}
 												/>
 											</div>
 										)}

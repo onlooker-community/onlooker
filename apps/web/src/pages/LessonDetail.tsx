@@ -64,8 +64,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Chips({ values }: { values: string[] }) {
 	return (
 		<div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-			{values.map((value) => (
-				<Chip key={value}>{value}</Chip>
+			{/*
+			  Keyed by position, not value: ZAppliesTo does not require these
+			  to be unique, so ["vite", "vite"] is a valid lesson. The list is
+			  never reordered in place, so a position is a stable key here.
+			*/}
+			{values.map((value, index) => (
+				<Chip key={index}>{value}</Chip>
 			))}
 		</div>
 	);
@@ -130,17 +135,14 @@ export default function LessonDetail() {
 	const [fetchedRetractableIn, setFetchedRetractableIn] =
 		useState<RetractableOrg | null>(null);
 	const [fetchError, setFetchError] = useState<string | null>(null);
-	const [pending, setPending] = useState(false);
 	const [actionError, setActionError] = useState<{
 		message: string;
 		retryable: boolean;
 		attempted: BrowserStatus;
 	} | null>(null);
-	// Held apart from `pending`/`actionError` above: this is a different
-	// request on a different endpoint, and sharing either would disable the
-	// wrong control's spinner or let one action's failure paint over the
-	// other's.
-	const [orgPending, setOrgPending] = useState(false);
+	// Held apart from `actionError` above: this is a different request on a
+	// different endpoint, and sharing it would let one action's failure paint
+	// over the other's.
 	const [orgActionError, setOrgActionError] = useState<{
 		message: string;
 		retryable: boolean;
@@ -166,17 +168,45 @@ export default function LessonDetail() {
 	const currentId = useRef(id);
 	currentId.current = id;
 
+	// Which lessons have a status change outstanding, and which kind. This
+	// was two booleans, `pending` and `orgPending`, that the reset below
+	// cleared on every :id change. Leaving a lesson and coming back inside one
+	// round-trip re-enabled its control, so a second PATCH could start, and the
+	// first one settling then cleared the flag under the second (ONL-73).
+	//
+	// The ref is the guard: it is set before the request starts, so nothing
+	// can read it stale. `busy` mirrors it for rendering. Only `claim` and
+	// `release` touch either, and only a request's own settlement releases
+	// its lesson. Keyed by lesson, so one lesson's request leaves the others
+	// free.
+	const inFlight = useRef(new Map<string, "status" | "org">());
+	const [busy, setBusy] = useState<ReadonlyMap<string, "status" | "org">>(
+		new Map(),
+	);
+	const claim = (target: string, kind: "status" | "org"): boolean => {
+		if (inFlight.current.has(target)) return false;
+		inFlight.current.set(target, kind);
+		setBusy(new Map(inFlight.current));
+		return true;
+	};
+	const release = (target: string) => {
+		inFlight.current.delete(target);
+		setBusy(new Map(inFlight.current));
+	};
+	const pending = id !== undefined && busy.get(id) === "status";
+	const orgPending = id !== undefined && busy.get(id) === "org";
+
 	// LessonDetail is reconciled in place when :id changes - same route
 	// element, same position - so neither of these resets on its own. A stale
-	// error or a stuck "Working..." from the previous id must not bleed into
-	// this one. Same defect fetchError had below, in the one flow here where
-	// getting it wrong is destructive. ConfirmAction's armed state used to be
-	// reset here too; it now disarms itself through `resetToken` below.
+	// error from the previous id must not bleed into this one. Same defect
+	// fetchError had below, in the one flow here where getting it wrong is
+	// destructive. Whether a request is in flight is not reset here: it is
+	// keyed by lesson, so it already belongs to the lesson it is about.
+	// ConfirmAction's armed state used to be reset here too; it now disarms
+	// itself through `resetToken` below.
 	useEffect(() => {
 		setActionError(null);
-		setPending(false);
 		setOrgActionError(null);
-		setOrgPending(false);
 	}, [id]);
 
 	// The list can vanish underneath this pane: a failed filter refetch sets
@@ -289,13 +319,13 @@ export default function LessonDetail() {
 			: null;
 
 	const transition = async (next: BrowserStatus) => {
-		if (!id || pending) return;
+		if (!id) return;
 		// Captured once, up front: `id` from `useParams` can change under this
 		// same call while it is in flight, and every write below needs to know
 		// which lesson it was actually asked to move, not which one is on
 		// screen when the promise settles.
 		const target = id;
-		setPending(true);
+		if (!claim(target, "status")) return;
 		setActionError(null);
 		try {
 			await setLessonStatus(target, next);
@@ -332,12 +362,14 @@ export default function LessonDetail() {
 				});
 			}
 		} finally {
+			// Ungated: the request is over whichever lesson is on screen, and
+			// `target` names the only lesson it held.
+			release(target);
 			// Gated, and true either way the round-trip went: a live "Yes,
 			// retract" surviving a failure sits directly over an error saying
 			// the same click would fail again, and a request that settles for
 			// a lesson the user has left must not touch the one now showing.
 			if (currentId.current === target) {
-				setPending(false);
 				setSettleCount((count) => count + 1);
 			}
 		}
@@ -349,12 +381,12 @@ export default function LessonDetail() {
 	// is no org-level route back to active - which is why this has no
 	// "Make active" counterpart the way `transition` does.
 	const retractForOrg = async (orgId: string) => {
-		if (!id || orgPending) return;
+		if (!id) return;
 		// Captured once, up front, for the same reason `transition` does:
 		// `id` from `useParams` can change under this same call while it is
 		// in flight.
 		const target = id;
-		setOrgPending(true);
+		if (!claim(target, "org")) return;
 		setOrgActionError(null);
 		try {
 			await retractOrgLesson(orgId, target);
@@ -399,12 +431,13 @@ export default function LessonDetail() {
 				});
 			}
 		} finally {
+			// Ungated, matching `transition`.
+			release(target);
 			// Gated, matching `transition`, and sharing its `settleCount`: both
 			// are "a transition settled for the lesson still on screen," and
 			// the author and org controls never render at once, so one counter
 			// disarming either ConfirmAction is unambiguous.
 			if (currentId.current === target) {
-				setOrgPending(false);
 				setSettleCount((count) => count + 1);
 			}
 		}

@@ -62,8 +62,11 @@ export default function RepositoriesSummary({
 	const visible = rollup.projects.slice(0, MAX_VISIBLE_REPOSITORIES);
 	const hiddenCount = rollup.projects.length - visible.length;
 
+	// Document, as on the Projects page, which lists the same repositories.
+	// Briefcase was here, and 5% of it cleared 3:1 on the night panel against
+	// a 25% floor (ONL-234).
 	return (
-		<Panel title="By repository" icon="Briefcase">
+		<Panel title="By repository" icon="Document">
 			<div data-testid="repositories-summary">
 				{complete ? null : (
 					<div style={{ marginBottom: "var(--space-3)", color: PALETTE.muted }}>

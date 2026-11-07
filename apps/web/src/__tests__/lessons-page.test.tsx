@@ -670,6 +670,53 @@ describe("retract", () => {
 
 		expect(screen.queryByText(/something went wrong/i)).toBeNull();
 	});
+
+	// The reset that clears a stale error on navigation also cleared "this
+	// request is in flight". Leaving and coming back inside one round-trip
+	// re-enabled the control, so a second PATCH could start on a lesson that
+	// already had one outstanding (ONL-73).
+	it("does not start a second transition on a lesson whose first is still in flight", async () => {
+		withPool([VITE, D1]);
+		mocks.setLessonStatus.mockImplementation(() => new Promise(() => {}));
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+		await waitFor(() => expect(mocks.setLessonStatus).toHaveBeenCalledTimes(1));
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// Still in flight, so still busy, and pressing it again sends nothing.
+		const retract = screen.getByRole("button", { name: /^retract$/i });
+		expect(retract.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(retract);
+		const confirm = screen.queryByRole("button", { name: /yes, retract/i });
+		if (confirm) fireEvent.click(confirm);
+		expect(mocks.setLessonStatus).toHaveBeenCalledTimes(1);
+	});
+
+	// Different lessons are independent: one outstanding request must not
+	// lock the control on every other lesson.
+	it("still lets another lesson change while one lesson's request is in flight", async () => {
+		withPool([VITE, D1]);
+		mocks.setLessonStatus.mockImplementation(() => new Promise(() => {}));
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+		fireEvent.click(screen.getByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		await waitFor(() =>
+			expect(mocks.setLessonStatus).toHaveBeenCalledWith(D1.id, "retracted"),
+		);
+	});
 });
 
 describe("the status filter", () => {
@@ -1192,6 +1239,25 @@ describe("paging past the first page", () => {
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
 	});
 
+	// Two presses inside one frame, before either has rendered. A guard that
+	// reads committed state sees "not loading" both times and appends the same
+	// cursor's page twice (ONL-73).
+	it("starts one request for a double-click on Load more", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockClear();
+		mocks.listLessons.mockImplementation(() => new Promise(() => {}));
+		const button = screen.getByRole("button", { name: /load more/i });
+		act(() => {
+			button.click();
+			button.click();
+		});
+
+		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
+	});
+
 	// setAuthors merges a loaded-more page into what is already on screen, the
 	// same way setLessons does just above it - replacing instead would drop a
 	// first-page author's name off the (still-rendered) first-page row the
@@ -1271,6 +1337,52 @@ function renderLessonsPageAt(path: string) {
 		</MemoryRouter>,
 	);
 }
+
+// The layout used to decide which pane to show by matching "/lessons/:id"
+// itself, a second copy of App's child path. Renaming that path left the
+// layout on its placeholder while the router had matched the child, and the
+// narrow layout hid the detail pane entirely (ONL-75).
+describe("the two-pane layout", () => {
+	it("shows the detail pane for whatever path the child route uses", async () => {
+		withPool([VITE]);
+		render(
+			<MemoryRouter initialEntries={[`/lessons/read/${VITE.id}`]}>
+				<Routes>
+					<Route path="/lessons" element={<LessonsPage />}>
+						<Route path="read/:id" element={<p>the child</p>} />
+					</Route>
+				</Routes>
+			</MemoryRouter>,
+		);
+
+		expect(await screen.findByText("the child")).toBeDefined();
+		expect(
+			document.querySelector(".lessons-layout")?.getAttribute("data-pane"),
+		).toBe("detail");
+	});
+});
+
+// ZAppliesTo puts no uniqueness rule on these lists, so a contract-valid
+// lesson can name a stack twice. Keyed by value, the two chips collided.
+describe("a lesson that repeats a stack", () => {
+	it("renders each chip without a key collision", async () => {
+		const repeated = {
+			...VITE,
+			applies_to: { ...VITE.applies_to, stack: ["vite", "vite"] },
+		};
+		withPool([repeated]);
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await at(`/lessons/${VITE.id}`);
+			await screen.findByRole("heading", { name: VITE.claim });
+			expect(
+				errors.mock.calls.some((call) => String(call[0]).includes("same key")),
+			).toBe(false);
+		} finally {
+			errors.mockRestore();
+		}
+	});
+});
 
 describe("org retract authority", () => {
 	// setRetractableIn merges a loaded-more page into what is already on

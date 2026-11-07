@@ -219,6 +219,23 @@ describe("ProjectsPage", () => {
 		expect(mocks.setLabel).toHaveBeenCalledWith(KEY_A, "m1", "scratch");
 	});
 
+	// A lesson records no basis, so the page cannot say whether the key is a
+	// remote or a root one, and a name has to be stored under one of them.
+	// Saved as remote, it made the row claim "Every machine" after a reload,
+	// and a root session for the key later would not have carried it (ONL-239).
+	it("offers no rename for a key known only from a lesson", async () => {
+		mocks.listProjects.mockResolvedValue({
+			projects: [project({ basis: null, sessions: 0, events: 0 })],
+		});
+		render(<ProjectsPage />);
+
+		const [row] = await findRows();
+		expect(within(row).getByText(KEY_A)).toBeTruthy();
+		expect(
+			within(row).queryByRole("button", { name: /Rename repository/ }),
+		).toBeNull();
+	});
+
 	it("offers no rename until the names have arrived", async () => {
 		let resolveLabels: (labels: Map<string, string>) => void = () => {};
 		mocks.listLabels.mockReturnValue(

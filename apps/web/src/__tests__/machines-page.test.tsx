@@ -830,6 +830,24 @@ describe("MachinesPage inventory", () => {
 		expect(await screen.findByText(/2 plugins/i)).toBeTruthy();
 	});
 
+	// A revoked machine stops answering, inventory included: the API 404s its
+	// document by design. Its row outlived that once revoked rows stayed on the
+	// page (ONL-231), and the button that came with it opened the 404 and said
+	// the machine had never reported, which it had (ONL-232). The count is
+	// still true, so it stays; only the control that cannot work goes.
+	it("shows a revoked machine's count without offering its document", async () => {
+		withMachines({ ...REPORTED, revoked_at: "2026-09-12T10:00:00.000Z" });
+		render(
+			<RevealProvider>
+				<MachinesPage />
+				<RevealHost />
+			</RevealProvider>,
+		);
+
+		expect(await screen.findByText(/2 plugins/i)).toBeTruthy();
+		expect(screen.queryByRole("button", { name: /2 plugins/i })).toBeNull();
+	});
+
 	it("does not fetch the document until asked", async () => {
 		withMachines(REPORTED);
 		render(
