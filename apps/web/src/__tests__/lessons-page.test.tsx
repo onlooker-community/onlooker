@@ -5,6 +5,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import {
 	MemoryRouter,
@@ -137,6 +138,18 @@ async function at(path: string) {
 	await waitFor(() => expect(mocks.listLessons).toHaveBeenCalled());
 	return result;
 }
+
+// The two places one lesson's status shows at once: its row in the list and
+// the badge over its claim in the detail. Asserting within each, rather than
+// counting matches page-wide, holds when a fixture carries a second lesson
+// in the same status, and says which pane went wrong when one does.
+const rowFor = (lesson: { claim: string }) =>
+	within(screen.getByRole("navigation", { name: "Lessons" })).getByRole(
+		"link",
+		{ name: new RegExp(lesson.claim) },
+	);
+const detailPane = () =>
+	document.querySelector(".lessons-detail") as HTMLElement;
 
 // What an unconfigured getLesson() call resolves to. Individual tests
 // override this with their own mockResolvedValue/mockRejectedValue; this
@@ -472,13 +485,12 @@ describe("retract", () => {
 		await waitFor(() =>
 			expect(mocks.setLessonStatus).toHaveBeenCalledWith(VITE.id, "retracted"),
 		);
-		// Two badges: the row in the list and the heading in the detail. Both
-		// come from the same patched lesson, so both must move.
-		await waitFor(() =>
-			expect(
-				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
-			).toBe(2),
-		);
+		// The row in the list and the heading in the detail both come from the
+		// same patched lesson, so both must move.
+		await waitFor(() => {
+			expect(within(rowFor(VITE)).getByText("Retracted")).toBeDefined();
+			expect(within(detailPane()).getByText("Retracted")).toBeDefined();
+		});
 		// `confirming` must not survive a success: the button that reappears
 		// reads "Make active" now that the status flipped, and if the confirm
 		// stayed armed it would already read "Yes, make active" - a one-click
@@ -507,9 +519,8 @@ describe("retract", () => {
 		expect(
 			screen.queryByText("Retracted", { selector: ":not(option)" }),
 		).toBeNull();
-		expect(
-			screen.getAllByText("Active", { selector: ":not(option)" }).length,
-		).toBe(2);
+		expect(within(rowFor(VITE)).getByText("Active")).toBeDefined();
+		expect(within(detailPane()).getByText("Active")).toBeDefined();
 	});
 
 	// The API went out of its way to distinguish contention from a real
@@ -533,11 +544,10 @@ describe("retract", () => {
 
 		mocks.setLessonStatus.mockResolvedValue({ id: VITE.id, seq: 8 });
 		fireEvent.click(screen.getByRole("button", { name: /try again/i }));
-		await waitFor(() =>
-			expect(
-				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
-			).toBe(2),
-		);
+		await waitFor(() => {
+			expect(within(rowFor(VITE)).getByText("Retracted")).toBeDefined();
+			expect(within(detailPane()).getByText("Retracted")).toBeDefined();
+		});
 	});
 
 	// A 400 is not worth retrying and must not offer a button that would fail
@@ -662,13 +672,44 @@ describe("retract", () => {
 		await screen.findByRole("heading", { name: D1.claim });
 
 		// The request settles only now, after the user has moved on. Without
-		// the guard this would paint VITE's error onto the page now showing
-		// D1, and re-arm D1's button as no longer pending.
+		// the guard this would paint VITE's error onto the page now showing D1.
+		// D1's pending state is keyed to D1, so it is not at stake here; the
+		// test below covers the other write the settlement is gated from.
 		await act(async () => {
 			reject(new Error("Something went wrong"));
 		});
 
 		expect(screen.queryByText(/something went wrong/i)).toBeNull();
+	});
+
+	// The other gated write in `transition`'s finally: a settlement bumps
+	// settleCount, which disarms the confirm on screen. One that lands for a
+	// lesson the user has left must not disarm the confirm they have since
+	// armed on the lesson they are looking at.
+	it("does not let a request settling for one lesson disarm a confirm armed on another", async () => {
+		withPool([VITE, D1]);
+		let resolve: (value: unknown) => void = () => {};
+		mocks.setLessonStatus.mockImplementationOnce(
+			() =>
+				new Promise((res) => {
+					resolve = res;
+				}),
+		);
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+		fireEvent.click(screen.getByRole("button", { name: /^retract$/i }));
+		expect(screen.getByRole("button", { name: /yes, retract/i })).toBeDefined();
+
+		await act(async () => {
+			resolve({ id: VITE.id, seq: 7 });
+		});
+
+		expect(screen.getByRole("button", { name: /yes, retract/i })).toBeDefined();
 	});
 
 	// The reset that clears a stale error on navigation also cleared "this
@@ -1497,13 +1538,12 @@ describe("org retract control", () => {
 		await waitFor(() =>
 			expect(mocks.retractOrgLesson).toHaveBeenCalledWith(ORG.org_id, VITE.id),
 		);
-		// Two badges: the row in the list and the heading in the detail, the
-		// same pairing the author's own retract test above already pins.
-		await waitFor(() =>
-			expect(
-				screen.getAllByText("Retracted", { selector: ":not(option)" }).length,
-			).toBe(2),
-		);
+		// The row in the list and the heading in the detail, the same pairing
+		// the author's own retract test above already pins.
+		await waitFor(() => {
+			expect(within(rowFor(VITE)).getByText("Retracted")).toBeDefined();
+			expect(within(detailPane()).getByText("Retracted")).toBeDefined();
+		});
 		expect(mocks.getLesson).not.toHaveBeenCalled();
 		// The control's one job is done, and there is no org-level route back
 		// to active - so unlike the author's pair it must not flip to a
