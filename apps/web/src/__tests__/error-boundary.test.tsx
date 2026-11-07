@@ -104,6 +104,44 @@ describe("ErrorBoundary", () => {
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
+	// The test above catches on the first render, so prevState.error is already
+	// set by the time resetKey changes. This one throws on the navigation
+	// itself, the case the prevState.error guard exists for: resetKey changes
+	// and the error arrives in the same update. Without the guard the boundary
+	// clears that error at once, the route throws again, and the one failure
+	// is reported twice.
+	it("reports a navigation-time throw once, then recovers on the next navigation", () => {
+		const onError = vi.fn();
+		const { rerender } = render(
+			<MemoryRouter>
+				<ErrorBoundary resetKey="/a" onError={onError}>
+					<p>page a</p>
+				</ErrorBoundary>
+			</MemoryRouter>,
+		);
+
+		rerender(
+			<MemoryRouter>
+				<ErrorBoundary resetKey="/b" onError={onError}>
+					<Boom />
+				</ErrorBoundary>
+			</MemoryRouter>,
+		);
+		expect(screen.getByRole("alert")).toBeDefined();
+		expect(onError).toHaveBeenCalledTimes(1);
+
+		rerender(
+			<MemoryRouter>
+				<ErrorBoundary resetKey="/c" onError={onError}>
+					<p>page c</p>
+				</ErrorBoundary>
+			</MemoryRouter>,
+		);
+		expect(screen.getByText("page c")).toBeDefined();
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(onError).toHaveBeenCalledTimes(1);
+	});
+
 	it("reports the error rather than swallowing it", () => {
 		const onError = vi.fn();
 		render(
