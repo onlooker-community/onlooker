@@ -107,6 +107,27 @@ describe("pluginActivity", () => {
 		expect(activity?.idle).toEqual([]);
 	});
 
+	// Schema 3.4.0 registered customs. Pinned at 3.3.1, every session that ran
+	// it read "unclassified: customs" (ONL-212).
+	it("places customs events by the role the schema gives them", () => {
+		const activity = pluginActivity(
+			{ "customs.egress.flagged": 1, "customs.egress.allowed": 4 },
+			3,
+		);
+
+		expect(activity?.produced.shown).toBe("1 customs");
+		expect(activity?.unclassified).toEqual([]);
+	});
+
+	// The newest failure type the pinned schema knows. If this reads as
+	// unclassified, the pin has fallen behind the plugins again.
+	it("reports a broken scribe distill as a failure", () => {
+		const activity = pluginActivity({ "scribe.distill.errored": 1 }, 3);
+
+		expect(activity?.failed).toEqual([{ plugin: "scribe", count: 1 }]);
+		expect(activity?.unclassified).toEqual([]);
+	});
+
 	it("keeps an unknown type from hiding a plugin it cannot place", () => {
 		const activity = pluginActivity(
 			{ "curator.finding.something_new": 1, "curator.scan.complete": 1 },
