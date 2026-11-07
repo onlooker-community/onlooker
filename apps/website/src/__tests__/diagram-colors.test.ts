@@ -32,4 +32,13 @@ describe("diagrams", () => {
 		expect(html).toMatch(/<title[^>]*>[^<]+<\/title>/);
 		expect(html).toMatch(/<desc[^>]*>[^<]*tool\.shell\.exec[^<]*<\/desc>/);
 	});
+
+	// A wider viewBox scaled into a 328px phone column shrinks 12px text below
+	// legibility, so the drawing has to fit in 360 units or less.
+	it("ToolCallLedger's viewBox is no wider than 360 units", async () => {
+		const container = await AstroContainer.create();
+		const html = await container.renderToString(ToolCallLedger);
+		const width = Number(/viewBox="[^"]*\s([\d.]+)\s[\d.]+"/.exec(html)?.[1]);
+		expect(width).toBeLessThanOrEqual(360);
+	});
 });

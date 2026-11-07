@@ -1,13 +1,14 @@
 ---
 // Two edits that move the same bytes, and the one record between them.
-// Colors come only from brand variables, so the diagram follows the page's
-// theme and inherits the contrast guarantee; diagram-colors.test.ts fails on
-// any literal.
+// Colors come only from brand variables. The brand package and
+// derived-surfaces.test.ts hold brand text tokens on brand surfaces to
+// contrast, and this diagram uses nothing else; diagram-colors.test.ts fails
+// on any literal that would step outside those tokens.
 ---
 
 <figure>
   <svg
-    viewBox="0 0 640 250"
+    viewBox="-2 -2 344 284"
     role="img"
     aria-labelledby="tcl-title tcl-desc"
     xmlns="http://www.w3.org/2000/svg"
@@ -27,43 +28,44 @@
     </defs>
 
     <g class="tcl-lane">
-      <text x="0" y="22" class="tcl-label">Edit tool</text>
-      <rect x="0" y="34" width="150" height="56" rx="6" class="tcl-box" />
-      <text x="75" y="67" class="tcl-text" text-anchor="middle">Edit file.ts</text>
+      <text x="0" y="14" class="tcl-label">Edit tool</text>
+      <rect x="0" y="26" width="160" height="52" rx="6" class="tcl-box" />
+      <text x="80" y="57" class="tcl-text" text-anchor="middle">Edit file.ts</text>
 
-      <line x1="150" y1="62" x2="232" y2="62" class="tcl-line" marker-end="url(#tcl-arrow)" />
-      <rect x="235" y="34" width="170" height="56" rx="6" class="tcl-box" />
-      <text x="320" y="58" class="tcl-text" text-anchor="middle">PostToolUse</text>
-      <text x="320" y="77" class="tcl-small" text-anchor="middle">matcher: Edit</text>
+      <line x1="80" y1="78" x2="80" y2="105" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="0" y="108" width="160" height="52" rx="6" class="tcl-box" />
+      <text x="80" y="131" class="tcl-text" text-anchor="middle">PostToolUse</text>
+      <text x="80" y="149" class="tcl-small" text-anchor="middle">matcher: Edit</text>
 
-      <line x1="405" y1="62" x2="467" y2="62" class="tcl-line" marker-end="url(#tcl-arrow)" />
-      <rect x="470" y="34" width="170" height="56" rx="6" class="tcl-box tcl-hit" />
-      <text x="555" y="58" class="tcl-text" text-anchor="middle">ledger</text>
-      <text x="555" y="77" class="tcl-small tcl-ok" text-anchor="middle">change.recorded</text>
+      <line x1="80" y1="160" x2="80" y2="187" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="0" y="190" width="160" height="52" rx="6" class="tcl-box tcl-hit" />
+      <text x="80" y="213" class="tcl-text" text-anchor="middle">ledger</text>
+      <text x="80" y="231" class="tcl-small tcl-ok" text-anchor="middle">change.recorded</text>
     </g>
 
     <g class="tcl-lane">
-      <text x="0" y="152" class="tcl-label">Bash tool</text>
-      <rect x="0" y="164" width="150" height="56" rx="6" class="tcl-box" />
-      <text x="75" y="197" class="tcl-text" text-anchor="middle">sed -i file.ts</text>
+      <text x="180" y="14" class="tcl-label">Bash tool</text>
+      <rect x="180" y="26" width="160" height="52" rx="6" class="tcl-box" />
+      <text x="260" y="57" class="tcl-text" text-anchor="middle">sed -i file.ts</text>
 
-      <line x1="150" y1="192" x2="232" y2="192" class="tcl-line" marker-end="url(#tcl-arrow)" />
-      <rect x="235" y="164" width="170" height="56" rx="6" class="tcl-box" />
-      <text x="320" y="188" class="tcl-text" text-anchor="middle">PostToolUse</text>
-      <text x="320" y="207" class="tcl-small" text-anchor="middle">matcher: Bash</text>
+      <line x1="260" y1="78" x2="260" y2="105" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="180" y="108" width="160" height="52" rx="6" class="tcl-box" />
+      <text x="260" y="131" class="tcl-text" text-anchor="middle">PostToolUse</text>
+      <text x="260" y="149" class="tcl-small" text-anchor="middle">matcher: Bash</text>
 
-      <line x1="405" y1="192" x2="467" y2="192" class="tcl-line tcl-dashed" marker-end="url(#tcl-arrow)" />
-      <rect x="470" y="164" width="170" height="56" rx="6" class="tcl-box tcl-miss" />
-      <text x="555" y="188" class="tcl-text" text-anchor="middle">ledger</text>
-      <text x="555" y="207" class="tcl-small tcl-bad" text-anchor="middle">no record</text>
+      <line x1="260" y1="160" x2="260" y2="187" class="tcl-line tcl-dashed" marker-end="url(#tcl-arrow)" />
+      <rect x="180" y="190" width="160" height="52" rx="6" class="tcl-box tcl-miss" />
+      <text x="260" y="213" class="tcl-text" text-anchor="middle">ledger</text>
+      <text x="260" y="231" class="tcl-small tcl-bad" text-anchor="middle">no record</text>
     </g>
 
-    <text x="320" y="244" class="tcl-small" text-anchor="middle">Bash emits tool.shell.exec only</text>
+    <text x="170" y="272" class="tcl-small" text-anchor="middle">Bash emits tool.shell.exec only</text>
   </svg>
   <figcaption>Both lanes change file.ts. Only the top one is on the record.</figcaption>
 </figure>
 
 <style>
+  figure svg { display: block; width: 100%; max-width: 420px; height: auto; margin: 0 auto; }
   .tcl-box { fill: var(--panel); stroke: var(--edge); stroke-width: 1.5; }
   .tcl-hit { stroke: var(--teal); }
   .tcl-miss { stroke: var(--red); stroke-dasharray: 5 4; }
