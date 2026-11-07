@@ -59,6 +59,11 @@ function machineIcon(machine: Machine): IconName {
 	return "Key";
 }
 
+/** "1 plugin", "2 plugins". Shared by the live row's button and the revoked row's text. */
+function pluginLabel(count: number | null): string {
+	return `${count ?? ""} ${count === 1 ? "plugin" : "plugins"}`;
+}
+
 export default function MachinesPage() {
 	const [machines, setMachines] = useState<Machine[] | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -508,9 +513,16 @@ export default function MachinesPage() {
 											  about the machine, the other about what we know -
 											  so the machine that has not told us gets a chip
 											  rather than a count, and no control to expand.
+
+											  A revoked machine stops answering, inventory included,
+											  so its document 404s by design. The count is still
+											  what it reported, so it stays - as text, not a control
+											  that can only open that 404 (ONL-232).
 											*/}
 												{machine.inventory_at === null ? (
 													<Chip>Never reported</Chip>
+												) : machine.revoked_at ? (
+													<span>{pluginLabel(machine.plugin_count)}</span>
 												) : (
 													<button
 														type="button"
@@ -532,8 +544,7 @@ export default function MachinesPage() {
 															cursor: "pointer",
 														}}
 													>
-														{machine.plugin_count}{" "}
-														{machine.plugin_count === 1 ? "plugin" : "plugins"}
+														{pluginLabel(machine.plugin_count)}
 													</button>
 												)}
 											</span>
