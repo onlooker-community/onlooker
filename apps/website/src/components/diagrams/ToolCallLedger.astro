@@ -1,0 +1,78 @@
+---
+// Two edits that move the same bytes, and the one record between them.
+// Colors come only from brand variables, so the diagram follows the page's
+// theme and inherits the contrast guarantee; diagram-colors.test.ts fails on
+// any literal.
+---
+
+<figure>
+  <svg
+    viewBox="0 0 640 250"
+    role="img"
+    aria-labelledby="tcl-title tcl-desc"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <title id="tcl-title">An Edit leaves a lineage record; the same change through Bash leaves none</title>
+    <desc id="tcl-desc">
+      Top lane: the Edit tool changes a file, PostToolUse fires matched on Edit,
+      and lineage writes lineage.change.recorded to the ledger. Bottom lane: sed -i
+      through the Bash tool changes the same file, PostToolUse fires matched on
+      Bash, only tool.shell.exec is emitted, and the ledger gets nothing.
+    </desc>
+
+    <defs>
+      <marker id="tcl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="tcl-head" />
+      </marker>
+    </defs>
+
+    <g class="tcl-lane">
+      <text x="0" y="22" class="tcl-label">Edit tool</text>
+      <rect x="0" y="34" width="150" height="56" rx="6" class="tcl-box" />
+      <text x="75" y="67" class="tcl-text" text-anchor="middle">Edit file.ts</text>
+
+      <line x1="150" y1="62" x2="232" y2="62" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="235" y="34" width="170" height="56" rx="6" class="tcl-box" />
+      <text x="320" y="58" class="tcl-text" text-anchor="middle">PostToolUse</text>
+      <text x="320" y="77" class="tcl-small" text-anchor="middle">matcher: Edit</text>
+
+      <line x1="405" y1="62" x2="467" y2="62" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="470" y="34" width="170" height="56" rx="6" class="tcl-box tcl-hit" />
+      <text x="555" y="58" class="tcl-text" text-anchor="middle">ledger</text>
+      <text x="555" y="77" class="tcl-small tcl-ok" text-anchor="middle">change.recorded</text>
+    </g>
+
+    <g class="tcl-lane">
+      <text x="0" y="152" class="tcl-label">Bash tool</text>
+      <rect x="0" y="164" width="150" height="56" rx="6" class="tcl-box" />
+      <text x="75" y="197" class="tcl-text" text-anchor="middle">sed -i file.ts</text>
+
+      <line x1="150" y1="192" x2="232" y2="192" class="tcl-line" marker-end="url(#tcl-arrow)" />
+      <rect x="235" y="164" width="170" height="56" rx="6" class="tcl-box" />
+      <text x="320" y="188" class="tcl-text" text-anchor="middle">PostToolUse</text>
+      <text x="320" y="207" class="tcl-small" text-anchor="middle">matcher: Bash</text>
+
+      <line x1="405" y1="192" x2="467" y2="192" class="tcl-line tcl-dashed" marker-end="url(#tcl-arrow)" />
+      <rect x="470" y="164" width="170" height="56" rx="6" class="tcl-box tcl-miss" />
+      <text x="555" y="188" class="tcl-text" text-anchor="middle">ledger</text>
+      <text x="555" y="207" class="tcl-small tcl-bad" text-anchor="middle">no record</text>
+    </g>
+
+    <text x="320" y="244" class="tcl-small" text-anchor="middle">Bash emits tool.shell.exec only</text>
+  </svg>
+  <figcaption>Both lanes change file.ts. Only the top one is on the record.</figcaption>
+</figure>
+
+<style>
+  .tcl-box { fill: var(--panel); stroke: var(--edge); stroke-width: 1.5; }
+  .tcl-hit { stroke: var(--teal); }
+  .tcl-miss { stroke: var(--red); stroke-dasharray: 5 4; }
+  .tcl-line { stroke: var(--ink-dim); stroke-width: 1.5; }
+  .tcl-dashed { stroke-dasharray: 5 4; }
+  .tcl-head { fill: var(--ink-dim); }
+  .tcl-label { fill: var(--ink-dim); font-family: var(--font-data); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .tcl-text { fill: var(--ink-hi); font-family: var(--font-data); font-size: 14px; }
+  .tcl-small { fill: var(--ink); font-family: var(--font-data); font-size: 12px; }
+  .tcl-ok { fill: var(--teal); }
+  .tcl-bad { fill: var(--red); }
+</style>
