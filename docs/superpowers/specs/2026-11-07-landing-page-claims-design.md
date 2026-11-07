@@ -62,7 +62,7 @@ pill), and the subhead's "smarter than the last".
 
 ## Design *(approved)*
 
-* **`src/components/LatestPost.astro`** (new). Props: `post?` with `id` and
+* **`src/components/blog/LatestPost.astro`** (new, beside `PostList.astro`). Props: `post?` with `id` and
   `data.title`. Renders `Latest post:` and a link to `postPath(post.id)` whose
   text is the title followed by ` →`. Renders nothing when `post` is undefined,
   so a build with no published post shows no dead line.
