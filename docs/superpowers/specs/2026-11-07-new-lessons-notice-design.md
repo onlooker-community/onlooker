@@ -74,8 +74,9 @@ requires.
   lesson. The hook sets `fresh` only once page 1 is showing without an
   error, so it never appears over the loading or error states.
 * The persistent `role="status"` region appends " · N new" (or " · N+ new")
-  to its count, so a screen reader hears the change without a second live
-  region.
+  to its count, and to the empty state's title too, so a screen reader hears
+  the change without a second live region and an empty list announces the
+  arrival.
 * After the click, focus moves to the first row's link once the new page
   lands, so it does not fall to the document body when the button unmounts.
   The list already on screen stays until page 1 arrives.

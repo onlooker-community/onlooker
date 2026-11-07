@@ -266,15 +266,14 @@ export default function LessonsPage() {
 			? (FILTERS.find((option) => option.value === filter)?.empty ??
 				"No lessons")
 			: "Nothing has synced yet";
+	const freshSuffix = freshCount ? ` · ${freshCount} new` : "";
 	const resultSummary = loadError
 		? "Could not load the pool"
 		: lessons === null
 			? "Loading the pool…"
 			: lessons.length === 0
-				? emptyTitle
-				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}${
-						freshCount ? ` · ${freshCount} new` : ""
-					}`;
+				? `${emptyTitle}${freshSuffix}`
+				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}${freshSuffix}`;
 
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>

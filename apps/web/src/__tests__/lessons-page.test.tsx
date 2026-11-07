@@ -2565,10 +2565,51 @@ describe("lessons that arrive while you read", () => {
 
 		withPool([FRESH]);
 		await act(async () => tabBecomes("visible"));
+		// The status region is what a screen reader hears; the button alone
+		// would arrive silently.
+		expect(
+			await screen.findByText("Nothing has synced yet · 1 new"),
+		).toBeDefined();
 		fireEvent.click(
 			await screen.findByRole("button", { name: "1 new lesson, show it" }),
 		);
 
 		expect(await screen.findByText(FRESH.claim)).toBeDefined();
+	});
+
+	it("leaves focus where the reader moved it while the page loads", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, VITE, D1]);
+		await act(async () => tabBecomes("visible"));
+		const notice = await screen.findByRole("button", {
+			name: "1 new lesson, show it",
+		});
+
+		let resolve: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((res) => {
+					resolve = res;
+				}),
+		);
+		notice.focus();
+		fireEvent.click(notice);
+
+		const select = screen.getByLabelText(/status/i);
+		select.focus();
+		await act(async () => {
+			resolve({
+				lessons: [FRESH, VITE, D1],
+				cursor: null,
+				has_more: false,
+				owned_ids: [FRESH.id, VITE.id, D1.id],
+			});
+		});
+
+		await screen.findByText(FRESH.claim);
+		expect(document.activeElement).toBe(select);
 	});
 });
