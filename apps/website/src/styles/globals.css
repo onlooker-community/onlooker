@@ -220,8 +220,8 @@ nav {
 	color: var(--accent);
 }
 
-/* Two links joined the logo and the tag, and at 48px of side padding the row
- * no longer fits a 360px phone. */
+/* The nav is the logo, the Blog link and the tag, and at 48px of side padding
+ * the row no longer fits a 360px phone. */
 @media (max-width: 640px) {
 	nav {
 		padding: 20px 16px;
@@ -232,8 +232,9 @@ nav {
 	}
 }
 
-/* At 360px the logo, two links and the tag do not fit in one row, and on a
- * phone the tag is the widest item and the least necessary. */
+/* At 360px the logo, the Blog link and the tag are tight in one row, and on a
+ * phone the tag is the widest item and the least necessary. The Plugins link
+ * returns with ONL-264 and makes this tighter. */
 @media (max-width: 400px) {
 	.nav-tag {
 		display: none;

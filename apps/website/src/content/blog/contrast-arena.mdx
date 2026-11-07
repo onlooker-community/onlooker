@@ -74,7 +74,7 @@ We wouldn't put it that way now. Measuring the per-edit cost again in October, w
 
 ## What changed because of it
 
-The matcher belongs to the ecosystem repo, so the one lever this repo had was a rule. Its `CLAUDE.md` and `AGENTS.md` now say:
+The matcher belongs to the ecosystem repo, so the one lever this repo had was a rule. Its `CLAUDE.md` now says this, and `AGENTS.md` carries the same rule in other words:
 
 ```md
 Use `Edit`, `Write`, or `MultiEdit` to change tracked files. The shell stays
@@ -84,6 +84,6 @@ files outside the repo.
 
 That rule has a cost. The arena now shapes its own workload to suit the instrument. Every measurement taken here after 2026-08-30 was taken under a rule written to make lineage work, so this repo can no longer answer "what fraction of real edits does lineage catch?" It can only answer what lineage catches once the agent has been told how to edit.
 
-The findings went where the fixes ship, as issues in the ecosystem repo's tracker. The tool-call gap went in at the highest priority of the three, carrying the two-arm test, the ledger breakdown and a note that this repo's rule is a workaround, not a fix. Inspector's 221 ms and echo's default `watch_paths` went in beside it. The missing package root took longer. The design named it as already evidenced, and then nobody filed it. We found the omission on 2026-10-26, while closing out the arena, and filed it then.
+The findings went where the fixes ship, as issues in the ecosystem repo's tracker, except the last one. The tool-call gap went in at the highest priority of the three, carrying the two-arm test, the ledger breakdown and a note that this repo's rule is a workaround, not a fix. Inspector's 221 ms and echo's default `watch_paths` went in beside it. The missing package root took longer, and went to Linear as ONL-214. The design named it as already evidenced, and then nobody filed it. We found the omission on 2026-10-26, while closing out the arena, and filed it then.
 
 Since then, lineage and inspector 0.9.3 both match `Bash` on `PostToolUse` as well as `Write`, `Edit` and `MultiEdit`, and lineage now uses git to find edits a shell command made. The repo's editing rule is still in place.

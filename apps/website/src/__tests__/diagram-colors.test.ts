@@ -35,10 +35,15 @@ describe("diagrams", () => {
 
 	// A wider viewBox scaled into a 328px phone column shrinks 12px text below
 	// legibility, so the drawing has to fit in 360 units or less.
-	it("ToolCallLedger's viewBox is no wider than 360 units", async () => {
-		const container = await AstroContainer.create();
-		const html = await container.renderToString(ToolCallLedger);
-		const width = Number(/viewBox="[^"]*\s([\d.]+)\s[\d.]+"/.exec(html)?.[1]);
-		expect(width).toBeLessThanOrEqual(360);
-	});
+	for (const file of files) {
+		it(`${file}'s viewBox is no wider than 360 units`, async () => {
+			const { default: component } = await import(
+				/* @vite-ignore */ new URL(file, DIR).href
+			);
+			const container = await AstroContainer.create();
+			const html = await container.renderToString(component);
+			const width = Number(/viewBox="[^"]*\s([\d.]+)\s[\d.]+"/.exec(html)?.[1]);
+			expect(width).toBeLessThanOrEqual(360);
+		});
+	}
 });

@@ -4,7 +4,7 @@
 
 **Goal:** Ship a prerendered MDX blog at onlooker.dev/blog, with tags, RSS, brand-themed code and diagrams, and one real post.
 
-**Architecture:** An Astro content collection (`glob` loader, `.mdx`) whose schema, tag list and draft filter live in a pure module that vitest can import. Thin pages under `src/pages/blog/` read posts only through `publishedPosts()`. Every blog route is prerendered, which is what puts it past the `SITE_LAUNCHED` middleware gate.
+**Architecture:** An Astro content collection (`glob` loader, `.mdx`) whose schema, tag list and draft filter live in a pure module that vitest can import. Thin pages under `src/pages/blog/` read posts only through `publishedPosts()`. Every blog route is prerendered, which is what puts it past the `SITE_LAUNCHED` middleware gate (superseded by Task 5a: middleware runs during prerender; the gate names `/blog`).
 
 **Tech Stack:** Astro 6.4 (`output: "server"`, Cloudflare adapter), `@astrojs/mdx` 5.x, `@astrojs/rss` 4.x, Shiki `css-variables` theme, vitest 4 with `getViteConfig`, Biome (tabs).
 
@@ -39,7 +39,7 @@ Spec: `docs/superpowers/specs/2026-11-07-marketing-blog-design.md`. Linear: ONL-
 | `apps/website/src/components/diagrams/ToolCallLedger.astro` (new) | the first post's diagram |
 | `apps/website/src/content/blog/contrast-arena.mdx` (new) | the first post |
 | `apps/website/src/styles/globals.css` (modify) | nav links, `--astro-code-*`, prose, code block styles |
-| `apps/website/src/middleware.ts` (modify) | comment naming `/blog` as public-because-prerendered |
+| `apps/website/src/middleware.ts` (modify) | comment naming `/blog` as public-because-prerendered (superseded by Task 5a: middleware runs during prerender; the gate names `/blog`) |
 | `apps/website/astro.config.mjs` (modify) | `site`, `mdx()`, `shikiConfig` |
 | `apps/website/src/__tests__/blog-posts.test.ts`, `layout-meta.test.ts`, `blog-routes.test.ts`, `diagram-colors.test.ts` (new); `derived-surfaces.test.ts` (modify) | tests |
 
