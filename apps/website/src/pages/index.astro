@@ -1,7 +1,11 @@
 ---
+import LatestPost from "../components/blog/LatestPost.astro";
+import { publishedPosts } from "../data/blog";
 import Layout from "../layouts/Layout.astro";
 
 export const prerender = true;
+
+const posts = await publishedPosts();
 ---
 
 <Layout
@@ -9,7 +13,7 @@ export const prerender = true;
   description="Local observability and intelligence for AI-assisted development. Know what your agents are doing. Learn from every failure."
 >
   <main>
-    <p class="eyebrow">Coming Soon</p>
+    <p class="eyebrow">Hosted version coming soon</p>
 
     <h1 class="headline">
       Your agents are<br />
@@ -17,8 +21,10 @@ export const prerender = true;
     </h1>
 
     <p class="subhead">
-      Onlooker gives AI development agents the observability layer they're missing — catching
-      failures, accumulating lessons, and making every agent smarter than the last.
+      Onlooker is a set of open-source Claude Code plugins that watch what your
+      agents do: which change wrote which line, which claims the commands
+      actually back up, what a session decided before its context ran out.
+      Everything stays on your machine.
     </p>
 
     <div class="form-wrap">
@@ -59,17 +65,23 @@ export const prerender = true;
         Submission failed. Please try again later.
       </div>
 
-      <p class="form-note">No spam. Early access + launch updates only.</p>
+      <p class="form-note">No spam. Hosted early access + launch updates only.</p>
     </div>
 
     <div class="pills">
-      <span class="pill"><span class="pill-dot"></span>13+ plugins</span>
-      <span class="pill"><span class="pill-dot"></span>Claude Code native</span>
+      <span class="pill"><span class="pill-dot"></span>Claude Code plugins</span>
+      <a
+        class="pill"
+        href="https://github.com/onlooker-community/ecosystem/blob/main/LICENSE"
+        ><span class="pill-dot"></span>MIT licensed</a
+      >
       <span class="pill"><span class="pill-dot"></span>Local-first</span>
-      <span class="pill"><span class="pill-dot"></span>Waypoint hint engine</span>
-      <span class="pill"><span class="pill-dot"></span>Shared Playbooks</span>
-      <span class="pill"><span class="pill-dot"></span>Open source plugins</span>
+      <a class="pill" href="https://github.com/onlooker-community/ecosystem"
+        ><span class="pill-dot"></span>Source on GitHub</a
+      >
     </div>
+
+    <LatestPost post={posts[0]} />
   </main>
 </Layout>
 
@@ -334,6 +346,16 @@ export const prerender = true;
     display: flex;
     align-items: center;
     gap: 7px;
+  }
+
+  a.pill {
+    text-decoration: none;
+    transition: border-color 0.15s;
+  }
+
+  a.pill:hover,
+  a.pill:focus-visible {
+    border-color: var(--accent);
   }
 
   .pill-dot {
