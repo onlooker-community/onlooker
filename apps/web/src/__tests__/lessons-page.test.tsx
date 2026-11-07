@@ -2512,4 +2512,63 @@ describe("lessons that arrive while you read", () => {
 			await screen.findByRole("button", { name: "2+ new lessons, show them" }),
 		).toBeDefined();
 	});
+
+	it("shows the new lesson and drops the notice when asked", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, VITE, D1]);
+		await act(async () => tabBecomes("visible"));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "1 new lesson, show it" }),
+		);
+
+		expect(await screen.findByText(FRESH.claim)).toBeDefined();
+		expect(screen.queryByRole("button", { name: /new lesson/i })).toBeNull();
+	});
+
+	it("puts the new count in the status region", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, VITE, D1]);
+		await act(async () => tabBecomes("visible"));
+
+		expect(await screen.findByText("2 lessons · 1 new")).toBeDefined();
+	});
+
+	it("moves focus to the first row once the new page lands", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, VITE, D1]);
+		await act(async () => tabBecomes("visible"));
+		const notice = await screen.findByRole("button", {
+			name: "1 new lesson, show it",
+		});
+		notice.focus();
+		fireEvent.click(notice);
+
+		await screen.findByText(FRESH.claim);
+		await waitFor(() => expect(document.activeElement).toBe(rowFor(FRESH)));
+	});
+
+	// The likeliest reader of an empty pool is waiting for their first
+	// machine's first lesson.
+	it("offers the new lesson over an empty list too", async () => {
+		withPool([]);
+		await at("/lessons");
+		await screen.findByRole("heading", { name: /nothing has synced yet/i });
+
+		withPool([FRESH]);
+		await act(async () => tabBecomes("visible"));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "1 new lesson, show it" }),
+		);
+
+		expect(await screen.findByText(FRESH.claim)).toBeDefined();
+	});
 });

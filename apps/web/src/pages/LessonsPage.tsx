@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useOutlet } from "react-router-dom";
 import { type LabelMap, listLabels } from "../api/labelsApi";
 import type { Lesson, LessonStatus, RetractableOrg } from "../api/lessonsApi";
@@ -155,6 +155,12 @@ export default function LessonsPage() {
 	// A name rather than an entry, so a rename that regroups keys can't leave a
 	// stale set of keys behind.
 	const [selected, setSelected] = useState<string | null>(null);
+	// Set when the notice is pressed, read once the new page lands. The press
+	// unmounts the button, which leaves focus on <body>; the first row is where
+	// the reader was headed. Same rule as LoadMore: only when focus really was
+	// lost, so a reader who moved on is left where they went.
+	const focusFirstRow = useRef(false);
+	const navRef = useRef<HTMLElement | null>(null);
 
 	const entries = projectEntries(projects, labels);
 	const entry = entries.find((option) => option.name === selected) ?? null;
@@ -175,6 +181,13 @@ export default function LessonsPage() {
 		loadMore,
 		patchLesson,
 	} = useLessonPool(filter, entry ? entryKeys(entry) : NO_KEYS);
+
+	useEffect(() => {
+		if (!focusFirstRow.current || lessons === null) return;
+		focusFirstRow.current = false;
+		if (document.activeElement !== document.body) return;
+		navRef.current?.querySelector("a")?.focus();
+	}, [lessons]);
 
 	// Its own effect, for the labels' reason and one more: a failure here
 	// must never blank the pool.
@@ -259,7 +272,9 @@ export default function LessonsPage() {
 			? "Loading the pool…"
 			: lessons.length === 0
 				? emptyTitle
-				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`;
+				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}${
+						freshCount ? ` · ${freshCount} new` : ""
+					}`;
 
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
@@ -345,6 +360,24 @@ export default function LessonsPage() {
 				>
 					{resultSummary}
 				</p>
+				{/*
+				  Above every branch, so an empty list shows it too. The hook only
+				  sets `fresh` once page 1 is showing without an error, so it
+				  cannot appear over the loading or error states.
+				*/}
+				{freshLabel ? (
+					<div style={{ marginBottom: "var(--space-2)" }}>
+						<Button
+							variant="ghost"
+							onClick={() => {
+								focusFirstRow.current = true;
+								reload();
+							}}
+						>
+							{freshLabel}
+						</Button>
+					</div>
+				) : null}
 				{loadError ? (
 					<EmptyState
 						title="Could not load the pool"
@@ -394,14 +427,7 @@ export default function LessonsPage() {
 					)
 				) : (
 					<Panel title="The pool">
-						{freshLabel ? (
-							<div style={{ marginBottom: "var(--space-2)" }}>
-								<Button variant="ghost" onClick={reload}>
-									{freshLabel}
-								</Button>
-							</div>
-						) : null}
-						<nav aria-label="Lessons">
+						<nav aria-label="Lessons" ref={navRef}>
 							{lessons.map((lesson) => (
 								// NavLink, not Link: it sets aria-current="page" on the
 								// selected one, which is the only thing telling a screen
