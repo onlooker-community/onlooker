@@ -32,6 +32,11 @@ headline, a subhead, the waitlist form and six pills.
 today" strip or a full landing page would duplicate the plugin pages ONL-264
 will open; the landing page can grow once they are public.
 
+**Claim where data goes, not that it stays.** Several plugins send content to a
+model (`claude -p` or api.anthropic.com), so "Everything stays on your machine"
+is false; the true claim is that nothing goes to an Onlooker server (found in
+the final review, 2026-11-07).
+
 **Drop the plugin count.** A number here goes stale before ONL-263 settles
 where the count comes from. When ONL-264 opens `/plugins/`, a "Browse the
 plugins" pill can link there.
@@ -44,7 +49,12 @@ plugins" pill can link there.
 * **Subhead:** "Onlooker is a set of open-source Claude Code plugins that watch
   what your agents do: which change wrote which line, which claims the commands
   actually back up, what a session decided before its context ran out.
-  Everything stays on your machine." (lineage, assayer, archivist.)
+  Nothing goes to an Onlooker server: what they record stays on your machine."
+  (lineage, assayer, archivist.)
+* **Meta description** (`<meta name="description">` and `og:description`, set
+  through the `<Layout>` `description` attribute): "Open-source Claude Code
+  plugins that record what your agents do, and keep the record on your
+  machine." The `<Layout>` title is unchanged.
 * **Form note:** `No spam. Hosted early access + launch updates only.`
 * **Pills**, in this order:
   * `Claude Code plugins`
@@ -58,7 +68,8 @@ plugins" pill can link there.
 
 Removed: "Coming Soon", "13+ plugins", "Waypoint hint engine", "Shared
 Playbooks", "Open source plugins" (folded into the subhead and the license
-pill), and the subhead's "smarter than the last".
+pill), the subhead's "smarter than the last", "Everything stays on your
+machine", and the old description's "Learn from every failure".
 
 ## Design *(approved)*
 
@@ -83,8 +94,13 @@ pill), and the subhead's "smarter than the last".
   * links the title to `/blog/<id>/`;
   * renders no link and no "Latest post" text when `post` is undefined.
 * `src/__tests__/landing-copy.test.ts`, reading `index.astro` as text:
-  * none of `Waypoint`, `Playbook`, `13+`, `smarter than the last` appear;
+  * none of `Waypoint`, `Playbook`, `13+`, `smarter than the last`,
+    `Learn from every failure`, `Everything stays on your machine` appear;
   * `https://github.com/onlooker-community/ecosystem` appears;
+  * the LICENSE link
+    (`https://github.com/onlooker-community/ecosystem/blob/main/LICENSE`)
+    appears;
+  * `<LatestPost post={posts[0]} />` is wired into the page;
   * `https://formsubmit.co/ajax/early@onlooker.dev` still appears.
   * Prove the retired-claims test by ablation: restore one claim, watch it
     fail, revert.

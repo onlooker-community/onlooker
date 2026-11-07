@@ -17,6 +17,8 @@ describe("the landing page", () => {
 		"Playbook",
 		"13+",
 		"smarter than the last",
+		"Learn from every failure",
+		"Everything stays on your machine",
 	]) {
 		it(`no longer claims "${retired}"`, () => {
 			expect(page).not.toContain(retired);

@@ -19,7 +19,8 @@ Spec: `docs/superpowers/specs/2026-11-07-landing-page-claims-design.md`.
 - American English in code, comments and copy.
 - Exact copy, verbatim:
   - Eyebrow: `Hosted version coming soon`
-  - Subhead: `Onlooker is a set of open-source Claude Code plugins that watch what your agents do: which change wrote which line, which claims the commands actually back up, what a session decided before its context ran out. Everything stays on your machine.`
+  - Subhead: `Onlooker is a set of open-source Claude Code plugins that watch what your agents do: which change wrote which line, which claims the commands actually back up, what a session decided before its context ran out. Nothing goes to an Onlooker server: what they record stays on your machine.`
+  - Layout description (meta and og): `Open-source Claude Code plugins that record what your agents do, and keep the record on your machine.`
   - Form note: `No spam. Hosted early access + launch updates only.`
   - Pills, in order: `Claude Code plugins`; `MIT licensed` → `https://github.com/onlooker-community/ecosystem/blob/main/LICENSE`; `Local-first`; `Source on GitHub` → `https://github.com/onlooker-community/ecosystem`
   - Latest post line: `Latest post: ` then a link whose text is the title followed by ` →`
@@ -189,6 +190,8 @@ describe("the landing page", () => {
 		"Playbook",
 		"13+",
 		"smarter than the last",
+		"Learn from every failure",
+		"Everything stays on your machine",
 	]) {
 		it(`no longer claims "${retired}"`, () => {
 			expect(page).not.toContain(retired);
@@ -218,7 +221,7 @@ describe("the landing page", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @onlooker/website test landing-copy`
-Expected: FAIL — the four retired-claim tests fail, as do the two GitHub-link tests and the LatestPost test. The endpoint test passes.
+Expected: FAIL — the six retired-claim tests fail, as do the two GitHub-link tests and the LatestPost test. The endpoint test passes.
 
 - [ ] **Step 3: Rewrite the frontmatter and `<main>`**
 
@@ -249,7 +252,8 @@ Replace the subhead paragraph with:
       Onlooker is a set of open-source Claude Code plugins that watch what your
       agents do: which change wrote which line, which claims the commands
       actually back up, what a session decided before its context ran out.
-      Everything stays on your machine.
+      Nothing goes to an Onlooker server: what they record stays on your
+      machine.
     </p>
 ```
 
@@ -278,7 +282,7 @@ Replace the whole `<div class="pills">…</div>` block with:
     <LatestPost post={posts[0]} />
 ```
 
-Leave the `<Layout>` title and description attributes, the headline, the form, the success/error blocks and the `<script>` block exactly as they are.
+Leave the `<Layout>` title unchanged and set its description to `Open-source Claude Code plugins that record what your agents do, and keep the record on your machine.` Leave the headline, the form, the success/error blocks and the `<script>` block exactly as they are.
 
 - [ ] **Step 4: Style the linked pills**
 
@@ -301,16 +305,16 @@ Do not add a background to the hover state.
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm --filter @onlooker/website test landing-copy`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 6: Prove the retired-claims test by ablation**
 
-With the Edit tool, change `Local-first` in the pills to `Waypoint hint engine`. Run `pnpm --filter @onlooker/website test landing-copy` and confirm exactly one failure: `no longer claims "Waypoint"`. Revert the edit with the Edit tool and confirm 8 passing. Record both outputs in your report.
+With the Edit tool, change `Local-first` in the pills to `Waypoint hint engine`. Run `pnpm --filter @onlooker/website test landing-copy` and confirm exactly one failure: `no longer claims "Waypoint"`. Revert the edit with the Edit tool and confirm 10 passing. Record both outputs in your report.
 
 - [ ] **Step 7: Run the whole suite, lint and typecheck**
 
 Run each, from the repo root:
-- `pnpm --filter @onlooker/website test` — expected PASS, 87 tests.
+- `pnpm --filter @onlooker/website test` — expected PASS, 89 tests.
 - `pnpm --filter @onlooker/website lint` — expected no errors.
 - `pnpm --filter @onlooker/website typecheck` — expected 0 errors.
 
