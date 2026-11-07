@@ -21,7 +21,8 @@ export function RepositoryName({
 }: {
 	project: NamedProject;
 	name: string | null;
-	onEdit: () => void;
+	/** Omitted when the row cannot be named; the rename control goes with it. */
+	onEdit?: () => void;
 }) {
 	return (
 		<>
@@ -36,25 +37,27 @@ export function RepositoryName({
 					{project.key}
 				</span>
 			)}
-			<button
-				type="button"
-				onClick={onEdit}
-				// Names the row, because "rename" alone repeats down the panel
-				// and a screen reader's list of buttons would be seven of them.
-				aria-label={`Rename repository ${name ?? project.key}`}
-				style={{
-					flex: "none",
-					padding: 0,
-					border: "none",
-					background: "none",
-					color: PALETTE.muted,
-					fontSize: "0.85em",
-					textDecoration: "underline",
-					cursor: "pointer",
-				}}
-			>
-				rename
-			</button>
+			{onEdit ? (
+				<button
+					type="button"
+					onClick={onEdit}
+					// Names the row, because "rename" alone repeats down the panel
+					// and a screen reader's list of buttons would be seven of them.
+					aria-label={`Rename repository ${name ?? project.key}`}
+					style={{
+						flex: "none",
+						padding: 0,
+						border: "none",
+						background: "none",
+						color: PALETTE.muted,
+						fontSize: "0.85em",
+						textDecoration: "underline",
+						cursor: "pointer",
+					}}
+				>
+					rename
+				</button>
+			) : null}
 		</>
 	);
 }
