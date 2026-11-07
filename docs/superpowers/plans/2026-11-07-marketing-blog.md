@@ -706,13 +706,8 @@ describe("blog routes", () => {
 		.filter((f) => /\.(astro|ts)$/.test(f))
 		.sort();
 
-	it("are the four the spec names", () => {
-		expect(files).toEqual([
-			"[slug].astro",
-			"index.astro",
-			"rss.xml.ts",
-			"tags/[tag].astro",
-		]);
+	it("are the ones the spec names", () => {
+		expect(files).toEqual(["[slug].astro", "index.astro", "tags/[tag].astro"]);
 	});
 
 	for (const file of files) {
@@ -757,8 +752,6 @@ describe("PostList", () => {
 
 Run: `pnpm --filter @onlooker/website test blog-posts`, then `pnpm --filter @onlooker/website test blog-routes`
 Expected: both FAIL (missing exports, missing files).
-
-Note that "are the four the spec names" keeps failing until Task 5 adds `rss.xml.ts`. That is expected: it fails only on that missing entry.
 
 - [ ] **Step 3: Add the helpers to `src/lib/blog-posts.ts`**
 
@@ -1122,7 +1115,7 @@ In `apps/website/src/middleware.ts`, replace the existing comment with:
 - [ ] **Step 7: Run the tests**
 
 Run: `pnpm --filter @onlooker/website test blog-posts`, then `pnpm --filter @onlooker/website test blog-routes`
-Expected: `blog-posts` PASSES. `blog-routes` passes everything except "are the four the spec names", which reports only `rss.xml.ts` missing.
+Expected: both PASS.
 
 - [ ] **Step 8: Commit**
 
@@ -1135,7 +1128,7 @@ Through `/git-workflow:commit`, staging every file in this task's list. Suggeste
 **Files:**
 - Modify: `apps/website/src/lib/blog-posts.ts`
 - Create: `apps/website/src/pages/blog/rss.xml.ts`
-- Test: `apps/website/src/__tests__/blog-posts.test.ts` (extend)
+- Test: `apps/website/src/__tests__/blog-posts.test.ts` (extend), `apps/website/src/__tests__/blog-routes.test.ts` (add the feed to the route list)
 
 **Interfaces:**
 - Consumes: `publishedPosts()`, `SITE_URL`, `PostLike`.
@@ -1179,10 +1172,23 @@ describe("the feed", () => {
 });
 ```
 
+In `apps/website/src/__tests__/blog-routes.test.ts`, the feed is a blog route too, so add it to the expected list:
+
+```ts
+	it("are the ones the spec names", () => {
+		expect(files).toEqual([
+			"[slug].astro",
+			"index.astro",
+			"rss.xml.ts",
+			"tags/[tag].astro",
+		]);
+	});
+```
+
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `pnpm --filter @onlooker/website test blog-posts`
-Expected: FAIL, `feedItems` is not exported.
+Run: `pnpm --filter @onlooker/website test blog-posts`, then `pnpm --filter @onlooker/website test blog-routes`
+Expected: `blog-posts` FAILS (`feedItems` is not exported). `blog-routes` FAILS on "are the ones the spec names" (`rss.xml.ts` missing).
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1226,13 +1232,13 @@ export async function GET(context: APIContext) {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @onlooker/website test blog-posts`, then `pnpm --filter @onlooker/website test blog-routes`
-Expected: both PASS, including "are the four the spec names".
+Expected: both PASS, and `rss.xml.ts` is checked for `prerender = true` like the other routes.
 
 If `getRssString` renders `<link>` with a trailing slash, match the assertion to what it emits, and confirm the same form resolves on the built site in Task 7.
 
 - [ ] **Step 5: Commit**
 
-Through `/git-workflow:commit`, staging `blog-posts.ts`, `rss.xml.ts`, `blog-posts.test.ts`. Suggested subject: `feat(website): offer the blog as a feed`.
+Through `/git-workflow:commit`, staging `blog-posts.ts`, `rss.xml.ts`, `blog-posts.test.ts`, `blog-routes.test.ts`. Suggested subject: `feat(website): offer the blog as a feed`.
 
 ---
 
