@@ -1,0 +1,33 @@
+---
+import PostList from "../../../components/blog/PostList.astro";
+import { publishedPosts } from "../../../data/blog";
+import Layout from "../../../layouts/Layout.astro";
+import { tagsInUse } from "../../../lib/blog-posts";
+
+export const prerender = true;
+
+export async function getStaticPaths() {
+	const posts = await publishedPosts();
+	return tagsInUse(posts).map((tag) => ({
+		params: { tag },
+		props: { tag, posts: posts.filter((p) => p.data.tags.includes(tag)) },
+	}));
+}
+
+const { tag, posts } = Astro.props;
+---
+
+<Layout title={`Posts tagged ${tag} — Onlooker`} description={`Onlooker blog posts tagged ${tag}.`}>
+  <main class="prose-page">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span class="sep">/</span>
+      <a href="/blog/">Blog</a>
+    </nav>
+    <header class="page-header">
+      <p class="eyebrow">Tag</p>
+      <h1>{tag}</h1>
+    </header>
+    <PostList posts={posts} />
+  </main>
+</Layout>

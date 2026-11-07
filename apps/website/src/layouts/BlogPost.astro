@@ -1,0 +1,50 @@
+---
+import {
+	formatDate,
+	type PostLike,
+	postPath,
+	tagPath,
+} from "../lib/blog-posts";
+import Layout from "./Layout.astro";
+
+interface Props {
+	post: PostLike;
+}
+
+const { post } = Astro.props;
+const { title, description, published, updated, tags, author } = post.data;
+---
+
+<Layout
+  title={`${title} — Onlooker`}
+  description={description}
+  ogType="article"
+  publishedTime={published}
+  canonicalPath={postPath(post.id)}
+>
+  <main class="prose-page">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span class="sep">/</span>
+      <a href="/blog/">Blog</a>
+    </nav>
+    <article class="prose">
+      <header class="post-header">
+        <h1>{title}</h1>
+        <p class="post-meta">
+          <time datetime={published.toISOString()}>{formatDate(published)}</time>
+          <span>· {author}</span>
+          {updated && (
+            <span>· Updated <time datetime={updated.toISOString()}>{formatDate(updated)}</time></span>
+          )}
+        </p>
+        <ul class="post-tags">
+          {tags.map((tag) => (
+            <li><a href={tagPath(tag)}>{tag}</a></li>
+          ))}
+        </ul>
+      </header>
+      <slot />
+    </article>
+  </main>
+</Layout>

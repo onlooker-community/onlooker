@@ -51,6 +51,39 @@
 	--display: var(--font-display);
 }
 
+/* Code blocks. Shiki's css-variables theme colors every token through these,
+ * so pointing them at brand tokens is what makes code switch themes with the
+ * page. Each pairing is checked at 4.5 against --panel in both themes by
+ * derived-surfaces.test.ts; the lowest, measured 2026-11-07, is --red at
+ * night at 4.67. */
+:root {
+	--astro-code-background: var(--panel);
+	--astro-code-foreground: var(--ink);
+	--astro-code-token-keyword: var(--teal);
+	--astro-code-token-string: var(--gold);
+	--astro-code-token-string-expression: var(--gold);
+	--astro-code-token-comment: var(--ink-dim);
+	--astro-code-token-constant: var(--red);
+	--astro-code-token-function: var(--ink-hi);
+	--astro-code-token-parameter: var(--ink);
+	--astro-code-token-punctuation: var(--ink-dim);
+	--astro-code-token-link: var(--teal);
+	--astro-code-token-inserted: var(--teal);
+	--astro-code-token-deleted: var(--red);
+	--astro-code-token-changed: var(--gold);
+}
+
+.astro-code {
+	font-family: var(--mono);
+	font-size: var(--text-data-md);
+	line-height: 1.6;
+	padding: 16px 20px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	/* Long lines scroll inside the block, never the page. */
+	overflow-x: auto;
+}
+
 html {
 	background: var(--bg);
 	color: var(--text-1);
@@ -165,6 +198,47 @@ nav {
 	padding: 4px 10px;
 	border: 1px solid var(--border-2);
 	border-radius: 3px;
+}
+
+.nav-right {
+	display: flex;
+	align-items: center;
+	gap: 20px;
+}
+
+.nav-link {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text-2);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	text-decoration: none;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+	color: var(--accent);
+}
+
+/* The nav is the logo, the Blog link and the tag, and at 48px of side padding
+ * the row no longer fits a 360px phone. */
+@media (max-width: 640px) {
+	nav {
+		padding: 20px 16px;
+	}
+
+	.nav-right {
+		gap: 14px;
+	}
+}
+
+/* At 360px the logo, the Blog link and the tag are tight in one row, and on a
+ * phone the tag is the widest item and the least necessary. The Plugins link
+ * returns with ONL-264 and makes this tighter. */
+@media (max-width: 400px) {
+	.nav-tag {
+		display: none;
+	}
 }
 
 footer {
@@ -294,4 +368,179 @@ footer {
 	.radar {
 		display: none;
 	}
+}
+
+/* Blog. The reading column is 68ch: long enough for a code line, short
+ * enough to read prose without losing the line. */
+.prose-page {
+	flex: 1;
+	width: 100%;
+	max-width: 68ch;
+	margin: 0 auto;
+	padding: 56px 16px 80px;
+}
+
+/* Copied unchanged from the plugin pages' scoped styles so the blog matches
+ * them. */
+.breadcrumb {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--text-3);
+	letter-spacing: 0.06em;
+	margin-bottom: 40px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.breadcrumb a {
+	color: var(--text-3);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.breadcrumb a:hover {
+	color: var(--accent);
+}
+
+.sep {
+	opacity: 0.4;
+}
+
+.page-header {
+	margin-bottom: 64px;
+}
+
+.eyebrow {
+	font-family: var(--mono);
+	font-size: 11px;
+	font-weight: 400;
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+	color: var(--accent);
+	margin-bottom: 16px;
+}
+
+.post-list {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 40px;
+}
+
+.post-item time,
+.post-meta {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text-3);
+	letter-spacing: 0.04em;
+}
+
+.post-title {
+	font-family: var(--display);
+	font-size: 22px;
+	line-height: 1.25;
+	margin: 6px 0 8px;
+}
+
+.post-title a {
+	color: var(--text-1);
+	text-decoration: none;
+}
+
+.post-title a:hover,
+.post-title a:focus-visible {
+	color: var(--accent);
+}
+
+.post-description,
+.post-empty {
+	color: var(--text-2);
+	line-height: 1.6;
+}
+
+.post-tags {
+	list-style: none;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.post-tags a {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--text-2);
+	padding: 3px 10px;
+	border: 1px solid var(--border);
+	border-radius: 100px;
+	text-decoration: none;
+}
+
+.post-tags a:hover,
+.post-tags a:focus-visible {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+
+.post-header {
+	margin-bottom: 40px;
+}
+
+.post-header h1 {
+	font-family: var(--display);
+	font-size: clamp(28px, 5vw, 40px);
+	line-height: 1.1;
+	color: var(--text-1);
+	margin-bottom: 12px;
+}
+
+.prose {
+	color: var(--text-2);
+	font-family: var(--sans);
+	font-size: 17px;
+	line-height: 1.7;
+}
+
+.prose > * + * {
+	margin-top: 1.1em;
+}
+
+.prose h2,
+.prose h3 {
+	font-family: var(--display);
+	color: var(--text-1);
+	line-height: 1.25;
+	margin-top: 2em;
+}
+
+.prose a {
+	color: var(--accent);
+}
+
+.prose :not(pre) > code {
+	font-family: var(--mono);
+	font-size: 0.9em;
+	color: var(--text-1);
+	background: var(--bg-2);
+	padding: 1px 5px;
+	border-radius: 3px;
+}
+
+.prose ul,
+.prose ol {
+	padding-left: 1.4em;
+}
+
+.prose figure svg {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+
+.prose figcaption {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text-3);
+	margin-top: 8px;
 }
