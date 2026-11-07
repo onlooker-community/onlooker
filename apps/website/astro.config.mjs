@@ -1,11 +1,14 @@
 // @ts-check
 
 import cloudflare from "@astrojs/cloudflare";
+import mdx from "@astrojs/mdx";
 import sentry from "@sentry/astro";
 import { defineConfig, envField } from "astro/config";
+import { SITE_URL } from "./src/lib/site.ts";
 
 // https://astro.build/config
 export default defineConfig({
+	site: SITE_URL,
 	output: "server",
 	adapter: cloudflare(),
 	vite: {
@@ -35,6 +38,7 @@ export default defineConfig({
 		},
 	},
 	integrations: [
+		mdx(),
 		sentry({
 			org: "onlooker-vw",
 			project: "onlooker-marketing",
