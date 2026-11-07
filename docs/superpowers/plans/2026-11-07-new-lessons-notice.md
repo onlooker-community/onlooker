@@ -439,7 +439,27 @@ Inside the `describe`, add:
 			expect(document.activeElement).toBe(rowFor(FRESH)),
 		);
 	});
+
+	// The likeliest reader of an empty pool is waiting for their first
+	// machine's first lesson.
+	it("offers the new lesson over an empty list too", async () => {
+		withPool([]);
+		await at("/lessons");
+		await screen.findByRole("heading", { name: /nothing has synced yet/i });
+
+		withPool([FRESH]);
+		await act(async () => tabBecomes("visible"));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "1 new lesson, show it" }),
+		);
+
+		expect(await screen.findByText(FRESH.claim)).toBeDefined();
+	});
 ```
+
+The empty-list test was added after Task 1's review, with the human's
+approval. It FAILS too: Task 1 put the notice inside the rows' `Panel`,
+which an empty list never renders.
 
 - [ ] **Step 2: Run them and watch two fail**
 
@@ -466,6 +486,15 @@ to:
 ```
 
 `freshCount` is already declared above it, from Task 1.
+
+- [ ] **Step 3b: Move the notice above every branch**
+
+Cut the `{freshLabel ? (...) : null}` block Task 1 put inside
+`<Panel title="The pool">`, and paste it directly after the closing `</p>`
+of the `role="status"` region, before `{loadError ? (`. Keep its markup.
+Add a comment on it: it sits above every branch so an empty list shows it
+too, and the hook only sets `fresh` once page 1 is showing without an
+error, so it cannot appear over the loading or error states.
 
 - [ ] **Step 4: Hand focus to the first row**
 
@@ -511,6 +540,7 @@ Expected: all pass.
 | Drop `setFresh(null);` from `load()` in the hook | "shows the new lesson and drops the notice" |
 | Drop the `freshCount ? ... : ""` suffix | "puts the new count in the status region" |
 | Drop `navRef.current?.querySelector("a")?.focus();` | "moves focus to the first row" |
+| Move the notice back inside `<Panel title="The pool">` | "offers the new lesson over an empty list too" |
 
 - [ ] **Step 7: Run the gates**
 

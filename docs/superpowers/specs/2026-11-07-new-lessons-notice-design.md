@@ -65,9 +65,14 @@ requires.
 
 ## Page: `LessonsPage`
 
-* When `fresh` is set, a `Button` renders above the rows inside the list
-  `Panel`: "1 new lesson, show it", "N new lessons, show them", or
-  "N+ new lessons, show them" when `more` is true.
+* When `fresh` is set, a `Button` renders directly below the status region,
+  above every branch of the list: "1 new lesson, show it", "N new lessons,
+  show them", or "N+ new lessons, show them" when `more` is true. Above
+  every branch, not inside the rows' `Panel`, so an empty list shows it too
+  (approved 2026-11-07, after the Task 1 review): the likeliest reader of
+  "Nothing has synced yet" is waiting for their first machine's first
+  lesson. The hook sets `fresh` only once page 1 is showing without an
+  error, so it never appears over the loading or error states.
 * The persistent `role="status"` region appends " · N new" (or " · N+ new")
   to its count, so a screen reader hears the change without a second live
   region.
@@ -89,5 +94,7 @@ the file already does. Visibility is driven by stubbing
 6. A failed check shows nothing, and the list stays.
 7. A page where every row is new, with `has_more`, reads "N+" for its length.
 8. The status region carries the new count.
+9. An empty list shows the notice when a lesson arrives, and the click
+   brings that lesson in.
 
 Each test is checked by ablation: remove the code it covers and watch it fail.
