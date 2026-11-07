@@ -6,10 +6,9 @@ import { postSchema } from "../lib/blog-posts";
 
 const BLOG = new URL("../pages/blog/", import.meta.url);
 
-// middleware.ts sends every path but / back to / while SITE_LAUNCHED is false,
-// and it does not run for prerendered pages. Prerendering is the only thing
-// that makes the blog public, so losing it on one route takes that route
-// down to a redirect with nothing failing.
+// The blog is static content, so every route prerenders. That is about cost,
+// not reachability: launch-gate.ts decides what is public, and the gate runs
+// at build time for prerendered pages as well.
 describe("blog routes", () => {
 	const files = readdirSync(BLOG, { recursive: true, encoding: "utf8" })
 		.filter((f) => /\.(astro|ts)$/.test(f))
