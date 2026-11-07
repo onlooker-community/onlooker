@@ -1,5 +1,10 @@
 ---
-import { formatDate, type PostLike } from "../lib/blog-posts";
+import {
+	formatDate,
+	type PostLike,
+	postPath,
+	tagPath,
+} from "../lib/blog-posts";
 import Layout from "./Layout.astro";
 
 interface Props {
@@ -15,13 +20,13 @@ const { title, description, published, updated, tags, author } = post.data;
   description={description}
   ogType="article"
   publishedTime={published}
-  canonicalPath={`/blog/${post.id}`}
+  canonicalPath={postPath(post.id)}
 >
   <main class="prose-page">
     <nav class="breadcrumb" aria-label="Breadcrumb">
       <a href="/">Home</a>
       <span class="sep">/</span>
-      <a href="/blog">Blog</a>
+      <a href="/blog/">Blog</a>
     </nav>
     <article class="prose">
       <header class="post-header">
@@ -35,7 +40,7 @@ const { title, description, published, updated, tags, author } = post.data;
         </p>
         <ul class="post-tags">
           {tags.map((tag) => (
-            <li><a href={`/blog/tags/${tag}`}>{tag}</a></li>
+            <li><a href={tagPath(tag)}>{tag}</a></li>
           ))}
         </ul>
       </header>

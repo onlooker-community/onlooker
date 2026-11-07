@@ -55,9 +55,9 @@ describe("PostList", () => {
 			},
 		]);
 		expect(html).toMatch(
-			/<a[^>]*href="\/blog\/contrast-arena"[^>]*>The arena<\/a>/,
+			/<a[^>]*href="\/blog\/contrast-arena\/"[^>]*>The arena<\/a>/,
 		);
 		expect(html).toContain("November 1, 2026");
-		expect(html).toMatch(/href="\/blog\/tags\/measurements"/);
+		expect(html).toMatch(/href="\/blog\/tags\/measurements\/"/);
 	});
 });

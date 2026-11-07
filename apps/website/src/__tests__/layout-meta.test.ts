@@ -20,12 +20,12 @@ describe("Layout meta", () => {
 	});
 
 	it("points canonical and og:url at onlooker.dev", async () => {
-		const html = await render({ canonicalPath: "/blog/a-post" });
+		const html = await render({ canonicalPath: "/blog/a-post/" });
 		expect(html).toContain(
-			'<link rel="canonical" href="https://onlooker.dev/blog/a-post">',
+			'<link rel="canonical" href="https://onlooker.dev/blog/a-post/">',
 		);
 		expect(html).toContain(
-			'<meta property="og:url" content="https://onlooker.dev/blog/a-post">',
+			'<meta property="og:url" content="https://onlooker.dev/blog/a-post/">',
 		);
 	});
 
@@ -55,7 +55,7 @@ describe("Layout meta", () => {
 
 describe("Layout nav", () => {
 	it("links the blog", async () => {
-		expect(await render({})).toMatch(/<a[^>]*href="\/blog"[^>]*>Blog<\/a>/);
+		expect(await render({})).toMatch(/<a[^>]*href="\/blog\/"[^>]*>Blog<\/a>/);
 	});
 
 	// /plugins still builds as a redirect to / while the site is unlaunched,

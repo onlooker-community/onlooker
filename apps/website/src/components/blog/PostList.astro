@@ -1,5 +1,10 @@
 ---
-import { formatDate, type PostLike } from "../../lib/blog-posts";
+import {
+	formatDate,
+	type PostLike,
+	postPath,
+	tagPath,
+} from "../../lib/blog-posts";
 
 interface Props {
 	posts: PostLike[];
@@ -19,13 +24,13 @@ const { posts } = Astro.props;
             {formatDate(post.data.published)}
           </time>
           <h2 class="post-title">
-            <a href={`/blog/${post.id}`}>{post.data.title}</a>
+            <a href={postPath(post.id)}>{post.data.title}</a>
           </h2>
           <p class="post-description">{post.data.description}</p>
           <ul class="post-tags">
             {post.data.tags.map((tag) => (
               <li>
-                <a href={`/blog/tags/${tag}`}>{tag}</a>
+                <a href={tagPath(tag)}>{tag}</a>
               </li>
             ))}
           </ul>

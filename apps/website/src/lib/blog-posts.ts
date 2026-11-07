@@ -56,13 +56,23 @@ export function formatDate(d: Date): string {
 	return DATE.format(d);
 }
 
+// Production answers /x with a 307 to /x/, so every path the site hands out
+// carries the slash and a canonical never names a redirect.
+export function postPath(id: string): string {
+	return `/blog/${id}/`;
+}
+
+export function tagPath(tag: string): string {
+	return `/blog/tags/${tag}/`;
+}
+
 /** RSS items in the order given; publishedPosts() has already sorted them. */
 export function feedItems(posts: readonly PostLike[]) {
 	return posts.map((post) => ({
 		title: post.data.title,
 		description: post.data.description,
 		pubDate: post.data.published,
-		link: `/blog/${post.id}`,
+		link: postPath(post.id),
 		categories: [...post.data.tags],
 	}));
 }

@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
 	feedItems,
 	formatDate,
+	postPath,
 	postSchema,
 	selectPublished,
 	TAGS,
+	tagPath,
 	tagsInUse,
 } from "../lib/blog-posts";
 
@@ -111,6 +113,18 @@ describe("formatDate", () => {
 	});
 });
 
+// Production redirects /x to /x/, so a path without the slash would put a
+// redirect in every canonical, feed link and internal href.
+describe("paths", () => {
+	it("ends a post path in a slash", () => {
+		expect(postPath("contrast-arena")).toBe("/blog/contrast-arena/");
+	});
+
+	it("ends a tag path in a slash", () => {
+		expect(tagPath("measurements")).toBe("/blog/tags/measurements/");
+	});
+});
+
 describe("the feed", () => {
 	const entry = (id: string, published: string) => ({
 		id,
@@ -123,7 +137,7 @@ describe("the feed", () => {
 			title: "newer",
 			description: "One sentence about it.",
 			pubDate: new Date("2026-11-02"),
-			link: "/blog/newer",
+			link: "/blog/newer/",
 			categories: ["architecture"],
 		});
 	});
@@ -136,8 +150,7 @@ describe("the feed", () => {
 			items: feedItems(posts),
 		});
 		expect(xml.startsWith("<?xml")).toBe(true);
-		// getRssString adds a trailing slash to each item link, so the assertion
-		// matches that form rather than the path feedItems returns.
+		// feedItems already ends each link in a slash, and getRssString keeps it.
 		const newer = xml.indexOf("<link>https://onlooker.dev/blog/newer/</link>");
 		const older = xml.indexOf("<link>https://onlooker.dev/blog/older/</link>");
 		expect(newer).toBeGreaterThan(-1);
