@@ -206,6 +206,13 @@ export default function LessonsPage() {
 	// while the list shows another. A stale rejection is worse still: it
 	// would blank a list a newer request had already filled.
 	const requestSeq = useRef(0);
+	// The query, by its `requestSeq`, that a loadMore is outstanding for, or
+	// null. This is the guard, not `loadingMore`, which is committed state: two
+	// presses before a render both read it as false and appended the same page
+	// twice (ONL-73). A ref is set the moment the first press runs. Keyed by
+	// the query so a new one, which bumps `requestSeq`, is never blocked by a
+	// page the old one still has out.
+	const moreInFlight = useRef<number | null>(null);
 
 	const entries = projectEntries(projects, labels);
 	const entry = entries.find((option) => option.name === selected) ?? null;
@@ -349,7 +356,7 @@ export default function LessonsPage() {
 	}, []);
 
 	const loadMore = async () => {
-		if (!cursor || loadingMore) return;
+		if (!cursor || moreInFlight.current === requestSeq.current) return;
 		// Not `++requestSeq.current`: loadMore continues the query load() most
 		// recently started rather than starting a new one, so it reads the
 		// current sequence number instead of minting the next one. Comparing
@@ -366,6 +373,7 @@ export default function LessonsPage() {
 		// query, it does not start one - and because that guarantee lives in
 		// render timing, not in this function.
 		const seq = requestSeq.current;
+		moreInFlight.current = seq;
 		setLoadingMore(true);
 		setMoreError(null);
 		try {
@@ -405,6 +413,9 @@ export default function LessonsPage() {
 			// mid-request and risking a duplicate append of the very page it is
 			// already fetching.
 			if (seq === requestSeq.current) setLoadingMore(false);
+			// Only this call's own claim. A newer query's loadMore holds the ref
+			// under its own seq by now, and clearing that would reopen the gap.
+			if (moreInFlight.current === seq) moreInFlight.current = null;
 		}
 	};
 
