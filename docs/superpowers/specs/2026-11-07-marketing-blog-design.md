@@ -73,9 +73,9 @@ const blog = defineCollection({
 });
 ```
 
-`TAGS` is a closed list, exported from `src/data/blog.ts` so pages and tests
-share it, together with one function that returns the posts a build should
-publish:
+`TAGS`, the schema and the filter live in `src/lib/blog-posts.ts`, which imports
+nothing from Astro's runtime so vitest can load it. `src/data/blog.ts` holds the
+one function that touches `astro:content`, `publishedPosts()`:
 
 ```ts
 export const TAGS = [
