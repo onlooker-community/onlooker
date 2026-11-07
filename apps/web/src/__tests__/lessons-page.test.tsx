@@ -670,6 +670,53 @@ describe("retract", () => {
 
 		expect(screen.queryByText(/something went wrong/i)).toBeNull();
 	});
+
+	// The reset that clears a stale error on navigation also cleared "this
+	// request is in flight". Leaving and coming back inside one round-trip
+	// re-enabled the control, so a second PATCH could start on a lesson that
+	// already had one outstanding (ONL-73).
+	it("does not start a second transition on a lesson whose first is still in flight", async () => {
+		withPool([VITE, D1]);
+		mocks.setLessonStatus.mockImplementation(() => new Promise(() => {}));
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+		await waitFor(() => expect(mocks.setLessonStatus).toHaveBeenCalledTimes(1));
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(VITE.claim) }));
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// Still in flight, so still busy, and pressing it again sends nothing.
+		const retract = screen.getByRole("button", { name: /^retract$/i });
+		expect(retract.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(retract);
+		const confirm = screen.queryByRole("button", { name: /yes, retract/i });
+		if (confirm) fireEvent.click(confirm);
+		expect(mocks.setLessonStatus).toHaveBeenCalledTimes(1);
+	});
+
+	// Different lessons are independent: one outstanding request must not
+	// lock the control on every other lesson.
+	it("still lets another lesson change while one lesson's request is in flight", async () => {
+		withPool([VITE, D1]);
+		mocks.setLessonStatus.mockImplementation(() => new Promise(() => {}));
+		await at(`/lessons/${VITE.id}`);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		fireEvent.click(screen.getByRole("link", { name: new RegExp(D1.claim) }));
+		await screen.findByRole("heading", { name: D1.claim });
+		fireEvent.click(screen.getByRole("button", { name: /^retract$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /yes, retract/i }));
+
+		await waitFor(() =>
+			expect(mocks.setLessonStatus).toHaveBeenCalledWith(D1.id, "retracted"),
+		);
+	});
 });
 
 describe("the status filter", () => {
@@ -1190,6 +1237,25 @@ describe("paging past the first page", () => {
 		});
 
 		expect(screen.getByRole("button", { name: /loading/i })).toBeDefined();
+	});
+
+	// Two presses inside one frame, before either has rendered. A guard that
+	// reads committed state sees "not loading" both times and appends the same
+	// cursor's page twice (ONL-73).
+	it("starts one request for a double-click on Load more", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockClear();
+		mocks.listLessons.mockImplementation(() => new Promise(() => {}));
+		const button = screen.getByRole("button", { name: /load more/i });
+		act(() => {
+			button.click();
+			button.click();
+		});
+
+		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
 	});
 
 	// setAuthors merges a loaded-more page into what is already on screen, the
