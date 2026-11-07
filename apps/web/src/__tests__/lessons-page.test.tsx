@@ -13,7 +13,7 @@ import {
 	Routes,
 	useOutletContext,
 } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { labelIdentity } from "../api/labelsApi";
 import type { Project } from "../api/projectsApi";
 import LessonsPage, { type LessonsContext } from "../pages/LessonsPage";
@@ -114,6 +114,16 @@ const STALE = {
 	promoted_at: "2026-08-24T10:00:00.000Z",
 };
 
+// A lesson that reaches the pool after the page has loaded, sorting above
+// everything shown. Load more never returns it, because each page asks for
+// rows older than the last one shown.
+const FRESH = {
+	...VITE,
+	id: "01KZ45MKAM734ZS7JK24D2DK0W",
+	claim: "This lesson arrived while the page was open",
+	promoted_at: "2026-08-25T10:00:00.000Z",
+};
+
 function withPool(lessons: unknown[], extra: Record<string, unknown> = {}) {
 	mocks.listLessons.mockResolvedValue({
 		lessons,
@@ -151,6 +161,16 @@ const rowFor = (lesson: { claim: string }) =>
 	);
 const detailPane = () =>
 	document.querySelector(".lessons-detail") as HTMLElement;
+
+// jsdom never changes visibility on its own. Shadowing the getter on the
+// document instance, and deleting it after, leaves the prototype's alone.
+function tabBecomes(state: "visible" | "hidden") {
+	Object.defineProperty(document, "visibilityState", {
+		configurable: true,
+		get: () => state,
+	});
+	document.dispatchEvent(new Event("visibilitychange"));
+}
 
 // What an unconfigured getLesson() call resolves to. Individual tests
 // override this with their own mockResolvedValue/mockRejectedValue; this
@@ -2389,6 +2409,107 @@ describe("a lesson the viewer does not own", () => {
 
 		expect(
 			await screen.findByRole("button", { name: /^retract$/i }),
+		).toBeDefined();
+	});
+});
+
+describe("lessons that arrive while you read", () => {
+	afterEach(() => {
+		Reflect.deleteProperty(document, "visibilityState");
+	});
+
+	it("says how many new lessons page 1 holds when the tab comes back", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, VITE, D1]);
+		await act(async () => tabBecomes("visible"));
+
+		expect(
+			await screen.findByRole("button", { name: "1 new lesson, show it" }),
+		).toBeDefined();
+		// The rows on screen stay until the reader asks for the new page.
+		expect(screen.queryByText(FRESH.claim)).toBeNull();
+	});
+
+	it("shows nothing when page 1 holds nothing new", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		await act(async () => tabBecomes("visible"));
+
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+		expect(screen.queryByRole("button", { name: /new lesson/i })).toBeNull();
+	});
+
+	it("asks nothing when the tab is hidden", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		await act(async () => tabBecomes("hidden"));
+
+		expect(mocks.listLessons).toHaveBeenCalledTimes(1);
+	});
+
+	it("drops a check that lands after the filter has moved on", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		let resolve: (value: unknown) => void = () => {};
+		mocks.listLessons.mockImplementationOnce(
+			() =>
+				new Promise((res) => {
+					resolve = res;
+				}),
+		);
+		await act(async () => tabBecomes("visible"));
+
+		withPool([VITE]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "active" },
+		});
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(3));
+
+		await act(async () => {
+			resolve({
+				lessons: [FRESH, VITE, D1],
+				cursor: null,
+				has_more: false,
+				owned_ids: [FRESH.id, VITE.id, D1.id],
+			});
+		});
+
+		expect(screen.queryByRole("button", { name: /new lesson/i })).toBeNull();
+	});
+
+	it("shows nothing when the check fails, and keeps the list", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		mocks.listLessons.mockRejectedValueOnce(new Error("Something went wrong"));
+		await act(async () => tabBecomes("visible"));
+
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenCalledTimes(2));
+		expect(screen.queryByText(/something went wrong/i)).toBeNull();
+		expect(screen.queryByRole("button", { name: /new lesson/i })).toBeNull();
+		expect(screen.getByText(VITE.claim)).toBeDefined();
+	});
+
+	it("calls the count a floor when every row is new and there are more", async () => {
+		withPool([VITE]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([FRESH, D1], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await act(async () => tabBecomes("visible"));
+
+		expect(
+			await screen.findByRole("button", { name: "2+ new lessons, show them" }),
 		).toBeDefined();
 	});
 });

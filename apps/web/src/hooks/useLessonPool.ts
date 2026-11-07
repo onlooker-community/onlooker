@@ -31,6 +31,12 @@ export interface LessonPool {
 	loadingMore: boolean;
 	moreError: string | null;
 	ended: boolean;
+	/**
+	 * Lessons on a fresh read of page 1 that no loaded page holds, or null.
+	 * `more` is set when every row on that read was new and the server had
+	 * more, so the count is a floor and not the total.
+	 */
+	fresh: { count: number; more: boolean } | null;
 	/** Start the current query over, as the error state's Retry does. */
 	reload: () => void;
 	loadMore: () => void;
@@ -90,6 +96,12 @@ export function useLessonPool(
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [moreError, setMoreError] = useState<string | null>(null);
 	const [ended, setEnded] = useState(false);
+	// Set by the visibility check below, cleared by `load()`. A lesson that
+	// reaches the pool above the last row shown never comes back through
+	// Load more, which asks for rows older than that one (ONL-262).
+	const [fresh, setFresh] = useState<{ count: number; more: boolean } | null>(
+		null,
+	);
 
 	// Which request is newest. Two filter changes inside one round-trip issue
 	// two requests, and without this whichever SETTLES last would win rather
@@ -104,6 +116,13 @@ export function useLessonPool(
 	// the query so a new one, which bumps `requestSeq`, is never blocked by a
 	// page the old one still has out.
 	const moreInFlight = useRef<number | null>(null);
+	// Which query, by its `requestSeq`, has a `load()` outstanding, or null. A
+	// check while one is out would compare a page against a list that is about
+	// to be replaced.
+	const loadInFlight = useRef<number | null>(null);
+	// One visibility check at a time. Switching tabs back and forth inside a
+	// round-trip would otherwise send one request per switch.
+	const checkInFlight = useRef(false);
 
 	// A string, so `load` changes when the keys do and not on every render.
 	const projectKey = projectKeys.join("\n");
@@ -117,6 +136,7 @@ export function useLessonPool(
 
 	const load = useCallback(async () => {
 		const seq = ++requestSeq.current;
+		loadInFlight.current = seq;
 		setLoadError(null);
 		setMoreError(null);
 		// A new query starts over: any in-flight loadMore belongs to the query
@@ -142,6 +162,9 @@ export function useLessonPool(
 		// the end-of-pool message cannot be derived from `cursor === null`,
 		// which this line also produces on every filter change.
 		setEnded(false);
+		// And the notice: whatever it counted was measured against the list
+		// this query is replacing.
+		setFresh(null);
 		try {
 			const page = await listLessons(query());
 			if (seq !== requestSeq.current) return;
@@ -200,12 +223,50 @@ export function useLessonPool(
 			// conclude an id is absent and fetch a lesson that is about to
 			// arrive.
 			if (seq === requestSeq.current) setPoolSettled(true);
+			if (loadInFlight.current === seq) loadInFlight.current = null;
 		}
 	}, [query]);
 
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	// Re-ask for page 1 when the tab comes back, and count what the list does
+	// not hold. Only once the current query's page 1 is showing: before then
+	// there is nothing to compare against, and after a failure the error
+	// state's Retry is already the way forward.
+	useEffect(() => {
+		if (lessons === null || loadError) return;
+		const held = new Set(lessons.map((lesson) => lesson.id));
+		const onVisibilityChange = async () => {
+			if (document.visibilityState !== "visible") return;
+			if (loadInFlight.current !== null || checkInFlight.current) return;
+			// Read, not minted, the way loadMore reads it: the check belongs to
+			// the query on screen, and a new query moving the counter discards it.
+			const seq = requestSeq.current;
+			checkInFlight.current = true;
+			try {
+				const page = await listLessons(query());
+				if (seq !== requestSeq.current) return;
+				const count = page.lessons.filter(
+					(lesson) => !held.has(lesson.id),
+				).length;
+				setFresh(
+					count === 0
+						? null
+						: { count, more: count === page.lessons.length && page.has_more },
+				);
+			} catch {
+				// Deliberately quiet. This is a background check, and the list on
+				// screen is still a true answer to the question it was asked.
+			} finally {
+				checkInFlight.current = false;
+			}
+		};
+		document.addEventListener("visibilitychange", onVisibilityChange);
+		return () =>
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+	}, [lessons, loadError, query]);
 
 	const loadMore = async () => {
 		if (!cursor || moreInFlight.current === requestSeq.current) return;
@@ -293,6 +354,7 @@ export function useLessonPool(
 		loadingMore,
 		moreError,
 		ended,
+		fresh,
 		reload: () => void load(),
 		loadMore: () => void loadMore(),
 		patchLesson,

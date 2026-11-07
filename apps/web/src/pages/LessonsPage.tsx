@@ -8,6 +8,7 @@ import { LoadMore } from "../components/LoadMore";
 import ProjectFilter from "../components/ProjectFilter";
 import { PALETTE } from "../components/palette";
 import {
+	Button,
 	Chip,
 	EmptyState,
 	Panel,
@@ -169,6 +170,7 @@ export default function LessonsPage() {
 		loadingMore,
 		moreError,
 		ended,
+		fresh,
 		reload,
 		loadMore,
 		patchLesson,
@@ -225,6 +227,15 @@ export default function LessonsPage() {
 	// (ONL-75).
 	const outlet = useOutlet(context);
 	const detail = outlet !== null;
+
+	// "N+" when every row on the fresh read was new and there were more: the
+	// count is then a floor, and saying exactly N would be a guess.
+	const freshCount = fresh ? `${fresh.count}${fresh.more ? "+" : ""}` : null;
+	const freshLabel = fresh
+		? fresh.count === 1 && !fresh.more
+			? "1 new lesson, show it"
+			: `${freshCount} new lessons, show them`
+		: null;
 
 	// The live region's whole text, computed once rather than duplicated
 	// between the region and whatever branch below happens to be showing -
@@ -383,6 +394,13 @@ export default function LessonsPage() {
 					)
 				) : (
 					<Panel title="The pool">
+						{freshLabel ? (
+							<div style={{ marginBottom: "var(--space-2)" }}>
+								<Button variant="ghost" onClick={reload}>
+									{freshLabel}
+								</Button>
+							</div>
+						) : null}
 						<nav aria-label="Lessons">
 							{lessons.map((lesson) => (
 								// NavLink, not Link: it sets aria-current="page" on the
