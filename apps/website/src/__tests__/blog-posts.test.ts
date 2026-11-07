@@ -1,5 +1,7 @@
+import { getRssString } from "@astrojs/rss";
 import { describe, expect, it } from "vitest";
 import {
+	feedItems,
 	formatDate,
 	postSchema,
 	selectPublished,
@@ -106,5 +108,39 @@ describe("formatDate", () => {
 	// Greenwich would otherwise see the day before.
 	it("formats a frontmatter date as the day it names", () => {
 		expect(formatDate(new Date("2026-11-01"))).toBe("November 1, 2026");
+	});
+});
+
+describe("the feed", () => {
+	const entry = (id: string, published: string) => ({
+		id,
+		data: postSchema.parse({ ...valid, title: id, published }),
+	});
+	const posts = [entry("newer", "2026-11-02"), entry("older", "2026-10-01")];
+
+	it("carries each post's title, date, tags and path", () => {
+		expect(feedItems(posts)[0]).toEqual({
+			title: "newer",
+			description: "One sentence about it.",
+			pubDate: new Date("2026-11-02"),
+			link: "/blog/newer",
+			categories: ["architecture"],
+		});
+	});
+
+	it("renders absolute links under onlooker.dev, in the order given", async () => {
+		const xml = await getRssString({
+			title: "Onlooker blog",
+			description: "test",
+			site: "https://onlooker.dev",
+			items: feedItems(posts),
+		});
+		expect(xml.startsWith("<?xml")).toBe(true);
+		// getRssString adds a trailing slash to each item link, so the assertion
+		// matches that form rather than the path feedItems returns.
+		const newer = xml.indexOf("<link>https://onlooker.dev/blog/newer/</link>");
+		const older = xml.indexOf("<link>https://onlooker.dev/blog/older/</link>");
+		expect(newer).toBeGreaterThan(-1);
+		expect(older).toBeGreaterThan(newer);
 	});
 });

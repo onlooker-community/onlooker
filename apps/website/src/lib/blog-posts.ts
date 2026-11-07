@@ -55,3 +55,14 @@ const DATE = new Intl.DateTimeFormat("en-US", {
 export function formatDate(d: Date): string {
 	return DATE.format(d);
 }
+
+/** RSS items in the order given; publishedPosts() has already sorted them. */
+export function feedItems(posts: readonly PostLike[]) {
+	return posts.map((post) => ({
+		title: post.data.title,
+		description: post.data.description,
+		pubDate: post.data.published,
+		link: `/blog/${post.id}`,
+		categories: [...post.data.tags],
+	}));
+}

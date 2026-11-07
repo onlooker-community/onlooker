@@ -16,7 +16,12 @@ describe("blog routes", () => {
 		.sort();
 
 	it("are the ones the spec names", () => {
-		expect(files).toEqual(["[slug].astro", "index.astro", "tags/[tag].astro"]);
+		expect(files).toEqual([
+			"[slug].astro",
+			"index.astro",
+			"rss.xml.ts",
+			"tags/[tag].astro",
+		]);
 	});
 
 	for (const file of files) {
