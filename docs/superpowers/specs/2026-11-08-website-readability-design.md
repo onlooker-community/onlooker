@@ -70,6 +70,10 @@ Sections marked *(measured)* were read from this repository on 2026-11-08.
 
 * Abaddon is used only at a multiple of 16px. A breakpoint steps between two
   legal sizes; `clamp()` and `vw` sizes are not used with it.
+* Every Abaddon rule sets `letter-spacing: 0` and `font-weight: 700`. Added
+  while planning: each one set `-0.03em`, which is −1.44px at 48px and moves
+  every glyph off the pixel grid even at a legal size, and `800`, a weight
+  the face doesn't ship (it has 400 and 700).
 * **Page titles, Abaddon:**
   * blog post h1, blog index h1, plugins index h1, plugin page h1: `32px`, and
     `48px` at `min-width: 768px`. The blog index h1 is currently the body
@@ -103,10 +107,11 @@ In `apps/website/src/__tests__/`.
    `var(--font-display)`) declares its own `font-size`, so an inherited size
    fails. That size, and every `font-size` declared for the same selector
    anywhere else in the file (a media block that only resizes it, say), is
-   a px value that is a multiple of 16.
+   a px value that is a multiple of 16. Its letter-spacing, if set, is `0`.
 3. `globals.css` has no bare `nav` selector.
 4. `layout-meta.test.ts`: the rendered layout's header nav has the class
-   `site-nav`, and a blog post's breadcrumb does not.
+   `site-nav`, and a blog post's breadcrumb does not. Also that `.prose`'s
+   list indent applies only to unclassed lists.
 
 Each test is checked by ablation: remove the code it covers and watch it
 fail.
