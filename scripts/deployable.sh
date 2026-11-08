@@ -3,7 +3,7 @@
 #
 # Prints `true` or `false`. deploy.yml gates its deploy jobs on the answer.
 #
-# Usage: scripts/deployable.sh production|staging
+# Usage: scripts/deployable.sh production|staging|website apps|website
 #
 # WHY THIS IS NOT A DIFF FROM github.event.before
 #
@@ -37,13 +37,29 @@
 # its own last success instead.
 set -euo pipefail
 
-# Paths whose contents end up in a deployed artifact.
+# Paths whose contents end up in a deployed artifact, per surface.
+#
+# A surface is a set of things that deploy together and are recorded together.
+# `apps` is the API and web app, which deploy to staging and to `production`.
+# `website` is onlooker.dev, which deploys only to its own `website`
+# environment. They are separate because this script anchors on each
+# environment's last SUCCESSFUL deployment: if a website-only change deployed
+# through `production`, it would record a production deployment at a commit
+# whose API changes never shipped, and they would read as live from then on
+# (ONL-277).
+#
+# Shared inputs count for both. A package, the lockfile or the build config can
+# change any bundle, and a redundant deploy costs minutes where a skipped one
+# ships nothing.
 #
 # Anchored at the start of the path, which is load-bearing: unanchored, a
 # document that merely mentions `apps/api/` would deploy the entire stack.
 # deploy.yml is here because a change to how deploying works has to be able to
-# deploy itself; no other workflow can.
-readonly DEPLOYABLE_PATHS='^(apps/(api|web|website)/|packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml)'
+# deploy itself; no other workflow can. `apps/(api|web)/` keeps its trailing
+# slash so that apps/website/ is not mistaken for apps/web/.
+readonly SHARED_PATHS='packages/|package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/deploy\.yml'
+readonly APPS_PATHS="^(apps/(api|web)/|${SHARED_PATHS})"
+readonly WEBSITE_PATHS="^(apps/website/|${SHARED_PATHS})"
 
 # How far back to look for a successful deployment.
 #
@@ -52,7 +68,25 @@ readonly DEPLOYABLE_PATHS='^(apps/(api|web|website)/|packages/|package\.json|pnp
 # "found none" that a fresh repository gives, which deploys.
 readonly DEPLOYMENT_SEARCH_DEPTH=50
 
-# Read changed file names on stdin, print whether any of them is deployable.
+usage() {
+	echo "usage: $(basename "$0") production|staging|website apps|website" >&2
+	echo "       $(basename "$0") --match apps|website < changed-file-list" >&2
+	echo "       $(basename "$0") --select-sha        < deployments-json" >&2
+	exit 2
+}
+
+# Print the path pattern for a surface. Returns 1 for anything else, so a typo
+# in deploy.yml is a usage error rather than a surface that never deploys.
+paths_for() {
+	case "${1:-}" in
+		apps) printf '%s\n' "${APPS_PATHS}" ;;
+		website) printf '%s\n' "${WEBSITE_PATHS}" ;;
+		*) return 1 ;;
+	esac
+}
+
+# Read changed file names on stdin, print whether any of them matches the
+# pattern in $1.
 #
 # Separated from the git and API calls so it can be tested as itself, on real
 # file lists, rather than through a stub of something else.
@@ -69,7 +103,7 @@ match_paths() {
 	# (ONL-251) - except under a src/ directory, where a content collection or
 	# a `?raw` import can put it in the bundle. awk reads its whole input and
 	# always exits 0, so it neither takes nor causes the SIGPIPE above.
-	if awk '!(/\.md$/ && !/\/src\//)' | grep -E "${DEPLOYABLE_PATHS}" >/dev/null; then
+	if awk '!(/\.md$/ && !/\/src\//)' | grep -E "$1" >/dev/null; then
 		echo "true"
 	else
 		echo "false"
@@ -136,23 +170,23 @@ fetch_deployments() {
 
 case "${1:-}" in
 	--match)
-		match_paths
+		pattern="$(paths_for "${2:-}")" || usage
+		match_paths "${pattern}"
 		exit 0
 		;;
 	--select-sha)
 		select_sha
 		exit $?
 		;;
-	production | staging) ;;
-	*)
-		echo "usage: $(basename "$0") production|staging" >&2
-		echo "       $(basename "$0") --match       < changed-file-list" >&2
-		echo "       $(basename "$0") --select-sha  < deployments-json" >&2
-		exit 2
-		;;
+	production | staging | website) ;;
+	*) usage ;;
 esac
 
 readonly ENVIRONMENT="$1"
+# Checked before anything reaches the network, so a bad surface fails the same
+# way offline and in CI.
+PATTERN="$(paths_for "${2:-}")" || usage
+readonly PATTERN
 readonly HEAD_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 
 # Every failure below answers `true`, and that asymmetry is deliberate. A
@@ -200,4 +234,4 @@ echo "deployable: ${ENVIRONMENT} last deployed ${base_sha}" >&2
 changed="$(git -c core.quotePath=false diff --name-only "${base_sha}" "${HEAD_SHA}")"
 printf '%s\n' "${changed}" >&2
 
-printf '%s\n' "${changed}" | match_paths
+printf '%s\n' "${changed}" | match_paths "${PATTERN}"
