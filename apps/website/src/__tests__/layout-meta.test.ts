@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { describe, expect, it } from "vitest";
+import BlogPost from "../layouts/BlogPost.astro";
 import Layout from "../layouts/Layout.astro";
+import { postSchema } from "../lib/blog-posts";
 
 // Rendered, not read as source, for the reason credit.test.ts gives: a string
 // in a file does not establish that a browser or a link unfurler sees it.
@@ -62,5 +65,54 @@ describe("Layout nav", () => {
 		expect(await render({})).toMatch(
 			/<a class="nav-link" href="\/plugins\/"[^>]*>Plugins<\/a>/,
 		);
+	});
+});
+
+const globals = readFileSync(
+	new URL("../styles/globals.css", import.meta.url),
+	"utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
+
+// Breadcrumbs are <nav> elements too. While the header was styled through a
+// bare `nav` selector, every breadcrumb picked up its space-between, its 48px
+// of padding and its bottom border.
+describe("site header and breadcrumbs", () => {
+	it("styles the header through a class, never a bare nav selector", () => {
+		expect(globals).not.toMatch(/(^|[{},])\s*nav\s*[{,]/m);
+	});
+
+	it("marks the header nav as the site nav", async () => {
+		expect(await render({})).toMatch(/<nav[^>]*class="site-nav"/);
+	});
+
+	it("leaves a post's breadcrumb unmarked", async () => {
+		const container = await AstroContainer.create();
+		const html = await container.renderToString(BlogPost, {
+			props: {
+				post: {
+					id: "a-post",
+					data: postSchema.parse({
+						title: "A post",
+						description: "About it.",
+						published: "2026-11-01",
+						tags: ["measurements"],
+					}),
+				},
+			},
+		});
+		const breadcrumb = /<nav[^>]*aria-label="Breadcrumb"[^>]*>/.exec(html)?.[0];
+		expect(breadcrumb).toBeDefined();
+		expect(breadcrumb).not.toContain("site-nav");
+	});
+});
+
+// The tag list under a post's title sits inside .prose, and the indent meant
+// for markdown lists reached it. Markdown lists carry no class.
+describe("prose lists", () => {
+	it("indents only unclassed lists", () => {
+		expect(globals).toMatch(
+			/\.prose :is\(ul, ol\):not\(\[class\]\)\s*\{[^}]*padding-left/,
+		);
+		expect(globals).not.toMatch(/\.prose ul,\s*\.prose ol\s*\{/);
 	});
 });

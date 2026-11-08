@@ -148,7 +148,7 @@ body::after {
 	flex-direction: column;
 }
 
-nav {
+.site-nav {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -231,7 +231,7 @@ nav {
 /* The nav is the logo, the Blog link and the tag, and at 48px of side padding
  * the row no longer fits a 360px phone. */
 @media (max-width: 640px) {
-	nav {
+	.site-nav {
 		padding: 20px 16px;
 	}
 
@@ -361,7 +361,7 @@ footer {
 }
 
 @media (max-width: 640px) {
-	nav {
+	.site-nav {
 		padding: 20px 24px;
 	}
 	footer {
@@ -535,8 +535,9 @@ footer {
 	border-radius: 3px;
 }
 
-.prose ul,
-.prose ol {
+/* Markdown lists carry no class. The tag list under a post's title does, and
+ * sits inside .prose, so this indent used to reach it too. */
+.prose :is(ul, ol):not([class]) {
 	padding-left: 1.4em;
 }
 
