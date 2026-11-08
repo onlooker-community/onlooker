@@ -10,22 +10,19 @@ describe("isPublicBeforeLaunch", () => {
 		"/blog/contrast-arena/",
 		"/blog/tags/measurements",
 		"/blog/rss.xml",
+		"/plugins",
+		"/plugins/",
+		"/plugins/archivist",
+		"/plugins/archivist/",
 	]) {
 		it(`lets ${path} through`, () => {
 			expect(isPublicBeforeLaunch(path)).toBe(true);
 		});
 	}
 
-	// /plugins stays behind the gate until its pages match the marketplace
-	// (ONL-263); ONL-264 adds it here. /blogx is the prefix match a careless
-	// startsWith("/blog") would let through.
-	for (const path of [
-		"/plugins",
-		"/plugins/archivist",
-		"/blogx",
-		"/signup",
-		"",
-	]) {
+	// /blogx and /pluginsx are the prefix matches a careless startsWith would
+	// let through.
+	for (const path of ["/blogx", "/pluginsx", "/signup", ""]) {
 		it(`keeps ${JSON.stringify(path)} behind the gate`, () => {
 			expect(isPublicBeforeLaunch(path)).toBe(false);
 		});

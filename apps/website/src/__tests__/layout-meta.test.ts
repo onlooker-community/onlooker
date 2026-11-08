@@ -58,6 +58,12 @@ describe("Layout nav", () => {
 		expect(await render({})).toMatch(/<a[^>]*href="\/blog\/"[^>]*>Blog<\/a>/);
 	});
 
+	it("links to the plugin pages from the nav", async () => {
+		expect(await render({})).toMatch(
+			/<a class="nav-link" href="\/plugins\/"[^>]*>Plugins<\/a>/,
+		);
+	});
+
 	// /plugins still builds as a redirect to / while the site is unlaunched,
 	// so a nav link there would send every reader home. ONL-264 restores it.
 	it("does not link the plugin pages yet", async () => {
