@@ -886,6 +886,12 @@ jobs:
           # SENTRY_RELEASE above and as the worker's MONITORING_RELEASE below;
           # all three are one deploy.
           PUBLIC_MONITORING_RELEASE: ${{ github.sha }}
+          # The website's plugin pages read ecosystem's marketplace from GitHub
+          # while this step builds them. Everywhere else a failed read falls
+          # back to a committed fixture; here it fails the build, so
+          # onlooker.dev never ships the fixture's versions. See
+          # apps/website/src/lib/marketplace.ts.
+          MARKETPLACE_REQUIRED: '1'
 
       - name: Apply D1 migrations to Production
         run: pnpm migrate:prod

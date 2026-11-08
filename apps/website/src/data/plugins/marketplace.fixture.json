@@ -1,0 +1,110 @@
+[
+	{
+		"name": "ecosystem",
+		"version": "0.78.0",
+		"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Required by all other Onlooker plugins.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
+	},
+	{
+		"name": "archivist",
+		"version": "0.10.0",
+		"description": "Structured session memory across context truncation: extracts decisions, dead ends, and open questions on PreCompact and reinjects the most important items at SessionStart. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/archivist/README.md"
+	},
+	{
+		"name": "cartographer",
+		"version": "0.13.0",
+		"description": "Proactive periodic auditor of the persistent instruction layer (CLAUDE.md, AGENTS.md, .claude/rules/). Discovers all instruction files in the repo, extracts semantic maps, and surfaces contradictions, shadowing, gaps, and drift before they cause expensive agent misbehavior. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/cartographer/README.md"
+	},
+	{
+		"name": "tribunal",
+		"version": "1.9.0",
+		"description": "Multi-agent execution with LLM-as-a-Judge quality gates. An Actor performs work; a jury of typed Judges scores it against a project-overridable rubric; a Meta-Judge reviews the jury for bias; the gate decides accept, retry, or exhaust. Grounded in LLM-as-a-Judge (Zheng et al. 2023) and LLM-as-a-Meta-Judge (Wu et al. 2024). Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/tribunal/README.md"
+	},
+	{
+		"name": "echo",
+		"version": "0.13.0",
+		"description": "Measurement harness for LLM-as-judge evaluation of prompt-shaped files. Measures whether a judge discriminates between different inputs more reliably than it reproduces itself on identical input. Ships no hooks: the prompt-regression stop gate was retired in ONL-103 as measured-ineffective (see docs/adr/005).",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/echo/README.md"
+	},
+	{
+		"name": "governor",
+		"version": "0.8.0",
+		"description": "Resource governance and budget enforcement for the Onlooker ecosystem. Tracks per-session token and cost spend, gates Task spawns before they exceed a configurable budget ceiling, and emits governor.* events for audit. Named for the steam-engine governor — a device that regulates output. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/governor/README.md"
+	},
+	{
+		"name": "compass",
+		"version": "0.10.0",
+		"description": "Pre-write intent clarity gate. Intercepts write-class tool calls and requires a confidence threshold before allowing them to proceed. Evaluates the pending write against the prior assistant turn as context to avoid false positives on question-answer turns. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/compass/README.md"
+	},
+	{
+		"name": "scribe",
+		"version": "0.11.0",
+		"description": "Intent documentation from agent activity. Captures why changes were made — problem context, decisions, tradeoffs — and distills them into readable artifacts at session end.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/scribe/README.md"
+	},
+	{
+		"name": "counsel",
+		"version": "0.13.0",
+		"description": "Weekly synthesis and recommendations from the full observability stack. Reads all plugin event logs, produces a structured improvement brief, and injects it at session start when the last brief is stale.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/counsel/README.md"
+	},
+	{
+		"name": "warden",
+		"version": "0.8.0",
+		"description": "Untrusted-content gate. Scans content flowing in through WebFetch and Read for prompt-injection patterns, and when a threat is detected closes a session-scoped gate that blocks Write, Edit, and Bash until the user explicitly clears it. Grounded in Meta's Agents Rule of Two: an agent should hold no more than two of {private data, external actions, untrusted content} at once — warden removes the external-actions property while untrusted content is in play. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/warden/README.md"
+	},
+	{
+		"name": "customs",
+		"version": "0.3.0",
+		"description": "Outbound secret gate. Before a Bash command or WebFetch URL leaves the machine, checks it for secret-shaped literals and asks when one is headed to a host that is not where that kind of secret goes. A GitHub token to api.github.com passes; the same token to anywhere else asks. The counterpart to warden, which guards what comes in. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/customs/README.md"
+	},
+	{
+		"name": "librarian",
+		"version": "0.27.0",
+		"description": "Consolidation layer between archivist's per-session artifacts and the user's durable typed memory store. Detects which session decisions, dead-ends, and open questions deserve to live across sessions, classifies them into the user/feedback/project/reference types, and queues them as proposals for explicit confirmation. Auto-promotion is opt-in. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/librarian/README.md"
+	},
+	{
+		"name": "curator",
+		"version": "0.8.0",
+		"description": "Maintenance layer for the user's typed auto-memory store. At every SessionStart, runs four cheap heuristic checks (date_decayed, path_broken, broken_index, orphaned_memory) against the memories at ~/.claude/projects/<encoded>/memory/ inside a wall-clock budget. Surfaces findings as a one-line pointer to /curator review; never edits the memory store directly. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/curator/README.md"
+	},
+	{
+		"name": "historian",
+		"version": "0.13.0",
+		"description": "Episodic memory layer. At SessionEnd, chunks and sanitizes the session transcript and stores chunks under $ONLOOKER_DIR/historian/<project-key>/sessions/ (default $HOME/.onlooker). On UserPromptSubmit, embeds the prompt and performs similarity retrieval over stored chunks to surface relevant past context. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/historian/README.md"
+	},
+	{
+		"name": "assayer",
+		"version": "1.7.0",
+		"description": "Claim verification. At session end, parses the agent's final message for testable claims (\"I ran the tests, they pass\", \"the build is green\") and checks each against the actual command results in the session transcript, classifying it corroborated, contradicted, or unverifiable. Catches lying-without-malice. Advisory by default. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/assayer/README.md"
+	},
+	{
+		"name": "bursar",
+		"version": "0.9.0",
+		"description": "Multi-session, per-project budget accounting for the Onlooker ecosystem. Rolls each session's spend into a per-project ledger on SessionEnd and surfaces \"this project burned $X this week\" at SessionStart. Where governor regulates a single session, bursar is the cross-session rollup: it reads governor.session.complete off the shared event bus and emits bursar.* events for audit. Named for the officer who keeps the accounts. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/bursar/README.md"
+	},
+	{
+		"name": "lineage",
+		"version": "0.10.0",
+		"description": "Per-change provenance for the Onlooker ecosystem. Records session/turn metadata plus a secret-redacted, size-capped snippet for every Edit/Write/MultiEdit at PostToolUse, then answers \"why does this line exist?\" via /lineage by joining change records to historian-preserved transcripts. Emits lineage.* events for audit. Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/lineage/README.md"
+	},
+	{
+		"name": "inspector",
+		"version": "0.10.0",
+		"description": "Per-edit lint and typecheck gate. Runs the project's configured checks on just the touched file after every Write / Edit / MultiEdit, so the agent sees its own type errors before claiming success. Cheaper than proctor (which runs project-wide verification at Stop); complements assayer (which catches the agent lying about claims). Builds on the Onlooker ecosystem plugin.",
+		"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/inspector/README.md"
+	}
+]

@@ -1,0 +1,109 @@
+import fixture from "../data/plugins/marketplace.fixture.json";
+
+/**
+ * The plugin list, versions and descriptions, read from ecosystem's
+ * marketplace while the site builds. The plugin pages are prerendered, so this
+ * runs once per build and never on a request.
+ *
+ * Hand-copied versions went stale the afternoon ONL-263 was filed: ecosystem
+ * bumps a plugin about twice a day. So the facts that drift come from the
+ * marketplace, and only prose lives in this repository.
+ *
+ * A failed read fails the build only where it ships. The production deploy
+ * sets MARKETPLACE_REQUIRED=1; everywhere else - a laptop offline, CI's test
+ * jobs during a GitHub outage - falls back to the committed fixture and says
+ * so, because `pnpm build` builds every package and a website fetch should not
+ * block an API deploy.
+ */
+
+const RAW =
+	"https://raw.githubusercontent.com/onlooker-community/ecosystem/main/";
+const BLOB = "https://github.com/onlooker-community/ecosystem/blob/main/";
+
+export interface MarketplacePlugin {
+	name: string;
+	version: string;
+	description: string;
+	readmeUrl: string;
+}
+
+export interface Marketplace {
+	source: "github" | "fixture";
+	plugins: MarketplacePlugin[];
+}
+
+interface Options {
+	fetch?: typeof fetch;
+	required?: boolean;
+	warn?: (message: string) => void;
+}
+
+/** "./" is the repository root; "./plugins/x" is "plugins/x/". */
+function directory(source: string): string {
+	const path = source.replace(/^\.\//, "").replace(/\/$/, "");
+	return path === "" ? "" : `${path}/`;
+}
+
+async function json(read: typeof fetch, path: string): Promise<unknown> {
+	const response = await read(`${RAW}${path}`);
+	if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+	return response.json();
+}
+
+function field(manifest: unknown, key: string, path: string): string {
+	const value = (manifest as Record<string, unknown> | null)?.[key];
+	if (typeof value !== "string" || value === "")
+		throw new Error(`${path} has no ${key}`);
+	return value;
+}
+
+async function fromGitHub(read: typeof fetch): Promise<MarketplacePlugin[]> {
+	const listing = (await json(read, ".claude-plugin/marketplace.json")) as {
+		plugins?: { name: string; source: string }[];
+	};
+	if (!Array.isArray(listing?.plugins))
+		throw new Error("marketplace.json has no plugins");
+	return Promise.all(
+		listing.plugins.map(async ({ name, source }) => {
+			const dir = directory(source);
+			const path = `${dir}.claude-plugin/plugin.json`;
+			const manifest = await json(read, path);
+			field(manifest, "name", path);
+			return {
+				name,
+				version: field(manifest, "version", path),
+				description: field(manifest, "description", path),
+				readmeUrl: `${BLOB}${dir}README.md`,
+			};
+		}),
+	);
+}
+
+export async function fetchMarketplace(
+	options: Options = {},
+): Promise<Marketplace> {
+	const {
+		fetch: read = fetch,
+		required = false,
+		warn = (message) => console.warn(message),
+	} = options;
+	try {
+		return { source: "github", plugins: await fromGitHub(read) };
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		if (required)
+			throw new Error(`Could not read the ecosystem marketplace: ${reason}`);
+		warn(`[marketplace] using the committed fixture, not GitHub: ${reason}`);
+		return { source: "fixture", plugins: fixture };
+	}
+}
+
+let memo: Promise<Marketplace> | undefined;
+
+/** One read per build, shared by every page that asks. */
+export function readMarketplace(): Promise<Marketplace> {
+	memo ??= fetchMarketplace({
+		required: process.env.MARKETPLACE_REQUIRED === "1",
+	});
+	return memo;
+}
