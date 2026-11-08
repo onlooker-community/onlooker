@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useOutlet } from "react-router-dom";
 import { type LabelMap, listLabels } from "../api/labelsApi";
 import type { Lesson, LessonStatus, RetractableOrg } from "../api/lessonsApi";
@@ -8,6 +8,7 @@ import { LoadMore } from "../components/LoadMore";
 import ProjectFilter from "../components/ProjectFilter";
 import { PALETTE } from "../components/palette";
 import {
+	Button,
 	Chip,
 	EmptyState,
 	Panel,
@@ -154,6 +155,12 @@ export default function LessonsPage() {
 	// A name rather than an entry, so a rename that regroups keys can't leave a
 	// stale set of keys behind.
 	const [selected, setSelected] = useState<string | null>(null);
+	// Set when the notice is pressed, read once the new page lands. The press
+	// unmounts the button, which leaves focus on <body>; the first row is where
+	// the reader was headed. Same rule as LoadMore: only when focus really was
+	// lost, so a reader who moved on is left where they went.
+	const focusFirstRow = useRef(false);
+	const navRef = useRef<HTMLElement | null>(null);
 
 	const entries = projectEntries(projects, labels);
 	const entry = entries.find((option) => option.name === selected) ?? null;
@@ -169,10 +176,18 @@ export default function LessonsPage() {
 		loadingMore,
 		moreError,
 		ended,
+		fresh,
 		reload,
 		loadMore,
 		patchLesson,
 	} = useLessonPool(filter, entry ? entryKeys(entry) : NO_KEYS);
+
+	useEffect(() => {
+		if (!focusFirstRow.current || lessons === null) return;
+		focusFirstRow.current = false;
+		if (document.activeElement !== document.body) return;
+		navRef.current?.querySelector("a")?.focus();
+	}, [lessons]);
 
 	// Its own effect, for the labels' reason and one more: a failure here
 	// must never blank the pool.
@@ -226,6 +241,15 @@ export default function LessonsPage() {
 	const outlet = useOutlet(context);
 	const detail = outlet !== null;
 
+	// "N+" when every row on the fresh read was new and there were more: the
+	// count is then a floor, and saying exactly N would be a guess.
+	const freshCount = fresh ? `${fresh.count}${fresh.more ? "+" : ""}` : null;
+	const freshLabel = fresh
+		? fresh.count === 1 && !fresh.more
+			? "1 new lesson, show it"
+			: `${freshCount} new lessons, show them`
+		: null;
+
 	// The live region's whole text, computed once rather than duplicated
 	// between the region and whatever branch below happens to be showing -
 	// the two can say the same thing (an empty state's title, a count) without
@@ -242,13 +266,14 @@ export default function LessonsPage() {
 			? (FILTERS.find((option) => option.value === filter)?.empty ??
 				"No lessons")
 			: "Nothing has synced yet";
+	const freshSuffix = freshCount ? ` · ${freshCount} new` : "";
 	const resultSummary = loadError
 		? "Could not load the pool"
 		: lessons === null
 			? "Loading the pool…"
 			: lessons.length === 0
-				? emptyTitle
-				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`;
+				? `${emptyTitle}${freshSuffix}`
+				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}${freshSuffix}`;
 
 	return (
 		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
@@ -334,6 +359,24 @@ export default function LessonsPage() {
 				>
 					{resultSummary}
 				</p>
+				{/*
+				  Above every branch, so an empty list shows it too. The hook only
+				  sets `fresh` once page 1 is showing without an error, so it
+				  cannot appear over the loading or error states.
+				*/}
+				{freshLabel ? (
+					<div style={{ marginBottom: "var(--space-2)" }}>
+						<Button
+							variant="ghost"
+							onClick={() => {
+								focusFirstRow.current = true;
+								reload();
+							}}
+						>
+							{freshLabel}
+						</Button>
+					</div>
+				) : null}
 				{loadError ? (
 					<EmptyState
 						title="Could not load the pool"
@@ -383,7 +426,7 @@ export default function LessonsPage() {
 					)
 				) : (
 					<Panel title="The pool">
-						<nav aria-label="Lessons">
+						<nav aria-label="Lessons" ref={navRef}>
 							{lessons.map((lesson) => (
 								// NavLink, not Link: it sets aria-current="page" on the
 								// selected one, which is the only thing telling a screen
