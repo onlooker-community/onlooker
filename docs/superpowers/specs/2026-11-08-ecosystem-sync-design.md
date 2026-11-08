@@ -56,14 +56,15 @@ therefore records its deployments in its own environment.
   group `deploy-website`, `cancel-in-progress: false`.
   - Runs on `main` only, for a push whose website answer is `true` or for
     `workflow_dispatch`, after `test` succeeds.
-  - When `deploy-production` also runs, `deploy-website` runs after it,
-    keeping today's order. A skipped or failed `deploy-production` does not
-    block it. That is a change: today both share a job, so a failed API
-    deploy also stops the website deploy. The website does not depend on the
-    API to build or serve, and a website change must not wait on an API
-    approval or failure.
-  - A run that changes both surfaces shows both environments in GitHub's
-    "Review deployments" dialog, so one review approves both.
+  - It `needs: [test, changes]` and not `deploy-production`, so the two run
+    side by side. A run that changes both surfaces therefore has both jobs
+    waiting at once, and GitHub's "Review deployments" dialog approves both
+    in one review; with `needs: deploy-production`, the website job would
+    not start waiting until production was approved, and would ask again.
+  - That is a change: today both share a job, so a failed API deploy also
+    stops the website deploy. The website does not depend on the API to
+    build or serve, and a website change must not wait on an API approval or
+    failure.
 - **`deploy-staging`** is unchanged in content. Staging never deployed the
   website, so its answer is the apps surface only: a website-only merge skips
   staging, and `deploy-production`'s existing condition (staging skipped and
@@ -106,8 +107,14 @@ Each run:
 3. **Record the commit.** The fixture becomes
    `{ "commit": "<40-char sha>", "plugins": [...] }`. `marketplace.ts`,
    `marketplace.test.ts` and `plugin-pages.test.ts` read `fixture.plugins`.
-4. **Stop if nothing changed.** If the generated fixture equals the one on
-   onlooker's `main`, the run exits without pushing or editing a PR.
+4. **Stop if nothing changed.** If the generated plugins equal the ones on
+   onlooker's `main` and no plugin README changed since `main`'s recorded
+   commit, the run exits without pushing or editing a PR. A new ecosystem
+   commit alone is not a change: recording every commit would reopen the PR
+   for each one, and the next real change still diffs from `main`'s commit.
+   README changes come from a full clone of ecosystem
+   (`git diff --name-only <recorded> <new>`), not the compare API, whose file
+   list stops at 300.
 5. **Update one branch and one PR.** Branch `bot/ecosystem-sync`:
    - If it exists, check it out, merge `origin/main` into it, regenerate the
      fixture on top, commit if it changed, and push without force. A commit
@@ -123,8 +130,9 @@ Each run:
      - each plugin README that changed (`README.md` for `ecosystem`,
        `plugins/<name>/README.md` for the rest; other READMEs ignored), with a
        compare link, naming the prose file to re-check.
-   - When `main`'s fixture has no recorded commit (the first sync), the body
-     says so and lists no README changes.
+   - The commit is required. The change that introduces it regenerates the
+     fixture at ecosystem's `main` of that day, so there is no first sync
+     without one.
 
 Merging the sync PR is the point where the prose is confirmed against the
 listed READMEs.
