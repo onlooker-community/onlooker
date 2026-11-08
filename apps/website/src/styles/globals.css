@@ -292,6 +292,8 @@ footer {
 	color: var(--teal);
 }
 
+/* Blocks that use this rest visible and take `both` fill: the first keyframe
+ * hides them through their delay. If the animation never runs, they show. */
 @keyframes fade-up {
 	from {
 		opacity: 0;

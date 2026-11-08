@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+import { declared, stylesheets } from "./stylesheets";
+
+// On 2026-11-08 six blocks on the landing page started at opacity: 0 and
+// relied on the fade-up animation to show them. Anything that stopped the
+// animation from running, a reduced-motion rule included, left them
+// invisible. Each block now rests visible and is hidden through its delay by
+// fade-up's first keyframe instead, which takes `both` (or `backwards`)
+// fill. With `forwards` and no opacity: 0, the block would show during its
+// delay, vanish, and then fade in.
+
+const animated = stylesheets.flatMap(({ name, rules }) =>
+	rules
+		.filter((rule) => declared(rule.body, "animation") !== undefined)
+		.map((rule) => ({ label: `${name}: ${rule.selector}`, rule })),
+);
+
+const fadeUp = animated.filter(({ rule }) =>
+	/\bfade-up\b/.test(declared(rule.body, "animation") ?? ""),
+);
+
+describe("animated blocks", () => {
+	// Six use fade-up today: five on the landing page and the latest-post
+	// line. Fewer found means the parser stopped seeing them.
+	it("are found where the site uses them", () => {
+		expect(fadeUp.length).toBeGreaterThanOrEqual(6);
+	});
+
+	for (const { label, rule } of animated) {
+		it(`${label} rests visible`, () => {
+			expect(declared(rule.body, "opacity")).not.toBe("0");
+		});
+	}
+
+	for (const { label, rule } of fadeUp) {
+		it(`${label} is hidden through its delay by the animation`, () => {
+			expect(declared(rule.body, "animation")).toMatch(/\b(both|backwards)\b/);
+		});
+	}
+});
