@@ -28,7 +28,7 @@ export async function requireAuth(
 	}
 
 	const payload = await verifyJwt(token, env.JWT_SECRET);
-	if (!payload || payload.type !== "access") {
+	if (payload?.type !== "access") {
 		throw new ApiError(401, "invalid_token", "Invalid or expired token");
 	}
 
@@ -53,7 +53,7 @@ export async function optionalAuth(
 	if (!token) return null;
 
 	const payload = await verifyJwt(token, env.JWT_SECRET);
-	if (!payload || payload.type !== "access") return null;
+	if (payload?.type !== "access") return null;
 
 	monitor.setUser({ id: payload.sub });
 
