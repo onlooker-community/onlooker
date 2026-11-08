@@ -531,8 +531,8 @@ exist would start being served from cache. Turning it on would also put a real
 edge copy behind the takedown story, which `ctx.cache.purge()` exists to
 invalidate.
 
-No test can observe any of this: `SELF.fetch` in the test harness never
-populates an edge cache, which is why the retraction and block tests in
+No test can observe any of this: `exports.default.fetch` in the test harness
+never populates an edge cache, which is why the retraction and block tests in
 `routes/admin-moderation.test.ts` that assert "stops serving it" pass instantly
 and prove nothing about production timing.
 

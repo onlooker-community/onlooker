@@ -179,13 +179,13 @@ describe("POST /api/orgs/:id/lessons/:lessonId/retract", () => {
 });
 
 describe("POST /api/orgs/:id/lessons/:lessonId/retract when the write fails", () => {
-	// Calls the handler directly rather than through the worker's default export, the same way
-	// routes/lessons-push-failure.test.ts does and for the same reason:
-	// sustained sequence contention is a D1 failure, and there is no request
-	// through the worker that provokes one. That file is the only existing
-	// precedent for forcing SequenceExhaustedError through a route handler -
-	// neither admin-moderation.test.ts nor lessons-browser.test.ts has a 503
-	// test of its own for their equivalent retracts, so this follows
+	// Calls the handler directly rather than through the worker's default
+	// export, the same way routes/lessons-push-failure.test.ts does and for the
+	// same reason: sustained sequence contention is a D1 failure, and there is
+	// no request through the worker that provokes one. That file is the only
+	// existing precedent for forcing SequenceExhaustedError through a route
+	// handler - neither admin-moderation.test.ts nor lessons-browser.test.ts has
+	// a 503 test of its own for their equivalent retracts, so this follows
 	// lessons-push-failure.test.ts's idiom instead.
 	it("answers 503 for sustained sequence contention, like the sibling retracts", async () => {
 		const thrown = await handleRetractOrgLesson(

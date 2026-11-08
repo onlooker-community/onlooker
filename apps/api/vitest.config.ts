@@ -17,7 +17,8 @@ export default defineConfig(async () => {
 		plugins: [
 			cloudflareTest({
 				// Points the pool at the real worker entry, which is what makes
-				// `exports.default` from "cloudflare:workers" dispatch to our default export.
+				// `exports.default` from "cloudflare:workers" dispatch to our
+				// default export.
 				// Without it the D1-level tests still run, but nothing can exercise
 				// the worker over HTTP - which left routing, status codes and
 				// response shapes untested at the only layer apps/web actually sees.

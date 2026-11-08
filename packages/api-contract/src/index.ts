@@ -246,8 +246,8 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
  *
  * Both runners drive these as an ordered flow rather than single requests, since
  * each step depends on the last. The numbers live here so the decision has one
- * home; the mechanics differ per side because the mock and SELF are reached
- * differently.
+ * home; the mechanics differ per side because the mock and the worker's
+ * default export are reached differently.
  */
 export const SESSION_LIFECYCLE = {
 	/** The access token still works right after logout - it cannot be withdrawn. */

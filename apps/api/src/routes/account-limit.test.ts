@@ -8,8 +8,9 @@ import type { WorkerEnv } from "../types";
 
 /**
  * The circuit breaker as a caller meets it: through dispatch, with a fake
- * limiter on env. The worker's default export can't carry a per-test binding, so these call
- * dispatch directly with the worker's own env plus the fake.
+ * limiter on env. The worker's default export can't carry a per-test
+ * binding, so these call dispatch directly with the worker's own env plus
+ * the fake.
  */
 
 function fakeLimiter(success: boolean): RateLimit & { keys: string[] } {

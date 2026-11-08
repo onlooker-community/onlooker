@@ -26,9 +26,9 @@ import { handleAcceptInvite } from "./orgs-invite-accept.js";
  * Calls the handler directly against a proxied binding, the way
  * routes/lessons-push-failure.test.ts does and for the same reason: the window
  * this covers opens between two statements inside ONE request, and no sequence
- * of requests through the worker's default export can open it. Deleting the org before the request
- * cascades the invitation away with it, so the handler refuses at
- * findInviteByTokenHash and never reaches the path under test.
+ * of requests through the worker's default export can open it. Deleting the
+ * org before the request cascades the invitation away with it, so the handler
+ * refuses at findInviteByTokenHash and never reaches the path under test.
  */
 const db = () => env.DB;
 const REAL_ENV = env as unknown as WorkerEnv;
