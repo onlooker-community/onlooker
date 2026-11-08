@@ -40,6 +40,12 @@
 	--bg-3: color-mix(in srgb, var(--panel) 30%, var(--ground));
 	--border: var(--edge);
 	--border-2: color-mix(in srgb, var(--edge) 82%, var(--ink));
+	/* The background grid. In --edge it measured 3.71 by day and 3.04 at night
+	 * against --ground, the strength of a border, and it sat behind the body
+	 * text on every page. 18% edge reads 1.22 by day and 1.19 at night: still
+	 * a texture, no longer a competitor. derived-surfaces.test.ts holds it
+	 * between 1.1 and 1.3 in both themes. */
+	--grid-line: color-mix(in srgb, var(--edge) 18%, var(--ground));
 	--accent: var(--teal);
 	--accent-dim: color-mix(in srgb, var(--teal) 15%, transparent);
 	--accent-glow: color-mix(in srgb, var(--teal) 6%, transparent);
@@ -98,19 +104,21 @@ body {
 	position: relative;
 }
 
+/* Absolute, not fixed, so the grid belongs to the top of the page and scrolls
+ * away with it. Fixed, its fade was measured from the viewport, and the text
+ * of a long post always scrolled over the strongest part. */
 body::before {
 	content: "";
-	position: fixed;
-	inset: 0;
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 100vh;
 	background-image:
-		linear-gradient(var(--border) 1px, transparent 1px),
-		linear-gradient(90deg, var(--border) 1px, transparent 1px);
+		linear-gradient(var(--grid-line) 1px, transparent 1px),
+		linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
 	background-size: 60px 60px;
-	mask-image: radial-gradient(
-		ellipse 80% 80% at 50% 0%,
-		black 30%,
-		transparent 100%
-	);
+	mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
 	pointer-events: none;
 	z-index: 0;
 }
@@ -140,7 +148,7 @@ body::after {
 	flex-direction: column;
 }
 
-nav {
+.site-nav {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -223,7 +231,7 @@ nav {
 /* The nav is the logo, the Blog link and the tag, and at 48px of side padding
  * the row no longer fits a 360px phone. */
 @media (max-width: 640px) {
-	nav {
+	.site-nav {
 		padding: 20px 16px;
 	}
 
@@ -353,7 +361,7 @@ footer {
 }
 
 @media (max-width: 640px) {
-	nav {
+	.site-nav {
 		padding: 20px 24px;
 	}
 	footer {
@@ -436,10 +444,13 @@ footer {
 	letter-spacing: 0.04em;
 }
 
+/* The body face, not the pixel face: a list title is a sentence, and pixel
+ * type is slow to read at sentence length. */
 .post-title {
-	font-family: var(--display);
-	font-size: 22px;
-	line-height: 1.25;
+	font-family: var(--sans);
+	font-size: var(--text-body-lg);
+	font-weight: 700;
+	line-height: 1.3;
 	margin: 6px 0 8px;
 }
 
@@ -487,12 +498,24 @@ footer {
 	margin-bottom: 40px;
 }
 
-.post-header h1 {
+/* Page titles stay in the pixel face, at the two sizes it renders at. A
+ * breakpoint steps between them; clamp() would land between multiples of 16. */
+.post-header h1,
+.page-header h1 {
 	font-family: var(--display);
-	font-size: clamp(28px, 5vw, 40px);
-	line-height: 1.1;
+	font-size: 32px;
+	font-weight: 700;
+	letter-spacing: 0;
+	line-height: 1.25;
 	color: var(--text-1);
 	margin-bottom: 12px;
+}
+
+@media (min-width: 768px) {
+	.post-header h1,
+	.page-header h1 {
+		font-size: 48px;
+	}
 }
 
 .prose {
@@ -508,10 +531,19 @@ footer {
 
 .prose h2,
 .prose h3 {
-	font-family: var(--display);
+	font-family: var(--sans);
+	font-weight: 700;
 	color: var(--text-1);
 	line-height: 1.25;
 	margin-top: 2em;
+}
+
+.prose h2 {
+	font-size: 1.5rem;
+}
+
+.prose h3 {
+	font-size: 1.2rem;
 }
 
 .prose a {
@@ -527,8 +559,9 @@ footer {
 	border-radius: 3px;
 }
 
-.prose ul,
-.prose ol {
+/* Markdown lists carry no class. The tag list under a post's title does, and
+ * sits inside .prose, so this indent used to reach it too. */
+.prose :is(ul, ol):not([class]) {
 	padding-left: 1.4em;
 }
 

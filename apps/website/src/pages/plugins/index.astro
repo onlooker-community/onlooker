@@ -161,12 +161,18 @@ const grouped = categoryOrder.map((cat) => ({
 
   h1 {
     font-family: var(--display);
-    font-size: clamp(32px, 5vw, 56px);
-    font-weight: 800;
+    font-size: 32px;
+    font-weight: 700;
     line-height: 1;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     color: var(--text-1);
     margin-bottom: 20px;
+  }
+
+  @media (min-width: 768px) {
+    h1 {
+      font-size: 48px;
+    }
   }
 
   .subhead {
