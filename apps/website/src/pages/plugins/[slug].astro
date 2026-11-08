@@ -1,4 +1,5 @@
 ---
+import { MARKETPLACE_REQUIRED } from "astro:env/server";
 import type { PluginCategory, PluginPage } from "../../data/plugins";
 import { joinPlugins } from "../../data/plugins";
 import Layout from "../../layouts/Layout.astro";
@@ -7,7 +8,7 @@ import { readMarketplace } from "../../lib/marketplace";
 export const prerender = true;
 
 export async function getStaticPaths() {
-	const { plugins } = await readMarketplace();
+	const { plugins } = await readMarketplace({ required: MARKETPLACE_REQUIRED });
 	return joinPlugins(plugins).map((plugin) => ({
 		params: { slug: plugin.slug },
 		props: { plugin },

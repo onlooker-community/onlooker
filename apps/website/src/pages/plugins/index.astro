@@ -1,4 +1,5 @@
 ---
+import { MARKETPLACE_REQUIRED } from "astro:env/server";
 import type { PluginCategory } from "../../data/plugins";
 import { joinPlugins } from "../../data/plugins";
 import Layout from "../../layouts/Layout.astro";
@@ -6,7 +7,10 @@ import { readMarketplace } from "../../lib/marketplace";
 
 export const prerender = true;
 
-const pages = joinPlugins((await readMarketplace()).plugins);
+const { plugins: listed } = await readMarketplace({
+	required: MARKETPLACE_REQUIRED,
+});
+const pages = joinPlugins(listed);
 const base = pages.filter((p) => p.category === "substrate");
 const plugins = pages.filter((p) => p.category !== "substrate");
 

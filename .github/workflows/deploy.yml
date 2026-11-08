@@ -870,28 +870,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Every package but the website, which Build Website builds just before
+      # its own deploy. Nothing depends on @onlooker/website, so the filter
+      # drops it and nothing else. The Sentry variables moved with it: the
+      # website's astro build was their only reader here, since apps/web
+      # uploads only when VITE_MONITORING_RELEASE is set, which is on Deploy
+      # Web to Production, not on this step.
       - name: Build
-        run: pnpm build
-        env:
-          # Website source maps upload during `astro build`, which is this
-          # step. `pnpm deploy:website` is wrangler-only and never sees it.
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          # The release the maps are filed under. Without it sentry-cli guesses
-          # one from git, which happened to be this same SHA - but a guess is
-          # not a promise, and the value has to equal the one the running site
-          # reports or the artifacts are filed where no event looks for them.
-          SENTRY_RELEASE: ${{ github.sha }}
-          # The release the browser bundle reports, inlined by Vite here
-          # because nothing can tell the bundle afterwards. Same commit as
-          # SENTRY_RELEASE above and as the worker's MONITORING_RELEASE below;
-          # all three are one deploy.
-          PUBLIC_MONITORING_RELEASE: ${{ github.sha }}
-          # The website's plugin pages read ecosystem's marketplace from GitHub
-          # while this step builds them. Everywhere else a failed read falls
-          # back to a committed fixture; here it fails the build, so
-          # onlooker.dev never ships the fixture's versions. See
-          # apps/website/src/lib/marketplace.ts.
-          MARKETPLACE_REQUIRED: '1'
+        run: pnpm build --filter='!@onlooker/website'
 
       - name: Apply D1 migrations to Production
         run: pnpm migrate:prod
@@ -939,6 +925,37 @@ jobs:
           # See the staging deploy: this is what makes a production stack name a
           # function instead of a column number.
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      # The website's own build, apart from Build above because it is the one
+      # build that reads the network. Its plugin pages read ecosystem's
+      # marketplace from GitHub, and with MARKETPLACE_REQUIRED a failed read
+      # fails the build instead of falling back to the committed fixture, so
+      # onlooker.dev never ships the fixture's versions. Build runs before the
+      # API and Web deploys, so a strict check there would let a GitHub outage
+      # block both. Here a failure stops only the website deploy and the smoke
+      # test after it. Every other job builds the website non-strictly. See
+      # apps/website/src/lib/marketplace.ts.
+      #
+      # Its dependencies were built by Build above; this builds the website
+      # alone, so it does not rebuild them.
+      - name: Build Website
+        run: pnpm --filter @onlooker/website build
+        env:
+          # astro:env reads a boolean as true/false, not 1.
+          MARKETPLACE_REQUIRED: 'true'
+          # Website source maps upload during `astro build`, which is this
+          # step. `pnpm deploy:website` is wrangler-only and never sees it.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # The release the maps are filed under. Without it sentry-cli guesses
+          # one from git, which happened to be this same SHA - but a guess is
+          # not a promise, and the value has to equal the one the running site
+          # reports or the artifacts are filed where no event looks for them.
+          SENTRY_RELEASE: ${{ github.sha }}
+          # The release the browser bundle reports, inlined by Vite here
+          # because nothing can tell the bundle afterwards. Same commit as
+          # SENTRY_RELEASE above and as the worker's MONITORING_RELEASE below;
+          # all three are one deploy.
+          PUBLIC_MONITORING_RELEASE: ${{ github.sha }}
 
       # The marketing site has no staging counterpart: apps/website declares no
       # environments, so there is one worker and one deploy. It sits in this job

@@ -9,11 +9,19 @@ import fixture from "../data/plugins/marketplace.fixture.json";
  * bumps a plugin about twice a day. So the facts that drift come from the
  * marketplace, and only prose lives in this repository.
  *
- * A failed read fails the build only where it ships. The production deploy
- * sets MARKETPLACE_REQUIRED=1; everywhere else - a laptop offline, CI's test
- * jobs during a GitHub outage - falls back to the committed fixture and says
- * so, because `pnpm build` builds every package and a website fetch should not
- * block an API deploy.
+ * A failed read fails the build only where it ships. The production job's
+ * Build Website step sets MARKETPLACE_REQUIRED=true; everywhere else - a laptop
+ * offline, CI's test jobs during a GitHub outage - falls back to the committed
+ * fixture and says so, because `pnpm build` builds every package and a website
+ * fetch should not block an API deploy.
+ *
+ * The flag is declared through astro:env in astro.config.mjs, and the pages
+ * read it and pass it in. This module must not read it itself: the Cloudflare
+ * adapter prerenders in workerd, where `process.env` does not carry the shell's
+ * environment, so a `process.env` read here saw undefined and a strict build
+ * shipped the fixture (reproduced 2026-11-07). And it must not import
+ * astro:env, because vitest runs without astro.config.mjs and cannot resolve
+ * it.
  */
 
 const RAW =
@@ -100,10 +108,16 @@ export async function fetchMarketplace(
 
 let memo: Promise<Marketplace> | undefined;
 
-/** One read per build, shared by every page that asks. */
-export function readMarketplace(): Promise<Marketplace> {
-	memo ??= fetchMarketplace({
-		required: process.env.MARKETPLACE_REQUIRED === "1",
-	});
+/**
+ * One read per build, shared by every page that asks. `required` is
+ * MARKETPLACE_REQUIRED from astro:env/server; every page passes the same value,
+ * so the first caller's decides.
+ */
+export function readMarketplace({
+	required,
+}: {
+	required: boolean;
+}): Promise<Marketplace> {
+	memo ??= fetchMarketplace({ required });
 	return memo;
 }
