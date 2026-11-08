@@ -51,8 +51,9 @@ export default defineConfig({
 			// VITE_MONITORING_RELEASE is set only on those deploy steps, never on
 			// `Build`, so this gate tracks that distinction exactly.
 			//
-			// Without it, the production `Build` step uploaded too - it carries
-			// SENTRY_AUTH_TOKEN for the website's astro build in the same step -
+			// Without it, the production `Build` step uploaded too - it carried
+			// SENTRY_AUTH_TOKEN for the website's astro build, which has since
+			// moved to its own Build Website step -
 			// producing a second artifact bundle per deploy for a bundle that was
 			// thrown away. And the staging `Build`, which has no token, emitted
 			// four "No auth token provided" warnings that read exactly like the

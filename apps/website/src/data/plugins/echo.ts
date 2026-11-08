@@ -1,68 +1,15 @@
-import type { PluginData } from "./types";
+import type { PluginProse } from "./types";
 
-export const echo: PluginData = {
+export const echo: PluginProse = {
 	slug: "echo",
 	name: "Echo",
-	version: "0.2.0",
-	tagline: "Test your prompts, not just your code.",
+	tagline: "A measurement harness for LLM judges, not a runtime gate.",
 	category: "testing",
-
-	hero: {
-		headline: "You changed the agent. Did it get better or worse?",
-		subheadline:
-			"Echo runs a judge pass against a stored baseline every time a watched agent file changes — so you know immediately whether the edit improved, degraded, or had no effect.",
-	},
-
 	problem:
-		"You improve an agent's AGENTS.md, push it, and notice three sessions later that behavior has shifted. The diff looked clean. No tests failed. But prompt regressions are invisible to standard CI — because nobody tested the prompt.",
-
+		"Echo once scored changed agent files against a stored baseline and reported whether each edit improved or degraded them. It was measured twice and did not work: the judge could not tell two different documents apart more reliably than it reproduced its own score on one. The runtime was retired (ONL-103). Echo now ships no hooks and does not score your prompts as you work. What remains is the instrument that measured it.",
 	howItWorks: [
-		"Watch — Echo monitors your agent files (plugins/*/agents/*.md by default, configurable)",
-		"Detect — when a watched file changes (PostToolUse), Echo checks if a baseline exists",
-		"Evaluate — runs a single-judge quality pass via claude -p against the changed file",
-		"Compare — scores the result against the stored baseline",
-		"Report — emits echo.improvement.detected, echo.regression.detected, or neutral",
-	],
-
-	capabilities: [
-		"Automatic on file change — no manual step required",
-		"Configurable watch paths — watch any agent or prompt file pattern",
-		"Drift threshold — only flag changes above a configurable score delta (default: 0.05)",
-		"Recursion guard — never triggers on its own config files",
-		"Event log integration — all results emit to the Onlooker event log",
-	],
-
-	events: [
-		{
-			type: "echo.improvement.detected",
-			when: "Evaluated score exceeds baseline by more than drift_threshold",
-			keyFields: "file, prior_score, new_score, delta",
-		},
-		{
-			type: "echo.regression.detected",
-			when: "Evaluated score falls below baseline by more than drift_threshold",
-			keyFields: "file, prior_score, new_score, delta",
-		},
-	],
-
-	config: `{
-  "echo": {
-    "enabled": true,
-    "drift_threshold": 0.05,
-    "watch_paths": [
-      "plugins/*/agents/*.md",
-      "agents/**/*.md"
-    ]
-  }
-}`,
-
-	tags: [
-		"testing",
-		"regression",
-		"prompts",
-		"agents",
-		"quality",
-		"evaluation",
-		"baseline",
+		"Echo asks one question of any LLM judge: does it discriminate between different inputs more reliably than it reproduces itself on identical input?",
+		"Two runners answer it: one measures the spread of absolute scores on identical content, the other tests pairwise comparison for self-ties, position bias and repeatability.",
+		"Each run writes raw per-call results beside the computed statistics, stamped with the model and a prompt fingerprint.",
 	],
 };

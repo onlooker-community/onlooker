@@ -9,6 +9,10 @@
  */
 export function isPublicBeforeLaunch(pathname: string): boolean {
 	return (
-		pathname === "/" || pathname === "/blog" || pathname.startsWith("/blog/")
+		pathname === "/" ||
+		pathname === "/blog" ||
+		pathname.startsWith("/blog/") ||
+		pathname === "/plugins" ||
+		pathname.startsWith("/plugins/")
 	);
 }

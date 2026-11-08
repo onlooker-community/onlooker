@@ -1,16 +1,7 @@
-export interface PluginTable {
-	title: string;
-	headers: [string, string];
-	rows: [string, string][];
-}
-
-export interface PluginEvent {
-	type: string;
-	when: string;
-	keyFields?: string;
-}
+import type { MarketplacePlugin } from "../../lib/marketplace";
 
 export type PluginCategory =
+	| "substrate"
 	| "memory"
 	| "analysis"
 	| "safety"
@@ -18,31 +9,23 @@ export type PluginCategory =
 	| "governance"
 	| "quality";
 
-export interface PluginData {
+/**
+ * The part of a plugin page a person writes. Everything that drifts - the
+ * version, the description, whether the plugin exists at all - comes from the
+ * marketplace (src/lib/marketplace.ts). Keep this short: capabilities lists,
+ * config blocks and event tables were the parts that went stale first, and
+ * the README linked from every page carries that detail.
+ */
+export interface PluginProse {
+	/** Equals the marketplace entry's `name`. */
 	slug: string;
+	/** Display name, e.g. "Archivist". */
 	name: string;
-	version: string;
 	tagline: string;
 	category: PluginCategory;
-
-	hero: {
-		headline: string;
-		subheadline: string;
-	};
-
 	problem: string;
+	/** Two to four lines, each true of the plugin's README. */
 	howItWorks: string[];
-
-	tables?: PluginTable[];
-	capabilities: string[];
-	events?: PluginEvent[];
-
-	config?: string;
-
-	tags: string[];
-
-	// Plugin-specific optional sections
-	idealFor?: string;
-	skillCommands?: string;
-	interventionExample?: string;
 }
+
+export type PluginPage = MarketplacePlugin & PluginProse;

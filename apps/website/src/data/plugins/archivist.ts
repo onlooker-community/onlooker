@@ -1,45 +1,16 @@
-import type { PluginData } from "./types";
+import type { PluginProse } from "./types";
 
-export const archivist: PluginData = {
+export const archivist: PluginProse = {
 	slug: "archivist",
 	name: "Archivist",
-	version: "0.1.0",
 	tagline: "Memory that survives context truncation.",
 	category: "memory",
-
-	hero: {
-		headline: "Your agent forgets. Archivist doesn't.",
-		subheadline:
-			"Structured session memory that persists across context compaction — so the next session picks up where the last one left off.",
-	},
-
 	problem:
-		"Claude Code has a context window. When it fills and compacts, decisions made three hours ago vanish. The agent starts fresh, relitigates closed questions, and re-makes mistakes you already corrected.",
-
+		"Claude Code has a context window. When a long conversation compacts, the decisions made earlier in it can go with it. The agent carries on without them, relitigates closed questions, and repeats mistakes you already corrected. Archivist keeps the decisions, dead ends and open questions outside the window.",
 	howItWorks: [
-		"On compaction (PreCompact / PostCompact) — Archivist extracts the most important items from the current context: decisions made, approaches ruled out, open questions still in flight.",
-		"On session start (SessionStart) — Archivist re-injects the top-ranked items from prior sessions into the new context, ordered by recency and importance.",
+		"On PreCompact, Archivist reads the transcript tail, asks claude -p to extract the decisions made, dead ends hit and open questions raised, drops any file path that does not exist in the repo, and writes the rest as artifacts for the project.",
+		"On SessionStart, it loads the project's artifacts, ranks pinned ones first and the rest by recency, and injects them as invisible context within a token budget.",
+		"On SessionEnd, it also mines commits on the default branch since a per-project watermark into decision artifacts, capped per session so a backlog clears over a few sessions.",
+		"Artifacts are keyed to the project's git remote, so one repo's memory never surfaces in another.",
 	],
-
-	capabilities: [
-		"Extracts three artifact kinds: decisions, dead ends, open questions",
-		"Ranked re-injection — pinned items surface first; unpinned items sorted by recency",
-		"Configurable item cap — control how much memory is re-injected per session",
-		"Zero manual steps — runs automatically on every compaction and session start",
-		"ULID-keyed storage — artifacts are time-ordered and project-scoped under ~/.onlooker/",
-	],
-
-	config: `{
-  "archivist": {
-    "enabled": true,
-    "injection": {
-      "max_items": 5
-    }
-  }
-}`,
-
-	tags: ["memory", "context", "compaction", "session", "persistence", "recall"],
-
-	idealFor:
-		"Teams where sessions span hours or days; projects where the agent makes consequential decisions that must not be re-litigated; anyone who has had an agent repeat a mistake it already made once.",
 };
