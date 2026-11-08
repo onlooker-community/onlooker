@@ -38,8 +38,12 @@ Sections marked *(measured)* were read from this repository and from
 ## Decisions *(approved)*
 
 * **Read at build.** Not a committed snapshot, and not dropping versions.
-* **A failed fetch fails only the production build.** Elsewhere it falls back
-  to a committed fixture and says so.
+* **A failed fetch fails only the production website build.** Elsewhere it
+  falls back to a committed fixture and says so. Amended after the final
+  review: the production job's main Build step runs before the API and Web
+  deploys, so a strict check there would let a GitHub outage block an API
+  deploy. The website is built in its own step, just before its deploy, and
+  only that step is strict.
 * **Slim pages.** Generated facts, plus a short hand-written part. Capabilities
   lists, config blocks and event tables go.
 * **A stale description is fixed in ecosystem,** not overridden on the site.
@@ -68,8 +72,14 @@ Sections marked *(measured)* were read from this repository and from
   returns `src/data/plugins/marketplace.fixture.json`, with `source: "fixture"`.
 * The result is memoized for the build, so every page shares one set of
   requests.
-* `MARKETPLACE_REQUIRED` joins `turbo.json`'s `build.env`, and the production
-  deploy job's Build step sets it to `1`.
+* `MARKETPLACE_REQUIRED` is declared through `astro:env`, beside
+  `SITE_LAUNCHED`, and the pages pass it in. Amended after the final review:
+  the Cloudflare adapter prerenders in workerd, where `process.env` does not
+  carry it, so a `process.env` read saw `undefined` and the strict build
+  shipped the fixture (reproduced 2026-11-07).
+* In the production job, the main Build step skips the website. A Build
+  Website step directly before Deploy Website to Production builds it with
+  `MARKETPLACE_REQUIRED` on.
 
 ## Hand-written prose: `src/data/plugins/<name>.ts`
 
@@ -82,9 +92,12 @@ Sections marked *(measured)* were read from this repository and from
 * New files: `customs.ts`, `ecosystem.ts`. `echo.ts` is rewritten to describe
   the measurement harness its README describes.
 * A page is the join of one marketplace entry and its prose. A marketplace
-  entry with no prose file throws during the build, with or without
-  `MARKETPLACE_REQUIRED`. A prose file with no entry is never rendered, and
-  the test below fails on it.
+  entry with no prose file throws when `MARKETPLACE_REQUIRED` is on, naming
+  the plugin. Otherwise it warns and leaves that plugin off the site, so an
+  ecosystem release never turns onlooker's PR CI red (amended after the final
+  review). The test below still fails when the committed fixture lists a
+  plugin with no prose. A prose file with no entry is never rendered, and the
+  test fails on it too.
 * While writing the prose, every plugin whose `plugin.json` description
   disagrees with its README is listed, and one Linear issue for the ecosystem
   repo records them.
