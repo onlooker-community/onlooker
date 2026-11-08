@@ -9,10 +9,12 @@ export const prerender = true;
 
 export async function getStaticPaths() {
 	const { plugins } = await readMarketplace({ required: MARKETPLACE_REQUIRED });
-	return joinPlugins(plugins).map((plugin) => ({
-		params: { slug: plugin.slug },
-		props: { plugin },
-	}));
+	return joinPlugins(plugins, { required: MARKETPLACE_REQUIRED }).map(
+		(plugin) => ({
+			params: { slug: plugin.slug },
+			props: { plugin },
+		}),
+	);
 }
 
 const { plugin } = Astro.props as { plugin: PluginPage };

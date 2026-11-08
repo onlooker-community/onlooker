@@ -10,7 +10,7 @@ export const prerender = true;
 const { plugins: listed } = await readMarketplace({
 	required: MARKETPLACE_REQUIRED,
 });
-const pages = joinPlugins(listed);
+const pages = joinPlugins(listed, { required: MARKETPLACE_REQUIRED });
 const base = pages.filter((p) => p.category === "substrate");
 const plugins = pages.filter((p) => p.category !== "substrate");
 

@@ -44,18 +44,30 @@ export const allProse: PluginProse[] = [
 
 const proseBySlug = new Map(allProse.map((p) => [p.slug, p]));
 
+interface JoinOptions {
+	/** MARKETPLACE_REQUIRED: on only in the production website build. */
+	required: boolean;
+	warn?: (message: string) => void;
+}
+
 /**
- * One page per marketplace entry, in marketplace order. An entry with no prose
- * throws rather than being skipped: a skipped plugin is how customs went
- * without a page, and nothing said so.
+ * One page per marketplace entry, in marketplace order. A skipped plugin is how
+ * customs went without a page and nothing said so, so an entry with no prose
+ * is never dropped quietly. In the strict production build it throws, naming
+ * the plugin, so onlooker.dev cannot ship without it. Everywhere else it warns
+ * once, naming the plugin, and leaves it off: an ecosystem release must not
+ * turn onlooker's PR CI red before anyone has had the chance to write prose.
  */
-export function joinPlugins(plugins: MarketplacePlugin[]): PluginPage[] {
-	return plugins.map((plugin) => {
+export function joinPlugins(
+	plugins: MarketplacePlugin[],
+	{ required, warn = (message) => console.warn(message) }: JoinOptions,
+): PluginPage[] {
+	return plugins.flatMap((plugin) => {
 		const prose = proseBySlug.get(plugin.name);
-		if (!prose)
-			throw new Error(
-				`The marketplace lists ${plugin.name}, and src/data/plugins/ has no page for it.`,
-			);
-		return { ...prose, ...plugin };
+		if (prose) return [{ ...prose, ...plugin }];
+		const missing = `The marketplace lists ${plugin.name}, and src/data/plugins/ has no page for it.`;
+		if (required) throw new Error(missing);
+		warn(`[marketplace] ${missing} Leaving it off the site.`);
+		return [];
 	});
 }
