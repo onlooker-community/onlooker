@@ -85,6 +85,7 @@ describe("the deploy supplies the release", () => {
 	// the browser into the worker and a release that differs across that
 	// boundary describes one deploy as two.
 	it("builds the web bundle with the same commit", () => {
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression the workflow must contain, not a JS template
 		expect(workflow()).toContain("VITE_MONITORING_RELEASE: ${{ github.sha }}");
 	});
 });
