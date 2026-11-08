@@ -1,4 +1,21 @@
 {
 	"root": false,
-	"extends": ["@onlooker/config-biome/library.json"]
+	"extends": ["@onlooker/config-biome/library.json"],
+	"linter": {
+		"rules": {
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"paths": {
+							"cloudflare:test": {
+								"importNames": ["env", "SELF"],
+								"message": "Deprecated by @cloudflare/vitest-pool-workers. Use `import { env } from \"cloudflare:workers\"`, and call the worker with `import { exports } from \"cloudflare:workers\"` and `exports.default.fetch()`. See ONL-137."
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
