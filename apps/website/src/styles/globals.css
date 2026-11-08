@@ -40,6 +40,12 @@
 	--bg-3: color-mix(in srgb, var(--panel) 30%, var(--ground));
 	--border: var(--edge);
 	--border-2: color-mix(in srgb, var(--edge) 82%, var(--ink));
+	/* The background grid. In --edge it measured 3.71 by day and 3.04 at night
+	 * against --ground, the strength of a border, and it sat behind the body
+	 * text on every page. 18% edge reads 1.22 by day and 1.19 at night: still
+	 * a texture, no longer a competitor. derived-surfaces.test.ts holds it
+	 * between 1.1 and 1.3 in both themes. */
+	--grid-line: color-mix(in srgb, var(--edge) 18%, var(--ground));
 	--accent: var(--teal);
 	--accent-dim: color-mix(in srgb, var(--teal) 15%, transparent);
 	--accent-glow: color-mix(in srgb, var(--teal) 6%, transparent);
@@ -98,19 +104,21 @@ body {
 	position: relative;
 }
 
+/* Absolute, not fixed, so the grid belongs to the top of the page and scrolls
+ * away with it. Fixed, its fade was measured from the viewport, and the text
+ * of a long post always scrolled over the strongest part. */
 body::before {
 	content: "";
-	position: fixed;
-	inset: 0;
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 100vh;
 	background-image:
-		linear-gradient(var(--border) 1px, transparent 1px),
-		linear-gradient(90deg, var(--border) 1px, transparent 1px);
+		linear-gradient(var(--grid-line) 1px, transparent 1px),
+		linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
 	background-size: 60px 60px;
-	mask-image: radial-gradient(
-		ellipse 80% 80% at 50% 0%,
-		black 30%,
-		transparent 100%
-	);
+	mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
 	pointer-events: none;
 	z-index: 0;
 }

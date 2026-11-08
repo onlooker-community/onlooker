@@ -70,13 +70,16 @@ function colorMix(a: string, percent: number, b: string): string {
 		.join("")}`;
 }
 
-/** Pull `--bg-3`'s recipe out of globals.css rather than restating it here. */
-function bg3Recipe(): { source: string; percent: number; toward: string } {
-	const m =
-		/--bg-3:\s*color-mix\(in srgb,\s*var\((--[a-z-]+)\)\s*(\d+)%,\s*var\((--[a-z-]+)\)\)/.exec(
-			site,
-		);
-	if (!m) throw new Error("--bg-3 is no longer a two-token srgb color-mix");
+/** Pull a derived token's recipe out of globals.css rather than restating it here. */
+function recipe(name: string): {
+	source: string;
+	percent: number;
+	toward: string;
+} {
+	const m = new RegExp(
+		`${name}:\\s*color-mix\\(in srgb,\\s*var\\((--[a-z-]+)\\)\\s*(\\d+)%,\\s*var\\((--[a-z-]+)\\)\\)`,
+	).exec(site);
+	if (!m) throw new Error(`${name} is no longer a two-token srgb color-mix`);
 	return { source: m[1], percent: Number(m[2]) / 100, toward: m[3] };
 }
 
@@ -93,7 +96,7 @@ describe("--bg-3, the hover surface derived from --panel", () => {
 	for (const [name, selector] of THEMES) {
 		it(`${name}: every text token on it clears AA`, () => {
 			const t = tokens(brand, selector);
-			const { source, percent, toward } = bg3Recipe();
+			const { source, percent, toward } = recipe("--bg-3");
 			const surface = colorMix(t[source], percent, t[toward]);
 
 			for (const token of TEXT) {
@@ -108,12 +111,48 @@ describe("--bg-3, the hover surface derived from --panel", () => {
 		// at all, so it is worth asserting alongside the contrast it must keep.
 		it(`${name}: it still reads as a change from --panel`, () => {
 			const t = tokens(brand, selector);
-			const { source, percent, toward } = bg3Recipe();
+			const { source, percent, toward } = recipe("--bg-3");
 			const surface = colorMix(t[source], percent, t[toward]);
 
 			expect(contrast(surface, t["--panel"])).toBeGreaterThan(1.2);
 		});
 	}
+});
+
+// The grid sits behind every page, body text included. Drawn in --edge it
+// measured 3.71 by day and 3.04 at night against --ground: the strength of a
+// border, not of a texture. These bounds keep it visible and keep it from
+// competing with the text it sits behind.
+describe("--grid-line, the background grid", () => {
+	const THEMES: Array<[string, string]> = [
+		["night", ":root"],
+		["day", ':root[data-theme="light"]'],
+	];
+
+	for (const [name, selector] of THEMES) {
+		it(`${name}: it is faint against --ground, but there`, () => {
+			const t = tokens(brand, selector);
+			const { source, percent, toward } = recipe("--grid-line");
+			const line = colorMix(t[source], percent, t[toward]);
+			const ratio = contrast(line, t["--ground"]);
+
+			expect(ratio, `--grid-line (${line}) in ${name}`).toBeGreaterThanOrEqual(
+				1.1,
+			);
+			expect(ratio, `--grid-line (${line}) in ${name}`).toBeLessThanOrEqual(
+				1.3,
+			);
+		});
+	}
+
+	// Fixed, the grid stayed under the text however far it scrolled, and its
+	// fade was measured from the viewport rather than the page.
+	it("is drawn in --grid-line and scrolls with the page", () => {
+		const block = /body::before\s*\{([^}]*)\}/.exec(site)?.[1] ?? "";
+		expect(block).toMatch(/position:\s*absolute/);
+		expect(block).toMatch(/var\(--grid-line\)/);
+		expect(block).not.toMatch(/var\(--border\)/);
+	});
 });
 
 // The css-variables theme colors every token through these properties. Each
