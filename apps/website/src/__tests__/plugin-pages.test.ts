@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { allProse, joinPlugins } from "../data/plugins";
-import fixture from "../data/plugins/marketplace.fixture.json";
+import marketplaceFixture from "../data/plugins/marketplace.fixture.json";
+
+const fixture = marketplaceFixture.plugins;
 
 // The fixture stands in for the marketplace because tests run offline. The
 // production build makes the same join against live data, strictly, and

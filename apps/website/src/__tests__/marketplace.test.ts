@@ -105,7 +105,7 @@ describe("fetchMarketplace", () => {
 		it(`falls back to the fixture on ${what}, and says why`, async () => {
 			const warn = vi.fn();
 			const result = await fetchMarketplace({ fetch: github(broken), warn });
-			expect(result).toEqual({ source: "fixture", plugins: fixture });
+			expect(result).toEqual({ source: "fixture", plugins: fixture.plugins });
 			expect(warn).toHaveBeenCalledOnce();
 			expect(warn.mock.calls[0][0]).toMatch(/fixture/);
 		});
@@ -160,15 +160,21 @@ describe("fromGitHub", () => {
 
 describe("the fixture", () => {
 	it("holds ecosystem and at least one plugin, each fully described", () => {
-		expect(fixture.map((p) => p.name)).toContain("ecosystem");
-		expect(fixture.length).toBeGreaterThan(1);
-		for (const p of fixture) {
+		expect(fixture.plugins.map((p) => p.name)).toContain("ecosystem");
+		expect(fixture.plugins.length).toBeGreaterThan(1);
+		for (const p of fixture.plugins) {
 			expect(p.version).toMatch(/^\d+\.\d+\.\d+/);
 			expect(p.description.length).toBeGreaterThan(0);
 			expect(p.readmeUrl).toMatch(
 				/^https:\/\/github\.com\/onlooker-community\/ecosystem\/blob\/main\//,
 			);
 		}
+	});
+
+	// The sync diffs ecosystem from this commit to find the READMEs whose prose
+	// needs re-checking, so it has to be a whole commit SHA.
+	it("records the ecosystem commit it was read at", () => {
+		expect(fixture.commit).toMatch(/^[0-9a-f]{40}$/);
 	});
 });
 

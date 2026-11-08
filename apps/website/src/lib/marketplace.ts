@@ -118,7 +118,7 @@ export async function fetchMarketplace(
 		if (required)
 			throw new Error(`Could not read the ecosystem marketplace: ${reason}`);
 		warn(`[marketplace] using the committed fixture, not GitHub: ${reason}`);
-		return { source: "fixture", plugins: fixture };
+		return { source: "fixture", plugins: fixture.plugins };
 	}
 }
 
