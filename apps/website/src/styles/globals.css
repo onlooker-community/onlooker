@@ -579,3 +579,16 @@ footer {
 	color: var(--text-3);
 	margin-top: 8px;
 }
+
+/* A reader who asks for less motion gets none: no fade-ins, no pulsing logo,
+ * no rotating sweep. The rule is global so the next animated block is covered
+ * too, and it uses !important so it beats scoped page styles. Every animated
+ * block rests visible, so turning animation off never hides anything. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: beats scoped page animations */
+		animation: none !important;
+	}
+}

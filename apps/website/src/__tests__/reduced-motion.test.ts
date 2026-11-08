@@ -38,3 +38,23 @@ describe("animated blocks", () => {
 		});
 	}
 });
+
+// A reader who asks for less motion gets none. The rule is global, so a new
+// animated block is covered without anyone remembering it. ::before and
+// ::after are named because the pulsing logo ring and the radar sweep are
+// both ::after.
+describe("prefers-reduced-motion: reduce", () => {
+	const reduce = stylesheets
+		.find(({ name }) => name === "styles/globals.css")
+		?.rules.find((rule) =>
+			/prefers-reduced-motion:\s*reduce/.test(rule.media ?? ""),
+		);
+
+	it("turns animation off for every element and pseudo-element", () => {
+		expect(reduce, "globals.css has no reduced-motion rule").toBeDefined();
+		expect(reduce?.selector.split(",").map((s) => s.trim())).toEqual(
+			expect.arrayContaining(["*", "*::before", "*::after"]),
+		);
+		expect(declared(reduce?.body ?? "", "animation")).toBe("none !important");
+	});
+});
