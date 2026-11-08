@@ -1,11 +1,16 @@
 ---
 import type { PluginCategory } from "../../data/plugins";
-import { allPlugins } from "../../data/plugins";
+import { joinPlugins } from "../../data/plugins";
 import Layout from "../../layouts/Layout.astro";
+import { readMarketplace } from "../../lib/marketplace";
 
 export const prerender = true;
 
-const categoryOrder: PluginCategory[] = [
+const pages = joinPlugins((await readMarketplace()).plugins);
+const base = pages.filter((p) => p.category === "substrate");
+const plugins = pages.filter((p) => p.category !== "substrate");
+
+const categoryOrder: Exclude<PluginCategory, "substrate">[] = [
 	"memory",
 	"analysis",
 	"safety",
@@ -14,7 +19,7 @@ const categoryOrder: PluginCategory[] = [
 	"quality",
 ];
 
-const categoryLabel: Record<PluginCategory, string> = {
+const categoryLabel: Record<Exclude<PluginCategory, "substrate">, string> = {
 	memory: "Memory",
 	analysis: "Analysis",
 	safety: "Safety",
@@ -23,13 +28,10 @@ const categoryLabel: Record<PluginCategory, string> = {
 	quality: "Quality",
 };
 
-const grouped = categoryOrder.reduce<Record<PluginCategory, typeof allPlugins>>(
-	(acc, cat) => {
-		acc[cat] = allPlugins.filter((p) => p.category === cat);
-		return acc;
-	},
-	{} as Record<PluginCategory, typeof allPlugins>,
-);
+const grouped = categoryOrder.map((cat) => ({
+	cat,
+	plugins: plugins.filter((p) => p.category === cat),
+}));
 ---
 
 <Layout
@@ -47,15 +49,35 @@ const grouped = categoryOrder.reduce<Record<PluginCategory, typeof allPlugins>>(
       <p class="eyebrow">Plugin library</p>
       <h1>Every plugin. One place.</h1>
       <p class="subhead">
-        Open-source Claude Code plugins. Drop one in, extend the platform. Adding a new one takes a
-        single config file.
+        Open-source Claude Code plugins. Install the ecosystem plugin first; every other plugin
+        builds on it.
       </p>
     </header>
 
+    <section class="category-section">
+      <h2 class="category-heading">
+        <span class="category-badge">Install first</span>
+      </h2>
+      <div class="plugin-grid">
+        {base.map((plugin) => (
+          <a class="plugin-card" href={`/plugins/${plugin.slug}/`}>
+            <div class="card-top">
+              <span class="plugin-name">{plugin.name}</span>
+              <span class="plugin-version">v{plugin.version}</span>
+            </div>
+            <p class="plugin-tagline">{plugin.tagline}</p>
+            <p class="plugin-sub">{plugin.description}</p>
+            <div class="card-footer">
+              <span class="card-link">View plugin →</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+
     <div class="plugin-list">
       {
-        categoryOrder.map((cat) => {
-          const plugins = grouped[cat];
+        grouped.map(({ cat, plugins }) => {
           if (!plugins.length) return null;
           return (
             <section class="category-section">
@@ -64,13 +86,13 @@ const grouped = categoryOrder.reduce<Record<PluginCategory, typeof allPlugins>>(
               </h2>
               <div class="plugin-grid">
                 {plugins.map((plugin) => (
-                  <a class="plugin-card" href={`/plugins/${plugin.slug}`}>
+                  <a class="plugin-card" href={`/plugins/${plugin.slug}/`}>
                     <div class="card-top">
                       <span class="plugin-name">{plugin.name}</span>
                       <span class="plugin-version">v{plugin.version}</span>
                     </div>
                     <p class="plugin-tagline">{plugin.tagline}</p>
-                    <p class="plugin-sub">{plugin.hero.subheadline}</p>
+                    <p class="plugin-sub">{plugin.description}</p>
                     <div class="card-footer">
                       <span class="card-link">View plugin →</span>
                     </div>
