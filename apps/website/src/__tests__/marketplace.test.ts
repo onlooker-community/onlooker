@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../data/plugins/marketplace.fixture.json";
-import { fetchMarketplace } from "../lib/marketplace";
+import { fetchMarketplace, fromGitHub } from "../lib/marketplace";
 
 const RAW =
 	"https://raw.githubusercontent.com/onlooker-community/ecosystem/main/";
@@ -120,6 +120,42 @@ describe("fetchMarketplace", () => {
 			).rejects.toThrow(/marketplace/i);
 		});
 	}
+});
+
+// The ecosystem sync records the commit it read, so it must read at that
+// commit: a read of main could land on either side of a release mid-run. The
+// README links stay on main, so the fixture it writes is exactly what a build
+// of main reads.
+describe("fromGitHub", () => {
+	const sha = "0123456789abcdef0123456789abcdef01234567";
+	const atSha = `https://raw.githubusercontent.com/onlooker-community/ecosystem/${sha}/`;
+
+	it("reads at the ref it is given, and links READMEs on main", async () => {
+		const read = vi.fn(async (input: string | URL | Request) => {
+			const url = String(input);
+			if (!url.startsWith(atSha))
+				return new Response("wrong ref", { status: 404 });
+			const path = url.slice(atSha.length);
+			if (path === ".claude-plugin/marketplace.json")
+				return Response.json(marketplace);
+			if (path in manifests) return Response.json(manifests[path]);
+			return new Response("not found", { status: 404 });
+		}) as unknown as typeof fetch;
+
+		const plugins = await fromGitHub(read, sha);
+
+		expect(plugins.map((p) => p.version)).toEqual(["2.0.0", "0.10.0"]);
+		expect(plugins.map((p) => p.readmeUrl)).toEqual([
+			"https://github.com/onlooker-community/ecosystem/blob/main/README.md",
+			"https://github.com/onlooker-community/ecosystem/blob/main/plugins/archivist/README.md",
+		]);
+	});
+
+	it("reads main when given no ref", async () => {
+		const read = github();
+		await fromGitHub(read);
+		expect(read).toHaveBeenCalledWith(`${RAW}.claude-plugin/marketplace.json`);
+	});
 });
 
 describe("the fixture", () => {
