@@ -33,7 +33,10 @@ for reduced motion gets no animation at all.**
   global so the next animated block is covered without anyone remembering
   this rule. `!important` lets it beat scoped page styles. Under it:
   * The six blocks render in place at full opacity.
-  * The pulse ring sits still at its resting style.
+  * The pulse ring sits still at a steady opacity of 0.4, about its average
+    brightness while pulsing. At its resting style it would be at full
+    opacity, brighter than it ever is animated (decided after the final
+    review).
   * The radar sweep line stays still.
 * **Transitions stay.** The 0.15s color, background, border and opacity
   hover transitions don't move anything.

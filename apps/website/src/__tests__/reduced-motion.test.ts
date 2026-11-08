@@ -44,11 +44,15 @@ describe("animated blocks", () => {
 // ::after are named because the pulsing logo ring and the radar sweep are
 // both ::after.
 describe("prefers-reduced-motion: reduce", () => {
-	const reduce = stylesheets
-		.find(({ name }) => name === "styles/globals.css")
-		?.rules.find((rule) =>
-			/prefers-reduced-motion:\s*reduce/.test(rule.media ?? ""),
-		);
+	const reduceRules =
+		stylesheets
+			.find(({ name }) => name === "styles/globals.css")
+			?.rules.filter((rule) =>
+				/prefers-reduced-motion:\s*reduce/.test(rule.media ?? ""),
+			) ?? [];
+	const reduce = reduceRules.find((rule) =>
+		rule.selector.split(",").some((s) => s.trim() === "*"),
+	);
 
 	it("turns animation off for every element and pseudo-element", () => {
 		expect(reduce, "globals.css has no reduced-motion rule").toBeDefined();
@@ -56,5 +60,15 @@ describe("prefers-reduced-motion: reduce", () => {
 			expect.arrayContaining(["*", "*::before", "*::after"]),
 		);
 		expect(declared(reduce?.body ?? "", "animation")).toBe("none !important");
+	});
+
+	// Stopped at its resting style the logo's ring would be at full opacity,
+	// brighter than it ever is while pulsing (0.8 fading to 0).
+	it("holds the logo's pulse ring at about its average brightness", () => {
+		const ring = reduceRules.find(
+			(rule) => rule.selector === ".logo-pulse::after",
+		);
+		expect(ring, "no reduced-motion rule for .logo-pulse::after").toBeDefined();
+		expect(declared(ring?.body ?? "", "opacity")).toBe("0.4");
 	});
 });

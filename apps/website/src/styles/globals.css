@@ -591,4 +591,11 @@ footer {
 		/* biome-ignore lint/complexity/noImportantStyles: beats scoped page animations */
 		animation: none !important;
 	}
+
+	/* Animated, the ring fades from 0.8 to 0 and averages about 0.4. Held still
+	 * at its resting style it would sit at full opacity, brighter than anyone
+	 * else ever sees it. */
+	.logo-pulse::after {
+		opacity: 0.4;
+	}
 }
