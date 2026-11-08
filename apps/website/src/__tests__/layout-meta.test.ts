@@ -63,10 +63,4 @@ describe("Layout nav", () => {
 			/<a class="nav-link" href="\/plugins\/"[^>]*>Plugins<\/a>/,
 		);
 	});
-
-	// /plugins still builds as a redirect to / while the site is unlaunched,
-	// so a nav link there would send every reader home. ONL-264 restores it.
-	it("does not link the plugin pages yet", async () => {
-		expect(await render({})).not.toMatch(/href="\/plugins"/);
-	});
 });
