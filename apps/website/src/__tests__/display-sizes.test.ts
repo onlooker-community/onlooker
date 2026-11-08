@@ -111,5 +111,11 @@ describe("the pixel face (Abaddon)", () => {
 		it(`${label} keeps glyphs on the pixel grid`, () => {
 			expect(declared(rule.body, "letter-spacing") ?? "0").toBe("0");
 		});
+
+		// The face ships 400 and 700. Anything else is synthesized by the
+		// browser, which smears the pixels the way an off-grid size does.
+		it(`${label} uses a weight the face ships`, () => {
+			expect(declared(rule.body, "font-weight")).toBe("700");
+		});
 	}
 });

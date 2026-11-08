@@ -256,8 +256,7 @@ describe("prose lists", () => {
 
 Run: `pnpm --filter @onlooker/website test layout-meta`
 Expected: "styles the header through a class", "marks the header nav" and
-"indents only unclassed lists" fail. The spec also lists the tag-indent fix
-without a test; this plan adds one. "leaves a post's breadcrumb unmarked"
+"indents only unclassed lists" fail. "leaves a post's breadcrumb unmarked"
 passes already. It guards against the class being added to the wrong `<nav>`.
 
 - [ ] **Step 3: Mark the header**
@@ -519,8 +518,11 @@ and tag page titles (`.page-header h1`, in `pages/blog/index.astro` and
 }
 ```
 
-The plugins index also has a `.page-header` with an `h1`. Its scoped rule in
-Step 6 sets the same values, so the two agree whichever wins.
+The plugins index also has a `.page-header` with an `h1`, so both this rule
+and its scoped `h1` rule (Step 6) match it. They agree on size, weight and
+letter-spacing but not on `line-height` (1 there) or `margin-bottom` (20px).
+Astro emits scoped styles after imported stylesheets, so at equal specificity
+the scoped values win and the page keeps the spacing it had.
 
 - [ ] **Step 5: Snap the landing headline**
 
