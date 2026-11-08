@@ -1,7 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { declared, stylesheets } from "./stylesheets";
 
 // Abaddon is a pixel face with a 16px design size. packages/brand says it
 // renders cleanly only at integer multiples of that, and anything between
@@ -14,66 +12,9 @@ import { describe, expect, it } from "vitest";
 // This reads every stylesheet the site has, the global one and each .astro
 // file's <style> blocks, so a new heading cannot opt out by living in a page.
 
-const SRC = fileURLToPath(new URL("../", import.meta.url));
 const DISPLAY = /font-family:\s*var\(--(?:font-)?display\)/;
 
-function sources(dir: string): string[] {
-	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-		const path = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			return entry.name === "__tests__" ? [] : sources(path);
-		}
-		return /\.(css|astro)$/.test(entry.name) ? [path] : [];
-	});
-}
-
-function stylesheet(path: string): string {
-	const text = readFileSync(path, "utf8");
-	const css = path.endsWith(".astro")
-		? [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
-				.map((m) => m[1])
-				.join("\n")
-		: text;
-	return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-type Rule = { selector: string; body: string; media: string | null };
-
-/** Top-level rules, and the rules inside @media blocks. Other at-rules are skipped. */
-function rules(css: string, media: string | null = null): Rule[] {
-	const out: Rule[] = [];
-	let i = 0;
-	while (i < css.length) {
-		const open = css.indexOf("{", i);
-		if (open < 0) break;
-		let depth = 0;
-		let close = open;
-		for (; close < css.length; close++) {
-			if (css[close] === "{") depth++;
-			if (css[close] === "}" && --depth === 0) break;
-		}
-		const prelude = css.slice(i, open).trim().replace(/\s+/g, " ");
-		const body = css.slice(open + 1, close);
-		if (prelude.startsWith("@media")) out.push(...rules(body, prelude));
-		else if (!prelude.startsWith("@"))
-			out.push({ selector: prelude, body, media });
-		i = close + 1;
-	}
-	return out;
-}
-
-function declared(body: string, property: string): string | undefined {
-	return new RegExp(`(?:^|;|\\s)${property}:\\s*([^;]+)`)
-		.exec(body)?.[1]
-		.trim();
-}
-
-const files = sources(SRC).map((path) => ({
-	name: relative(SRC, path),
-	rules: rules(stylesheet(path)),
-}));
-
-const display = files.flatMap(({ name, rules }) =>
+const display = stylesheets.flatMap(({ name, rules }) =>
 	rules
 		.filter((r) => DISPLAY.test(r.body))
 		.map((r) => ({ name, rule: r, all: rules })),

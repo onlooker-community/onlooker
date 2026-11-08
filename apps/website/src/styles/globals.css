@@ -292,6 +292,8 @@ footer {
 	color: var(--teal);
 }
 
+/* Blocks that use this rest visible and take `both` fill: the first keyframe
+ * hides them through their delay. If the animation never runs, they show. */
 @keyframes fade-up {
 	from {
 		opacity: 0;
@@ -576,4 +578,24 @@ footer {
 	font-size: 12px;
 	color: var(--text-3);
 	margin-top: 8px;
+}
+
+/* A reader who asks for less motion gets none: no fade-ins, no pulsing logo,
+ * no rotating sweep. The rule is global so the next animated block is covered
+ * too, and it uses !important so it beats scoped page styles. Every animated
+ * block rests visible, so turning animation off never hides anything. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: beats scoped page animations */
+		animation: none !important;
+	}
+
+	/* Animated, the ring fades from 0.8 to 0 and averages about 0.4. Held still
+	 * at its resting style it would sit at full opacity, brighter than anyone
+	 * else ever sees it. */
+	.logo-pulse::after {
+		opacity: 0.4;
+	}
 }
