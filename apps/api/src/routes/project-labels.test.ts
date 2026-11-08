@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 const db = () => env.DB;
@@ -10,7 +10,7 @@ const PASSWORD = ["correct", "horse", "battery"].join("-");
 const KEY = "6a7678979e31";
 
 async function signup(email: string): Promise<string> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
@@ -22,7 +22,7 @@ async function mint(
 	accessToken: string,
 	name: string,
 ): Promise<{ id: string; token: string }> {
-	const response = await SELF.fetch(`${BASE}/api/machines`, {
+	const response = await exports.default.fetch(`${BASE}/api/machines`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -34,7 +34,7 @@ async function mint(
 }
 
 function put(token: string, body: unknown): Promise<Response> {
-	return SELF.fetch(`${BASE}/api/project-labels`, {
+	return exports.default.fetch(`${BASE}/api/project-labels`, {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",
@@ -45,7 +45,7 @@ function put(token: string, body: unknown): Promise<Response> {
 }
 
 async function list(token: string): Promise<unknown> {
-	const response = await SELF.fetch(`${BASE}/api/project-labels`, {
+	const response = await exports.default.fetch(`${BASE}/api/project-labels`, {
 		headers: { Authorization: `Bearer ${token}` },
 	});
 	expect(response.status).toBe(200);
@@ -61,7 +61,7 @@ beforeEach(async () => {
 
 describe("GET /api/project-labels", () => {
 	it("refuses a request without a session", async () => {
-		const response = await SELF.fetch(`${BASE}/api/project-labels`);
+		const response = await exports.default.fetch(`${BASE}/api/project-labels`);
 		expect(response.status).toBe(401);
 	});
 
@@ -70,7 +70,7 @@ describe("GET /api/project-labels", () => {
 	it("refuses a machine token", async () => {
 		const ada = await signup("ada@example.com");
 		const machine = await mint(ada, "laptop");
-		const response = await SELF.fetch(`${BASE}/api/project-labels`, {
+		const response = await exports.default.fetch(`${BASE}/api/project-labels`, {
 			headers: { Authorization: `Bearer ${machine.token}` },
 		});
 		expect(response.status).toBe(401);

@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { BASE, TEST_PASSWORD } from "./lessons.js";
 
 /**
@@ -26,7 +26,7 @@ export async function signup(
 	email: string,
 	name = "Ada",
 ): Promise<SignedUpUser> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: TEST_PASSWORD, name }),
@@ -59,7 +59,7 @@ export function call(
 	const headers = new Headers(init.headers);
 	headers.set("Content-Type", "application/json");
 	if (token) headers.set("Authorization", `Bearer ${token}`);
-	return SELF.fetch(`${BASE}${path}`, { ...init, headers });
+	return exports.default.fetch(`${BASE}${path}`, { ...init, headers });
 }
 
 /**

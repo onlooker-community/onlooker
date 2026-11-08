@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -180,10 +180,11 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 	});
 
 	it("still answers 409 when a demotion races the anonymize batch", async () => {
-		// Calls the handler directly rather than through SELF, the same way
-		// routes/orgs-lessons.test.ts forces its own batch failure: there is no
-		// request through the worker that can land a write between deleteUser's
-		// reads and its batch, so this injects it at the binding instead.
+		// Calls the handler directly rather than through the worker's default
+		// export, the same way routes/orgs-lessons.test.ts forces its own batch
+		// failure: there is no request through the worker that can land a write
+		// between deleteUser's reads and its batch, so this injects it at the
+		// binding instead.
 		const orgId = await createOrg(ada.token, "Acme");
 		await addMembership(db(), orgId, bob.id, "owner");
 		await createLessonsWithFeed(

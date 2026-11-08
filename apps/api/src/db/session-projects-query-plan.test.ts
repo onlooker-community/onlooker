@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { session_projects } from "@onlooker/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";

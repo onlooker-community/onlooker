@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BASE,
@@ -25,20 +25,20 @@ beforeEach(async () => {
 });
 
 const read = (path: string) =>
-	SELF.fetch(`${BASE}${path}`, {
+	exports.default.fetch(`${BASE}${path}`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 
 describe("GET /api/activity", () => {
 	it("rejects a request with no session", async () => {
-		const response = await SELF.fetch(`${BASE}/api/activity`);
+		const response = await exports.default.fetch(`${BASE}/api/activity`);
 		expect(response.status).toBe(401);
 	});
 
 	// The credential split, same as /api/lessons asserts it: a machine token
 	// opens the sync routes and must not open the browsing ones.
 	it("rejects a machine token", async () => {
-		const response = await SELF.fetch(`${BASE}/api/activity`, {
+		const response = await exports.default.fetch(`${BASE}/api/activity`, {
 			headers: { Authorization: `Bearer ${machineToken}` },
 		});
 		expect(response.status).toBe(401);

@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
@@ -36,7 +36,7 @@ beforeEach(async () => {
 });
 
 const browse = (path: string, init: RequestInit = {}) =>
-	SELF.fetch(`${BASE}${path}`, {
+	exports.default.fetch(`${BASE}${path}`, {
 		...init,
 		headers: {
 			"Content-Type": "application/json",
@@ -47,14 +47,14 @@ const browse = (path: string, init: RequestInit = {}) =>
 
 describe("GET /api/lessons", () => {
 	it("rejects a request with no session", async () => {
-		const response = await SELF.fetch(`${BASE}/api/lessons`);
+		const response = await exports.default.fetch(`${BASE}/api/lessons`);
 		expect(response.status).toBe(401);
 	});
 
 	// The credential split, asserted. A machine token opens the sync routes and
 	// must not open the browsing ones.
 	it("rejects a machine token", async () => {
-		const response = await SELF.fetch(`${BASE}/api/lessons`, {
+		const response = await exports.default.fetch(`${BASE}/api/lessons`, {
 			headers: { Authorization: `Bearer ${machineToken}` },
 		});
 		expect(response.status).toBe(401);
@@ -144,9 +144,12 @@ describe("GET /api/lessons/:id", () => {
 		await push(machineToken, [written]);
 		const stranger = await mintMachine("stranger@example.com");
 
-		const response = await SELF.fetch(`${BASE}/api/lessons/${written.id}`, {
-			headers: { Authorization: `Bearer ${stranger.accessToken}` },
-		});
+		const response = await exports.default.fetch(
+			`${BASE}/api/lessons/${written.id}`,
+			{
+				headers: { Authorization: `Bearer ${stranger.accessToken}` },
+			},
+		);
 
 		expect(response.status).toBe(404);
 	});
@@ -202,7 +205,7 @@ describe("PATCH /api/lessons/:id/status", () => {
 		await push(machineToken, [written]);
 		const stranger = await mintMachine("stranger@example.com");
 
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/lessons/${written.id}/status`,
 			{
 				method: "PATCH",
@@ -226,7 +229,7 @@ describe("PATCH /api/lessons/:id/status", () => {
 		await patch(written.id, "retracted");
 
 		const delta = (await (
-			await SELF.fetch(`${BASE}/lessons?since=1`, {
+			await exports.default.fetch(`${BASE}/lessons?since=1`, {
 				headers: { Authorization: `Bearer ${machineToken}` },
 			})
 		).json()) as { lessons: Array<{ lesson: { status: string } }> };

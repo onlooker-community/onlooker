@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
@@ -40,7 +40,8 @@ async function seed(overrides: Record<string, unknown>): Promise<TLesson> {
 	return written;
 }
 
-const get = (id: string) => SELF.fetch(`${BASE}/api/public/lessons/${id}`);
+const get = (id: string) =>
+	exports.default.fetch(`${BASE}/api/public/lessons/${id}`);
 
 describe("GET /api/public/lessons/:id", () => {
 	it("serves a public lesson with no credential at all", async () => {
@@ -116,9 +117,12 @@ describe("GET /api/public/lessons/:id", () => {
 	it("allows any origin to read it, without credentials", async () => {
 		const pub = await seed({ visibility: "public" });
 
-		const response = await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`, {
-			headers: { Origin: "https://somebody-elses-site.example" },
-		});
+		const response = await exports.default.fetch(
+			`${BASE}/api/public/lessons/${pub.id}`,
+			{
+				headers: { Origin: "https://somebody-elses-site.example" },
+			},
+		);
 
 		expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
 		// A wildcard origin plus credentials is exactly what cors.ts exists to
@@ -131,7 +135,7 @@ describe("OPTIONS preflight", () => {
 	const FOREIGN_ORIGIN = "https://somebody-elses-site.example";
 
 	it("answers a preflight for the public lesson route with the wildcard", async () => {
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
 			{
 				method: "OPTIONS",
@@ -149,7 +153,7 @@ describe("OPTIONS preflight", () => {
 	// leak to every route. A `cors: "app"` route, preflighted from the same
 	// foreign origin, must still get nothing back.
 	it("still refuses a cors: app route's preflight from the same foreign origin", async () => {
-		const response = await SELF.fetch(`${BASE}/auth/me`, {
+		const response = await exports.default.fetch(`${BASE}/auth/me`, {
 			method: "OPTIONS",
 			headers: {
 				Origin: FOREIGN_ORIGIN,
@@ -168,7 +172,7 @@ describe("OPTIONS preflight", () => {
 	// into that undefined besides an outright unmatched path: no
 	// Access-Control-Request-Method at all, and one naming no route.
 	it("fails closed to the allowlist when Access-Control-Request-Method is missing", async () => {
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
 			{
 				method: "OPTIONS",
@@ -180,7 +184,7 @@ describe("OPTIONS preflight", () => {
 	});
 
 	it("fails closed to the allowlist when Access-Control-Request-Method is garbage", async () => {
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/public/lessons/01NOPE00000000000000000000`,
 			{
 				method: "OPTIONS",

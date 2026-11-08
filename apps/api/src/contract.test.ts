@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import {
 	ACCOUNT_CONTRACT,
 	anonymousCases,
@@ -18,10 +18,11 @@ import { createVerificationToken, getUserByEmail } from "./db/queries";
 // itself, so apps/api could change a status code or a response shape and every
 // test would stay green while the recorded table became fiction.
 //
-// SELF dispatches to the real default export - the actual router, middleware and
-// D1 - so this exercises the same surface apps/web talks to, over HTTP, without
-// booting `wrangler dev` or adding a CI job. That is why vitest.config.ts names
-// `main`; without it SELF has no worker to reach.
+// The worker's default export is the real thing - the actual router, middleware
+// and D1 - so this exercises the same surface apps/web talks to, over HTTP,
+// without booting `wrangler dev` or adding a CI job. That is why
+// vitest.config.ts names `main`; without it `exports.default` has no worker to
+// reach.
 //
 // The database starts empty on every run, so the fixture creates its own account
 // rather than assuming one. That difference from the mock, which ships seeded, is
@@ -44,11 +45,14 @@ async function call(entry: ContractCase, token?: string): Promise<Response> {
 	const headers = new Headers(entry.init.headers);
 	if (token) headers.set("Authorization", `Bearer ${token}`);
 
-	return SELF.fetch(`${BASE}${entry.path}`, { ...entry.init, headers });
+	return exports.default.fetch(`${BASE}${entry.path}`, {
+		...entry.init,
+		headers,
+	});
 }
 
 beforeAll(async () => {
-	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
+	const signup = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email: EXISTING_EMAIL, password: PASSWORD }),
@@ -109,7 +113,7 @@ describe("apps/api serves the contract", () => {
 	// structure stays so the two runners keep mirroring each other.
 	describe("with a valid token", () => {
 		beforeAll(async () => {
-			const login = await SELF.fetch(`${BASE}/auth/login`, {
+			const login = await exports.default.fetch(`${BASE}/auth/login`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ email: EXISTING_EMAIL, password: PASSWORD }),
@@ -160,7 +164,7 @@ describe("apps/api session lifecycle", () => {
 
 	async function signUp(): Promise<{ access: string; refresh: string }> {
 		seq += 1;
-		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+		const res = await exports.default.fetch(`${BASE}/auth/signup`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -175,19 +179,19 @@ describe("apps/api session lifecycle", () => {
 	}
 
 	const me = (token: string) =>
-		SELF.fetch(`${BASE}/auth/me`, {
+		exports.default.fetch(`${BASE}/auth/me`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 
 	const refresh = (token: string) =>
-		SELF.fetch(`${BASE}/auth/refresh`, {
+		exports.default.fetch(`${BASE}/auth/refresh`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ refreshToken: token }),
 		});
 
 	const logout = (session: { access: string; refresh: string }) =>
-		SELF.fetch(`${BASE}/auth/logout`, {
+		exports.default.fetch(`${BASE}/auth/logout`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -212,7 +216,7 @@ describe("apps/api session lifecycle", () => {
 
 	it("a second login leaves the first session usable, and separately closable", async () => {
 		const first = await signUp();
-		const second = await SELF.fetch(`${BASE}/auth/login`, {
+		const second = await exports.default.fetch(`${BASE}/auth/login`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -252,7 +256,7 @@ describe("apps/api account management", () => {
 	}> {
 		seq += 1;
 		const email = `account-${seq}@example.com`;
-		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+		const res = await exports.default.fetch(`${BASE}/auth/signup`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email, password: PASSWORD }),
@@ -264,12 +268,12 @@ describe("apps/api account management", () => {
 	}
 
 	const profile = (token: string) =>
-		SELF.fetch(`${BASE}/auth/profile`, {
+		exports.default.fetch(`${BASE}/auth/profile`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 
 	const patch = (token: string, changes: Record<string, string>) =>
-		SELF.fetch(`${BASE}/auth/profile`, {
+		exports.default.fetch(`${BASE}/auth/profile`, {
 			method: "PATCH",
 			headers: {
 				"Content-Type": "application/json",
@@ -279,7 +283,7 @@ describe("apps/api account management", () => {
 		});
 
 	const login = (email: string, password: string) =>
-		SELF.fetch(`${BASE}/auth/login`, {
+		exports.default.fetch(`${BASE}/auth/login`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email, password }),
@@ -341,7 +345,7 @@ describe("apps/api account management", () => {
 	it("rejects a password change without the current password", async () => {
 		const me = await account();
 
-		const res = await SELF.fetch(`${BASE}/auth/change-password`, {
+		const res = await exports.default.fetch(`${BASE}/auth/change-password`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -362,7 +366,7 @@ describe("apps/api account management", () => {
 			refreshToken: string;
 		};
 
-		const res = await SELF.fetch(`${BASE}/auth/change-password`, {
+		const res = await exports.default.fetch(`${BASE}/auth/change-password`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -384,7 +388,7 @@ describe("apps/api account management", () => {
 		);
 
 		const refresh = (token: string) =>
-			SELF.fetch(`${BASE}/auth/refresh`, {
+			exports.default.fetch(`${BASE}/auth/refresh`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ refreshToken: token }),
@@ -399,13 +403,13 @@ describe("apps/api account management", () => {
 	it("deletes the account, its sessions and its address", async () => {
 		const me = await account();
 
-		const res = await SELF.fetch(`${BASE}/auth/account`, {
+		const res = await exports.default.fetch(`${BASE}/auth/account`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${me.access}` },
 		});
 		expect(res.status).toBe(200);
 
-		const refreshed = await SELF.fetch(`${BASE}/auth/refresh`, {
+		const refreshed = await exports.default.fetch(`${BASE}/auth/refresh`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ refreshToken: me.refresh }),
@@ -432,7 +436,7 @@ describe("apps/api email flows", () => {
 	let seq = 0;
 
 	const post = (path: string, body: unknown, token?: string) =>
-		SELF.fetch(`${BASE}${path}`, {
+		exports.default.fetch(`${BASE}${path}`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -467,7 +471,7 @@ describe("apps/api email flows", () => {
 	});
 
 	it("reports an unknown reset token as not valid, without erroring", async () => {
-		const res = await SELF.fetch(
+		const res = await exports.default.fetch(
 			`${BASE}/auth/reset-password/verify?token=invented`,
 		);
 
@@ -515,7 +519,7 @@ describe("apps/api reset round trip", () => {
 	let seq = 0;
 
 	const post = (path: string, body: unknown) =>
-		SELF.fetch(`${BASE}${path}`, {
+		exports.default.fetch(`${BASE}${path}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
@@ -548,7 +552,7 @@ describe("apps/api reset round trip", () => {
 	it("checks a link without spending it, then resets with it", async () => {
 		const me = await accountWithResetToken();
 
-		const check = await SELF.fetch(
+		const check = await exports.default.fetch(
 			`${BASE}/auth/reset-password/verify?token=${me.token}`,
 		);
 		expect((await check.json()) as { valid: boolean; email: string }).toEqual({
@@ -649,7 +653,7 @@ describe("apps/api reset round trip", () => {
 // whose session just broke - which makes its bounds the interesting part.
 describe("apps/api client error reporting", () => {
 	const post = (body: string, token?: string) =>
-		SELF.fetch(`${BASE}/api/client-errors`, {
+		exports.default.fetch(`${BASE}/api/client-errors`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -722,7 +726,7 @@ describe("apps/api machine credentials", () => {
 	let stranger: string;
 
 	async function signup(email: string): Promise<string> {
-		const res = await SELF.fetch(`${BASE}/auth/signup`, {
+		const res = await exports.default.fetch(`${BASE}/auth/signup`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -743,7 +747,7 @@ describe("apps/api machine credentials", () => {
 	}
 
 	async function mint(token: string, name: string) {
-		return SELF.fetch(
+		return exports.default.fetch(
 			`${BASE}/api/machines`,
 			as(token, { method: "POST", body: JSON.stringify({ name }) }),
 		);
@@ -768,7 +772,7 @@ describe("apps/api machine credentials", () => {
 			[...MACHINE_LIFECYCLE.createFields].sort(),
 		);
 
-		const list = await SELF.fetch(`${BASE}/api/machines`, as(owner));
+		const list = await exports.default.fetch(`${BASE}/api/machines`, as(owner));
 		const listBody = (await list.json()) as {
 			machines: Array<Record<string, unknown>>;
 		};
@@ -802,13 +806,13 @@ describe("apps/api machine credentials", () => {
 		const { id } = (await (await mint(owner, "stolen laptop")).json()) as {
 			id: string;
 		};
-		const first = await SELF.fetch(
+		const first = await exports.default.fetch(
 			`${BASE}/api/machines/${id}`,
 			as(owner, { method: "DELETE" }),
 		);
 		expect(first.status).toBe(MACHINE_LIFECYCLE.revokeOwn);
 
-		const second = await SELF.fetch(
+		const second = await exports.default.fetch(
 			`${BASE}/api/machines/${id}`,
 			as(owner, { method: "DELETE" }),
 		);
@@ -819,7 +823,7 @@ describe("apps/api machine credentials", () => {
 		const { id } = (await (await mint(owner, "shared name")).json()) as {
 			id: string;
 		};
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/machines/${id}`,
 			as(stranger, { method: "DELETE" }),
 		);
@@ -832,14 +836,14 @@ describe("apps/api machine credentials", () => {
 			id: string;
 		};
 		const remove = (who: typeof owner) =>
-			SELF.fetch(
+			exports.default.fetch(
 				`${BASE}/api/machines/${id}/remove`,
 				as(who, { method: "POST" }),
 			);
 
 		expect((await remove(owner)).status).toBe(MACHINE_LIFECYCLE.removeLive);
 
-		await SELF.fetch(
+		await exports.default.fetch(
 			`${BASE}/api/machines/${id}`,
 			as(owner, { method: "DELETE" }),
 		);
@@ -852,7 +856,7 @@ describe("apps/api machine credentials", () => {
 		// Removed is a mark, not a delete: the Sessions page still names the
 		// machine, so the list must keep returning the row.
 		const listed = (await (
-			await SELF.fetch(`${BASE}/api/machines`, as(owner))
+			await exports.default.fetch(`${BASE}/api/machines`, as(owner))
 		).json()) as { machines: Array<{ id: string; removed_at: string | null }> };
 		const row = listed.machines.find((machine) => machine.id === id);
 		expect(row).toBeDefined();

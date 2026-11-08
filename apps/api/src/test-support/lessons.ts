@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 
 export const BASE = "https://api.onlooker.dev";
 export const TEST_PASSWORD = "correct-horse-battery";
@@ -63,14 +63,14 @@ export interface MintedMachine {
  * 401s. Both are named here so a caller cannot pick up the wrong one silently.
  */
 export async function mintMachine(email: string): Promise<MintedMachine> {
-	const signup = await SELF.fetch(`${BASE}/auth/signup`, {
+	const signup = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: TEST_PASSWORD, name: "Ada" }),
 	});
 	const { token: accessToken } = (await signup.json()) as { token: string };
 
-	const machine = await SELF.fetch(`${BASE}/api/machines`, {
+	const machine = await exports.default.fetch(`${BASE}/api/machines`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -88,7 +88,7 @@ export async function mintMachineToken(email: string): Promise<string> {
 }
 
 export function push(token: string, lessons: unknown[]) {
-	return SELF.fetch(`${BASE}/lessons`, {
+	return exports.default.fetch(`${BASE}/lessons`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

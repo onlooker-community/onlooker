@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BASE,
@@ -26,7 +26,7 @@ describe("GET /lessons", () => {
 	it("returns everything from a zero cursor", async () => {
 		await push(machineToken, [lesson(), lesson(), lesson()]);
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${machineToken}` },
 		});
 
@@ -43,7 +43,7 @@ describe("GET /lessons", () => {
 	it("returns only what is after the cursor", async () => {
 		await push(machineToken, [lesson(), lesson(), lesson()]);
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=2`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=2`, {
 			headers: { Authorization: `Bearer ${machineToken}` },
 		});
 
@@ -58,9 +58,12 @@ describe("GET /lessons", () => {
 	it("reports when more remains", async () => {
 		await push(machineToken, [lesson(), lesson(), lesson()]);
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=0&limit=2`, {
-			headers: { Authorization: `Bearer ${machineToken}` },
-		});
+		const response = await exports.default.fetch(
+			`${BASE}/lessons?since=0&limit=2`,
+			{
+				headers: { Authorization: `Bearer ${machineToken}` },
+			},
+		);
 
 		const body = (await response.json()) as {
 			cursor: number;
@@ -75,7 +78,7 @@ describe("GET /lessons", () => {
 		await push(machineToken, [lesson(), lesson()]);
 
 		const otherToken = await mintMachineToken("other@example.com");
-		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${otherToken}` },
 		});
 
@@ -86,7 +89,7 @@ describe("GET /lessons", () => {
 	it("delivers a contiguous sequence across creates and transitions", async () => {
 		const written = lesson();
 		await push(machineToken, [written, lesson()]);
-		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${written.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -95,7 +98,7 @@ describe("GET /lessons", () => {
 			body: JSON.stringify({ status: "retracted", superseded_by: null }),
 		});
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${machineToken}` },
 		});
 
@@ -113,25 +116,28 @@ describe("GET /lessons", () => {
 		const machine = await mintMachine("revoked@example.com");
 
 		// It works, so the 401 below is about the revocation and nothing else.
-		const before = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const before = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${machine.token}` },
 		});
 		expect(before.status).toBe(200);
 
-		const revoke = await SELF.fetch(`${BASE}/api/machines/${machine.id}`, {
-			method: "DELETE",
-			headers: { Authorization: `Bearer ${machine.accessToken}` },
-		});
+		const revoke = await exports.default.fetch(
+			`${BASE}/api/machines/${machine.id}`,
+			{
+				method: "DELETE",
+				headers: { Authorization: `Bearer ${machine.accessToken}` },
+			},
+		);
 		expect(revoke.status).toBe(200);
 
-		const after = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const after = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${machine.token}` },
 		});
 		expect(after.status).toBe(401);
 	});
 
 	it("rejects a machine token that was never issued", async () => {
-		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer onlk_${"0".repeat(64)}` },
 		});
 
@@ -141,7 +147,7 @@ describe("GET /lessons", () => {
 	// Revoking a lost laptop must not sign the other machines out.
 	it("leaves the account's other machines working", async () => {
 		const lost = await mintMachine("two-machines@example.com");
-		const kept = await SELF.fetch(`${BASE}/api/machines`, {
+		const kept = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -151,12 +157,12 @@ describe("GET /lessons", () => {
 		});
 		const { token: keptToken } = (await kept.json()) as { token: string };
 
-		await SELF.fetch(`${BASE}/api/machines/${lost.id}`, {
+		await exports.default.fetch(`${BASE}/api/machines/${lost.id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${lost.accessToken}` },
 		});
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const response = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${keptToken}` },
 		});
 
@@ -183,9 +189,12 @@ describe("GET /lessons", () => {
 		);
 		await db().batch(filler);
 
-		const response = await SELF.fetch(`${BASE}/lessons?since=0&limit=1000000`, {
-			headers: { Authorization: `Bearer ${machineToken}` },
-		});
+		const response = await exports.default.fetch(
+			`${BASE}/lessons?since=0&limit=1000000`,
+			{
+				headers: { Authorization: `Bearer ${machineToken}` },
+			},
+		);
 
 		const body = (await response.json()) as {
 			lessons: unknown[];

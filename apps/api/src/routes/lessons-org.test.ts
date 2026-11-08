@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { addMembership } from "../db/orgs.js";
