@@ -179,15 +179,23 @@ const posts = await publishedPosts();
 
   .headline {
     font-family: var(--display);
-    font-size: clamp(42px, 7vw, 84px);
-    font-weight: 800;
+    font-size: 48px;
+    font-weight: 700;
     line-height: 0.95;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     color: var(--text-1);
     max-width: 800px;
     margin-bottom: 28px;
     opacity: 0;
     animation: fade-up 0.6s ease forwards 0.35s;
+  }
+
+  /* 48px and 80px are 3x and 5x the face's 16px design size. clamp() put the
+   * headline between multiples at nearly every width. */
+  @media (min-width: 768px) {
+    .headline {
+      font-size: 80px;
+    }
   }
 
   .headline em {

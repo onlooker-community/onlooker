@@ -157,12 +157,18 @@ const categoryLabel: Record<PluginCategory, string> = {
 
   h1 {
     font-family: var(--display);
-    font-size: clamp(28px, 5vw, 48px);
-    font-weight: 800;
+    font-size: 32px;
+    font-weight: 700;
     line-height: 1.05;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     color: var(--text-1);
     margin-bottom: 20px;
+  }
+
+  @media (min-width: 768px) {
+    h1 {
+      font-size: 48px;
+    }
   }
 
   .subhead {
