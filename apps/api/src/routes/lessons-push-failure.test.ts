@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SequenceExhaustedError } from "../db/lessons.js";
@@ -17,7 +17,7 @@ import { handlePushLessons, handleTransitionLesson } from "./lessons.js";
 /**
  * What happens to a batch that cannot be written.
  *
- * These call the handlers directly rather than through SELF, because the
+ * These call the handlers directly rather than through the worker's default export, because the
  * failures they cover are D1 failures and there is no request that provokes one
  * through the worker. The proxy below is the whole reason the file exists:
  * every one of these paths was unreachable from a test before, and every one of
@@ -68,7 +68,7 @@ async function thrownBy(work: Promise<Response>): Promise<unknown> {
 
 /**
  * The principal `dispatch` would have resolved for `machineToken`, for tests
- * that call the handler directly rather than going through `SELF.fetch`.
+ * that call the handler directly rather than going through `exports.default.fetch`.
  */
 function machinePrincipal(): Principal {
 	return { userId };

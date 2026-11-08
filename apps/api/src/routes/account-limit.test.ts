@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { RateLimit } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch } from "../router";
@@ -8,7 +8,7 @@ import type { WorkerEnv } from "../types";
 
 /**
  * The circuit breaker as a caller meets it: through dispatch, with a fake
- * limiter on env. SELF.fetch can't carry a per-test binding, so these call
+ * limiter on env. The worker's default export can't carry a per-test binding, so these call
  * dispatch directly with the worker's own env plus the fake.
  */
 

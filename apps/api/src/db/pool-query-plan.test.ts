@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import { describe, expect, it } from "vitest";
 import { readPool } from "./pool.js";

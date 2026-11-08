@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -179,7 +179,7 @@ describe("POST /api/orgs/:id/lessons/:lessonId/retract", () => {
 });
 
 describe("POST /api/orgs/:id/lessons/:lessonId/retract when the write fails", () => {
-	// Calls the handler directly rather than through SELF, the same way
+	// Calls the handler directly rather than through the worker's default export, the same way
 	// routes/lessons-push-failure.test.ts does and for the same reason:
 	// sustained sequence contention is a D1 failure, and there is no request
 	// through the worker that provokes one. That file is the only existing

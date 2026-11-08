@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BASE,
@@ -23,7 +23,7 @@ beforeEach(async () => {
 
 describe("POST /lessons", () => {
 	it("rejects a request with no machine token", async () => {
-		const response = await SELF.fetch(`${BASE}/lessons`, {
+		const response = await exports.default.fetch(`${BASE}/lessons`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ lessons: [lesson()] }),
@@ -58,12 +58,15 @@ describe("POST /lessons", () => {
 		expect(results[0].outcome).toBe("created");
 
 		// Round trip: read back the stored lesson and verify session_ids is empty.
-		const readResponse = await SELF.fetch(`${BASE}/lessons?since=0&limit=10`, {
-			method: "GET",
-			headers: {
-				Authorization: `Bearer ${machineToken}`,
+		const readResponse = await exports.default.fetch(
+			`${BASE}/lessons?since=0&limit=10`,
+			{
+				method: "GET",
+				headers: {
+					Authorization: `Bearer ${machineToken}`,
+				},
 			},
-		});
+		);
 
 		expect(readResponse.status).toBe(200);
 		const { lessons } = (await readResponse.json()) as {
@@ -148,7 +151,7 @@ describe("POST /lessons", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${written.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -175,7 +178,7 @@ describe("POST /lessons", () => {
 		const replacement = lesson();
 		await push(machineToken, [original, replacement]);
 
-		await SELF.fetch(`${BASE}/lessons/${original.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${original.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -204,7 +207,7 @@ describe("POST /lessons", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${written.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

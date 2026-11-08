@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { TEST_PASSWORD } from "../test-support/lessons.js";
@@ -8,7 +8,7 @@ import { handleLogin } from "./auth.js";
 
 // Note for anyone adding a test here: this pool does not support vi.mock.
 // Two attempts to count bcrypt calls from inside a test came back zero - once
-// through SELF.fetch, which runs the worker's own module graph, and once on a
+// through the worker's default export, which runs the worker's own module graph, and once on a
 // direct handler call, where the factory still never ran. The gate's position
 // relative to verifyPassword is therefore pinned in
 // scripts/source-guards.test.sh, under "the login gate runs before bcrypt",

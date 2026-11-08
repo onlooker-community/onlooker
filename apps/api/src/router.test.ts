@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { ROUTES, resolveRoute } from "./router";
 import { BASE } from "./test-support/lessons.js";
@@ -75,7 +75,7 @@ describe("GET / route listing", () => {
 	// exact count or list, so this does not go stale every time a route -
 	// operator or otherwise - is added.
 	it("does not advertise any operator route", async () => {
-		const response = await SELF.fetch(`${BASE}/`);
+		const response = await exports.default.fetch(`${BASE}/`);
 		const body = (await response.json()) as {
 			endpoints: Array<{ method: string; path: string }>;
 		};

@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
@@ -28,7 +28,7 @@ const ORIGINAL_OPERATOR_USER_IDS = (env as { OPERATOR_USER_IDS?: string })
 	.OPERATOR_USER_IDS;
 
 async function signup(email: string): Promise<{ id: string; token: string }> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: TEST_PASSWORD, name: "Ada" }),
@@ -76,7 +76,7 @@ const asJson = (token: string) => ({
 });
 
 const retract = (id: string, token: string) =>
-	SELF.fetch(`${BASE}/api/admin/lessons/${id}/retract`, {
+	exports.default.fetch(`${BASE}/api/admin/lessons/${id}/retract`, {
 		method: "POST",
 		headers: authed(token),
 	});
@@ -99,7 +99,9 @@ describe("POST /api/admin/lessons/:id/retract", () => {
 		const pub = await seed({ visibility: "public" });
 		await retract(pub.id, operatorToken);
 
-		const read = await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`);
+		const read = await exports.default.fetch(
+			`${BASE}/api/public/lessons/${pub.id}`,
+		);
 
 		expect(read.status).toBe(404);
 	});
@@ -113,7 +115,7 @@ describe("POST /api/admin/lessons/:id/retract", () => {
 	it("401s with no credential", async () => {
 		const pub = await seed({ visibility: "public" });
 
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/api/admin/lessons/${pub.id}/retract`,
 			{ method: "POST" },
 		);
@@ -126,14 +128,14 @@ describe("author blocks", () => {
 	const KEY = "9".repeat(32);
 
 	const blockRequest = (body: unknown, token: string) =>
-		SELF.fetch(`${BASE}/api/admin/author-blocks`, {
+		exports.default.fetch(`${BASE}/api/admin/author-blocks`, {
 			method: "POST",
 			headers: asJson(token),
 			body: JSON.stringify(body),
 		});
 
 	const unblockRequest = (key: string, token: string) =>
-		SELF.fetch(`${BASE}/api/admin/author-blocks/${key}`, {
+		exports.default.fetch(`${BASE}/api/admin/author-blocks/${key}`, {
 			method: "DELETE",
 			headers: authed(token),
 		});
@@ -145,7 +147,8 @@ describe("author blocks", () => {
 		// a 404 below could have any cause, and this test would only prove
 		// anything in combination with "serves it again after an unblock".
 		expect(
-			(await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`)).status,
+			(await exports.default.fetch(`${BASE}/api/public/lessons/${pub.id}`))
+				.status,
 		).toBe(200);
 
 		const blocked = await blockRequest(
@@ -155,7 +158,8 @@ describe("author blocks", () => {
 
 		expect(blocked.status).toBe(200);
 		expect(
-			(await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`)).status,
+			(await exports.default.fetch(`${BASE}/api/public/lessons/${pub.id}`))
+				.status,
 		).toBe(404);
 	});
 
@@ -167,7 +171,8 @@ describe("author blocks", () => {
 
 		expect(unblocked.status).toBe(200);
 		expect(
-			(await SELF.fetch(`${BASE}/api/public/lessons/${pub.id}`)).status,
+			(await exports.default.fetch(`${BASE}/api/public/lessons/${pub.id}`))
+				.status,
 		).toBe(200);
 	});
 

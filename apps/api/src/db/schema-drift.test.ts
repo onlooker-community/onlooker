@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error - .mjs script has no type declarations; it must stay
 // directly runnable by node in CI, so it is not rewritten in TypeScript.

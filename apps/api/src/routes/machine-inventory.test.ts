@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 const db = () => env.DB;
@@ -30,7 +30,7 @@ const DOC = {
 };
 
 async function signup(email: string): Promise<string> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
@@ -42,7 +42,7 @@ async function mint(
 	accessToken: string,
 	name: string,
 ): Promise<{ id: string; token: string }> {
-	const response = await SELF.fetch(`${BASE}/api/machines`, {
+	const response = await exports.default.fetch(`${BASE}/api/machines`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -54,7 +54,7 @@ async function mint(
 }
 
 const report = (machineToken: string, body: unknown) =>
-	SELF.fetch(`${BASE}/machine/inventory`, {
+	exports.default.fetch(`${BASE}/machine/inventory`, {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",
@@ -64,7 +64,7 @@ const report = (machineToken: string, body: unknown) =>
 	});
 
 const readInventory = (id: string, auth: string) =>
-	SELF.fetch(`${BASE}/api/machines/${id}/inventory`, {
+	exports.default.fetch(`${BASE}/api/machines/${id}/inventory`, {
 		headers: { Authorization: `Bearer ${auth}` },
 	});
 
@@ -146,7 +146,7 @@ describe("PUT /machine/inventory", () => {
 	});
 
 	it("refuses a request carrying no machine credential", async () => {
-		const response = await SELF.fetch(`${BASE}/machine/inventory`, {
+		const response = await exports.default.fetch(`${BASE}/machine/inventory`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(DOC),
@@ -161,7 +161,7 @@ describe("PUT /machine/inventory", () => {
 
 	it("refuses a revoked machine credential", async () => {
 		const machine = await mint(accessToken, "lost laptop");
-		await SELF.fetch(`${BASE}/api/machines/${machine.id}`, {
+		await exports.default.fetch(`${BASE}/api/machines/${machine.id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});

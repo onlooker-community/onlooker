@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createOrgWithOwner } from "../db/orgs.js";
 
@@ -10,7 +10,7 @@ let accessToken: string;
 let orgId: string;
 
 async function signup(email: string): Promise<{ id: string; token: string }> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
@@ -35,7 +35,7 @@ beforeEach(async () => {
 
 describe("POST /api/machines", () => {
 	it("returns the raw token exactly once", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -49,14 +49,14 @@ describe("POST /api/machines", () => {
 		expect(created.token).toMatch(/^onlk_[0-9a-f]{64}$/);
 
 		// The list must never carry it again.
-		const list = await SELF.fetch(`${BASE}/api/machines`, {
+		const list = await exports.default.fetch(`${BASE}/api/machines`, {
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		expect(await list.text()).not.toContain(created.token);
 	});
 
 	it("rejects a request with no credential at all", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: "work laptop" }),
@@ -66,7 +66,7 @@ describe("POST /api/machines", () => {
 	});
 
 	it("rejects a real machine token, not just a browser session", async () => {
-		const seed = await SELF.fetch(`${BASE}/api/machines`, {
+		const seed = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -76,7 +76,7 @@ describe("POST /api/machines", () => {
 		});
 		const { token: machineToken } = (await seed.json()) as { token: string };
 
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -89,7 +89,7 @@ describe("POST /api/machines", () => {
 	});
 
 	it("rejects a blank name", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -112,7 +112,7 @@ describe("DELETE /api/machines/:id", () => {
 	// leaves the credential working is the silent failure this whole subsystem
 	// is written against, so the token is used afterwards.
 	it("revokes your own machine, and the token stops working", async () => {
-		const create = await SELF.fetch(`${BASE}/api/machines`, {
+		const create = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -126,19 +126,19 @@ describe("DELETE /api/machines/:id", () => {
 		};
 
 		// It authenticates now, so the 401 below is about the revocation.
-		const before = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const before = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		expect(before.status).toBe(200);
 
-		const revoke = await SELF.fetch(`${BASE}/api/machines/${id}`, {
+		const revoke = await exports.default.fetch(`${BASE}/api/machines/${id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		expect(revoke.status).toBe(200);
 		expect(await revoke.json()).toEqual({ success: true });
 
-		const after = await SELF.fetch(`${BASE}/lessons?since=0`, {
+		const after = await exports.default.fetch(`${BASE}/lessons?since=0`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		expect(after.status).toBe(401);
@@ -153,16 +153,19 @@ describe("DELETE /api/machines/:id", () => {
 	});
 
 	it("404s for a machine that does not exist", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines/no-such-machine`, {
-			method: "DELETE",
-			headers: { Authorization: `Bearer ${accessToken}` },
-		});
+		const response = await exports.default.fetch(
+			`${BASE}/api/machines/no-such-machine`,
+			{
+				method: "DELETE",
+				headers: { Authorization: `Bearer ${accessToken}` },
+			},
+		);
 
 		expect(response.status).toBe(404);
 	});
 
 	it("will not revoke another user's machine", async () => {
-		const create = await SELF.fetch(`${BASE}/api/machines`, {
+		const create = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -173,7 +176,7 @@ describe("DELETE /api/machines/:id", () => {
 		const { id } = (await create.json()) as { id: string };
 
 		const other = await signup("other@example.com");
-		const response = await SELF.fetch(`${BASE}/api/machines/${id}`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines/${id}`, {
 			method: "DELETE",
 			headers: { Authorization: `Bearer ${other.token}` },
 		});
@@ -184,7 +187,7 @@ describe("DELETE /api/machines/:id", () => {
 
 describe("minting a token for an org", () => {
 	it("binds the token to an org the caller belongs to", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -203,7 +206,7 @@ describe("minting a token for an org", () => {
 		const stranger = await signup("stranger@example.com");
 		const other = await createOrgWithOwner(db(), "Somebody Else", stranger.id);
 
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -216,7 +219,7 @@ describe("minting a token for an org", () => {
 	});
 
 	it("mints a private-only token when no org is named", async () => {
-		const response = await SELF.fetch(`${BASE}/api/machines`, {
+		const response = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

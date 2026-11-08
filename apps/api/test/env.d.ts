@@ -21,5 +21,12 @@ declare global {
 			DB: D1Database;
 			TEST_MIGRATIONS: D1Migration[];
 		}
+		// Types `exports` from "cloudflare:workers", which is how the tests call
+		// the worker. `wrangler types` would normally generate this; the project
+		// doesn't run it, so it is declared here. Without it `exports.default`
+		// doesn't typecheck, which was measured 2026-11-08.
+		interface GlobalProps {
+			mainModule: typeof import("../src/index");
+		}
 	}
 }

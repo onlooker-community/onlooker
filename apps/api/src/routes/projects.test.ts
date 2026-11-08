@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMachineToken } from "../db/machine-tokens.js";
 import { setProjectLabel } from "../db/project-labels.js";
@@ -12,7 +12,7 @@ const BASE = "https://api.onlooker.dev";
 const PASSWORD = ["correct", "horse", "battery"].join("-");
 
 async function signup(email: string): Promise<string> {
-	const response = await SELF.fetch(`${BASE}/auth/signup`, {
+	const response = await exports.default.fetch(`${BASE}/auth/signup`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password: PASSWORD, name: "Ada" }),
@@ -31,14 +31,14 @@ beforeEach(async () => {
 
 describe("GET /api/projects", () => {
 	it("refuses a request without a session", async () => {
-		const response = await SELF.fetch(`${BASE}/api/projects`);
+		const response = await exports.default.fetch(`${BASE}/api/projects`);
 		expect(response.status).toBe(401);
 	});
 
 	it("answers a signed-in caller with an empty list when nothing is reported", async () => {
 		const ada = await signup("ada@example.com");
 
-		const response = await SELF.fetch(`${BASE}/api/projects`, {
+		const response = await exports.default.fetch(`${BASE}/api/projects`, {
 			headers: { Authorization: `Bearer ${ada}` },
 		});
 
@@ -69,7 +69,7 @@ describe("GET /api/projects", () => {
 			},
 		]);
 
-		const response = await SELF.fetch(`${BASE}/api/projects`, {
+		const response = await exports.default.fetch(`${BASE}/api/projects`, {
 			headers: { Authorization: `Bearer ${ada}` },
 		});
 
@@ -142,7 +142,7 @@ describe("GET /api/projects", () => {
 
 		type Listed = { project_key: string };
 		async function list(token: string): Promise<Listed[]> {
-			const response = await SELF.fetch(`${BASE}/api/projects`, {
+			const response = await exports.default.fetch(`${BASE}/api/projects`, {
 				headers: { Authorization: `Bearer ${token}` },
 			});
 			return ((await response.json()) as { projects: Listed[] }).projects;
@@ -157,7 +157,7 @@ describe("GET /api/projects", () => {
 			const ada = await signup("ada@example.com");
 			await lessonOn(await userIdOf("ada@example.com"), KEY);
 
-			const response = await SELF.fetch(`${BASE}/api/projects`, {
+			const response = await exports.default.fetch(`${BASE}/api/projects`, {
 				headers: { Authorization: `Bearer ${ada}` },
 			});
 
@@ -227,7 +227,7 @@ describe("GET /api/projects", () => {
 	// person's projects across all of them.
 	it("refuses a machine token", async () => {
 		const ada = await signup("ada@example.com");
-		const minted = await SELF.fetch(`${BASE}/api/machines`, {
+		const minted = await exports.default.fetch(`${BASE}/api/machines`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -237,7 +237,7 @@ describe("GET /api/projects", () => {
 		});
 		const { token } = (await minted.json()) as { token: string };
 
-		const response = await SELF.fetch(`${BASE}/api/projects`, {
+		const response = await exports.default.fetch(`${BASE}/api/projects`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 

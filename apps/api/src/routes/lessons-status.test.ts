@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BASE,
@@ -26,14 +26,17 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${written.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({ status: "retracted", superseded_by: null }),
 			},
-			body: JSON.stringify({ status: "retracted", superseded_by: null }),
-		});
+		);
 
 		expect(response.status).toBe(200);
 		expect((await response.json()) as { seq: number }).toEqual({
@@ -49,7 +52,7 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${written.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -81,7 +84,7 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
+		await exports.default.fetch(`${BASE}/lessons/${written.id}/status`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -115,14 +118,17 @@ describe("POST /lessons/:id/status", () => {
 		const bystander = lesson();
 		await push(machineToken, [target, bystander]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${target.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${target.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({ status: "retracted", superseded_by: null }),
 			},
-			body: JSON.stringify({ status: "retracted", superseded_by: null }),
-		});
+		);
 
 		// A mis-read parameter shows up here first: "status" is not a lesson id,
 		// so the lookup misses and the route 404s without ever saying why.
@@ -142,17 +148,20 @@ describe("POST /lessons/:id/status", () => {
 		const replacement = lesson();
 		await push(machineToken, [original, replacement]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${original.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${original.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({
+					status: "superseded",
+					superseded_by: replacement.id,
+				}),
 			},
-			body: JSON.stringify({
-				status: "superseded",
-				superseded_by: replacement.id,
-			}),
-		});
+		);
 
 		expect(response.status).toBe(200);
 
@@ -169,23 +178,26 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${written.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({
+					status: "retracted",
+					superseded_by: "01KZ45MKAM734ZS7JK24D2DK99",
+				}),
 			},
-			body: JSON.stringify({
-				status: "retracted",
-				superseded_by: "01KZ45MKAM734ZS7JK24D2DK99",
-			}),
-		});
+		);
 
 		expect(response.status).toBe(400);
 	});
 
 	it("404s for a lesson id that does not exist", async () => {
-		const response = await SELF.fetch(
+		const response = await exports.default.fetch(
 			`${BASE}/lessons/01KZ45MKAM734ZS7JK24D2DK98/status`,
 			{
 				method: "POST",
@@ -204,14 +216,17 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${written.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({ status: "expired", superseded_by: null }),
 			},
-			body: JSON.stringify({ status: "expired", superseded_by: null }),
-		});
+		);
 
 		// There is deliberately no "expired" state: expiry is structural, and a
 		// stored expired status would need a job sweeping the pool to set it.
@@ -222,14 +237,17 @@ describe("POST /lessons/:id/status", () => {
 		const written = lesson();
 		await push(machineToken, [written]);
 
-		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${machineToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${written.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${machineToken}`,
+				},
+				body: JSON.stringify({ status: "superseded", superseded_by: null }),
 			},
-			body: JSON.stringify({ status: "superseded", superseded_by: null }),
-		});
+		);
 
 		expect(response.status).toBe(400);
 	});
@@ -239,14 +257,17 @@ describe("POST /lessons/:id/status", () => {
 		await push(machineToken, [written]);
 
 		const otherToken = await mintMachineToken("other@example.com");
-		const response = await SELF.fetch(`${BASE}/lessons/${written.id}/status`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${otherToken}`,
+		const response = await exports.default.fetch(
+			`${BASE}/lessons/${written.id}/status`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${otherToken}`,
+				},
+				body: JSON.stringify({ status: "retracted", superseded_by: null }),
 			},
-			body: JSON.stringify({ status: "retracted", superseded_by: null }),
-		});
+		);
 
 		expect(response.status).toBe(404);
 	});
