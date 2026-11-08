@@ -20,7 +20,7 @@ cli-v2.0.1, thirty-two for cli-v2.1.0, bounded only by attention.
 | Generator | `scripts/write-formula.mjs` |
 | Ecosystem sync | `.github/workflows/ecosystem-sync.yml` — hourly; opens and updates the `bot/ecosystem-sync` pull request |
 | Targets | this repository's `cli-v*` tags; `onlooker-community/homebrew-tap`, `Formula/onlooker.rb` |
-| Secrets | `TAP_APP_ID`, `TAP_APP_PRIVATE_KEY` — both workflows, same App |
+| Credentials | variable `RELEASE_APP_CLIENT_ID`, secret `TAP_APP_PRIVATE_KEY` — all three workflows, same App |
 
 ## Why an App and not a PAT
 
@@ -91,12 +91,22 @@ cannot trigger itself. Without the App, `tag-cli.yml` would push the tag and
 
 In this repository's **Settings → Secrets and variables → Actions**:
 
-| Secret | Value |
-|---|---|
-| `TAP_APP_ID` | the numeric App ID from step 1 |
-| `TAP_APP_PRIVATE_KEY` | the entire `.pem`, including the BEGIN and END lines |
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `RELEASE_APP_CLIENT_ID` | the Client ID from the App's settings page (`Iv23…`), not the numeric App ID |
+| Secret | `TAP_APP_PRIVATE_KEY` | the entire `.pem`, including the BEGIN and END lines |
 
-The names predate the App's second job; both workflows read the same pair.
+The Client ID is a variable, not a secret, because it is not a credential:
+`gh api /apps/onlooker-cli-release` returns it to anyone, and a variable shows
+its value in the logs where a secret would print `***`. The workflows used
+the numeric App ID through `app-id` until 2026-11-08 (ONL-64);
+`create-github-app-token` deprecated that input in favor of `client-id`. The
+key's name predates the App's later jobs; all three workflows read the same
+pair.
+
+```
+gh variable set RELEASE_APP_CLIENT_ID --body "$(gh api /apps/onlooker-cli-release --jq .client_id)"
+```
 
 **Set the key from the file, never by pasting it.** The first live release
 failed here: the key was stored through the browser and came back
@@ -174,7 +184,8 @@ and the old manual path still works: download it, commit it to the tap.
 |---|---|
 | `error:1E08010C:DECODER routines::unsupported` at the mint step | `TAP_APP_PRIVATE_KEY` cannot be decoded. **This is the one that actually happened**, on cli-v2.2.0. Usually newlines mangled by pasting into the browser. Check the file itself with `node -e 'require("crypto").createPrivateKey(require("fs").readFileSync("key.pem"))'` — if that passes, the key is fine and only the secret is bad, so re-set it with `gh secret set … < key.pem`. If it fails too, convert with `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in key.pem -out key-pkcs8.pem` |
 | `protected branch hook declined` on push | Step 4 was skipped, or the App was added to the wrong ruleset |
-| `Bad credentials` at the mint step | `TAP_APP_ID` is wrong, or the key belongs to a different App |
+| `Bad credentials` at the mint step | `RELEASE_APP_CLIENT_ID` is wrong (the numeric App ID is not the Client ID), or the key belongs to a different App |
+| `The 'client-id' (or deprecated 'app-id') input must be set to a non-empty string` at the mint step | The `RELEASE_APP_CLIENT_ID` variable is missing, or was created as a secret: the workflows read `vars.`, and a secret by that name reads as empty |
 | `Resource not accessible by integration` | The App is not installed on the repository being written to, or lacks Contents write |
 | `cli-vX.Y.Z ships X.Y.Z, apps/cli/package.json says …` | The tag was pushed without the manifest bump. Fix the manifest, delete and re-push the tag |
 | Job succeeds, log says `Tap already at X.Y.Z` | Not a failure. A re-run of an already-released tag regenerates a byte-identical formula and correctly pushes nothing |
