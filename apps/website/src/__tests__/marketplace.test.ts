@@ -166,6 +166,38 @@ describe("readMarketplace", () => {
 	});
 });
 
+const root = new URL("../../../../", import.meta.url);
+const deploy = readFileSync(
+	new URL(".github/workflows/deploy.yml", root),
+	"utf8",
+);
+
+/** A deploy.yml job's text, from its `  <id>:` line to the next job. */
+function job(id: string): string {
+	const start = deploy.indexOf(`\n  ${id}:`);
+	if (start === -1) throw new Error(`deploy.yml has no ${id} job`);
+	const rest = deploy.slice(start + 1);
+	const end = rest.search(/\n {2}[a-z][\w-]*:\n/);
+	return end === -1 ? rest : rest.slice(0, end);
+}
+
+/** A job's steps, in order, each as its name and its text. */
+function steps(id: string): { name: string; text: string }[] {
+	return job(id)
+		.split(/\n {6}- /)
+		.slice(1)
+		.map((text) => ({
+			name: text.match(/^name: (.+)/)?.[1] ?? "",
+			text,
+		}));
+}
+
+function step(id: string, name: string): string {
+	const found = steps(id).find((s) => s.name === name);
+	if (!found) throw new Error(`${id} has no "${name}" step`);
+	return found.text;
+}
+
 // The flag only matters if it reaches the build, and twice it did not. A
 // process.env read never reached the workerd prerender, so the flag is an
 // astro:env field. And the production job builds the website in its own step:
@@ -176,33 +208,6 @@ describe("readMarketplace", () => {
 // works; the 2026-11-07 fix report records a strict build against a broken URL
 // exiting non-zero.
 describe("MARKETPLACE_REQUIRED reaches the production website build", () => {
-	const root = new URL("../../../../", import.meta.url);
-	const deploy = readFileSync(
-		new URL(".github/workflows/deploy.yml", root),
-		"utf8",
-	);
-
-	/** The production job's steps, in order, each as its name and its text. */
-	function productionSteps(): { name: string; text: string }[] {
-		const start = deploy.indexOf("\n  deploy-production:");
-		const rest = deploy.slice(start + 1);
-		const end = rest.search(/\n {2}[a-z][\w-]*:\n/);
-		const job = end === -1 ? rest : rest.slice(0, end);
-		return job
-			.split(/\n {6}- /)
-			.slice(1)
-			.map((text) => ({
-				name: text.match(/^name: (.+)/)?.[1] ?? "",
-				text,
-			}));
-	}
-
-	function step(name: string) {
-		const found = productionSteps().find((s) => s.name === name);
-		if (!found) throw new Error(`deploy-production has no "${name}" step`);
-		return found.text;
-	}
-
 	it("is declared through astro:env", () => {
 		const config = readFileSync(
 			new URL("apps/website/astro.config.mjs", root),
@@ -217,25 +222,54 @@ describe("MARKETPLACE_REQUIRED reaches the production website build", () => {
 	});
 
 	it("is not set on the production job's main Build, which skips the website", () => {
-		const build = step("Build");
+		const build = step("deploy-production", "Build");
 		expect(build).toMatch(/run: pnpm build --filter='!@onlooker\/website'\n/);
 		expect(build).not.toMatch(/MARKETPLACE_REQUIRED/);
 	});
 
 	it("is set to true on a Build Website step that builds only the website", () => {
-		const build = step("Build Website");
+		const build = step("deploy-website", "Build Website");
 		expect(build).toMatch(/run: pnpm --filter @onlooker\/website build\n/);
 		expect(build).toMatch(/MARKETPLACE_REQUIRED: ['"]true['"]/);
 	});
 
-	it("runs Build Website after the Web deploy and just before the website's", () => {
-		const names = productionSteps().map((s) => s.name);
+	it("builds the website's dependencies, then the website, then deploys it", () => {
+		const names = steps("deploy-website").map((s) => s.name);
 		const at = names.indexOf("Build Website");
-		expect(at).toBeGreaterThan(names.indexOf("Deploy Web to Production"));
+		expect(names[at - 1]).toBe("Build website dependencies");
 		expect(names[at + 1]).toBe("Deploy Website to Production");
+		expect(step("deploy-website", "Build website dependencies")).toMatch(
+			/run: pnpm build --filter='@onlooker\/website\^\.\.\.'\n/,
+		);
 	});
 
 	it("is set nowhere else in the workflow", () => {
 		expect(deploy.match(/MARKETPLACE_REQUIRED:/g)).toHaveLength(1);
+	});
+});
+
+// scripts/deployable.sh measures each surface from the last successful
+// deployment in its environment. A website deploy recorded under `production`
+// would mark API changes that never shipped as live (ONL-277), so these hold
+// the split in place.
+describe("the website deploys on a record of its own", () => {
+	it("uses the website environment, not production", () => {
+		expect(job("deploy-website")).toMatch(/environment:\n\s+name: website\n/);
+		expect(job("deploy-website")).not.toMatch(/name: production\n/);
+	});
+
+	it("leaves no website step in the production job", () => {
+		expect(job("deploy-production")).not.toMatch(/deploy:website/);
+		expect(job("deploy-production")).not.toMatch(/name: Build Website\n/);
+	});
+
+	it("does not wait for the production deploy", () => {
+		expect(job("deploy-website")).toMatch(/needs: \[test, changes\]\n/);
+	});
+
+	it("asks the filter about the website surface on its own environment", () => {
+		expect(job("changes")).toMatch(/deployable\.sh website website\)/);
+		expect(job("changes")).toMatch(/deployable\.sh production apps\)/);
+		expect(job("changes")).toMatch(/deployable\.sh staging apps\)/);
 	});
 });
