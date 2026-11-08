@@ -1,0 +1,100 @@
+# Keeps one pull request in step with ecosystem's marketplace, so a plugin
+# release reaches onlooker.dev the next time somebody merges that PR, not the
+# next time something unrelated happens to deploy. See ONL-277 and
+# docs/superpowers/specs/2026-11-08-ecosystem-sync-design.md.
+#
+# It deploys nothing. Merging its PR deploys the website alone, through
+# deploy.yml's normal push path and behind the `website` approval.
+name: Ecosystem sync
+
+on:
+  # Hourly, and GitHub will not keep to it: heartbeat.yml measured a median of
+  # 203 minutes between runs. That is fine here, because the PR waits for a
+  # person anyway, and a faster trigger would not change when anything ships.
+  # Off the hour, where GitHub's scheduler is busiest.
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+# One at a time. Two runs would race to push the same branch; the loser's push
+# would fail rather than lose anything, but there is no reason to let it.
+concurrency:
+  group: ecosystem-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '11.0.9'
+
+jobs:
+  sync:
+    name: Sync the ecosystem marketplace
+    runs-on: ubuntu-latest
+    steps:
+      # Not GITHUB_TOKEN. A pull request it opens, or a push it makes, starts no
+      # workflows, so the sync PR would never report "All checks passed" and
+      # could never merge. The App needs Contents and Pull requests read and
+      # write on this repository; see
+      # docs/runbooks/2026-09-05-cli-release-tap-app.md.
+      - name: Mint a token for this repository
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # Named outright, not github.event.repository.name: a scheduled
+          # run's event payload carries no repository object.
+          repositories: onlooker
+
+      - uses: actions/checkout@v5
+        with:
+          path: onlooker
+          token: ${{ steps.app.outputs.token }}
+          fetch-depth: 0
+
+      # Full history, because the README list is a diff between the commit
+      # the fixture records and ecosystem's main now. Public, so no token.
+      - uses: actions/checkout@v5
+        with:
+          repository: onlooker-community/ecosystem
+          ref: main
+          path: ecosystem
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # See deploy.yml: pnpm is installed after this step, so auto-caching
+          # would invoke a pnpm that does not exist yet.
+          package-manager-cache: false
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        working-directory: onlooker
+        run: pnpm install --frozen-lockfile
+
+      # The App's bot account, so the history says a bot made the commit, as
+      # release-cli.yml does for the tap.
+      - name: Commit as the App
+        working-directory: onlooker
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          BOT_ID="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${BOT_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+      - name: Sync
+        working-directory: onlooker
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: ./scripts/ecosystem-sync.sh ../ecosystem

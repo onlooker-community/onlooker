@@ -60,10 +60,10 @@ export default defineConfig({
 			}),
 			// Makes a failed read of ecosystem's marketplace fail the build
 			// instead of falling back to the committed fixture. Only the
-			// production job's Build Website step sets it. Declared here, not
-			// read from process.env, because the adapter prerenders the plugin
-			// pages in workerd, which never sees the shell's environment. See
-			// src/lib/marketplace.ts.
+			// `deploy-website` job's Build Website step sets it. Declared
+			// here, not read from process.env, because the adapter prerenders
+			// the plugin pages in workerd, which never sees the shell's
+			// environment. See src/lib/marketplace.ts.
 			MARKETPLACE_REQUIRED: envField.boolean({
 				context: "server",
 				access: "public",

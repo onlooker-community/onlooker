@@ -9,7 +9,7 @@ import fixture from "../data/plugins/marketplace.fixture.json";
  * bumps a plugin about twice a day. So the facts that drift come from the
  * marketplace, and only prose lives in this repository.
  *
- * A failed read fails the build only where it ships. The production job's
+ * A failed read fails the build only where it ships. The `deploy-website` job's
  * Build Website step sets MARKETPLACE_REQUIRED=true; everywhere else - a laptop
  * offline, CI's test jobs during a GitHub outage - falls back to the committed
  * fixture and says so, because `pnpm build` builds every package and a website
@@ -24,8 +24,7 @@ import fixture from "../data/plugins/marketplace.fixture.json";
  * it.
  */
 
-const RAW =
-	"https://raw.githubusercontent.com/onlooker-community/ecosystem/main/";
+const RAW = "https://raw.githubusercontent.com/onlooker-community/ecosystem/";
 const BLOB = "https://github.com/onlooker-community/ecosystem/blob/main/";
 
 export interface MarketplacePlugin {
@@ -52,8 +51,12 @@ function directory(source: string): string {
 	return path === "" ? "" : `${path}/`;
 }
 
-async function json(read: typeof fetch, path: string): Promise<unknown> {
-	const response = await read(`${RAW}${path}`);
+async function json(
+	read: typeof fetch,
+	ref: string,
+	path: string,
+): Promise<unknown> {
+	const response = await read(`${RAW}${ref}/${path}`);
 	if (!response.ok) throw new Error(`${path} answered ${response.status}`);
 	return response.json();
 }
@@ -65,8 +68,21 @@ function field(manifest: unknown, key: string, path: string): string {
 	return value;
 }
 
-async function fromGitHub(read: typeof fetch): Promise<MarketplacePlugin[]> {
-	const listing = (await json(read, ".claude-plugin/marketplace.json")) as {
+/**
+ * Every plugin's facts, read at `ref`: `main` for a site build, a commit SHA
+ * for the ecosystem sync, which records the commit it read. `readmeUrl` stays
+ * on main either way, so the fixture the sync writes equals what a build of
+ * main reads.
+ */
+export async function fromGitHub(
+	read: typeof fetch,
+	ref = "main",
+): Promise<MarketplacePlugin[]> {
+	const listing = (await json(
+		read,
+		ref,
+		".claude-plugin/marketplace.json",
+	)) as {
 		plugins?: { name: string; source: string }[];
 	};
 	if (!Array.isArray(listing?.plugins))
@@ -75,7 +91,7 @@ async function fromGitHub(read: typeof fetch): Promise<MarketplacePlugin[]> {
 		listing.plugins.map(async ({ name, source }) => {
 			const dir = directory(source);
 			const path = `${dir}.claude-plugin/plugin.json`;
-			const manifest = await json(read, path);
+			const manifest = await json(read, ref, path);
 			field(manifest, "name", path);
 			return {
 				name,
@@ -102,7 +118,7 @@ export async function fetchMarketplace(
 		if (required)
 			throw new Error(`Could not read the ecosystem marketplace: ${reason}`);
 		warn(`[marketplace] using the committed fixture, not GitHub: ${reason}`);
-		return { source: "fixture", plugins: fixture };
+		return { source: "fixture", plugins: fixture.plugins };
 	}
 }
 

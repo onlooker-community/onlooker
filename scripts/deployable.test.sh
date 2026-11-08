@@ -19,19 +19,20 @@ readonly DEPLOYABLE="${SCRIPT_DIR}/deployable.sh"
 tests=0
 failures=0
 
-# expect_match <expected> <description> <path...>
+# expect_match <expected> <surface> <description> <path...>
 #
-# Asserts the answer the path matcher gives for a set of changed files. The
-# paths are passed as arguments and fed in on stdin, because that is how the
-# real run hands them over - `git diff --name-only` output, one per line.
+# Asserts the answer the path matcher gives for a set of changed files on one
+# surface. The paths are passed as arguments and fed in on stdin, because that
+# is how the real run hands them over - `git diff --name-only` output, one per
+# line.
 expect_match() {
-	local expected="$1" description="$2"
-	shift 2
+	local expected="$1" surface="$2" description="$3"
+	shift 3
 
 	tests=$((tests + 1))
 
 	local actual=""
-	actual="$(printf '%s\n' "$@" | "${DEPLOYABLE}" --match 2>/dev/null)"
+	actual="$(printf '%s\n' "$@" | "${DEPLOYABLE}" --match "${surface}" 2>/dev/null)"
 
 	if [[ "${actual}" == "${expected}" ]]; then
 		echo "  ok    ${description}"
@@ -109,42 +110,66 @@ status() {
 
 echo "deployable.sh: which paths are worth a deploy"
 
-expect_match "true" "an api source file deploys" "apps/api/src/email/index.ts"
-expect_match "true" "a web source file deploys" "apps/web/src/main.tsx"
-expect_match "true" "a website source file deploys" "apps/website/src/index.astro"
-expect_match "true" "a shared package deploys" "packages/api-contract/src/redact.ts"
-expect_match "true" "the root manifest deploys" "package.json"
-expect_match "true" "the lockfile deploys" "pnpm-lock.yaml"
-expect_match "true" "the turbo config deploys" "turbo.json"
-expect_match "true" "deploy.yml deploys itself" ".github/workflows/deploy.yml"
+expect_match "true" apps "an api source file deploys the apps" "apps/api/src/email/index.ts"
+expect_match "true" apps "a web source file deploys the apps" "apps/web/src/main.tsx"
+expect_match "true" website "a website source file deploys the website" "apps/website/src/index.astro"
 
-expect_match "false" "another workflow does not" ".github/workflows/heartbeat.yml"
-expect_match "false" "documentation does not" "docs/superpowers/specs/whatever.md"
-expect_match "false" "the issue export does not" ".beads/issues.jsonl"
-expect_match "false" "a bare readme does not" "README.md"
+# The split ONL-277 exists for. A sync PR changes only the fixture, and it must
+# deploy the website without redeploying the API and web app.
+expect_match "true" website "the marketplace fixture deploys the website" \
+	"apps/website/src/data/plugins/marketplace.fixture.json"
+expect_match "false" apps "the marketplace fixture does not deploy the apps" \
+	"apps/website/src/data/plugins/marketplace.fixture.json"
+expect_match "false" website "an api source file does not deploy the website" \
+	"apps/api/src/index.ts"
+
+# apps/web/ is a prefix of apps/website/ in everything but the slash. These two
+# prove the slash is load-bearing in both directions.
+expect_match "false" apps "apps/website/ is not apps/web/" "apps/website/src/index.astro"
+expect_match "false" website "apps/web/ is not apps/website/" "apps/web/src/main.tsx"
+
+# Shared inputs reach every surface: a package or a lockfile change can alter
+# any bundle, and a redundant deploy costs minutes where a skipped one ships
+# nothing.
+for surface in apps website; do
+	expect_match "true" "${surface}" "a shared package deploys ${surface}" \
+		"packages/api-contract/src/redact.ts"
+	expect_match "true" "${surface}" "the root manifest deploys ${surface}" "package.json"
+	expect_match "true" "${surface}" "the lockfile deploys ${surface}" "pnpm-lock.yaml"
+	expect_match "true" "${surface}" "the turbo config deploys ${surface}" "turbo.json"
+	expect_match "true" "${surface}" "deploy.yml deploys ${surface}" ".github/workflows/deploy.yml"
+
+	expect_match "false" "${surface}" "another workflow does not deploy ${surface}" \
+		".github/workflows/heartbeat.yml"
+	expect_match "false" "${surface}" "documentation does not deploy ${surface}" \
+		"docs/superpowers/specs/whatever.md"
+	expect_match "false" "${surface}" "the issue export does not deploy ${surface}" \
+		".beads/issues.jsonl"
+	expect_match "false" "${surface}" "a bare readme does not deploy ${surface}" "README.md"
+	expect_match "false" "${surface}" "nothing changed at all deploys nothing on ${surface}" ""
+done
 
 # The pattern is anchored, and this is the test that proves it. An unanchored
 # match would see "apps/api/" inside a documentation path and deploy the whole
 # stack because somebody wrote about the API.
-expect_match "false" "a doc that merely names a deployable path does not" \
+expect_match "false" apps "a doc that merely names a deployable path does not" \
 	"docs/apps/api/overview.md"
 
 # Markdown under a deployable path is documentation, and rebuilding unchanged
 # code for it is a deploy run spent on nothing (ONL-251). Under src/ it is
 # exempt from that: a content collection or a `?raw` import puts Markdown in
 # the bundle, and a filter that skipped it would strand a real change.
-expect_match "false" "an app's markdown does not" "apps/api/DEV.md"
-expect_match "false" "a package's markdown does not" "packages/brand/ATTRIBUTION.md"
-expect_match "false" "several app docs together do not" \
+expect_match "false" apps "an app's markdown does not" "apps/api/DEV.md"
+expect_match "false" apps "a package's markdown does not" "packages/brand/ATTRIBUTION.md"
+expect_match "false" apps "several app docs together do not" \
 	"apps/web/API_INTEGRATION.md" "apps/web/INTEGRATION_TEST_CHECKLIST.md" \
 	"apps/api/DEPLOYMENT.md"
-expect_match "true" "markdown under src/ deploys" \
+expect_match "true" website "markdown under src/ deploys" \
 	"apps/website/src/content/post.md"
-expect_match "true" "an app doc alongside its code deploys" \
+expect_match "true" apps "an app doc alongside its code deploys" \
 	"apps/api/DEV.md" "apps/api/src/router.ts"
 
-expect_match "false" "nothing changed at all" ""
-expect_match "true" "one deployable file among many that are not" \
+expect_match "true" apps "one deployable file among many that are not" \
 	"README.md" "docs/notes.md" "apps/api/src/index.ts" ".beads/issues.jsonl"
 
 echo "deployable.sh: which commit counts as last deployed"
@@ -172,7 +197,11 @@ expect_sha "" "nothing successful yields nothing" \
 echo "deployable.sh: usage"
 
 expect_exit 2 "no environment named"
-expect_exit 2 "an environment that does not exist" "preprod"
+expect_exit 2 "an environment that does not exist" "preprod" "apps"
+expect_exit 2 "no surface named" "production"
+expect_exit 2 "a surface that does not exist" "production" "everything"
+expect_exit 2 "--match with no surface" "--match"
+expect_exit 2 "--match with a surface that does not exist" "--match" "everything"
 
 echo
 if ((failures > 0)); then

@@ -18,6 +18,7 @@ cli-v2.0.1, thirty-two for cli-v2.1.0, bounded only by attention.
 | Tagger | `.github/workflows/tag-cli.yml` — on a push to `main` touching `apps/cli/package.json` |
 | Releaser | `.github/workflows/release-cli.yml` — on a `cli-v*` tag |
 | Generator | `scripts/write-formula.mjs` |
+| Ecosystem sync | `.github/workflows/ecosystem-sync.yml` — hourly; opens and updates the `bot/ecosystem-sync` pull request |
 | Targets | this repository's `cli-v*` tags; `onlooker-community/homebrew-tap`, `Formula/onlooker.rb` |
 | Secrets | `TAP_APP_ID`, `TAP_APP_PRIVATE_KEY` — both workflows, same App |
 
@@ -50,8 +51,14 @@ At **https://github.com/organizations/onlooker-community/settings/apps/new**:
   it is not hardcoded. The slug becomes the commit author in the tap's history.
 - **Homepage URL:** `https://onlooker.dev`
 - **Webhook:** uncheck **Active**. Nothing listens.
-- **Repository permissions:** **Contents → Read and write**. That is the only
-  one. `Metadata → Read-only` is added automatically and cannot be removed.
+- **Repository permissions:** **Contents → Read and write**. It is one of two;
+  see the next bullet. `Metadata → Read-only` is added automatically and
+  cannot be removed.
+- **Pull requests → Read and write**, for the ecosystem sync (ONL-277). A pull
+  request opened with GITHUB_TOKEN starts no workflows, so it could never
+  report the "All checks passed" check the ruleset requires. Added 2026-11-08;
+  an existing installation has to accept the new permission before the sync
+  can open its PR.
 - **Where can this App be installed?** Only on this account.
 
 Note the **App ID** on the settings page, then **Generate a private key** and
@@ -70,6 +77,10 @@ Two repositories because the App does two jobs:
 |---|---|---|
 | `homebrew-tap` | `release-cli.yml` | committing the formula |
 | `onlooker` | `tag-cli.yml` | pushing the `cli-v*` tag |
+| `onlooker` | `ecosystem-sync.yml` | pushing `bot/ecosystem-sync` and opening its pull request |
+
+The App's bypass on Require Pull Request is never exercised by the sync, which
+pushes only to `bot/ecosystem-sync`.
 
 `onlooker` is on that list only because **a tag pushed with the default
 `GITHUB_TOKEN` does not start a workflow** — GitHub blocks that so a workflow
