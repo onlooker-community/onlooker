@@ -9,7 +9,7 @@ import fixture from "../data/plugins/marketplace.fixture.json";
  * bumps a plugin about twice a day. So the facts that drift come from the
  * marketplace, and only prose lives in this repository.
  *
- * A failed read fails the build only where it ships. The production job's
+ * A failed read fails the build only where it ships. The `deploy-website` job's
  * Build Website step sets MARKETPLACE_REQUIRED=true; everywhere else - a laptop
  * offline, CI's test jobs during a GitHub outage - falls back to the committed
  * fixture and says so, because `pnpm build` builds every package and a website

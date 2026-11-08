@@ -59,7 +59,7 @@ if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null; then
 	git checkout --quiet -B "${BRANCH}" "origin/${BRANCH}"
 	if ! git merge --quiet --no-edit origin/main; then
 		conflicts="$(git diff --name-only --diff-filter=U | paste -sd ' ' -)"
-		git merge --abort
+		git merge --abort || true
 		echo "::error title=Sync branch conflicts with main::${conflicts}"
 		exit 1
 	fi

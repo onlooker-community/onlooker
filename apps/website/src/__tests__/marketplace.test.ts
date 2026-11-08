@@ -242,14 +242,15 @@ function step(id: string, name: string): string {
 
 // The flag only matters if it reaches the build, and twice it did not. A
 // process.env read never reached the workerd prerender, so the flag is an
-// astro:env field. And the production job builds the website in its own step:
-// a strict check in the main Build, which runs before the API and Web deploys,
-// would let a GitHub outage block both.
+// astro:env field. And the website builds strictly in its own
+// `deploy-website` job, so a GitHub outage can fail only the website deploy.
+// A strict check in the main Build, which runs before the API and Web deploys,
+// would let the same outage block those too.
 //
 // These tests check configuration, which is not the same as checking the flag
 // works; the 2026-11-07 fix report records a strict build against a broken URL
 // exiting non-zero.
-describe("MARKETPLACE_REQUIRED reaches the production website build", () => {
+describe("MARKETPLACE_REQUIRED reaches the website's production build", () => {
 	it("is declared through astro:env", () => {
 		const config = readFileSync(
 			new URL("apps/website/astro.config.mjs", root),
