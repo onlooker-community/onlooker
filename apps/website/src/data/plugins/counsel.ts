@@ -7,11 +7,11 @@ export const counsel: PluginProse = {
 		"Your observability stack has been watching. Now it has something to say.",
 	category: "analysis",
 	problem:
-		"You've instrumented everything. Tribunal scores each session. Echo catches prompt regressions. Governor flags budget pressure. Scribe documents decisions. The data is there — but it sits in a JSONL log no one reads. Each plugin reports on its own slice; nothing connects the dots across the full stack. The signal exists. The synthesis doesn't.",
+		"Every Onlooker plugin writes its events to the same log, and the log is JSONL that no one reads. Each plugin reports on its own slice; nothing connects the dots across the stack. The signal exists. The synthesis doesn't. Counsel reads every plugin's events and turns them into a short brief.",
 	howItWorks: [
-		"On SessionStart — checks whether the last brief for this project is older than synthesis_interval_days (default: 7)",
-		"If stale — reads the full onlooker-events.jsonl log over the configured lookback window (default: 30 days), filtering to events within range using ISO 8601 string comparison",
-		"Identifies which plugin families contributed events: tribunal verdicts, echo regressions, and the broader onlooker event stream (governor, archivist, scribe, cartographer, compass)",
-		"Runs a single Haiku synthesis pass over the filtered event batch, asking it to extract recurring patterns, actionable recommendations (with priority), wins, and trends to watch",
+		"On SessionStart, Counsel checks whether the project's latest brief is older than the synthesis interval. If it is fresh, or too few events fall inside the lookback window, the hook skips silently.",
+		"If the brief is stale, it reads the lookback window of events from the onlooker log and runs a single claude -p synthesis pass for recurring patterns, recommendations with a priority, wins, and things to watch.",
+		"The result is a Markdown brief, one per ISO week, written under ~/.onlooker/counsel/ and injected as invisible context.",
+		"/counsel forces a fresh pass now and prints the brief in the conversation. /counsel --show prints the latest brief with no model call. The hook always exits 0 and never blocks a session from starting.",
 	],
 };

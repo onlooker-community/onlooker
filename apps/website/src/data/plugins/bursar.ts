@@ -6,11 +6,11 @@ export const bursar: PluginProse = {
 	tagline: "What has this project cost me lately?",
 	category: "governance",
 	problem:
-		'Governor caps a single session\'s spend, but the question that matters at the start of the next session isn\'t "is this run going to be expensive?" — it\'s "have I already spent more on this project this week than I realized?" One $4 session is forgettable; thirteen of them across a week is a number worth knowing before turn one. Without a rollup, the per-session signal Governor emits is structurally unable to answer the weekly-cost question, and the only place that data lives — the event log — is not where a human is looking at SessionStart.',
+		'Governor regulates a single session, but the question at the start of the next one is different: not "is this run over budget?" but "what has this project cost me this week?" A per-session signal cannot answer that on its own, and the only place the data lives is the event log, which is not where you are looking at SessionStart. Bursar rolls each session\'s spend into a per-project ledger and tells you.',
 	howItWorks: [
-		"SessionStart — derives the project key from cwd, writes a breadcrumb at $ONLOOKER_DIR/bursar/sessions/<session-id>.json so SessionEnd can attribute spend, then sums the per-project ledger over the active window and surfaces the total as additionalContext",
-		"SessionEnd — resolves the ending session's project key (breadcrumb → substrate session tracker → live cwd), reads the session's spend from the latest governor.session.complete on the event bus, and upserts one record into the per-project ledger",
-		"Reading off the bus, not the wire — Governor re-emits session.complete cumulatively; Bursar takes the last one to capture the session's final totals (total_cost_usd, total_tokens, total_api_calls)",
-		"Idempotent recording — records are keyed by session_id, so a SessionEnd that fires more than once replaces the line rather than appending",
+		"On SessionStart, Bursar derives the project key from the session's cwd, leaves a breadcrumb so SessionEnd can attribute the spend, then sums the project's ledger over the active window and surfaces the total as context.",
+		"On SessionEnd, it resolves the project from that breadcrumb and reads the session's spend from the last governor.session.complete event on the shared event log.",
+		"It upserts one record per session into the project's ledger, so a SessionEnd that fires more than once replaces the line instead of adding another.",
+		"Governor is optional. Without it Bursar still records the session, and the message falls back to a session count.",
 	],
 };

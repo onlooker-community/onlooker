@@ -6,11 +6,11 @@ export const lineage: PluginProse = {
 	tagline: "Why does this line exist?",
 	category: "analysis",
 	problem:
-		"A reviewer opens a file and asks: why is this conditional here? Git blame surfaces the commit, but the commit message is one line and the diff has fifty more. The prompt that motivated the change — the user's actual question, the constraint they were responding to — lived in a session whose transcript is gone. Scribe captures a session's intent in aggregate; Historian preserves transcripts; but neither links a specific line of code back to the turn that generated it. The why behind any given line evaporates the moment the session closes.",
+		"A reviewer opens a file and asks why a conditional is there. Git records what changed and Scribe records a session's intent, but nothing connects a specific piece of code to the prompt, agent and session that produced it. The why behind a line is gone once the session closes.",
 	howItWorks: [
-		"PostToolUse on Edit / Write / MultiEdit — derives the project key from cwd; reads the current turn from the session tracker",
-		"Content extraction — pulls the added content from each edit, redacts secret-shaped substrings (AWS / GitHub / Anthropic / OpenAI keys, bearer tokens, KEY=value secrets), caps at max_snippet_chars (default: 4000)",
-		"Appends one record to ~/.onlooker/lineage/<project-key>/changes.jsonl with session_id, turn, file_path, lines_added/removed, content_sha256, and the redacted added_snippets",
-		"Emits a lean lineage.change.recorded carrying metadata + the SHA digest — never the content itself; the snippet lives only in the local ledger",
+		"On PostToolUse for Edit, Write, MultiEdit and Bash, Lineage derives the project key from cwd and reads the current turn from the session tracker. For Bash it asks git which files changed, so a heredoc or sed -i still lands in the ledger.",
+		"It extracts each change's added content, redacts secret-shaped substrings, caps the size, and appends a record to a per-project change ledger. The event on the bus carries metadata and a digest, never the content.",
+		"/lineage <file>:<line> finds the most recent change whose added content contains that line, then resolves the originating prompt from the transcripts historian preserves, falling back to the live transcript. The query makes no model call.",
+		"Bash records say how far to trust them: whether the captured content is exactly this change or includes earlier uncommitted work, and a change that predates the command is recorded with unknown authorship.",
 	],
 };

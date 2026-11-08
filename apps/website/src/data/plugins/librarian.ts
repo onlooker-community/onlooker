@@ -6,11 +6,11 @@ export const librarian: PluginProse = {
 	tagline: "Promotes what's worth keeping.",
 	category: "memory",
 	problem:
-		'A user explains why the auth middleware is being rewritten — legal compliance, not tech debt. Archivist captures it as a decision; recency re-injects it for a few sessions; eventually it ages out, and the agent asks "why are we rewriting this?" all over again. The typed memory store could have absorbed the fact, but only if the user thought to say "remember that." Most don\'t. The store stays starved, archivist re-captures the same facts every session, and the agent re-asks the same questions.',
+		"A user explains why the auth middleware is being rewritten: legal compliance, not tech debt. Archivist captures it as a decision, but archivist's artifacts are per-session notes, not durable memory. The typed memory store would hold the fact only if the user thought to say \"remember that.\" Most don't, so the fact never reaches it.",
 	howItWorks: [
-		"SessionEnd — scans archivist artifacts (decisions, dead_ends, open_questions) created since the last librarian watermark, bootstrapping over bootstrap_lookback_days (default: 14) on first run",
-		'Durability filter — cheap pre-LLM pass keeps candidates that show signs of lasting: marker phrases ("always", "never", "the reason"), path grounding, repetition across ≥2 sessions; drops short-detail noise',
-		'Type classifier — single Haiku call per candidate emits one of user/feedback/project/reference (or null for "session-only — don\'t promote"); confidence floor of 0.6 drops the noisy tail',
-		"Conflict + duplicate detector — Jaccard similarity against existing memory files; classifies each candidate as none / duplicate / merge_candidate / conflict_candidate (cheap pattern matching, not an LLM call — curator handles deep contradictions)",
+		"On SessionEnd, Librarian scans the artifacts archivist captured since its last watermark and runs a durability filter to decide which deserve to outlive the session.",
+		"It classifies the survivors into the typed memory categories (user, feedback, project, reference) with a model call, and checks them for conflicts and duplicates against your existing memories.",
+		"Candidates become proposals queued for your confirmation. By default Librarian never writes to the typed memory store directly.",
+		"On SessionStart, if proposals are pending, it injects a single-line pointer to /librarian review. Accepted promotions land in the memory store with a source: librarian trailer.",
 	],
 };

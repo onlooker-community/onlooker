@@ -6,12 +6,11 @@ export const inspector: PluginProse = {
 	tagline: "Per-edit lint and typecheck, so the agent sees its own errors.",
 	category: "quality",
 	problem:
-		"The ecosystem already judges agent output after the fact and gates ambiguous writes before they happen. What it didn't have is the loop in between: a fast check that runs after every edit and tells the agent whether the code it just wrote actually compiles. Without that signal, the agent's next turn is built on stale ground truth — it assumes its last edit was correct because nothing told it otherwise, then layers more changes on top, and the broken file isn't discovered until Stop (or after the agent declares success).",
+		"Elsewhere in the ecosystem, plugins judge agent output after the fact or gate ambiguous writes before they happen. Neither tells the agent, right after an edit, whether the code it just wrote compiles. Without that signal the agent has only its own belief that the last edit was right, and builds the next one on it.",
 	howItWorks: [
-		"PostToolUse on Edit / Write / MultiEdit — resolves the touched file from tool_input.file_path; looks up the configured checks for the file's extension",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: Literal hook placeholder syntax in documentation string
-		"Per-check execution — runs each check with a per-check timeout (default: 10s) and a total budget (default: 30s); ${file} / ${file_relative} / ${repo_root} placeholders expand before exec",
-		"Output capture — captures stdout/stderr up to output_excerpt_max_bytes (default: 4096) and emits inspector.check.passed / .failed / .skipped per check, plus an inspector.run.completed summary",
-		"Agent-facing summary — the hook's stdout (additional-context for PostToolUse) prints failed checks with line/column issues by default; show_clean_runs: true also surfaces passing checks",
+		"On PostToolUse for Edit, Write and MultiEdit, Inspector resolves the touched file and looks up the checks you configured for its extension. Checks are opt-in per project, so with none configured it runs nothing.",
+		"It runs each check against just that file, with a timeout per check and one for the whole run, then emits inspector.check.* events and a single inspector.run.completed summary.",
+		"The hook's output reaches the agent on its next turn: failures with file, line and message. Clean runs stay quiet unless show_clean_runs is set.",
+		"Inspector is advisory. It always exits 0 and never blocks the edit. A project-wide check such as tsc reports errors in every file, not only the touched one.",
 	],
 };
