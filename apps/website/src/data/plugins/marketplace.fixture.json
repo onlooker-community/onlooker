@@ -1,9 +1,9 @@
 {
-	"commit": "049d90d2b95ef4f707030c8c2e93b5d574021fe1",
+	"commit": "ee1e93b3c233aa4100d3736e9462af8c2ee80ca6",
 	"plugins": [
 		{
 			"name": "ecosystem",
-			"version": "0.79.2",
+			"version": "0.79.3",
 			"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Other Onlooker plugins emit their events through it: without it they still run and keep their own files, but write nothing to the shared event log.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
 		},
@@ -69,7 +69,7 @@
 		},
 		{
 			"name": "librarian",
-			"version": "0.27.2",
+			"version": "0.27.3",
 			"description": "Consolidation layer between archivist's per-session artifacts and the user's durable typed memory store. Detects which session decisions, dead-ends, and open questions deserve to live across sessions, classifies them into the user/feedback/project/reference types, and queues them as proposals for explicit confirmation. Auto-promotion is opt-in. Builds on the Onlooker ecosystem plugin.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/librarian/README.md"
 		},
