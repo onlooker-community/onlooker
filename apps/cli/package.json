@@ -13,7 +13,9 @@
 		"clean": "rimraf dist node_modules .turbo"
 	},
 	"dependencies": {
-		"@onlooker-community/lesson-contract": "workspace:*"
+		"@onlooker-community/lesson-contract": "workspace:*",
+		"@onlooker/monitoring": "workspace:*",
+		"@onlooker/monitoring-sentry": "workspace:*"
 	},
 	"devDependencies": {
 		"@onlooker/config-biome": "workspace:*",

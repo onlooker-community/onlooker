@@ -5,6 +5,8 @@ import { link } from "./commands/link";
 import { playbook } from "./commands/playbook";
 import { status } from "./commands/status";
 import { sync } from "./commands/sync";
+import { isCrash } from "./errors";
+import { reportCrash } from "./monitoring";
 import { promptForToken } from "./prompt";
 import {
 	accent,
@@ -63,6 +65,13 @@ export async function run(
 		console.log(`${header(out, command)}\n\n${text}`);
 	const command = argv[2];
 	try {
+		// A deliberate crash, so someone who turned reports on can check one
+		// arrives. Thrown inside the try so it travels the real path.
+		if (env.ONLOOKER_CRASH_TEST === "1") {
+			throw new TypeError(
+				"ONLOOKER_CRASH_TEST: a deliberate crash, to check reports arrive",
+			);
+		}
 		if (command === "link") {
 			show("link", await link({ prompt: promptForToken, theme: out }));
 		} else if (command === "sync") {
@@ -113,6 +122,17 @@ export async function run(
 		console.error(
 			`${bad(err, "✕")} ${err.color ? message : stripSgr(message)}`,
 		);
+		// After the message, never instead of it: the line above is what the
+		// user and any wrapping script read, and a report changes neither it
+		// nor the exit code.
+		if (
+			isCrash(error) &&
+			(await reportCrash(error, { command: command ?? "none" }, { env }))
+		) {
+			console.error(
+				muted(err, "reported this crash (onlooker crash-reports off to stop)"),
+			);
+		}
 		return failure?.kind === "transient" ? 2 : 1;
 	}
 }
