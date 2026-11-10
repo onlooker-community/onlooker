@@ -125,8 +125,8 @@ describe("the mock's machine lifecycle", () => {
 		expect(JSON.stringify(body)).toContain("not_found");
 	});
 
-	// The positive case beside the refusal above: "org-acme" is the one org
-	// MOCK_ORG seeds every account into.
+	// The positive case beside the refusal above: "org-acme" is one of the
+	// orgs MOCK_ORGS seeds every account into.
 	it("mints bound to the org the account belongs to", async () => {
 		const response = await fetchMock("/api/machines", {
 			method: "POST",

@@ -462,16 +462,18 @@ async function mockAccountApi(
 // `apps/web/src/api/orgsApi.ts`.
 // ---------------------------------------------------------------------------
 
-/** One org, two members, one pending invitation - enough for the page to render. */
+/** Two members and one pending invitation - enough for the roster, role and
+ * remove controls to have someone to act on. */
 const MOCK_ORG = { id: "org-acme", name: "Acme", role: "owner" as const };
+const MOCK_OWNER = {
+	user_id: "user-ada",
+	name: "Ada",
+	email: "ada@example.com",
+	role: "owner" as const,
+	created_at: "2026-10-01T00:00:00.000Z",
+};
 const MOCK_ORG_MEMBERS = [
-	{
-		user_id: "user-ada",
-		name: "Ada",
-		email: "ada@example.com",
-		role: "owner" as const,
-		created_at: "2026-10-01T00:00:00.000Z",
-	},
+	MOCK_OWNER,
 	{
 		user_id: "user-bob",
 		name: "Bob",
@@ -480,6 +482,24 @@ const MOCK_ORG_MEMBERS = [
 		created_at: "2026-10-02T00:00:00.000Z",
 	},
 ];
+
+/** The owner alone. OrgsPage offers delete only for an org whose member list
+ * has exactly one entry, since the API refuses to delete one with anyone else
+ * in it - so without this org, mock mode could never show that control.
+ * Shrinking Acme instead would cost the role and remove controls. ONL-148. */
+const MOCK_SOLO_ORG = {
+	id: "org-sandbox",
+	name: "Sandbox",
+	role: "owner" as const,
+};
+
+/** Every org the mock account belongs to, and who is in each. */
+const MOCK_ORGS = [MOCK_ORG, MOCK_SOLO_ORG];
+const MOCK_MEMBERS_BY_ORG: Record<string, (typeof MOCK_ORG_MEMBERS)[number][]> =
+	{
+		[MOCK_ORG.id]: MOCK_ORG_MEMBERS,
+		[MOCK_SOLO_ORG.id]: [MOCK_OWNER],
+	};
 const MOCK_ORG_INVITES = [
 	{
 		id: "invite-1",
@@ -560,7 +580,7 @@ async function mockOrgsApi(
 	}
 
 	if (path === "/api/orgs" && method === "GET") {
-		return json({ orgs: [MOCK_ORG] });
+		return json({ orgs: MOCK_ORGS });
 	}
 
 	if (path === "/api/orgs" && method === "POST") {
@@ -577,8 +597,12 @@ async function mockOrgsApi(
 	// Never true of a real id - every id here is a `crypto.randomUUID()` -
 	// but that is a fact about the real system, not about this string match,
 	// so it is worth writing down rather than assumed.
+	// 404 for an org outside the fixture, as orgs/authorize.ts answers a
+	// non-member: not 403, so a real org and a missing one look the same.
 	if (path.endsWith("/members") && method === "GET") {
-		return json({ members: MOCK_ORG_MEMBERS });
+		const members = MOCK_MEMBERS_BY_ORG[path.split("/")[3] ?? ""];
+		if (!members) throw new AuthApiError(404, "not_found", "No such org");
+		return json({ members });
 	}
 
 	if (path.endsWith("/invites") && method === "GET") {
@@ -1191,9 +1215,9 @@ export async function mockDataApi(
 		// Mirrors handleCreateMachine's membership check: 404, not 403, for an
 		// org the account does not belong to - matching orgs/authorize.ts, a
 		// non-member must not be able to tell a real org apart from one that
-		// does not exist. The mock has only the one org any account belongs
-		// to (MOCK_ORG above), so anything else refuses the same way.
-		if (orgId !== null && orgId !== MOCK_ORG.id) {
+		// does not exist. Every account belongs to exactly the orgs in
+		// MOCK_ORGS above, so anything else refuses the same way.
+		if (orgId !== null && !MOCK_ORGS.some((org) => org.id === orgId)) {
 			throw new AuthApiError(404, "not_found", "No such org");
 		}
 
