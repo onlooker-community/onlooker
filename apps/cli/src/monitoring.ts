@@ -8,7 +8,8 @@ import { crashConsent } from "./consent";
  * DSN can only submit events, which is also why apps/api/wrangler.toml
  * commits its own. Undefined means reporting is off for every build.
  */
-export const CRASH_DSN: string | undefined = undefined;
+export const CRASH_DSN: string | undefined =
+	"https://23b44c7cb091c101961e6f665ec55d16@o4512074220371968.ingest.us.sentry.io/4512404620181504";
 
 /** Replaced with "production" by `build:release`; undefined in every other build. */
 declare const __ONLOOKER_ENVIRONMENT__: string | undefined;

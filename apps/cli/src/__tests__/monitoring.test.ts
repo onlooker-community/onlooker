@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FetchLike } from "@onlooker/monitoring-sentry/node";
@@ -76,7 +76,7 @@ describe("reportCrash, without consent", () => {
 				{
 					env: machine(true),
 					fetchImpl,
-					dsn: undefined,
+					dsn: "",
 				},
 			),
 		).toBe(false);
@@ -123,5 +123,26 @@ describe("buildEnvironment", () => {
 	// or a test, must never page anyone.
 	it("is development unless the release build defined it", () => {
 		expect(buildEnvironment()).toBe("development");
+	});
+});
+
+describe("the release build", () => {
+	const root = join(__dirname, "..", "..", "..", "..");
+
+	// The define is the only thing that makes an event say production. If the
+	// workflow built with plain `build`, every released crash would file as
+	// development and the production-only alert would never fire.
+	it("is what release-cli.yml builds", () => {
+		const workflow = readFileSync(
+			join(root, ".github/workflows/release-cli.yml"),
+			"utf8",
+		);
+		expect(workflow).toContain("pnpm --filter @onlooker/cli build:release");
+	});
+
+	it("defines the environment as production", () => {
+		expect(packageJson.scripts["build:release"]).toContain(
+			`__ONLOOKER_ENVIRONMENT__='"production"'`,
+		);
 	});
 });

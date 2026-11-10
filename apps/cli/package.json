@@ -1,11 +1,12 @@
 {
 	"name": "@onlooker/cli",
-	"version": "2.12.2",
+	"version": "2.13.0",
 	"private": true,
 	"type": "module",
 	"bin": { "onlooker": "./dist/onlooker.mjs" },
 	"scripts": {
 		"build": "esbuild src/main.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/onlooker.mjs --banner:js='#!/usr/bin/env node'",
+		"build:release": "pnpm run build --define:__ONLOOKER_ENVIRONMENT__='\"production\"'",
 		"lint": "biome check src",
 		"lint:fix": "biome check --write src",
 		"typecheck": "tsc --noEmit",

@@ -1,0 +1,55 @@
+{
+	"_comment": [
+		"apps/cli, reported only from machines that ran `onlooker crash-reports on`.",
+		"Its Sentry project is onlooker-cli (the `project` below).",
+		"",
+		"Production only, and here that filter is the whole point: CRASH_DSN is",
+		"committed, so a CLI built and run from a checkout reports to this same",
+		"project as environment 'development'. Only a bundle built by",
+		"release-cli.yml's build:release says production.",
+		"",
+		"regression_event for the reason api-faults.json gives (ONL-217)."
+	],
+	"project": "4512404620181504",
+	"detectorType": "issue_stream",
+	"workflow": {
+		"name": "CLI crash (production)",
+		"environment": "production",
+		"enabled": true,
+		"config": {
+			"frequency": 60
+		},
+		"triggers": {
+			"logicType": "any-short",
+			"conditions": [
+				{
+					"type": "first_seen_event",
+					"comparison": true,
+					"conditionResult": true
+				},
+				{
+					"type": "regression_event",
+					"comparison": true,
+					"conditionResult": true
+				}
+			]
+		},
+		"actionFilters": [
+			{
+				"logicType": "all",
+				"conditions": [],
+				"actions": [
+					{
+						"type": "email",
+						"data": {
+							"fallthroughType": "AllMembers"
+						},
+						"config": {
+							"targetType": "issue_owners"
+						}
+					}
+				]
+			}
+		]
+	}
+}

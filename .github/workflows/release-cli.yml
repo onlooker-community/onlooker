@@ -62,7 +62,10 @@ jobs:
       - name: TypeCheck
         run: pnpm typecheck
 
-      - run: pnpm --filter @onlooker/cli build
+      # build:release, not build: the define it adds is the only thing that
+      # makes a crash report say environment production, and the onlooker-cli
+      # alert fires on production alone.
+      - run: pnpm --filter @onlooker/cli build:release
 
       - name: Package
         id: package
