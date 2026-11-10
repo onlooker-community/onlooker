@@ -3,7 +3,7 @@
 # database read path works, and that a real session can be created, used and
 # revoked.
 #
-# Checks 1-4 write nothing. Checks 5-9 deliberately do: they log in, which
+# Checks 1-4 write nothing. Checks 5-10 deliberately do: they log in, which
 # writes a session row, and log out, which revokes it. A check that cannot
 # write cannot verify that writing works, and "the API correctly says no" is a
 # different claim from "the API works" - only the first was ever monitored.
@@ -211,7 +211,7 @@ check "api d1 read" 401 \
 # yes, which is a different claim.
 #
 # This is also where the script stops being read-only: check 5 writes a session
-# row and check 7 revokes it. That is the cost of verifying that writing works.
+# row and check 9 revokes it. That is the cost of verifying that writing works.
 if auth_preflight; then
 	# jq builds the body so the password is escaped by a JSON encoder rather
 	# than by hand, and the pipe below keeps it out of curl's arguments.
@@ -259,7 +259,7 @@ if auth_preflight; then
 		# account that owns nothing, and the runner is destroyed after the
 		# job. The access token expires in TOKEN_EXPIRY_MINUTES (15). The
 		# refresh token carries 30 days, which is the weaker case - it is
-		# revoked seconds later by check 8, but only if check 8 runs. The
+		# revoked seconds later by check 9, but only if check 9 runs. The
 		# password is the durable secret and the one worth the extra handling.
 		me_response="$(api_request GET /auth/me \
 			-H "Authorization: Bearer ${access_token}")"
@@ -273,7 +273,7 @@ if auth_preflight; then
 			# Cloudflare's edge errors - 502, 520-524, the 1101 Worker
 			# exception page - are HTML, so parsing before checking the status
 			# would abort this script on exactly the outage it exists to
-			# catch: no failure line, no summary, and checks 7 to 9 skipped,
+			# catch: no failure line, no summary, and checks 7 to 10 skipped,
 			# leaving the session this run created unrevoked for 30 days.
 			me_email="$(printf '%s' "${me_body}" | jq -r '.user.email // empty' 2>/dev/null || true)"
 
@@ -289,10 +289,56 @@ if auth_preflight; then
 		fi
 	fi
 
+	if [[ -n "${access_token}" ]]; then
+		# The lesson read, the first thing the web app asks for once someone is
+		# signed in. /auth/me passing says the session works; it says nothing
+		# about the routes behind it, which resolve the principal the same way
+		# but read a different table, and fail on their own (ONL-52).
+		#
+		# limit=1 because the assertions below are about shape and ownership,
+		# not volume, and production's pool holds other people's lessons.
+		lessons_response="$(api_request GET '/api/lessons?limit=1' \
+			-H "Authorization: Bearer ${access_token}")"
+		lessons_status="${lessons_response##*$'\n'}"
+		lessons_body="${lessons_response%$'\n'*}"
+
+		if [[ "${lessons_status}" != "200" ]]; then
+			record "api lessons" fail "${lessons_status} (expected 200)"
+		else
+			# Parsed only after a 200, and never fatally, for the reason auth me
+			# gives: an edge error is HTML, and aborting here would skip the
+			# logout below and leave this run's session alive for 30 days.
+			#
+			# owned_ids must be empty. This account owns nothing, while the pool
+			# it reads holds org and public lessons that belong to real people,
+			# so a lesson listed as owned is someone else's attributed to us -
+			# a worse failure than a 500, and one no status code can see.
+			lessons_verdict="$(printf '%s' "${lessons_body}" | jq -r '
+				if (.lessons | type) != "array" or (.owned_ids | type) != "array"
+				then "shape"
+				elif (.owned_ids | length) > 0 then "owned"
+				else "ok" end' 2>/dev/null || true)"
+
+			# Never print ids or titles: they are other people's, and this log
+			# is public. Which rule failed is the whole message.
+			case "${lessons_verdict}" in
+				ok)
+					record "api lessons -> 200" ok
+					;;
+				owned)
+					record "api lessons" fail "200 listing lessons as owned by an account that owns none"
+					;;
+				*)
+					record "api lessons" fail "200 without lessons and owned_ids arrays"
+					;;
+			esac
+		fi
+	fi
+
 	if [[ -n "${refresh_token}" ]]; then
 		# The only check here that asserts a session can be EXTENDED. Every
 		# other assertion about refresh is negative - check 4 sends a garbage
-		# token and check 9 sends a revoked one, and both expect 401. A token
+		# token and check 10 sends a revoked one, and both expect 401. A token
 		# lookup that silently stopped matching would satisfy both: login still
 		# writes, /auth/me reads a JWT and never consults the sessions table,
 		# logout returns 200 unconditionally, and a 401 here would look
