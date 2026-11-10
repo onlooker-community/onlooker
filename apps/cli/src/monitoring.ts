@@ -38,9 +38,12 @@ export interface CrashDeps {
  * Send one crash, if and only if this machine agreed to.
  *
  * The consent check comes before the import, so a run that crashed on a
- * machine that never opted in does not load Sentry at all. Resolves whether
- * the report drained: `run()` prints its one line only when it did, so the
- * line never claims a report that did not leave.
+ * machine that never opted in does not load Sentry at all. Resolves true only
+ * when Sentry accepted the event with a 2xx inside the flush: a refused
+ * connection, an error status, a rate limit or a timeout all resolve false.
+ * `run()` prints its one line only on true, so the line never claims a
+ * report that was not received. The adapter aborts its send at 2 seconds
+ * too, so a stalled server cannot keep the process from exiting.
  *
  * Never rejects. It runs in `run()`'s catch, where a second failure would
  * replace the one the user is being told about.

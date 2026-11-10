@@ -116,6 +116,34 @@ describe("reportCrash, with consent", () => {
 		expect(event.tags.node).toMatch(/^\d+$/);
 		expect(event.server_name).toBeUndefined();
 	});
+
+	// The process exits only once its requests close. A send that never
+	// answers must be cut off, not just stopped being waited for, or a crash
+	// keeps the terminal for as long as the server cares to stall.
+	it("gives up on a send that never answers, and says it was not sent", async () => {
+		let signal: AbortSignal | undefined;
+		const fetchImpl = vi.fn<FetchLike>(
+			(_url, init) =>
+				new Promise((_resolve, reject) => {
+					signal = init.signal;
+					init.signal?.addEventListener("abort", () =>
+						reject(init.signal?.reason),
+					);
+				}),
+		);
+		const started = Date.now();
+		expect(
+			await reportCrash(
+				crash(),
+				{ command: "sync" },
+				{ env: machine(true), fetchImpl, dsn: DSN },
+			),
+		).toBe(false);
+		expect(Date.now() - started).toBeLessThan(2500);
+		await vi.waitFor(() => expect(signal?.aborted).toBe(true), {
+			timeout: 500,
+		});
+	});
 });
 
 describe("buildEnvironment", () => {
