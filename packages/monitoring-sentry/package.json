@@ -6,7 +6,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
-		"./worker": "./src/worker.ts"
+		"./worker": "./src/worker.ts",
+		"./node": "./src/node.ts"
 	},
 	"sideEffects": false,
 	"scripts": {
