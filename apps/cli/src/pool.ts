@@ -8,6 +8,7 @@ import {
 import { join } from "node:path";
 import type { TLesson } from "@onlooker-community/lesson-contract";
 import { onlookerDir } from "./config";
+import { CliError } from "./errors";
 
 /**
  * ULID in Crockford base32, mirroring `ZUlid` in the lesson contract.
@@ -77,14 +78,14 @@ export function readCursor(env: NodeJS.ProcessEnv = process.env): Cursor {
 		held?: unknown;
 	};
 	if (typeof parsed.seq !== "number" || !Number.isInteger(parsed.seq)) {
-		throw new Error(`${path} does not hold an integer seq`);
+		throw new CliError(`${path} does not hold an integer seq`);
 	}
 	const held = parsed.held ?? [];
 	if (
 		!Array.isArray(held) ||
 		!held.every((seq) => typeof seq === "number" && Number.isInteger(seq))
 	) {
-		throw new Error(`${path} holds a held list that is not integer seqs`);
+		throw new CliError(`${path} holds a held list that is not integer seqs`);
 	}
 	return { seq: parsed.seq, held };
 }
@@ -122,7 +123,7 @@ export function writeLesson(
 	env: NodeJS.ProcessEnv = process.env,
 ): PoolWrite {
 	if (!ULID.test(lesson.id)) {
-		throw new Error(
+		throw new CliError(
 			`refusing to write a lesson whose id is not a ULID: ${lesson.id}`,
 		);
 	}

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { CliError } from "./errors";
 
 /**
  * Where the CLI keeps the machine token, and which API it talks to.
@@ -43,7 +44,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 		// treating it as absent would silently discard a token the user pasted
 		// and send them back to `onlooker link` with no idea why.
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw new Error(`${path} could not be read: ${(error as Error).message}`);
+			throw new CliError(
+				`${path} could not be read: ${(error as Error).message}`,
+			);
 		}
 	}
 

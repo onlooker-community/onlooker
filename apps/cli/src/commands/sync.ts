@@ -7,6 +7,7 @@ import {
 	type RetryOptions,
 } from "../api";
 import { readConfig } from "../config";
+import { CliError } from "../errors";
 import { readEventEnvelopes } from "../eventlog";
 import { collectInventory } from "../inventory";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
@@ -192,7 +193,7 @@ export async function sync({
 }: SyncDeps): Promise<string> {
 	const config = readConfig(env);
 	if (!config.machineToken) {
-		throw new Error(
+		throw new CliError(
 			"This machine is not linked. Mint a token on the Machines page and run `onlooker link`.",
 		);
 	}

@@ -8,6 +8,7 @@ import {
 import { join, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { onlookerDir } from "./config";
+import { CliError } from "./errors";
 import type { EventEnvelope } from "./sessions";
 
 /**
@@ -526,7 +527,7 @@ async function* streamEnvelopes(
 		// only error. Re-thrown with the path attached, worded the same way
 		// `readEventEnvelopes`'s own local-problem messages are, so a caller
 		// catching this cannot tell it apart from one of those.
-		throw new Error(
+		throw new CliError(
 			`${path} could not be fully read: ${(error as Error).message}`,
 		);
 	}

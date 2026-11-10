@@ -1,5 +1,6 @@
 import { createClient } from "../api";
 import { readConfig, writeConfig } from "../config";
+import { CliError } from "../errors";
 import { muted, ok, PLAIN, type Theme, underline } from "../ui";
 
 export interface LinkDeps {
@@ -25,7 +26,7 @@ export async function link({
 	theme = PLAIN,
 }: LinkDeps): Promise<string> {
 	const token = (await prompt()).trim();
-	if (!token) throw new Error("No token entered. Nothing was changed.");
+	if (!token) throw new CliError("No token entered. Nothing was changed.");
 
 	const config = readConfig(env);
 	// Verified before it is written, never after. A token stored without checking
