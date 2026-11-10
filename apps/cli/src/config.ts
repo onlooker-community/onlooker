@@ -1,16 +1,23 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { CliError } from "./errors";
 
 /**
  * Where the CLI keeps the machine token, and which API it talks to.
  *
- * Deliberately one flat JSON file rather than a config library. There are two
+ * Deliberately one flat JSON file rather than a config library. There are three
  * settings; a library would be more code than the thing it configures.
  */
 export interface CliConfig {
 	apiBaseUrl: string;
 	machineToken?: string;
+	/**
+	 * Whether this machine may report the CLI's own crashes. Absent until
+	 * someone runs `onlooker crash-reports on|off`; absent and false both mean
+	 * nothing is sent.
+	 */
+	crashReports?: boolean;
 }
 
 const DEFAULT_API = "https://api.onlooker.dev";
@@ -31,6 +38,20 @@ export function configPath(env: NodeJS.ProcessEnv = process.env): string {
 	return join(onlookerDir(env), "cli.json");
 }
 
+/**
+ * What is on disk, without `ONLOOKER_API_URL` applied.
+ *
+ * For a command that writes the file back. The override belongs to one
+ * shell, and `readConfig` would hand it over as if it were stored, so a
+ * write built on that would persist it for every later run.
+ */
+export function readStoredConfig(
+	env: NodeJS.ProcessEnv = process.env,
+): CliConfig {
+	const { ONLOOKER_API_URL: _override, ...rest } = env;
+	return readConfig(rest);
+}
+
 export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 	const path = configPath(env);
 	let stored: Partial<CliConfig> = {};
@@ -43,13 +64,20 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 		// treating it as absent would silently discard a token the user pasted
 		// and send them back to `onlooker link` with no idea why.
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw new Error(`${path} could not be read: ${(error as Error).message}`);
+			throw new CliError(
+				`${path} could not be read: ${(error as Error).message}`,
+			);
 		}
 	}
 
 	return {
 		apiBaseUrl: env.ONLOOKER_API_URL ?? stored.apiBaseUrl ?? DEFAULT_API,
 		machineToken: stored.machineToken,
+		// Only a real boolean. A hand-edited "yes" is not a recorded choice.
+		crashReports:
+			typeof stored.crashReports === "boolean"
+				? stored.crashReports
+				: undefined,
 	};
 }
 

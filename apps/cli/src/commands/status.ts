@@ -1,5 +1,6 @@
 import { ApiError, createClient } from "../api";
 import { configPath, readConfig } from "../config";
+import { crashConsent, describeConsent } from "../consent";
 import { discoverApproved, parseLesson } from "../lessons";
 import { pipelineLines, surveyPipeline } from "../pipeline";
 import { lessonDigest, readPushed } from "../pushed";
@@ -44,6 +45,7 @@ export async function status({
 	const lines = [
 		field("API:", config.apiBaseUrl),
 		field("Config:", configPath(env)),
+		field("Crashes:", describeConsent(crashConsent(env), theme)),
 	];
 
 	if (!config.machineToken) {

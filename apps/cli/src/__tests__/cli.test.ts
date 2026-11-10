@@ -6,6 +6,8 @@ import { ApiError, type Failure } from "../api";
 import { run, usage } from "../cli";
 import { doctor } from "../commands/doctor";
 import { sync } from "../commands/sync";
+import { CliError } from "../errors";
+import { reportCrash } from "../monitoring";
 import { PLAIN, stripSgr } from "../ui";
 
 // Wraps the real `sync` rather than replacing it, so the last test in this file
@@ -21,14 +23,21 @@ vi.mock("../commands/sync", async (importOriginal) => {
 // itself.
 vi.mock("../commands/doctor", () => ({ doctor: vi.fn() }));
 
+// Mocked for every test here. `run` is called with an empty env, and the real
+// reportCrash would read the developer's own ~/.onlooker/cli.json, so a
+// machine that opted in would send reports from the test suite.
+vi.mock("../monitoring", () => ({ reportCrash: vi.fn(async () => false) }));
+
 const mockedSync = vi.mocked(sync);
 const mockedDoctor = vi.mocked(doctor);
+const mockedReport = vi.mocked(reportCrash);
 const invoke = (...args: string[]) => run(["node", "onlooker", ...args], {});
 
 let out: string[] = [];
 let err: string[] = [];
 
 beforeEach(() => {
+	mockedReport.mockClear();
 	out = [];
 	err = [];
 	vi.spyOn(console, "log").mockImplementation((...parts) => {
@@ -107,6 +116,11 @@ describe("run", () => {
 		expect(out.join("\n")).toContain("onlooker doctor");
 	});
 
+	it("lists crash-reports in the usage text", async () => {
+		await invoke("--help");
+		expect(out.join("\n")).toContain("onlooker crash-reports");
+	});
+
 	// `doctor` is the one command that hands `run` its own exit code instead
 	// of throwing one, so the mapping above cannot stand in for it. Both
 	// codes are covered on purpose: a stopped stream turning into exit 1 is
@@ -174,14 +188,90 @@ describe("presentation", () => {
 		expect(text.split("\n")[0]).toBe(
 			" ONLOOKER  push approved lessons to app.onlooker.dev",
 		);
-		expect(text).toContain("  onlooker link     connect this machine");
+		// The column is as wide as the longest name, `crash-reports`, plus two.
+		expect(text).toContain("  onlooker link           connect this machine");
 		expect(text).toContain(
-			"  onlooker playbook which mirrored lessons apply here",
+			"  onlooker playbook       which mirrored lessons apply here",
+		);
+		expect(text).toContain(
+			"  onlooker crash-reports  whether this CLI may report its own crashes",
 		);
 	});
 
 	it("colors usage only when the theme says so", () => {
 		expect(usage(PLAIN)).not.toContain("\u001b[");
 		expect(stripSgr(usage({ color: true, width: 80 }))).toBe(usage(PLAIN));
+	});
+});
+
+describe("run, when something crashes", () => {
+	it("reports an unexpected error with the command it came from", async () => {
+		const error = new TypeError("cannot read properties of undefined");
+		mockedSync.mockRejectedValueOnce(error);
+		expect(await invoke("sync")).toBe(1);
+		expect(mockedReport).toHaveBeenCalledWith(
+			error,
+			{ command: "sync" },
+			{
+				env: {},
+			},
+		);
+	});
+
+	for (const [what, error] of [
+		["an ApiError", new ApiError({ kind: "transient", message: "503" })],
+		["a CliError", new CliError("No token entered. Nothing was changed.")],
+		[
+			"a system error",
+			Object.assign(new Error("EACCES: permission denied"), {
+				code: "EACCES",
+			}),
+		],
+	] as const) {
+		it(`never reports ${what}`, async () => {
+			mockedSync.mockRejectedValueOnce(error);
+			await invoke("sync");
+			expect(mockedReport).not.toHaveBeenCalled();
+		});
+	}
+
+	// The exit code and the error line are the contract scripts read. A
+	// report must add to them, never change them.
+	it("keeps the exit code and message, and adds one line when sent", async () => {
+		mockedSync.mockRejectedValueOnce(new TypeError("boom"));
+		mockedReport.mockResolvedValueOnce(true);
+		expect(await invoke("sync")).toBe(1);
+		expect(err[0]).toContain("boom");
+		expect(err[1]).toBe(
+			"reported this crash (onlooker crash-reports off to stop)",
+		);
+		expect(err).toHaveLength(2);
+	});
+
+	it("adds nothing when the report did not go", async () => {
+		mockedSync.mockRejectedValueOnce(new TypeError("boom"));
+		expect(await invoke("sync")).toBe(1);
+		expect(err).toHaveLength(1);
+	});
+
+	// argv[2] is whatever was typed. A path or a pasted token in that slot
+	// must not become a tag, so only a known command's name is sent.
+	for (const [argv, tag] of [
+		[["status"], "status"],
+		[[], "none"],
+		[["/Volumes/Work/client-repo"], "other"],
+		[["--help"], "other"],
+	] as const) {
+		it(`tags a crash under ${JSON.stringify(argv)} as ${tag}`, async () => {
+			await run(["node", "onlooker", ...argv], { ONLOOKER_CRASH_TEST: "1" });
+			expect(mockedReport.mock.calls[0]?.[1]).toEqual({ command: tag });
+		});
+	}
+
+	it("crashes on purpose under ONLOOKER_CRASH_TEST=1, to check delivery", async () => {
+		expect(
+			await run(["node", "onlooker", "status"], { ONLOOKER_CRASH_TEST: "1" }),
+		).toBe(1);
+		expect(mockedReport.mock.calls[0]?.[0]).toBeInstanceOf(TypeError);
 	});
 });

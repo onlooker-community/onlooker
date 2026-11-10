@@ -1,9 +1,12 @@
 import { ApiError } from "./api";
+import { crashReports } from "./commands/crash-reports";
 import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
 import { playbook } from "./commands/playbook";
 import { status } from "./commands/status";
 import { sync } from "./commands/sync";
+import { isCrash } from "./errors";
+import { reportCrash } from "./monitoring";
 import { promptForToken } from "./prompt";
 import {
 	accent,
@@ -17,7 +20,7 @@ import {
 	withSpinner,
 } from "./ui";
 
-// No argument-parsing library. Five commands and one flag do not justify one,
+// No argument-parsing library. Six commands and one flag do not justify one,
 // and a switch is easier to read than the framework would be.
 const COMMANDS: Array<[name: string, does: string]> = [
 	["link", "connect this machine with a token from the Machines page"],
@@ -25,12 +28,16 @@ const COMMANDS: Array<[name: string, does: string]> = [
 	["playbook", "which mirrored lessons apply here"],
 	["status", "what is linked, and what is waiting"],
 	["doctor", "which plugin streams are still recording"],
+	["crash-reports", "whether this CLI may report its own crashes"],
 ];
 
 export function usage(theme: Theme): string {
+	// Derived, not a constant: a fixed 9 made `repeat` throw a RangeError the
+	// moment a command name outgrew it.
+	const width = Math.max(...COMMANDS.map(([name]) => name.length)) + 2;
 	const rows = COMMANDS.map(
 		([name, does]) =>
-			`  ${accent(theme, `onlooker ${name}`)}${" ".repeat(9 - name.length)}${muted(theme, does)}`,
+			`  ${accent(theme, `onlooker ${name}`)}${" ".repeat(width - name.length)}${muted(theme, does)}`,
 	);
 	return `${pill(theme, "ONLOOKER")} push approved lessons to app.onlooker.dev\n\n${rows.join("\n")}\n`;
 }
@@ -57,7 +64,22 @@ export async function run(
 	const show = (command: string, text: string) =>
 		console.log(`${header(out, command)}\n\n${text}`);
 	const command = argv[2];
+	// What a crash report may say about argv: a known command's name, never
+	// the raw word, which can be a path or a pasted token.
+	const commandTag =
+		command === undefined
+			? "none"
+			: COMMANDS.some(([name]) => name === command)
+				? command
+				: "other";
 	try {
+		// A deliberate crash, so someone who turned reports on can check one
+		// arrives. Thrown inside the try so it travels the real path.
+		if (env.ONLOOKER_CRASH_TEST === "1") {
+			throw new TypeError(
+				"ONLOOKER_CRASH_TEST: a deliberate crash, to check reports arrive",
+			);
+		}
 		if (command === "link") {
 			show("link", await link({ prompt: promptForToken, theme: out }));
 		} else if (command === "sync") {
@@ -81,6 +103,8 @@ export async function run(
 			);
 			show("doctor", report.text);
 			return report.code;
+		} else if (command === "crash-reports") {
+			show("crash-reports", crashReports(argv[3], { theme: out }));
 		} else if (
 			command === undefined ||
 			command === "--help" ||
@@ -106,6 +130,17 @@ export async function run(
 		console.error(
 			`${bad(err, "✕")} ${err.color ? message : stripSgr(message)}`,
 		);
+		// After the message, never instead of it: the line above is what the
+		// user and any wrapping script read, and a report changes neither it
+		// nor the exit code.
+		if (
+			isCrash(error) &&
+			(await reportCrash(error, { command: commandTag }, { env }))
+		) {
+			console.error(
+				muted(err, "reported this crash (onlooker crash-reports off to stop)"),
+			);
+		}
 		return failure?.kind === "transient" ? 2 : 1;
 	}
 }

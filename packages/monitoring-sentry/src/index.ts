@@ -7,7 +7,7 @@
  *
  * Runtime-specific pieces live on subpaths so a browser bundle never pulls in
  * the Workers SDK: `./browser` for init options, `./worker` for the fetch
- * handler wrapper.
+ * handler wrapper, `./node` for the CLI's client.
  */
 
 export { createSentryMonitor } from "./monitor";
