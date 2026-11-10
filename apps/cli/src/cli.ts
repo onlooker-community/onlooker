@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { crashReports } from "./commands/crash-reports";
 import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
 import { playbook } from "./commands/playbook";
@@ -17,7 +18,7 @@ import {
 	withSpinner,
 } from "./ui";
 
-// No argument-parsing library. Five commands and one flag do not justify one,
+// No argument-parsing library. Six commands and one flag do not justify one,
 // and a switch is easier to read than the framework would be.
 const COMMANDS: Array<[name: string, does: string]> = [
 	["link", "connect this machine with a token from the Machines page"],
@@ -25,12 +26,16 @@ const COMMANDS: Array<[name: string, does: string]> = [
 	["playbook", "which mirrored lessons apply here"],
 	["status", "what is linked, and what is waiting"],
 	["doctor", "which plugin streams are still recording"],
+	["crash-reports", "whether this CLI may report its own crashes"],
 ];
 
 export function usage(theme: Theme): string {
+	// Derived, not a constant: a fixed 9 made `repeat` throw a RangeError the
+	// moment a command name outgrew it.
+	const width = Math.max(...COMMANDS.map(([name]) => name.length)) + 2;
 	const rows = COMMANDS.map(
 		([name, does]) =>
-			`  ${accent(theme, `onlooker ${name}`)}${" ".repeat(9 - name.length)}${muted(theme, does)}`,
+			`  ${accent(theme, `onlooker ${name}`)}${" ".repeat(width - name.length)}${muted(theme, does)}`,
 	);
 	return `${pill(theme, "ONLOOKER")} push approved lessons to app.onlooker.dev\n\n${rows.join("\n")}\n`;
 }
@@ -81,6 +86,8 @@ export async function run(
 			);
 			show("doctor", report.text);
 			return report.code;
+		} else if (command === "crash-reports") {
+			show("crash-reports", crashReports(argv[3], { theme: out }));
 		} else if (
 			command === undefined ||
 			command === "--help" ||

@@ -243,7 +243,7 @@ describe("status", () => {
 		const columns = message
 			.split("\n")
 			.map((line) => /^\S+\s+/.exec(line)?.[0].length);
-		expect(message.split("\n")).toHaveLength(4);
+		expect(message.split("\n")).toHaveLength(5);
 		expect(new Set(columns).size).toBe(1);
 	});
 
@@ -287,7 +287,7 @@ describe("status", () => {
 		const message = await status({ env, fetchImpl: ok() });
 		// Continuation lines start with a space and carry no label.
 		const labeled = message.split("\n").filter((line) => /^\S/.test(line));
-		expect(labeled.length).toBe(5);
+		expect(labeled.length).toBe(6);
 		for (const line of labeled) {
 			// The first colon is always the label's - a value containing one
 			// (the API URL) has it later. Every value begins at column 10.
@@ -348,6 +348,17 @@ describe("status", () => {
 
 		const message = await status({ env, fetchImpl: ok() });
 		expect(message).toMatch(/^Pipeline: no lesson pipeline has run here$/m);
+	});
+
+	it("shows whether crash reports are on", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		expect(await status({ env, fetchImpl: ok() })).toMatch(/Crashes:\s+off/);
+
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", crashReports: true },
+			env,
+		);
+		expect(await status({ env, fetchImpl: ok() })).toMatch(/Crashes:\s+on/);
 	});
 
 	// The rule ui.ts exists to keep: color is emphasis, never words.

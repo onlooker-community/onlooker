@@ -6,12 +6,18 @@ import { CliError } from "./errors";
 /**
  * Where the CLI keeps the machine token, and which API it talks to.
  *
- * Deliberately one flat JSON file rather than a config library. There are two
+ * Deliberately one flat JSON file rather than a config library. There are three
  * settings; a library would be more code than the thing it configures.
  */
 export interface CliConfig {
 	apiBaseUrl: string;
 	machineToken?: string;
+	/**
+	 * Whether this machine may report the CLI's own crashes. Absent until
+	 * someone runs `onlooker crash-reports on|off`; absent and false both mean
+	 * nothing is sent.
+	 */
+	crashReports?: boolean;
 }
 
 const DEFAULT_API = "https://api.onlooker.dev";
@@ -53,6 +59,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 	return {
 		apiBaseUrl: env.ONLOOKER_API_URL ?? stored.apiBaseUrl ?? DEFAULT_API,
 		machineToken: stored.machineToken,
+		// Only a real boolean. A hand-edited "yes" is not a recorded choice.
+		crashReports:
+			typeof stored.crashReports === "boolean"
+				? stored.crashReports
+				: undefined,
 	};
 }
 

@@ -107,6 +107,11 @@ describe("run", () => {
 		expect(out.join("\n")).toContain("onlooker doctor");
 	});
 
+	it("lists crash-reports in the usage text", async () => {
+		await invoke("--help");
+		expect(out.join("\n")).toContain("onlooker crash-reports");
+	});
+
 	// `doctor` is the one command that hands `run` its own exit code instead
 	// of throwing one, so the mapping above cannot stand in for it. Both
 	// codes are covered on purpose: a stopped stream turning into exit 1 is
@@ -174,9 +179,13 @@ describe("presentation", () => {
 		expect(text.split("\n")[0]).toBe(
 			" ONLOOKER  push approved lessons to app.onlooker.dev",
 		);
-		expect(text).toContain("  onlooker link     connect this machine");
+		// The column is as wide as the longest name, `crash-reports`, plus two.
+		expect(text).toContain("  onlooker link           connect this machine");
 		expect(text).toContain(
-			"  onlooker playbook which mirrored lessons apply here",
+			"  onlooker playbook       which mirrored lessons apply here",
+		);
+		expect(text).toContain(
+			"  onlooker crash-reports  whether this CLI may report its own crashes",
 		);
 	});
 
