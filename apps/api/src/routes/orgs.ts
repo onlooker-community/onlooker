@@ -1,5 +1,4 @@
 import {
-	countMembers,
 	createOrgWithOwner,
 	deleteOrg,
 	listOrgsForUser,
@@ -120,12 +119,15 @@ export async function handleDeleteOrg(
 		(principal as Principal).userId,
 	);
 
-	if (outcome === "has_members") {
+	if (typeof outcome === "object") {
+		// The count deleteOrg decided on, never a fresh read: one taken here
+		// could see a member leave and say "1" beside "other members"
+		// (ONL-149).
 		throw new ApiError(
 			409,
 			"has_members",
 			"An org with other members cannot be deleted; remove them first",
-			{ member_count: await countMembers(env.DB, params.id) },
+			{ member_count: outcome.memberCount },
 		);
 	}
 

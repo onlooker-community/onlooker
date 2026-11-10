@@ -8,7 +8,7 @@ import {
 	hasOrgSharedLessons,
 	nonOrgLessonsDelete,
 } from "./lessons.js";
-import { soleOwnedOrgs } from "./orgs.js";
+import { type SoleOwnedOrg, soleOwnedOrgsStatement } from "./orgs.js";
 
 export interface User {
 	id: string;
@@ -298,7 +298,12 @@ export async function revokeAllSessionsForUser(
  * apart: a caller does not need to know, and the distinction would leak
  * whether they had org lessons to anybody who could trigger the call.
  */
-export type AccountDeleteResult = "deleted" | "anonymized" | "sole_owner";
+export type AccountDeleteResult =
+	| "deleted"
+	| "anonymized"
+	// The orgs named are the ones that refused, read in the same transaction
+	// as the refusing write, so the route never reads them again (ONL-149).
+	| { refused: "sole_owner"; orgs: SoleOwnedOrg[] };
 
 export async function deleteUser(
 	db: D1Database,
@@ -317,18 +322,28 @@ export async function deleteUser(
 	// Built in db/lessons.ts, not here: its WHERE clause names `lessons`
 	// directly, and the source guard keeps every lesson query inside that file
 	// and db/pool.ts.
-	const deleted = await deleteUserUnlessProtected(db, userId).run();
+	//
+	// The sole-owned orgs are read in the same batch, so in the same
+	// transaction: they describe the state the DELETE refused in. Read after
+	// it, a second owner promoted in between made the answer come back empty,
+	// and this function took empty to mean the account was already gone - the
+	// route answered 200 for an account that was still there (ONL-149).
+	const [deleted, blocking] = await db.batch<SoleOwnedOrg>([
+		deleteUserUnlessProtected(db, userId),
+		soleOwnedOrgsStatement(db, userId),
+	]);
 
-	if ((deleted.meta.changes ?? 0) > 0) return "deleted";
+	if ((deleted?.meta.changes ?? 0) > 0) return "deleted";
 
-	// Zero rows has three causes now, and the ORDER of these reads matters.
+	// Zero rows has three causes now, and the ORDER of these checks matters.
 	// The sole-owner check must come first: an account that is both a sole
 	// owner and the author of an org lesson would otherwise be anonymized
 	// while still owning an org, leaving zero owners - the state #198 shipped
 	// to prevent. Neither read can invert the decision; the write has already
 	// refused authoritatively, and the anonymize statement below re-checks the
 	// guard in its own WHERE rather than trusting what these said.
-	if ((await soleOwnedOrgs(db, userId)).length > 0) return "sole_owner";
+	const orgs = blocking?.results ?? [];
+	if (orgs.length > 0) return { refused: "sole_owner", orgs };
 
 	if (!(await hasOrgSharedLessons(db, userId))) {
 		// Nothing to anchor and no org to protect, so the delete's own
@@ -354,7 +369,7 @@ export async function deleteUser(
 	const now = new Date().toISOString();
 	const landed = `AND EXISTS (SELECT 1 FROM users WHERE id = ? AND anonymized_at IS NOT NULL)`;
 
-	await db.batch([
+	const anonymizing = await db.batch<SoleOwnedOrg>([
 		db
 			.prepare(
 				`UPDATE users
@@ -389,10 +404,13 @@ export async function deleteUser(
 		db
 			.prepare(`DELETE FROM org_memberships WHERE user_id = ? ${landed}`)
 			.bind(userId, userId),
-		// Last, and inside the batch rather than before it. Task 2 returns a
-		// statement precisely so this cannot run outside the transaction that
-		// the sole-owner guard above might refuse.
+		// The last write, and inside the batch rather than before it. Task 2
+		// returns a statement precisely so this cannot run outside the
+		// transaction that the sole-owner guard above might refuse.
 		nonOrgLessonsDelete(db, userId),
+		// Not a write: the orgs to name if the UPDATE's guard refused, read in
+		// the same transaction for the reason the first batch gives.
+		soleOwnedOrgsStatement(db, userId),
 	]);
 
 	// The UPDATE's own guard may have refused - the race a concurrent
@@ -400,14 +418,19 @@ export async function deleteUser(
 	// reads rather than assumes. Non-null means this call anonymized the
 	// row, or a previous one did; both are the same answer to the caller.
 	// Still null means the guard refused: the account is untouched and the
-	// org still needs an owner, the same refusal soleOwnedOrgs would have
+	// org still needs an owner, the same refusal the first batch would have
 	// given a moment earlier.
 	const landedRow = await db
 		.prepare("SELECT anonymized_at FROM users WHERE id = ?")
 		.bind(userId)
 		.first<{ anonymized_at: string | null }>();
 
-	return landedRow?.anonymized_at != null ? "anonymized" : "sole_owner";
+	if (landedRow?.anonymized_at != null) return "anonymized";
+
+	// Empty only if the row itself vanished between the two batches, which
+	// takes the caller's own second request deleting it outright. That path
+	// returns this refusal with no orgs to name, as it did before ONL-149.
+	return { refused: "sole_owner", orgs: anonymizing.at(-1)?.results ?? [] };
 }
 
 /**

@@ -175,7 +175,10 @@ describe("the last-owner guard", () => {
 	it("deleteUser refuses to delete a sole owner's account", async () => {
 		const acme = await createOrgWithOwner(db(), "Acme", ada);
 
-		expect(await deleteUser(db(), ada)).toBe("sole_owner");
+		expect(await deleteUser(db(), ada)).toEqual({
+			refused: "sole_owner",
+			orgs: [{ id: acme.id, name: "Acme" }],
+		});
 
 		expect(await getMembership(db(), acme.id, ada)).toEqual({
 			role: "owner",
@@ -204,7 +207,12 @@ describe("the last-owner guard", () => {
 		await addMembership(db(), acme.id, bob, "owner");
 		const solo = await createOrgWithOwner(db(), "Solo", ada);
 
-		expect(await deleteUser(db(), ada)).toBe("sole_owner");
+		// Names only the org at risk: Acme has another owner, so naming it
+		// would send somebody to promote a second owner where one exists.
+		expect(await deleteUser(db(), ada)).toEqual({
+			refused: "sole_owner",
+			orgs: [{ id: solo.id, name: "Solo" }],
+		});
 
 		expect(await getMembership(db(), solo.id, ada)).toEqual({
 			role: "owner",
@@ -353,7 +361,10 @@ describe("deleteOrg", () => {
 		// The whole point of the guard. Ablation: delete the NOT EXISTS clause
 		// from deleteOrg's DELETE and this must fail - a fixture with only one
 		// member could not tell the guarded statement from an unguarded one.
-		expect(await deleteOrg(db(), org.id, ada)).toBe("has_members");
+		expect(await deleteOrg(db(), org.id, ada)).toEqual({
+			refused: "has_members",
+			memberCount: 2,
+		});
 		expect(await getOrgName(db(), org.id)).toBe("Acme");
 	});
 
@@ -364,7 +375,10 @@ describe("deleteOrg", () => {
 		// Not a special case of the test above: a reader could reasonably
 		// assume the guard counts members who are not owners, since every
 		// other guard in this file counts owners.
-		expect(await deleteOrg(db(), org.id, ada)).toBe("has_members");
+		expect(await deleteOrg(db(), org.id, ada)).toEqual({
+			refused: "has_members",
+			memberCount: 2,
+		});
 	});
 
 	it("reports not_found for an org that does not exist", async () => {

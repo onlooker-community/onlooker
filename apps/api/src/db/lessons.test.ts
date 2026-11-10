@@ -761,7 +761,7 @@ describe("accountDeletionPreview", () => {
 
 		const preview = await accountDeletionPreview(db(), userId);
 
-		// Acme first, matching soleOwnedOrgs' ORDER BY o.name (orgs.ts:417), so
+		// Acme first, matching soleOwnedOrgsStatement's ORDER BY o.name, so
 		// the two lists somebody may see minutes apart agree.
 		expect(preview.orgsKeeping).toEqual([
 			{ id: acme.id, name: "Acme", lessons: 2 },

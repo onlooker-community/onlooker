@@ -11,7 +11,6 @@
 
 import { accountDeletionPreview } from "../db/lessons.js";
 import { claimMailSend, isEstablished } from "../db/mail-sends.js";
-import { soleOwnedOrgs } from "../db/orgs.js";
 import type { Principal } from "../db/pool.js";
 import {
 	consumeVerificationToken,
@@ -316,18 +315,17 @@ export async function handleDeleteAccount(
 	// account had org lessons.
 	const result = await deleteUser(env.DB, userId);
 
-	if (result === "sole_owner") {
-		// Read for the message only, and only once the write has refused. The
-		// names make the refusal actionable - the way out is to promote another
-		// owner in each org named, and without them somebody who owns several
-		// has no route that would tell them which one is blocking this.
-		const orgs = await soleOwnedOrgs(env.DB, userId);
-
+	if (typeof result === "object") {
+		// The names make the refusal actionable - the way out is to promote
+		// another owner in each org named, and without them somebody who owns
+		// several has no route that would tell them which one is blocking this.
+		// deleteUser read them in the transaction that refused, so they are the
+		// orgs that did, not whichever are at risk a moment later (ONL-149).
 		throw new ApiError(
 			409,
 			"sole_owner",
 			"An org needs an owner; promote somebody else, or delete the org if you are its only member",
-			{ orgs },
+			{ orgs: result.orgs },
 		);
 	}
 
