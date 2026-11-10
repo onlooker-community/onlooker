@@ -134,9 +134,19 @@ function fileName(path: string): string {
  * `node:fs` has no leading slash, so it never matches.
  */
 const QUOTED_PATH =
-	/(['"`])((?:file:\/\/|~\/|\/|[A-Za-z]:[\\/]|\\\\)[^'"`\n]*?)\1/g;
+	/(['"`])((?:file:\/\/|~[\\/]|\/|[A-Za-z]:[\\/]|\\\\)[^'"`\n]*?)\1/g;
+// A colon is not in the lookbehind, so `path:/a/b.ts` is cut; the `(?!\/)`
+// keeps the first slash of `https://` out instead, and the second follows
+// a slash.
 const BARE_PATH =
-	/(?<![\w:/\\.~-])(?:file:\/\/\S*|~\/\S*|\/[^\s'"`()<>,;]+|[A-Za-z]:[\\/][^\s'"`()<>,;]*|\\\\[^\s'"`()<>,;]+)/g;
+	/(?<![\w/\\.~-])(?:file:\/\/\S*|~[\\/]\S*|\/(?!\/)[^\s'"`()<>,;]+|[A-Za-z]:[\\/][^\s'"`()<>,;]*|\\\\[^\s'"`()<>,;]+)/g;
+
+/** Home is replaced only where a path segment ends: `/Users/al` is not `/Users/alice`. */
+function homeAsTilde(text: string, home: string): string {
+	if (home.length <= 1) return text;
+	const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return text.replace(new RegExp(`${escaped}(?![\\w-])`, "g"), "~");
+}
 
 /**
  * Adapter-local, not in the shared scrub: the hosted apps report their own
@@ -153,8 +163,7 @@ const EMAIL =
  * last segment says anything about the bug.
  */
 function localizeText(text: string, home: string): string {
-	const homeless = home.length > 1 ? text.split(home).join("~") : text;
-	return homeless
+	return homeAsTilde(text, home)
 		.replace(
 			QUOTED_PATH,
 			(_match, quote, path) => `${quote}${fileName(path)}${quote}`,
@@ -210,8 +219,17 @@ const MECHANISM_FIELDS = [
 	"is_exception_group",
 ] as const;
 
+/**
+ * What stands in for a parse error's message. Node's `JSON.parse` quotes the
+ * start of the text it failed on, so a crash over a corrupt local file would
+ * send part of that file. No scrub can tell which words are the file's, so
+ * the message goes whole and the type and frames say what happened.
+ */
+const PARSE_ERROR_MESSAGE = "[message omitted: may quote input]";
+
 function allowedException(exception: Exception): Exception {
 	const out: Exception = pick(exception, ["type", "value"]);
+	if (exception.type === "SyntaxError") out.value = PARSE_ERROR_MESSAGE;
 	if (exception.mechanism) {
 		out.mechanism = pick(exception.mechanism, MECHANISM_FIELDS);
 	}
@@ -249,6 +267,10 @@ function allowlist(event: ErrorEvent): ErrorEvent {
 			"sdk",
 		]),
 	};
+	// A SyntaxError sent as text has no exception value to key on.
+	if (out.message && /^SyntaxError\b/.test(out.message)) {
+		out.message = PARSE_ERROR_MESSAGE;
+	}
 	if (event.exception?.values) {
 		out.exception = { values: event.exception.values.map(allowedException) };
 	}

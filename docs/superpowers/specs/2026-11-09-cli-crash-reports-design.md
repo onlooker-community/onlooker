@@ -103,8 +103,11 @@ A new subpath beside `./browser` and `./worker`. It exports
 2. Only then `await import("@onlooker/monitoring-sentry/node")`. No other CLI
    module imports Sentry, so a run without a crash or without consent never
    loads it.
-3. `captureException`, then `flush(2000)`. Returns whether the flush drained,
-   which decides whether the muted line prints.
+3. `captureException`, then `flush(2000)`. Returns true only when Sentry
+   accepted the event with a 2xx; a drained flush alone is not enough, since
+   core counts a 500 or a refused connection as drained. The send is aborted
+   at 2 seconds so a stalled server cannot hold the process open. That answer
+   decides whether the muted line prints.
 
 ### What a report contains
 
@@ -112,7 +115,7 @@ It's an allowlist: anything not listed here is left out.
 
 | Sent | Value |
 |---|---|
-| Error type, message, stack, and those of any error it wraps (`cause` chain) | Each message goes through the shared `scrubText`, then has `os.homedir()` replaced with `~`, every absolute path (POSIX, Windows, `file://`, quoted or bare) cut to its file name, and email addresses redacted. Stack frame paths are reduced to file names (`onlooker.mjs`, `node:fs`), and frames carry only file, function, line and column |
+| Error type, message, stack, and those of any error it wraps (`cause` chain) | Each message goes through the shared `scrubText`, then has `os.homedir()` replaced with `~`, every absolute path (POSIX, Windows, `file://`, quoted or bare) cut to its file name, and email addresses redacted. Home is replaced only at a path boundary, and both `~/` and `~\` count as home. A path may also follow a colon (`path:/a/b.ts`); `//` in a URL is left alone. An unquoted path containing spaces may keep the directories after the space. A `SyntaxError`'s message (the top error or any in the chain) is left out whole, as `[message omitted: may quote input]`, because Node's `JSON.parse` quotes the text it failed on; its type and frames are kept. Stack frame paths are reduced to file names (`onlooker.mjs`, `node:fs`), and frames carry only file, function, line, column and `in_app` |
 | `release` | `onlooker-cli@<version>`, from `apps/cli/package.json` at build time |
 | `environment` | `production` for a build made by `release-cli.yml`, otherwise `development` |
 | Tags | `command` (a known subcommand's name, `none` when there is none, `other` for anything else), `os` (`process.platform`), `arch`, `node` (major version) |

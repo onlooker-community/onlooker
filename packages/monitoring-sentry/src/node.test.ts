@@ -155,6 +155,59 @@ describe("createNodeMonitor, the allowlist", () => {
 	});
 });
 
+// A parse error's message can quote the text it failed on, which on a crash
+// over a corrupt local file is that file's contents.
+describe("createNodeMonitor, parse errors", () => {
+	const OMITTED = "[message omitted: may quote input]";
+	// Node quotes only the first ten characters or so of what it failed on.
+	const marker = "zqmark771";
+
+	function parseFailure(): unknown {
+		try {
+			JSON.parse(marker);
+		} catch (error) {
+			return error;
+		}
+		throw new Error("JSON.parse accepted the input");
+	}
+
+	it("leaves out what a JSON.parse failure quotes, keeping type and frames", async () => {
+		const error = parseFailure();
+		// The premise: Node's message does quote the input.
+		expect((error as Error).message).toContain(marker);
+		const { body, event } = await envelopeFor(error);
+		expect(body).not.toContain(marker);
+		const [top] = event.exception.values;
+		expect(top.type).toBe("SyntaxError");
+		expect(top.value).toBe(OMITTED);
+		expect(top.stacktrace.frames.length).toBeGreaterThan(0);
+	});
+
+	it("does the same for a SyntaxError wrapped as a cause", async () => {
+		const { body, event } = await envelopeFor(
+			new Error("could not read config", { cause: parseFailure() }),
+		);
+		expect(body).not.toContain(marker);
+		const values = event.exception.values as Array<{
+			type: string;
+			value: string;
+		}>;
+		expect(values.find((v) => v.type === "SyntaxError")?.value).toBe(OMITTED);
+		expect(values.find((v) => v.type === "Error")?.value).toBe(
+			"could not read config",
+		);
+	});
+
+	it("does the same for a SyntaxError that arrives as a message", async () => {
+		const fetch = fakeFetch();
+		const monitor = monitorFor(fetch);
+		monitor.captureMessage(`SyntaxError: Unexpected token ${marker}`);
+		expect(await monitor.flush(2000)).toBe(true);
+		expect(sentEnvelope(fetch)).not.toContain(marker);
+		expect(sentEvent(fetch).message).toBe(OMITTED);
+	});
+});
+
 // A frame path is cut to its file name; the same must hold for a path a
 // message carries, wherever the CLI was run from, or `crash-reports on`
 // promises more than it delivers.
@@ -216,6 +269,36 @@ describe("createNodeMonitor, paths and addresses in text", () => {
 		expect(values.some((v: string) => v.startsWith("read f.ts for "))).toBe(
 			true,
 		);
+	});
+
+	it("cuts a path under a Windows home to its file name", async () => {
+		const home = "C:\\Users\\alice";
+		const { body, event } = await envelopeFor(
+			new Error(`read ${home}\\work\\acme\\c.ts failed`),
+			home,
+		);
+		expect(event.exception.values[0].value).toBe("read c.ts failed");
+		expect(body).not.toContain("acme");
+	});
+
+	it("cuts a path that follows a colon, but not the slashes of a URL", async () => {
+		const { body, event } = await envelopeFor(
+			new Error("path:/Volumes/Work/acme/x.ts via https://api.onlooker.dev/v1"),
+		);
+		expect(event.exception.values[0].value).toBe(
+			"path:x.ts via https://api.onlooker.dev/v1",
+		);
+		expect(body).not.toContain("acme");
+	});
+
+	it("replaces home only at a path boundary", async () => {
+		const { event } = await envelopeFor(
+			new Error(`see ${HOME}bob/x and ${HOME}/y.ts`),
+		);
+		const value = event.exception.values[0].value as string;
+		expect(value).not.toContain("~bob");
+		expect(value).toContain("y.ts");
+		expect(value).not.toContain(`${HOME}/`);
 	});
 
 	// A home of `/` would otherwise turn every slash in a message into `~`.
