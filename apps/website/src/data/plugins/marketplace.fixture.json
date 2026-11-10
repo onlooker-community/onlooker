@@ -1,15 +1,15 @@
 {
-	"commit": "daaa3497e220ea1f68f70d3b59e052353025628d",
+	"commit": "13574f5750643285b10f7afb81ea021d23308927",
 	"plugins": [
 		{
 			"name": "ecosystem",
-			"version": "0.79.5",
+			"version": "0.79.6",
 			"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Other Onlooker plugins emit their events through it: without it they still run and keep their own files, but write nothing to the shared event log.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
 		},
 		{
 			"name": "archivist",
-			"version": "0.10.4",
+			"version": "0.10.5",
 			"description": "Structured session memory across context truncation: extracts decisions, dead ends, and open questions on PreCompact and reinjects the most important items at SessionStart. Builds on the Onlooker ecosystem plugin.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/archivist/README.md"
 		},
