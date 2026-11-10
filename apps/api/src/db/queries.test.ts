@@ -534,7 +534,10 @@ describe("deleteUser when an org lesson must survive", () => {
 		);
 		const token = await createMachineToken(db(), ada, "laptop", null);
 
-		expect(await deleteUser(db(), ada)).toBe("sole_owner");
+		expect(await deleteUser(db(), ada)).toEqual({
+			refused: "sole_owner",
+			orgs: [{ id: orgId, name: "Acme" }],
+		});
 
 		// The refusal must be total. A half-applied anonymization would leave
 		// an account that cannot log in and an org that still has its owner.
@@ -548,18 +551,20 @@ describe("deleteUser when an org lesson must survive", () => {
 		expect(await verifyMachineToken(db(), token.token)).not.toBeNull();
 	});
 
-	// The test above proves the TOP-LEVEL soleOwnedOrgs read refuses. It
+	// The test above proves the first batch's sole-owner read refuses. It
 	// cannot reach the UPDATE's own copy of the guard: with no second owner,
-	// that read alone already returns "sole_owner" before the batch is ever
-	// built. The UPDATE's guard exists for the read-then-write race - two
-	// owners pass both of deleteUser's reads, and only between the second
-	// read and the batch does a concurrent demotion leave a sole owner - so
-	// proving IT is load-bearing needs a fixture that actually races.
+	// that read alone already returns the refusal before the anonymize batch
+	// is ever built. The UPDATE's guard exists for the read-then-write race -
+	// two owners pass the first batch, and only between it and the anonymize
+	// batch does a concurrent demotion leave a sole owner - so proving IT is
+	// load-bearing needs a fixture that actually races.
 	//
-	// Simulated here by hooking db.batch(): deleteUser's own reads still see
-	// two owners, and the demotion happens right as the batch would run,
-	// which is the earliest point a real concurrent write could land between
-	// this function's reads and its write.
+	// Simulated here by hooking db.batch(), and only the second call:
+	// deleteUser's first batch still sees two owners, and the demotion happens
+	// right as the anonymize batch would run, which is the earliest point a
+	// real concurrent write could land between the two. Hooking every call
+	// demotes before the first batch too, and the refusal then comes from
+	// that batch's read - the test passes without ever reaching the UPDATE.
 	it("refuses inside the batch too, when ownership changes between the read and the write", async () => {
 		const orgId = (await createOrgWithOwner(db(), "Acme", ada)).id;
 		await addMembership(db(), orgId, bob, "owner");
@@ -570,11 +575,13 @@ describe("deleteUser when an org lesson must survive", () => {
 			orgId,
 		);
 
+		let batches = 0;
 		const racing = new Proxy(db(), {
 			get(target, property, receiver) {
 				if (property === "batch") {
 					return async (statements: D1PreparedStatement[]) => {
-						await removeMembership(db(), orgId, bob);
+						batches += 1;
+						if (batches === 2) await removeMembership(db(), orgId, bob);
 						return target.batch(statements);
 					};
 				}
@@ -588,7 +595,10 @@ describe("deleteUser when an org lesson must survive", () => {
 		// needs an owner. A test asserting only the row would pass even if
 		// deleteUser assumed success and misreported it - which is exactly
 		// what it did before this assertion was added.
-		expect(await deleteUser(racing, ada)).toBe("sole_owner");
+		expect(await deleteUser(racing, ada)).toEqual({
+			refused: "sole_owner",
+			orgs: [{ id: orgId, name: "Acme" }],
+		});
 
 		// The row and the org must be exactly as they were: the UPDATE's own
 		// guard refusing is what keeps a demotion racing the batch from

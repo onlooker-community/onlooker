@@ -1,16 +1,26 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addMembership } from "../db/orgs.js";
-import { call, resetOrgTables, signup } from "../test-support/orgs.js";
+import { addMembership, removeMembership } from "../db/orgs.js";
+import {
+	afterWrite,
+	call,
+	resetOrgTables,
+	signup,
+} from "../test-support/orgs.js";
+import { ApiError, type WorkerEnv } from "../types";
+import { handleDeleteOrg } from "./orgs.js";
 
 const db = () => env.DB;
 let adaToken: string;
+let adaId: string;
 let bobToken: string;
 let bobId: string;
 
 beforeEach(async () => {
 	await resetOrgTables();
-	adaToken = (await signup("ada@example.com")).token;
+	const ada = await signup("ada@example.com");
+	adaToken = ada.token;
+	adaId = ada.id;
 	const bob = await signup("bob@example.com");
 	bobToken = bob.token;
 	bobId = bob.id;
@@ -142,6 +152,37 @@ describe("DELETE /api/orgs/:id", () => {
 		// The count is what makes the refusal actionable without naming
 		// people the page already lists.
 		expect(body.error.details?.member_count).toBe(2);
+	});
+
+	// The count has to be the one the refusal was decided on (ONL-149). Read
+	// afterward, a member leaving in between makes it disagree with the
+	// sentence beside it - or, read where deleteOrg used to read it, turns
+	// the 409 into a 404 "No such org" for an org that still exists.
+	//
+	// Ablation: move the count out of deleteOrg's batch into a read after it,
+	// or have the route read it again, and this fails.
+	it("reports the count the refusal was decided on, even if a member leaves right after", async () => {
+		const orgId = await createOrg(adaToken, "Acme");
+		await addMembership(db(), orgId, bobId, "member");
+		const racing = afterWrite(db(), /^\s*DELETE FROM orgs\b/, () =>
+			removeMembership(db(), orgId, bobId),
+		);
+
+		const thrown = await handleDeleteOrg(
+			new Request(`https://api.onlooker.dev/api/orgs/${orgId}`, {
+				method: "DELETE",
+			}),
+			{ ...(env as unknown as WorkerEnv), DB: racing },
+			{ id: orgId },
+			{ userId: adaId },
+		).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		expect(thrown).toBeInstanceOf(ApiError);
+		expect((thrown as ApiError).status).toBe(409);
+		expect((thrown as ApiError).details).toEqual({ member_count: 2 });
 	});
 
 	it("gives a plain member 404, not 403", async () => {

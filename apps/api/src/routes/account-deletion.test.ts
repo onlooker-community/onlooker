@@ -4,11 +4,12 @@ import type { TLesson } from "@onlooker-community/lesson-contract";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLessonsWithFeed } from "../db/lessons.js";
 import { createMachineToken } from "../db/machine-tokens.js";
-import { addMembership, removeMembership } from "../db/orgs.js";
+import { addMembership, removeMembership, setMemberRole } from "../db/orgs.js";
 import { getUserById } from "../db/queries.js";
 import { putSessionSummaries } from "../db/session-summaries.js";
 import { lesson, resetLessonCounter } from "../test-support/lessons.js";
 import {
+	afterWrite,
 	call,
 	resetOrgTables,
 	type SignedUpUser,
@@ -194,11 +195,16 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 			orgId,
 		);
 
+		// Only the second batch, the anonymize one. Demoting before deleteUser's
+		// first batch would have that batch's own read refuse, and this test
+		// would pass without ever reaching the UPDATE's guard.
+		let batches = 0;
 		const racing = new Proxy(db(), {
 			get(target, property, receiver) {
 				if (property === "batch") {
 					return async (statements: unknown[]) => {
-						await removeMembership(db(), orgId, bob.id);
+						batches += 1;
+						if (batches === 2) await removeMembership(db(), orgId, bob.id);
 						return (target as D1Database).batch(
 							statements as Parameters<D1Database["batch"]>[0],
 						);
@@ -228,6 +234,44 @@ describe("DELETE /auth/account when the account owns orgs", () => {
 		expect(thrown).toBeInstanceOf(ApiError);
 		expect((thrown as ApiError).status).toBe(409);
 		expect((thrown as ApiError).code).toBe("sole_owner");
+		expect((thrown as ApiError).details).toEqual({
+			orgs: [{ id: orgId, name: "Acme" }],
+		});
+		expect(await getUserById(db(), ada.id)).not.toBeNull();
+	});
+
+	// The orgs named have to be the ones that refused the delete (ONL-149).
+	// Read afterward, a second owner promoted in between makes the read come
+	// back empty, and deleteUser used to take an empty read to mean the row
+	// was already gone: it answered 200 success for an account that was
+	// still there. Inside the batch, the read sees what the DELETE saw.
+	//
+	// Ablation: move soleOwnedOrgs back out of the batch into a read after it,
+	// and this answers 200.
+	it("names the orgs that refused, even if another owner is promoted right after", async () => {
+		const orgId = await createOrg(ada.token, "Acme");
+		await addMembership(db(), orgId, bob.id, "member");
+		const racing = afterWrite(db(), /^\s*DELETE FROM users\b/, () =>
+			setMemberRole(db(), orgId, bob.id, "owner"),
+		);
+
+		const thrown = await handleDeleteAccount(
+			new Request("https://api.onlooker.dev/auth/account", {
+				method: "DELETE",
+			}),
+			{ ...REAL_ENV, DB: racing },
+			{},
+			{ userId: ada.id },
+		).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		expect(thrown).toBeInstanceOf(ApiError);
+		expect((thrown as ApiError).status).toBe(409);
+		expect((thrown as ApiError).details).toEqual({
+			orgs: [{ id: orgId, name: "Acme" }],
+		});
 		expect(await getUserById(db(), ada.id)).not.toBeNull();
 	});
 });

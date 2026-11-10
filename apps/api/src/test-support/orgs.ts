@@ -1,4 +1,8 @@
 import { env, exports } from "cloudflare:workers";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 import { BASE, TEST_PASSWORD } from "./lessons.js";
 
 /**
@@ -48,6 +52,63 @@ export async function signup(
 		token: body.token,
 		refreshToken: body.refreshToken,
 	};
+}
+
+/**
+ * A D1 handle that runs `onWritten` the moment a statement whose SQL matches
+ * `write` has executed - alone through `run()`, or as part of a batch.
+ *
+ * That moment is the earliest a concurrent request could land after a guarded
+ * write refused, so any read the code under test makes afterward sees the
+ * changed state. A read made inside the same batch as the write does not,
+ * which is the property the deletion refusals depend on (ONL-149). It fires
+ * after the whole batch rather than mid-batch because D1 runs a batch as one
+ * transaction: nothing concurrent can land between its statements.
+ *
+ * Statements are tagged rather than wrapped in a Proxy, because `batch()`
+ * reads the real statement objects it is handed.
+ */
+export function afterWrite(
+	db: D1Database,
+	write: RegExp,
+	onWritten: () => Promise<unknown>,
+): D1Database {
+	const tagged = new WeakSet<D1PreparedStatement>();
+	const tag = (statement: D1PreparedStatement): D1PreparedStatement => {
+		const bind = statement.bind.bind(statement);
+		const run = statement.run.bind(statement);
+		// bind() returns a new statement, so the tag has to follow it.
+		statement.bind = (...values: unknown[]) => tag(bind(...values));
+		statement.run = (async () => {
+			const result = await run();
+			await onWritten();
+			return result;
+		}) as D1PreparedStatement["run"];
+		tagged.add(statement);
+		return statement;
+	};
+
+	return new Proxy(db, {
+		get(target, property, receiver) {
+			if (property === "prepare") {
+				return (query: string) => {
+					const statement = target.prepare(query);
+					return write.test(query) ? tag(statement) : statement;
+				};
+			}
+			if (property === "batch") {
+				return async (statements: D1PreparedStatement[]) => {
+					const results = await target.batch(statements);
+					if (statements.some((statement) => tagged.has(statement))) {
+						await onWritten();
+					}
+					return results;
+				};
+			}
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }
 
 /** A JSON request. Pass null for `token` to call anonymously. */

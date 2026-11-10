@@ -1,4 +1,7 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 import { org_memberships, orgs, users } from "@onlooker/db";
 import { and, eq, sql } from "drizzle-orm";
 import { client } from "./client.js";
@@ -390,23 +393,33 @@ export async function ownerOrgIdsForUser(
 	return rows.map((row) => row.org_id);
 }
 
+/** An org named in a refusal: enough to find it, nothing about its members. */
+export interface SoleOwnedOrg {
+	id: string;
+	name: string;
+}
+
 /**
- * The orgs this user owns alone.
+ * The orgs this user owns alone, as a statement to batch.
  *
- * Explanatory only. `deleteUser` decides the refusal itself, inside its own
- * DELETE, because a decision made from a separate read can interleave with a
- * concurrent demotion. This runs only after that write has already refused,
- * to say which orgs are responsible - so a drifting answer here can misname
- * an org in an error message but can never admit a deletion the guard
- * rejected, nor reject one it allowed.
+ * Explanatory, never deciding. `deleteUser` refuses inside its own write,
+ * because a decision made from a separate read can interleave with a
+ * concurrent demotion; this says which orgs are responsible for that refusal.
+ *
+ * A statement rather than a query because when it runs is the whole point.
+ * Read after the write, it answered for a later moment than the one the write
+ * refused in: a second owner promoted in between made it come back empty,
+ * and `deleteUser` took an empty answer to mean the account was already gone
+ * - a 200 for an account that was still there (ONL-149). Batched behind the
+ * write, it runs in the same transaction and sees exactly what refused.
  *
  * Ordered by name so the message is stable between calls.
  */
-export async function soleOwnedOrgs(
+export function soleOwnedOrgsStatement(
 	db: D1Database,
 	userId: string,
-): Promise<{ id: string; name: string }[]> {
-	const rows = await db
+): D1PreparedStatement {
+	return db
 		.prepare(
 			`SELECT o.id AS id, o.name AS name
 			   FROM orgs o
@@ -416,10 +429,17 @@ export async function soleOwnedOrgs(
 			         WHERE c.org_id = o.id AND c.role = 'owner') = 1
 			  ORDER BY o.name`,
 		)
-		.bind(userId)
-		.all<{ id: string; name: string }>();
+		.bind(userId);
+}
 
-	return rows.results ?? [];
+/** The member count, as a statement `deleteOrg` can batch behind its write. */
+function memberCountStatement(
+	db: D1Database,
+	orgId: string,
+): D1PreparedStatement {
+	return db
+		.prepare("SELECT COUNT(*) AS n FROM org_memberships WHERE org_id = ?")
+		.bind(orgId);
 }
 
 /**
@@ -428,19 +448,24 @@ export async function soleOwnedOrgs(
  * `countOwners` above answers the question every other guard in this file
  * asks. This one exists because org deletion asks a different one: not "would
  * this leave the org without an owner" but "is anybody else here at all".
+ * `deleteOrg` asks it through the same statement, inside its own batch.
  */
 export async function countMembers(
 	db: D1Database,
 	orgId: string,
 ): Promise<number> {
-	const rows = await client(db)
-		.select({ n: sql<number>`COUNT(*)` })
-		.from(org_memberships)
-		.where(eq(org_memberships.org_id, orgId));
-	return Number(rows[0]?.n ?? 0);
+	const row = await memberCountStatement(db, orgId).first<{ n: number }>();
+	return Number(row?.n ?? 0);
 }
 
-export type OrgDeleteResult = "ok" | "has_members" | "not_found";
+/**
+ * The refusal carries the count it was decided on, so the route never reads
+ * it again (ONL-149).
+ */
+export type OrgDeleteResult =
+	| "ok"
+	| "not_found"
+	| { refused: "has_members"; memberCount: number };
 
 /**
  * Delete an org, but only when the caller is the only member left in it.
@@ -465,11 +490,17 @@ export type OrgDeleteResult = "ok" | "has_members" | "not_found";
  * one transaction in D1.
  *
  * A zero-row result is then ambiguous - other members, or an org already gone
- * - so one read resolves it. That read cannot invert the decision: the write
- * has already succeeded or failed authoritatively, and the count only chooses
- * which answer the caller gets. requireOrgRole found a membership moments
- * earlier at the route, so a count that has since fallen to zero means the
- * org itself went, because org_memberships cascades from orgs.
+ * - so a count resolves it, and the count runs in the same batch as the
+ * DELETE. One batch is one transaction, so the count describes the state the
+ * DELETE refused in. It cannot invert the decision either way. Read after the
+ * batch, it could see a member leave in between, and report "1 member" beside
+ * a message saying there are others. Read where this function used to read it,
+ * the same race turned the 409 into a 404 for an org that still existed
+ * (ONL-149).
+ *
+ * Two or more members is the refusal. Fewer means the org went (zero, since
+ * org_memberships cascades from orgs) or the caller is no longer in it (one,
+ * somebody else). Either way it is the 404 requireOrgRole would now give.
  *
  * Nothing here touches `lessons`. Four foreign keys already decide an org's
  * contents: org_memberships and org_invites cascade, while lessons.org_id and
@@ -483,17 +514,22 @@ export async function deleteOrg(
 	orgId: string,
 	userId: string,
 ): Promise<OrgDeleteResult> {
-	const result = await db
-		.prepare(
-			`DELETE FROM orgs
-			 WHERE id = ?
-			   AND NOT EXISTS (SELECT 1 FROM org_memberships
-			                   WHERE org_id = ? AND user_id != ?)`,
-		)
-		.bind(orgId, orgId, userId)
-		.run();
+	const [deleted, remaining] = await db.batch<{ n: number }>([
+		db
+			.prepare(
+				`DELETE FROM orgs
+				 WHERE id = ?
+				   AND NOT EXISTS (SELECT 1 FROM org_memberships
+				                   WHERE org_id = ? AND user_id != ?)`,
+			)
+			.bind(orgId, orgId, userId),
+		memberCountStatement(db, orgId),
+	]);
 
-	if ((result.meta.changes ?? 0) > 0) return "ok";
+	if ((deleted?.meta.changes ?? 0) > 0) return "ok";
 
-	return (await countMembers(db, orgId)) > 1 ? "has_members" : "not_found";
+	const memberCount = Number(remaining?.results[0]?.n ?? 0);
+	return memberCount > 1
+		? { refused: "has_members", memberCount }
+		: "not_found";
 }
