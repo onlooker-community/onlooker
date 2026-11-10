@@ -57,6 +57,8 @@ lessons, machine inventory and session summaries, each to our own API.
   file stays a `CliError`: its message names a local path, and the user can
   act on it.
 - In `run()`'s catch, an `ApiError` or a `CliError` is never reported.
+  Neither is a system error: one carrying an `E`-prefixed string `code`
+  (`EACCES`, `ENOSPC`, `EISDIR`), which describes the machine, not the CLI.
   Anything else is a crash: a `TypeError`, a parser bug, an unguarded
   `JSON.parse`.
 - **Reporting never changes what the user sees.** The exit code stays the one
