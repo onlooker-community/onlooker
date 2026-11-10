@@ -185,7 +185,7 @@ heartbeat: staging — 1 of 5 checks failed
 
 Two things to expect there. In production this fails the workflow and emails
 you; in staging it warns and the run still passes. And the count says **1 of 5**
-rather than 1 of 9 — when login fails, checks 6 to 9 never run and the
+rather than 1 of 10 — when login fails, checks 6 to 10 never run and the
 denominator shrinks with them. Nothing is broken; the named failure above it is
 the whole message. Keep the gap short and it is at most one run.
 
