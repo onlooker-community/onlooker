@@ -112,10 +112,16 @@ It's an allowlist: anything not listed here is left out.
 
 | Sent | Value |
 |---|---|
-| Error type, message, stack, `cause` chain | The message has `os.homedir()` replaced with `~`, then goes through the shared `scrubText`. Stack frame paths are reduced to file names (`onlooker.mjs`, `node:fs`) |
+| Error type, message, stack, and those of any error it wraps (`cause` chain) | Each message goes through the shared `scrubText`, then has `os.homedir()` replaced with `~`, every absolute path (POSIX, Windows, `file://`, quoted or bare) cut to its file name, and email addresses redacted. Stack frame paths are reduced to file names (`onlooker.mjs`, `node:fs`), and frames carry only file, function, line and column |
 | `release` | `onlooker-cli@<version>`, from `apps/cli/package.json` at build time |
 | `environment` | `production` for a build made by `release-cli.yml`, otherwise `development` |
-| Tags | `command` (the subcommand only), `os` (`process.platform`), `arch`, `node` (major version) |
+| Tags | `command` (a known subcommand's name, `none` when there is none, `other` for anything else), `os` (`process.platform`), `arch`, `node` (major version) |
+
+The adapter enforces this in its `beforeSend`: it rebuilds the event from
+these fields and the envelope bookkeeping Sentry needs (`event_id`,
+`timestamp`, `level`, `platform`, `sdk`, `contexts.trace`), and copies
+nothing else. `extra`, `user`, `breadcrumbs`, `request`, `modules` and every
+other context are dropped, whatever put them there.
 
 **Never sent:** hostname, username, user ID, machine ID or token, email, the
 working directory, environment variables, the rest of `argv`, file contents,

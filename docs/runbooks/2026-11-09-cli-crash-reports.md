@@ -18,6 +18,19 @@ prompts for it, and the environment can only turn it off.
 | Environment | `production` only from `build:release` (release-cli.yml); every other build says `development` |
 | Alert | `scripts/sentry/rules/cli-crashes.json`, applied with `scripts/sentry/apply.sh` |
 
+## Sentry project settings
+
+The client never sets a user, but Sentry's ingest records the sending IP
+address on its own unless the project says otherwise. A crash report is
+meant to be anonymous, so the project must not keep it.
+
+- **Done 2026-11-09 (owner):** "Prevent Storing of IP Addresses" is on in the
+  `onlooker-cli` project's Security & Privacy settings. If the project is
+  ever recreated, turn it on again before any release reports to it.
+- After the first test event arrives (below), open it and check that it has
+  no `user.ip_address`, and no `user` at all. If one is there, the setting
+  is off: turn it on, delete the event, and send the test again.
+
 ## Check that a crash arrives
 
 On a machine with a released CLI:
@@ -47,6 +60,6 @@ changes, all three change together: `packages/monitoring-sentry/src/node.ts`,
 
 | Symptom | Cause |
 |---|---|
-| No "reported this crash" line after a crash | Consent is off (`onlooker crash-reports status` says why), the error was not a crash (a refusal, a `CliError`, a system error), or the flush did not drain within 2 seconds |
+| No "reported this crash" line after a crash | Consent is off (`onlooker crash-reports status` says why), the error was not a crash (a refusal, a `CliError`, a system error), or Sentry did not accept the event with a 2xx within 2 seconds (the send is aborted at 2 seconds; an error status or a rate limit counts as not sent) |
 | Events arrive as `development` from a released CLI | release-cli.yml built with `build` instead of `build:release` |
 | No email for a production crash | `cli-crashes.json` was never applied: run `scripts/sentry/apply.sh` |
