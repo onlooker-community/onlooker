@@ -38,6 +38,20 @@ export function configPath(env: NodeJS.ProcessEnv = process.env): string {
 	return join(onlookerDir(env), "cli.json");
 }
 
+/**
+ * What is on disk, without `ONLOOKER_API_URL` applied.
+ *
+ * For a command that writes the file back. The override belongs to one
+ * shell, and `readConfig` would hand it over as if it were stored, so a
+ * write built on that would persist it for every later run.
+ */
+export function readStoredConfig(
+	env: NodeJS.ProcessEnv = process.env,
+): CliConfig {
+	const { ONLOOKER_API_URL: _override, ...rest } = env;
+	return readConfig(rest);
+}
+
 export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 	const path = configPath(env);
 	let stored: Partial<CliConfig> = {};

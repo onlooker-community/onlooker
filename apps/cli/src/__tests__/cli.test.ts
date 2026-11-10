@@ -254,6 +254,20 @@ describe("run, when something crashes", () => {
 		expect(err).toHaveLength(1);
 	});
 
+	// argv[2] is whatever was typed. A path or a pasted token in that slot
+	// must not become a tag, so only a known command's name is sent.
+	for (const [argv, tag] of [
+		[["status"], "status"],
+		[[], "none"],
+		[["/Volumes/Work/client-repo"], "other"],
+		[["--help"], "other"],
+	] as const) {
+		it(`tags a crash under ${JSON.stringify(argv)} as ${tag}`, async () => {
+			await run(["node", "onlooker", ...argv], { ONLOOKER_CRASH_TEST: "1" });
+			expect(mockedReport.mock.calls[0]?.[1]).toEqual({ command: tag });
+		});
+	}
+
 	it("crashes on purpose under ONLOOKER_CRASH_TEST=1, to check delivery", async () => {
 		expect(
 			await run(["node", "onlooker", "status"], { ONLOOKER_CRASH_TEST: "1" }),

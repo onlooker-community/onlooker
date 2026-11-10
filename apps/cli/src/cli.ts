@@ -64,6 +64,14 @@ export async function run(
 	const show = (command: string, text: string) =>
 		console.log(`${header(out, command)}\n\n${text}`);
 	const command = argv[2];
+	// What a crash report may say about argv: a known command's name, never
+	// the raw word, which can be a path or a pasted token.
+	const commandTag =
+		command === undefined
+			? "none"
+			: COMMANDS.some(([name]) => name === command)
+				? command
+				: "other";
 	try {
 		// A deliberate crash, so someone who turned reports on can check one
 		// arrives. Thrown inside the try so it travels the real path.
@@ -127,7 +135,7 @@ export async function run(
 		// nor the exit code.
 		if (
 			isCrash(error) &&
-			(await reportCrash(error, { command: command ?? "none" }, { env }))
+			(await reportCrash(error, { command: commandTag }, { env }))
 		) {
 			console.error(
 				muted(err, "reported this crash (onlooker crash-reports off to stop)"),

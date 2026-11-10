@@ -54,6 +54,17 @@ describe("crash-reports", () => {
 		).toContain("DO_NOT_TRACK is set");
 	});
 
+	// The override is for one shell. Writing it down would point every later
+	// run at it, long after the variable was gone.
+	it("keeps the stored API URL when ONLOOKER_API_URL overrides it", () => {
+		const env = { ...linked(), ONLOOKER_API_URL: "http://localhost:8787" };
+		crashReports("on", { env });
+		crashReports("off", { env });
+		const stored = JSON.parse(readFileSync(configPath(env), "utf8"));
+		expect(stored.apiBaseUrl).toBe(API);
+		expect(stored.machineToken).toBe("t");
+	});
+
 	it("refuses an action it does not know, as a CliError", () => {
 		expect(() => crashReports("maybe", { env: linked() })).toThrow(CliError);
 	});

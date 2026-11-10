@@ -25,6 +25,12 @@ describe("isCrash", () => {
 		expect(isCrash(error)).toBe(false);
 	});
 
+	// Some errno names carry a digit: an argument list too long for exec.
+	it("never counts a system error whose name has a digit", () => {
+		const error = Object.assign(new Error("spawn E2BIG"), { code: "E2BIG" });
+		expect(isCrash(error)).toBe(false);
+	});
+
 	it("counts anything else", () => {
 		expect(isCrash(new TypeError("cannot read properties of undefined"))).toBe(
 			true,

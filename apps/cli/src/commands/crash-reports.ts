@@ -1,4 +1,4 @@
-import { readConfig, writeConfig } from "../config";
+import { readStoredConfig, writeConfig } from "../config";
 import { crashConsent, describeConsent } from "../consent";
 import { CliError } from "../errors";
 import { PLAIN, type Theme } from "../ui";
@@ -18,8 +18,9 @@ export interface CrashReportsDeps {
  */
 export const WHAT_IS_SENT = [
 	"A crash report contains:",
-	"  the error's type, message and stack, with your home directory shown as ~,",
-	"  file paths cut to file names, and anything credential-shaped removed",
+	"  the error's type, message and stack, and those of any error it wraps,",
+	"  with file paths, in the stack and in the message, cut to file names,",
+	"  and email addresses and anything credential-shaped removed",
 	"  the CLI version, the command you ran (not its arguments), your OS,",
 	"  CPU architecture and Node major version",
 	"",
@@ -43,7 +44,10 @@ export function crashReports(
 	{ env = process.env, theme = PLAIN }: CrashReportsDeps = {},
 ): string {
 	if (action === "on" || action === "off") {
-		writeConfig({ ...readConfig(env), crashReports: action === "on" }, env);
+		writeConfig(
+			{ ...readStoredConfig(env), crashReports: action === "on" },
+			env,
+		);
 	} else if (action !== undefined && action !== "status") {
 		throw new CliError(
 			`unknown action: ${action}. Use onlooker crash-reports on, off or status.`,

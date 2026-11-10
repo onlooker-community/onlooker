@@ -16,8 +16,11 @@ export class CliError extends Error {
 	}
 }
 
-/** `EACCES`, `ENOSPC`, `EISDIR`: Node's names for what the OS refused. */
-const ERRNO = /^E[A-Z]+$/;
+/**
+ * `EACCES`, `ENOSPC`, `EISDIR`, `E2BIG`: Node's names for what the OS
+ * refused. A few carry a digit, so the pattern allows one.
+ */
+const ERRNO = /^E[A-Z0-9]+$/;
 
 /**
  * Whether an error reaching `run()`'s catch is a defect worth reporting.
