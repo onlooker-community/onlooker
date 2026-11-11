@@ -1,7 +1,11 @@
 import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import { describe, expect, it } from "vitest";
-import { readPool } from "./pool.js";
+import {
+	MAX_LESSON_PROJECT_FILTERS,
+	MAX_LESSON_STACK_FILTERS,
+	readPool,
+} from "./pool.js";
 
 /**
  * What the planner does with the pool read.
@@ -116,14 +120,57 @@ describe("the pool read's query plan with a project filter", () => {
 	});
 });
 
+/** What `readPool` prepares for a stack filter, with the real statement. */
+async function captureStackBrowse(): Promise<Captured> {
+	const { captured, db } = recorder();
+	await readPool(
+		db,
+		{ userId: "u1" },
+		{ stacks: ["vite", "react"], limit: 50 },
+		async () => ["org-a", "org-b"],
+	);
+	expect(captured).toHaveLength(1);
+	return captured[0];
+}
+
+describe("the pool read's query plan with a stack filter", () => {
+	// The table exists so this is a seek and not a walk: lesson_stacks read
+	// whole, once per candidate lesson, would be the json_each-over-body cost
+	// it replaced with a worse constant.
+	it("seeks lesson_stacks by its key rather than scanning it", async () => {
+		const plan = (await planFor(await captureStackBrowse())).join("\n");
+
+		expect(plan).not.toMatch(/\bSCAN lessons\b/);
+		expect(plan).not.toMatch(/\bSCAN (s|lesson_stacks)\b/);
+		// The primary key's autoindex, seeked on both columns. The only SCAN
+		// left is json_each over the one bound array, which is the filter's
+		// own values and not a table.
+		expect(plan).toMatch(
+			/SEARCH s USING (COVERING )?INDEX sqlite_autoindex_lesson_stacks_1 \(lesson_id=\? AND stack=\?\)/,
+		);
+	});
+
+	it("binds one value for every placeholder", async () => {
+		const { sql, binds } = await captureStackBrowse();
+
+		expect(sql.match(/\?/g)).toHaveLength(binds.length);
+	});
+});
+
 describe("the pool read's bind budget", () => {
 	// D1 allows 100 bound parameters. Counted from the real statement, so it
-	// holds whether or not the local D1 enforces the limit.
+	// holds whether or not the local D1 enforces the limit. Every filter at
+	// its cap at once: the stack filter's values go in as one JSON array,
+	// which is the whole of how it fits.
 	it("binds exactly 100 at the worst case", async () => {
 		const { captured, db } = recorder();
 		const orgs = Array.from({ length: 50 }, (_, i) => `org-${i}`);
-		const keys = Array.from({ length: 39 }, (_, i) =>
+		const keys = Array.from({ length: MAX_LESSON_PROJECT_FILTERS }, (_, i) =>
 			i.toString(16).padStart(12, "0"),
+		);
+		const stacks = Array.from(
+			{ length: MAX_LESSON_STACK_FILTERS },
+			(_, i) => `stack-${i}`,
 		);
 		const cursor = btoa("2026-08-01T00:00:00.000Z\n01KZ45MKAM734ZS7JK24D2DK01");
 
@@ -133,6 +180,7 @@ describe("the pool read's bind budget", () => {
 			{
 				statuses: ["active", "refuted", "superseded", "retracted"],
 				projects: keys,
+				stacks,
 				cursor,
 				limit: 50,
 			},

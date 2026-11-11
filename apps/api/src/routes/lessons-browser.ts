@@ -6,7 +6,12 @@ import {
 	SequenceExhaustedError,
 	transitionLesson,
 } from "../db/lessons.js";
-import { MAX_LESSON_PROJECT_FILTERS, type Principal } from "../db/pool.js";
+import {
+	MAX_LESSON_PROJECT_FILTERS,
+	MAX_LESSON_STACK_FILTERS,
+	MAX_LESSON_STACK_LENGTH,
+	type Principal,
+} from "../db/pool.js";
 import type { RouteParams, WorkerEnv } from "../types";
 import { ApiError } from "../types";
 
@@ -56,6 +61,32 @@ function parseProjectKeys(url: URL): string[] {
 	return keys;
 }
 
+/**
+ * The `stack` values of a read, deduplicated, or throws 400.
+ *
+ * Matched exactly as given, since ZAppliesTo stores entries as given. The
+ * length bound is this route's, not the contract's: see
+ * MAX_LESSON_STACK_FILTERS.
+ */
+function parseStacks(url: URL): string[] {
+	const stacks = [...new Set(url.searchParams.getAll("stack"))];
+	if (stacks.length > MAX_LESSON_STACK_FILTERS) {
+		throw new ApiError(
+			400,
+			"invalid_stack",
+			`Ask for at most ${MAX_LESSON_STACK_FILTERS} stacks at once`,
+		);
+	}
+	if (
+		!stacks.every(
+			(stack) => stack.length > 0 && stack.length <= MAX_LESSON_STACK_LENGTH,
+		)
+	) {
+		throw new ApiError(400, "invalid_stack", "That is not a stack");
+	}
+	return stacks;
+}
+
 export async function handleBrowseLessons(
 	request: Request,
 	env: WorkerEnv,
@@ -82,6 +113,7 @@ export async function handleBrowseLessons(
 	// repeated `status=active` would otherwise spend it on nothing.
 	const statuses = [...new Set(requestedStatuses)];
 	const projects = parseProjectKeys(url);
+	const stacks = parseStacks(url);
 
 	// Clamped rather than rejected: a client asking for more than the ceiling
 	// wants as much as it can get, and failing the request serves nobody.
@@ -92,6 +124,7 @@ export async function handleBrowseLessons(
 		const page = await listLessonsPage(env.DB, userId, {
 			statuses,
 			projects,
+			stacks,
 			cursor: url.searchParams.get("cursor"),
 			limit,
 		});

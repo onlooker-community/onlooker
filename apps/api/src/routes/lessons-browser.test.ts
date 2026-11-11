@@ -713,23 +713,25 @@ describe("GET /api/lessons?project=", () => {
 		expect(seen.sort()).toEqual(written.sort());
 	});
 
-	it("refuses more than 39 values", async () => {
+	// 38, not the 39 it shipped with: the stack filter took one bind (ONL-14).
+	it("refuses more than 38 values", async () => {
 		const keys = (count: number) =>
 			Array.from(
 				{ length: count },
 				(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
 			).join("&");
 
-		const tooMany = await browse(`/api/lessons?${keys(40)}`);
+		const tooMany = await browse(`/api/lessons?${keys(39)}`);
 		expect(tooMany.status).toBe(400);
 		expect(await tooMany.json()).toMatchObject({
 			error: { code: "invalid_project" },
 		});
-		expect((await browse(`/api/lessons?${keys(39)}`)).status).toBe(200);
+		expect((await browse(`/api/lessons?${keys(38)}`)).status).toBe(200);
 	});
 
-	// 52 binds for the visibility predicate at 50 orgs, 4 statuses, 39 keys and
-	// the two user ids, a cursor's two, and the LIMIT: exactly D1's 100.
+	// 52 binds for the visibility predicate at 50 orgs, 4 statuses, 38 keys and
+	// the two user ids, the stack filter's one JSON array, a cursor's two, and
+	// the LIMIT: exactly D1's 100.
 	it("holds at the worst case", async () => {
 		const owner = await readerId();
 		for (let i = 0; i < 50; i += 1) {
@@ -742,12 +744,17 @@ describe("GET /api/lessons?project=", () => {
 		).json()) as { cursor: string };
 
 		const keys = [KEY].concat(
-			Array.from({ length: 38 }, (_, i) =>
+			Array.from({ length: 37 }, (_, i) =>
 				(i + 1).toString(16).padStart(12, "0"),
 			),
 		);
+		// seedOn's lessons carry lesson()'s stack, "vite", so it is among them.
+		const stacks = ["vite"].concat(
+			Array.from({ length: 19 }, (_, i) => `stack-${i}`),
+		);
 		const query = [
 			...keys.map((key) => `project=${key}`),
+			...stacks.map((stack) => `stack=${stack}`),
 			...["active", "refuted", "superseded", "retracted"].map(
 				(status) => `status=${status}`,
 			),
@@ -767,7 +774,7 @@ describe("GET /api/lessons?project=", () => {
 	it("holds when a status is repeated", async () => {
 		await seedOn(await readerId(), KEY);
 		const keys = Array.from(
-			{ length: 39 },
+			{ length: 38 },
 			(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
 		).join("&");
 		const statuses = Array.from({ length: 60 }, () => "status=active").join(
@@ -797,5 +804,78 @@ describe("GET /api/lessons?project=", () => {
 			.run();
 
 		expect(await idsAt("/api/lessons")).toEqual([unkeyed.id]);
+	});
+});
+
+describe("GET /api/lessons?stack=", () => {
+	const readerId = async () =>
+		((await getUserByEmail(db(), "browser@example.com")) as { id: string }).id;
+
+	/** A lesson whose only stack entries are these. */
+	async function seedWith(...stack: string[]): Promise<TLesson> {
+		const base = lesson();
+		const written = {
+			...base,
+			applies_to: { ...base.applies_to, stack },
+		} as TLesson;
+		await createLessonsWithFeed(db(), await readerId(), [written]);
+		return written;
+	}
+
+	const idsAt = async (path: string) =>
+		(
+			(await (await browse(path)).json()) as { lessons: Array<{ id: string }> }
+		).lessons.map((entry) => entry.id);
+
+	it("narrows the read to lessons naming the stack", async () => {
+		const vite = await seedWith("vite", "react");
+		await seedWith("webpack");
+
+		expect(await idsAt("/api/lessons?stack=vite")).toEqual([vite.id]);
+	});
+
+	// The bind budget does not depend on this - the values are one JSON
+	// array - but a repeat would still grow that array for nothing.
+	it("treats a repeated value as one", async () => {
+		const vite = await seedWith("vite");
+
+		expect(await idsAt("/api/lessons?stack=vite&stack=vite")).toEqual([
+			vite.id,
+		]);
+	});
+
+	it("refuses more than 20 values", async () => {
+		const stacks = (count: number) =>
+			Array.from({ length: count }, (_, i) => `stack=s${i}`).join("&");
+
+		const tooMany = await browse(`/api/lessons?${stacks(21)}`);
+		expect(tooMany.status).toBe(400);
+		expect(await tooMany.json()).toMatchObject({
+			error: { code: "invalid_stack" },
+		});
+		expect((await browse(`/api/lessons?${stacks(20)}`)).status).toBe(200);
+	});
+
+	it("refuses an empty value or one over 100 characters", async () => {
+		for (const value of ["", "x".repeat(101)]) {
+			const response = await browse(`/api/lessons?stack=${value}`);
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				error: { code: "invalid_stack" },
+			});
+		}
+		expect((await browse(`/api/lessons?stack=${"x".repeat(100)}`)).status).toBe(
+			200,
+		);
+	});
+
+	// json_each takes the array as text: a value that is itself JSON syntax
+	// must still be matched as a string, not parsed into the query.
+	it("matches a value that looks like JSON as the string it is", async () => {
+		const odd = await seedWith('a"],["b');
+
+		expect(
+			await idsAt(`/api/lessons?stack=${encodeURIComponent('a"],["b')}`),
+		).toEqual([odd.id]);
 	});
 });
