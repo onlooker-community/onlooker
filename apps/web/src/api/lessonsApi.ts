@@ -142,6 +142,8 @@ export interface ListLessonsOptions {
 	statuses?: LessonStatus[];
 	/** Bare project keys; see `entryKeys` in lib/projectEntries.ts. */
 	project?: string[];
+	/** Stack entries, matched exactly as a lesson's applies_to.stack holds them. */
+	stack?: string[];
 	cursor?: string | null;
 	limit?: number;
 }
@@ -156,6 +158,7 @@ export function listLessons(
 	// single unrecognized status and come back a 400.
 	for (const status of options.statuses ?? []) query.append("status", status);
 	for (const key of options.project ?? []) query.append("project", key);
+	for (const stack of options.stack ?? []) query.append("stack", stack);
 
 	// `if (cursor)` and not `!= null`: apps/api guards the same way, treating
 	// "" as absent. Sending `?cursor=` for an empty string would be a request

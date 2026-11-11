@@ -2613,3 +2613,105 @@ describe("lessons that arrive while you read", () => {
 		expect(document.activeElement).toBe(select);
 	});
 });
+
+// ONL-14. Set from the detail pane's stack chips rather than a control of its
+// own: there is no list of stacks to offer, and a row is a link, so its chip
+// cannot be a button inside it.
+describe("the stack filter", () => {
+	const showVite = () =>
+		screen.getByRole("button", { name: /show lessons for vite/i });
+
+	it("asks the server for the stack a detail chip names", async () => {
+		withPool([VITE, D1]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		fireEvent.click(showVite());
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ stack: ["vite"] }),
+		);
+	});
+
+	it("keeps the stack when it loads more", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		fireEvent.click(showVite());
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ stack: ["vite"] }),
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({
+				stack: ["vite"],
+				cursor: "Y3Vyc29yLTE=",
+			}),
+		);
+	});
+
+	it("shows the stack it is filtering by, and clears it", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+		fireEvent.click(showVite());
+
+		expect(await screen.findByText("Stack: vite")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: /clear stack/i }));
+
+		await waitFor(() => expect(mocks.listLessons).toHaveBeenLastCalledWith({}));
+		expect(screen.queryByText("Stack: vite")).toBeNull();
+		// The button that had focus is gone; the status control beside it is
+		// the nearest thing still standing.
+		expect(document.activeElement).toBe(screen.getByLabelText(/status/i));
+	});
+
+	// An empty filter result is not an empty pool: see the status filter's
+	// version of this test.
+	it("says it is the stack that matched nothing", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		withPool([]);
+		fireEvent.click(showVite());
+
+		expect(
+			await screen.findByRole("heading", { name: /no lessons for vite/i }),
+		).toBeDefined();
+		expect(screen.queryByText(/nothing has synced yet/i)).toBeNull();
+	});
+
+	it("leaves the list row's stack a plain chip", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		// One control, the detail's. The row's chip sits inside a link.
+		expect(
+			screen.getAllByRole("button", { name: /show lessons for vite/i }),
+		).toHaveLength(1);
+	});
+
+	it("offers a repeated stack twice, and both set the same filter", async () => {
+		const repeated = {
+			...VITE,
+			applies_to: { ...VITE.applies_to, stack: ["vite", "vite"] },
+		};
+		withPool([repeated]);
+		await at(`/lessons/${VITE.id}`);
+		await screen.findByRole("heading", { name: VITE.claim });
+
+		const both = screen.getAllByRole("button", {
+			name: /show lessons for vite/i,
+		});
+		expect(both).toHaveLength(2);
+		fireEvent.click(both[1]);
+
+		await waitFor(() =>
+			expect(mocks.listLessons).toHaveBeenLastCalledWith({ stack: ["vite"] }),
+		);
+	});
+});

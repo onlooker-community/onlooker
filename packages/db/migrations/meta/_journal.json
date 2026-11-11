@@ -155,6 +155,13 @@
       "when": 1793592123896,
       "tag": "0021_workable_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1794353880001,
+      "tag": "0022_puzzling_scalphunter",
+      "breakpoints": true
     }
   ]
 }

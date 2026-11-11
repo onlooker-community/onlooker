@@ -944,3 +944,129 @@ describe("getLessonForUser's author_name", () => {
 		).toBeNull();
 	});
 });
+
+describe("readPool, stack filter", () => {
+	/** Overrides for a lesson whose only stack entries are these. */
+	const stacked = (...stack: string[]) => {
+		const base = lesson();
+		return { applies_to: { ...base.applies_to, stack } };
+	};
+
+	// The issue's done-when, and the reason the filter is not done in the
+	// browser: a page boundary must neither drop nor repeat a match. Matches
+	// and misses are interleaved in promoted_at order so every page has to
+	// skip past rows rather than read a run of matches.
+	it("finds every match exactly once across pages", async () => {
+		const matching: string[] = [];
+		for (let i = 0; i < 12; i++) {
+			const at = `2026-08-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`;
+			const hit = await seedFor(mine, {
+				...stacked(i % 2 === 0 ? "vite" : "webpack"),
+				promoted_at: at,
+			});
+			if (i % 2 === 0) matching.push(hit.id);
+		}
+
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		do {
+			const page = await readPool(
+				db(),
+				{ userId: mine },
+				{ stacks: ["vite"], cursor, limit: 2 },
+			);
+			seen.push(...idsIn(page));
+			cursor = page.cursor;
+		} while (cursor);
+
+		expect(seen).toEqual([...matching].reverse());
+	});
+
+	it("matches any of the stacks asked for", async () => {
+		const vite = await seedFor(mine, stacked("vite"));
+		const react = await seedFor(mine, stacked("react"));
+		await seedFor(mine, stacked("webpack"));
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ stacks: ["vite", "react"], limit: 50 },
+		);
+
+		expect(idsIn(page).sort()).toEqual([vite.id, react.id].sort());
+	});
+
+	// ZAppliesTo stores entries as given, so the filter does not invent a
+	// normalization the contract lacks.
+	it("matches exactly, not case-insensitively", async () => {
+		await seedFor(mine, stacked("vite"));
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ stacks: ["Vite"], limit: 50 },
+		);
+
+		expect(idsIn(page)).toEqual([]);
+	});
+
+	it("never reaches past the visibility predicate", async () => {
+		await seedFor(theirs, { ...stacked("vite"), visibility: "private" });
+		const pub = await seedFor(theirs, {
+			...stacked("vite"),
+			visibility: "public",
+		});
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{ stacks: ["vite"], limit: 50 },
+		);
+
+		expect(idsIn(page)).toEqual([pub.id]);
+	});
+
+	// Unlike a project, a stack is a fact of the lesson rather than of the
+	// reader, so a signed-out browse can narrow by it.
+	it("narrows an anonymous read too", async () => {
+		const pub = await seedFor(theirs, {
+			...stacked("vite"),
+			visibility: "public",
+		});
+		await seedFor(theirs, { ...stacked("webpack"), visibility: "public" });
+
+		const page = await readPool(db(), null, { stacks: ["vite"], limit: 50 });
+
+		expect(idsIn(page)).toEqual([pub.id]);
+	});
+
+	it("narrows together with status and project", async () => {
+		const base = lesson();
+		const wanted = await seedFor(mine, {
+			...stacked("vite"),
+			evidence: { ...base.evidence, project_key: "aaaaaaaaaaaa" },
+		});
+		await seedFor(mine, {
+			...stacked("vite"),
+			evidence: { ...base.evidence, project_key: "bbbbbbbbbbbb" },
+		});
+		await seedFor(mine, {
+			...stacked("vite"),
+			status: "refuted",
+			evidence: { ...base.evidence, project_key: "aaaaaaaaaaaa" },
+		});
+
+		const page = await readPool(
+			db(),
+			{ userId: mine },
+			{
+				stacks: ["vite"],
+				statuses: ["active"],
+				projects: ["aaaaaaaaaaaa"],
+				limit: 50,
+			},
+		);
+
+		expect(idsIn(page)).toEqual([wanted.id]);
+	});
+});

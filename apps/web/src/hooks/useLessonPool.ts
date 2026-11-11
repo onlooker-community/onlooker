@@ -44,12 +44,14 @@ export interface LessonPool {
 }
 
 /**
- * The pool for one query: a status, or none, and the project keys of the
- * selected project, or none. A new query starts over from the first page.
+ * The pool for one query: a status, or none, the project keys of the
+ * selected project, or none, and a stack, or none. A new query starts over
+ * from the first page.
  */
 export function useLessonPool(
 	filter: "" | LessonStatus,
 	projectKeys: readonly string[],
+	stack: string | null = null,
 ): LessonPool {
 	const [lessons, setLessons] = useState<Lesson[] | null>(null);
 	// Moves with `lessons` everywhere - replaced on load, appended on
@@ -130,8 +132,9 @@ export function useLessonPool(
 		() => ({
 			...(filter ? { statuses: [filter] } : {}),
 			...(projectKey ? { project: projectKey.split("\n") } : {}),
+			...(stack ? { stack: [stack] } : {}),
 		}),
-		[filter, projectKey],
+		[filter, projectKey, stack],
 	);
 
 	const load = useCallback(async () => {

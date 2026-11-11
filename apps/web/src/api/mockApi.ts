@@ -1002,15 +1002,30 @@ export async function mockDataApi(
 		}
 
 		const projects = query.getAll("project");
-		if (projects.length > 39) {
+		if (projects.length > 38) {
 			throw new AuthApiError(
 				400,
 				"invalid_project",
-				"Ask for at most 39 projects at once",
+				"Ask for at most 38 projects at once",
 			);
 		}
 		if (!projects.every((key) => /^[0-9a-f]{12}$/.test(key))) {
 			throw new AuthApiError(400, "invalid_project", "That is not a project");
+		}
+
+		// Validated as handleBrowseLessons' parseStacks does: deduplicated
+		// first, then at most 20, each 1 to 100 characters. Nothing to filter
+		// afterwards - the pool below is always empty.
+		const stacks = [...new Set(query.getAll("stack"))];
+		if (stacks.length > 20) {
+			throw new AuthApiError(
+				400,
+				"invalid_stack",
+				"Ask for at most 20 stacks at once",
+			);
+		}
+		if (!stacks.every((stack) => stack.length > 0 && stack.length <= 100)) {
+			throw new AuthApiError(400, "invalid_stack", "That is not a stack");
 		}
 
 		// The real cursor is base64 of `<promoted_at>\n<id>`; anything else was

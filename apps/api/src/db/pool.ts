@@ -56,6 +56,7 @@ export const noOrgIds: OrgIds = async () => [];
 export interface PoolFilters {
 	statuses?: string[];
 	projects?: string[];
+	stacks?: string[];
 	cursor?: string | null;
 	limit: number;
 }
@@ -82,10 +83,22 @@ export const MAX_READER_ORGS_BOUND = 50;
 
 /**
  * How many project keys one read may ask for. The rest of this query can bind
- * 59 of D1's 100 (see MAX_READER_ORGS_BOUND), and the filter's two user ids
- * take two more.
+ * 59 of D1's 100 (see MAX_READER_ORGS_BOUND), the filter's two user ids take
+ * two more, and the stack filter one. 39 until the stack filter took its one
+ * (ONL-14).
  */
-export const MAX_LESSON_PROJECT_FILTERS = 39;
+export const MAX_LESSON_PROJECT_FILTERS = 38;
+
+/**
+ * How many stacks one read may ask for, and how long each may be.
+ *
+ * Not a bind budget: the stack filter binds its values as one JSON array
+ * however many there are. These bound the size of that array, which a query
+ * string would otherwise leave to the caller. The contract only requires an
+ * entry be non-empty.
+ */
+export const MAX_LESSON_STACK_FILTERS = 20;
+export const MAX_LESSON_STACK_LENGTH = 100;
 
 /**
  * How many author ids the name lookup binds per statement.
@@ -229,6 +242,32 @@ function projectPredicate(
 }
 
 /**
+ * Narrows a read to lessons naming any of these stacks, on top of
+ * visibilityPredicate.
+ *
+ * Through lesson_stacks rather than json_each over body, which would parse
+ * every candidate row's JSON to answer one page and offers nothing to index.
+ * The EXISTS seeks lesson_stacks by its primary key for each candidate, and
+ * pool-query-plan.test.ts fails if it stops doing so.
+ *
+ * The values are bound as ONE JSON array and unpacked by json_each, so the
+ * filter costs one parameter however many stacks are asked for. That is how
+ * it fits beside the project filter inside D1's 100: see
+ * MAX_LESSON_PROJECT_FILTERS.
+ *
+ * Unlike projectPredicate, it has an anonymous form. A stack is a fact of
+ * the lesson, not of the reader, so there is nothing a signed-out read lacks.
+ */
+function stackPredicate(stacks: string[]): { sql: string; binds: unknown[] } {
+	return {
+		sql:
+			"EXISTS (SELECT 1 FROM lesson_stacks s WHERE s.lesson_id = lessons.id" +
+			" AND s.stack IN (SELECT value FROM json_each(?)))",
+		binds: [JSON.stringify(stacks)],
+	};
+}
+
+/**
  * One page of the pool this principal may read, newest first.
  *
  * Callers pass filters, never SQL. There is no other path from a route to a
@@ -257,6 +296,12 @@ export async function readPool(
 		const projects = projectPredicate(principal, filters.projects);
 		where += ` AND ${projects.sql}`;
 		binds.push(...projects.binds);
+	}
+
+	if (filters.stacks && filters.stacks.length > 0) {
+		const stacks = stackPredicate(filters.stacks);
+		where += ` AND ${stacks.sql}`;
+		binds.push(...stacks.binds);
 	}
 
 	if (filters.cursor) {

@@ -716,6 +716,45 @@ export function authenticatedCases(): ContractCase[] {
 			forbidden: NO_SECRETS,
 		},
 		{
+			// 38 since the stack filter took one of D1's 100 binds (ONL-14).
+			name: "lessons, more project filters than one read binds",
+			path: `/api/lessons?${Array.from(
+				{ length: 39 },
+				(_, i) => `project=${i.toString(16).padStart(12, "0")}`,
+			).join("&")}`,
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_project" } },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lessons, stack filter",
+			path: "/api/lessons?stack=vite&stack=react",
+			init: { method: "GET" },
+			status: 200,
+			body: { lessons: expectArray },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lessons, empty stack filter",
+			path: "/api/lessons?stack=",
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_stack" } },
+			forbidden: NO_SECRETS,
+		},
+		{
+			name: "lessons, more stack filters than one read allows",
+			path: `/api/lessons?${Array.from(
+				{ length: 21 },
+				(_, i) => `stack=s${i}`,
+			).join("&")}`,
+			init: { method: "GET" },
+			status: 400,
+			body: { error: { code: "invalid_stack" } },
+			forbidden: NO_SECRETS,
+		},
+		{
 			name: "an empty cursor is treated as no cursor",
 			path: "/api/lessons?cursor=",
 			init: { method: "GET" },

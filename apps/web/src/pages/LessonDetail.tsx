@@ -61,7 +61,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 	);
 }
 
-function Chips({ values }: { values: string[] }) {
+function Chips({
+	values,
+	onSelect,
+}: {
+	values: string[];
+	/** Makes each chip a button that narrows the pool to its value. */
+	onSelect?: (value: string) => void;
+}) {
 	return (
 		<div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
 			{/*
@@ -69,12 +76,40 @@ function Chips({ values }: { values: string[] }) {
 			  to be unique, so ["vite", "vite"] is a valid lesson. The list is
 			  never reordered in place, so a position is a stable key here.
 			*/}
-			{values.map((value, index) => (
-				<Chip key={index}>{value}</Chip>
-			))}
+			{values.map((value, index) =>
+				onSelect ? (
+					<button
+						key={index}
+						type="button"
+						// The name carries the visible text, so a voice user who
+						// says "vite" reaches it, and says what pressing it does.
+						aria-label={`Show lessons for ${value}`}
+						onClick={() => onSelect(value)}
+						style={chipButton}
+					>
+						{value}
+					</button>
+				) : (
+					<Chip key={index}>{value}</Chip>
+				),
+			)}
 		</div>
 	);
 }
+
+/** Chip's look on a native button, plus the cursor that says it acts. */
+const chipButton = {
+	display: "inline-block",
+	border: `2px solid ${PALETTE.border}`,
+	background: "transparent",
+	color: PALETTE.muted,
+	borderRadius: 0,
+	padding: "0.1rem 0.45rem",
+	fontFamily: "var(--font-body)",
+	fontSize: "0.8rem",
+	whiteSpace: "nowrap",
+	cursor: "pointer",
+} as const;
 
 export default function LessonDetail() {
 	const { id } = useParams();
@@ -92,6 +127,7 @@ export default function LessonDetail() {
 		retractableIn: retractableIn_,
 		formerAuthors,
 		labels,
+		filterByStack,
 	} = useOutletContext<LessonsContext>();
 
 	// The loaded page is the source of truth whenever it holds this id, so a
@@ -581,7 +617,7 @@ export default function LessonDetail() {
 			<div className="lessons-detail-panels">
 				<Panel title="Applies to" icon="MagnifyingGlass">
 					<Field label="Stack">
-						<Chips values={appliesTo.stack} />
+						<Chips values={appliesTo.stack} onSelect={filterByStack} />
 					</Field>
 
 					<Field label="Scope">

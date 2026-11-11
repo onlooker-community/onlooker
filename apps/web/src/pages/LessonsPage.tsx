@@ -109,16 +109,24 @@ export interface LessonsContext {
 	 * read and empty if the read fails, and every key then shows as itself.
 	 */
 	labels: LabelMap;
+	/**
+	 * Narrow the pool to one stack, as the detail pane's stack chips do.
+	 *
+	 * The detail is where the control lives because a list row is a link, and
+	 * a button inside a link is not something a keyboard or a screen reader can
+	 * be expected to drive. The server answers it (ONL-14): filtering here
+	 * would filter one loaded page and call it the pool.
+	 */
+	filterByStack: (stack: string) => void;
 }
 
 /**
- * Status filtering ships; stack filtering does not.
+ * The status select's options.
  *
- * Not a matter of effort. `status` is a real column with a real index, so the
- * server can answer it across the whole pool. Stack lives inside the JSON
- * body, and filtering it in the browser would filter one loaded page and call
- * it the pool - which is wrong the moment a second page exists. Deferred
- * whole rather than shipped shrunk: onlooker-4bw.
+ * Both filters the page offers are answered by the server across the whole
+ * pool: `status` from its own column, stack from lesson_stacks (ONL-14).
+ * Neither is applied to the loaded page, which would be wrong the moment a
+ * second page exists.
  */
 const FILTERS: { value: "" | LessonStatus; label: string; empty?: string }[] = [
 	// "All" carries no `empty`: an unfiltered pool with nothing in it is the
@@ -155,6 +163,14 @@ export default function LessonsPage() {
 	// A name rather than an entry, so a rename that regroups keys can't leave a
 	// stale set of keys behind.
 	const [selected, setSelected] = useState<string | null>(null);
+	// One stack at a time, though the API takes several: a chip names one,
+	// and nothing on the page offers a second.
+	const [stack, setStack] = useState<string | null>(null);
+	// Set when the stack filter is cleared, read once the chip that held focus
+	// is gone. Same reason as focusFirstRow below: the press unmounts the
+	// button and leaves focus on <body>.
+	const focusStatus = useRef(false);
+	const statusRef = useRef<HTMLSelectElement | null>(null);
 	// Set when the notice is pressed, read once the new page lands. The press
 	// unmounts the button, which leaves focus on <body>; the first row is where
 	// the reader was headed. Same rule as LoadMore: only when focus really was
@@ -180,7 +196,13 @@ export default function LessonsPage() {
 		reload,
 		loadMore,
 		patchLesson,
-	} = useLessonPool(filter, entry ? entryKeys(entry) : NO_KEYS);
+	} = useLessonPool(filter, entry ? entryKeys(entry) : NO_KEYS, stack);
+
+	useEffect(() => {
+		if (!focusStatus.current || stack !== null) return;
+		focusStatus.current = false;
+		statusRef.current?.focus();
+	}, [stack]);
 
 	useEffect(() => {
 		if (!focusFirstRow.current || lessons === null) return;
@@ -231,6 +253,7 @@ export default function LessonsPage() {
 		retractableIn,
 		formerAuthors,
 		labels,
+		filterByStack: setStack,
 	};
 
 	// The matched child, or null when no lesson is open. Asking the router
@@ -259,13 +282,16 @@ export default function LessonsPage() {
 	//
 	// The empty title has one source for the same reason: the region and the
 	// heading below must not disagree about which empty this is. A project
-	// names itself ahead of a status, since it is the narrower claim.
+	// names itself ahead of a stack, and a stack ahead of a status, the
+	// narrower claim first.
 	const emptyTitle = entry
 		? `No lessons in ${entry.name}`
-		: filter
-			? (FILTERS.find((option) => option.value === filter)?.empty ??
-				"No lessons")
-			: "Nothing has synced yet";
+		: stack
+			? `No lessons for ${stack}`
+			: filter
+				? (FILTERS.find((option) => option.value === filter)?.empty ??
+					"No lessons")
+				: "Nothing has synced yet";
 	const freshSuffix = freshCount ? ` · ${freshCount} new` : "";
 	const resultSummary = loadError
 		? "Could not load the pool"
@@ -313,6 +339,7 @@ export default function LessonsPage() {
 					*/}
 					<select
 						id="lesson-status"
+						ref={statusRef}
 						value={filter}
 						onChange={(event) =>
 							setFilter(event.target.value as "" | LessonStatus)
@@ -333,6 +360,27 @@ export default function LessonsPage() {
 						))}
 					</select>
 				</div>
+				{stack ? (
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: "var(--space-2)",
+							marginBottom: "1rem",
+						}}
+					>
+						<Chip>{`Stack: ${stack}`}</Chip>
+						<Button
+							variant="ghost"
+							onClick={() => {
+								focusStatus.current = true;
+								setStack(null);
+							}}
+						>
+							Clear stack
+						</Button>
+					</div>
+				) : null}
 				{/*
 				  One persistent region, present in every branch below, rather
 				  than a role appearing only on the branches that need it. A
@@ -395,7 +443,7 @@ export default function LessonsPage() {
 					// This mirrors the primitive's look without a second role.
 					<p style={{ color: PALETTE.muted }}>{resultSummary}</p>
 				) : lessons.length === 0 ? (
-					entry || filter ? (
+					entry || stack || filter ? (
 						// An empty FILTER result and an empty POOL say different
 						// things. Telling someone whose pool is full to "connect a
 						// machine" because they filtered to a status nothing holds,
@@ -404,7 +452,9 @@ export default function LessonsPage() {
 						<EmptyState title={emptyTitle}>
 							{entry
 								? "Nothing you can read in the pool matches that project."
-								: "Nothing in the pool holds that status right now."}
+								: stack
+									? "Nothing you can read in the pool lists that stack."
+									: "Nothing in the pool holds that status right now."}
 						</EmptyState>
 					) : (
 						<EmptyState
