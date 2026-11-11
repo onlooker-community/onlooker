@@ -1,9 +1,9 @@
 {
-	"commit": "7064b2fa9d0fc0db1acc410ac840f0a9c0bc14c4",
+	"commit": "4b2dc96f4cad2b1c428cbab9ac0ae28f30f33431",
 	"plugins": [
 		{
 			"name": "ecosystem",
-			"version": "0.79.7",
+			"version": "0.80.1",
 			"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Other Onlooker plugins emit their events through it: without it they still run and keep their own files, but write nothing to the shared event log.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
 		},
@@ -105,7 +105,7 @@
 		},
 		{
 			"name": "inspector",
-			"version": "0.10.3",
+			"version": "0.11.0",
 			"description": "Per-edit lint and typecheck gate. Runs the project's configured checks on just the touched file after every Write/Edit/MultiEdit, and on each file a Bash command changes, so the agent sees its own lint and type errors before claiming success. Cheaper than running the full project verify; complements assayer (which catches the agent lying about claims). Emits inspector.* events for downstream analysis. Builds on the Onlooker ecosystem plugin.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/inspector/README.md"
 		}
