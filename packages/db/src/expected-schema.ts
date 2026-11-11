@@ -76,6 +76,23 @@ export const EXPECTED_SCHEMA = {
 			},
 		],
 	},
+	lesson_stacks: {
+		columns: [
+			{
+				name: "lesson_id",
+				type: "TEXT",
+				notnull: 1,
+				pk: 1,
+			},
+			{
+				name: "stack",
+				type: "TEXT",
+				notnull: 1,
+				pk: 2,
+			},
+		],
+		indexes: [],
+	},
 	lessons: {
 		columns: [
 			{

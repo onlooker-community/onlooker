@@ -102,6 +102,56 @@ describe("createLessonsWithFeed", () => {
 		expect(row?.project_key).toBe("6a7678979e31");
 	});
 
+	// The stack filter reads lesson_stacks, not body, so the rows have to say
+	// what the lesson says or a lesson would show one stack and filter under
+	// none (ONL-14).
+	describe("the lesson's stacks", () => {
+		async function stacksOf(id: string): Promise<string[]> {
+			const { results } = await db()
+				.prepare(
+					"SELECT stack FROM lesson_stacks WHERE lesson_id = ? ORDER BY stack",
+				)
+				.bind(id)
+				.all<{ stack: string }>();
+			return results.map((row) => row.stack);
+		}
+
+		it("writes one row per distinct entry", async () => {
+			const written = lesson({
+				applies_to: {
+					stack: ["vite", "react", "vite"],
+					scope: { kind: "versioned", versions: { vite: "<6" } },
+					file_patterns: [],
+					task_kinds: [],
+				},
+			});
+
+			await createLessonsWithFeed(db(), userId, [written]);
+
+			expect(await stacksOf(written.id)).toEqual(["react", "vite"]);
+		});
+
+		it("writes no second set for an id that already exists", async () => {
+			const written = lesson();
+			await createLessonsWithFeed(db(), userId, [written]);
+			await createLessonsWithFeed(db(), userId, [written]);
+
+			expect(await stacksOf(written.id)).toEqual(["vite"]);
+		});
+
+		it("goes with the lesson when the lesson is deleted", async () => {
+			const written = lesson();
+			await createLessonsWithFeed(db(), userId, [written]);
+
+			await db()
+				.prepare("DELETE FROM lessons WHERE id = ?")
+				.bind(written.id)
+				.run();
+
+			expect(await stacksOf(written.id)).toEqual([]);
+		});
+	});
+
 	// The property the whole delta protocol rests on. If seq has holes, the
 	// client's contiguity check reports corruption on healthy data.
 	it("assigns a dense sequence across separate calls", async () => {

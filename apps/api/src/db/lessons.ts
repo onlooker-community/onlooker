@@ -210,6 +210,19 @@ export async function createLessonsWithFeed(
 						 VALUES (?, ?, ?, ?, ?)`,
 					)
 					.bind(first + offset, userId, lesson.id, "create", now),
+				// The stack filter's rows, in the same batch so they commit with
+				// the lesson or not at all - and, like project_key, never
+				// rewritten, since applies_to does not change after ingest.
+				// Deduplicated because the contract allows ["vite", "vite"] and
+				// lesson_stacks' key does not: a repeat would fail the whole
+				// batch as a unique violation nothing here retries.
+				...[...new Set(lesson.applies_to.stack)].map((stack) =>
+					db
+						.prepare(
+							"INSERT INTO lesson_stacks (lesson_id, stack) VALUES (?, ?)",
+						)
+						.bind(lesson.id, stack),
+				),
 			];
 		});
 
@@ -692,6 +705,7 @@ export async function listLessonsPage(
 	opts: {
 		statuses?: string[];
 		projects?: string[];
+		stacks?: string[];
 		cursor?: string | null;
 		limit: number;
 	},

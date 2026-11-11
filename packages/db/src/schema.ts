@@ -375,6 +375,33 @@ export const lessons = sqliteTable(
 );
 
 /**
+ * One row per distinct entry of a lesson's `applies_to.stack`, so the stack
+ * filter can narrow in SQL (ONL-14).
+ *
+ * A table rather than a column because stack is a list, and the rule above
+ * still holds: only what the server filters on is lifted out of `body`.
+ * Derived, and written once - in the same batch as the lesson, by
+ * createLessonsWithFeed - because `applies_to` never changes after ingest.
+ *
+ * The primary key leads with lesson_id because that is the direction the
+ * filter's EXISTS seeks: the pool read walks lessons in promoted_at order and
+ * asks of each whether it has one of these stacks. Distinct because the
+ * contract allows `["vite", "vite"]` and the key does not.
+ */
+export const lesson_stacks = sqliteTable(
+	"lesson_stacks",
+	{
+		lesson_id: text("lesson_id")
+			.notNull()
+			.references(() => lessons.id, { onDelete: "cascade" }),
+		stack: text("stack").notNull(),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.lesson_id, table.stack] }),
+	}),
+);
+
+/**
  * The delta feed - append-only, never updated.
  *
  * This exists because a dense sequence and mutable row positions are
