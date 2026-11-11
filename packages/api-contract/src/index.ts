@@ -116,6 +116,9 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 				password: "correct-horse-battery",
 			}),
 			status: 201,
+			// The five token responses set Content-Type by hand on both sides,
+			// outside either one's helper, and the mock's said nothing (ONL-72).
+			headers: { "Content-Type": "application/json" },
 			body: { token: expectString, user: expectObject },
 			forbidden: NO_SECRETS,
 		},
@@ -136,6 +139,7 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 				password: fixture.existingPassword,
 			}),
 			status: 200,
+			headers: { "Content-Type": "application/json" },
 			body: { token: expectString, user: expectObject },
 			forbidden: NO_SECRETS,
 		},
@@ -144,6 +148,27 @@ export function anonymousCases(fixture: ContractFixture): ContractCase[] {
 			path: "/auth/login",
 			init: json({ email: fixture.existingEmail, password: "wrong" }),
 			status: 401,
+		},
+		{
+			// The fallback for an error neither side described. The API reads the
+			// body with an unguarded request.json(), so a body that is not JSON
+			// throws past every route and errorHandler answers a fixed 500. The
+			// mock rethrew instead, so the same request rejected in development
+			// and answered in production (ONL-72). This records what is: if the
+			// route learns to answer 400, both sides change together.
+			name: "login, body is not JSON",
+			path: "/auth/login",
+			init: {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "not json",
+			},
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+			body: {
+				success: false,
+				error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+			},
 		},
 		{
 			name: "me, no token",
@@ -471,6 +496,7 @@ export function authenticatedCases(): ContractCase[] {
 			path: "/auth/me",
 			init: { method: "GET" },
 			status: 200,
+			headers: { "Content-Type": "application/json" },
 			body: { user: expectObject },
 			forbidden: NO_SECRETS,
 		},

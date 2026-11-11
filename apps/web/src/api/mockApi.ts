@@ -700,7 +700,7 @@ export async function mockAuthApi(
 			refreshToken,
 			user: publicUser(user),
 		};
-		return new Response(JSON.stringify(response), { status: 200 });
+		return json(response);
 	}
 
 	if (path === AUTH_ENDPOINTS.signup && options.method === "POST") {
@@ -731,7 +731,7 @@ export async function mockAuthApi(
 		};
 		// 201, matching apps/api. This answered 200 and nothing noticed, because
 		// nothing compares the two - see api-contract.test.ts.
-		return new Response(JSON.stringify(response), { status: 201 });
+		return json(response, 201);
 	}
 
 	if (path === AUTH_ENDPOINTS.refresh && options.method === "POST") {
@@ -760,7 +760,7 @@ export async function mockAuthApi(
 			token: rotated.token,
 			refreshToken: rotated.refreshToken,
 		};
-		return new Response(JSON.stringify(response), { status: 200 });
+		return json(response);
 	}
 
 	if (path === AUTH_ENDPOINTS.me && options.method === "GET") {
@@ -770,12 +770,7 @@ export async function mockAuthApi(
 			throw new AuthApiError(401, "unauthorized", "Invalid token");
 		}
 
-		return new Response(
-			JSON.stringify({ user: publicUser(MOCK_USERS[email]) }),
-			{
-				status: 200,
-			},
-		);
+		return json({ user: publicUser(MOCK_USERS[email]) });
 	}
 
 	if (path === AUTH_ENDPOINTS.logout && options.method === "POST") {
@@ -794,7 +789,7 @@ export async function mockAuthApi(
 			REVOKED_TOKENS.add(refreshToken);
 			REFRESH_TOKEN_OWNER.delete(refreshToken);
 		}
-		return new Response(JSON.stringify({ success: true }), { status: 200 });
+		return json({ success: true });
 	}
 
 	const accountResponse = await mockAccountApi(path, options);
@@ -1357,11 +1352,16 @@ export async function mockDataApi(
 }
 
 function errorResponse(error: unknown): Response {
+	// Both arms mirror apps/api's errorHandler, including the header. A mock
+	// that answers in a different shape than the thing it stands in for is
+	// worse than no mock: it makes development pass and production fail.
+	//
+	// The described arm is byte-identical. The fallback matches in shape and
+	// text but not in everything: errorHandler also reports the error to
+	// monitoring, which the mock has no counterpart for. It used to rethrow, so
+	// a request production answers with a parseable 500 rejected the fetch here
+	// instead (ONL-72).
 	if (error instanceof AuthApiError) {
-		// Byte-identical to apps/api's errorHandler, including the header. A
-		// mock that answers in a different shape than the thing it stands in
-		// for is worse than no mock: it makes development pass and production
-		// fail. The Content-Type was missing here too.
 		return new Response(
 			JSON.stringify({
 				success: false,
@@ -1377,8 +1377,14 @@ function errorResponse(error: unknown): Response {
 			},
 		);
 	}
-	const message = error instanceof Error ? error.message : String(error);
-	throw new Error(message);
+	// Fixed, never the error's own message, as errorHandler does.
+	return json(
+		{
+			success: false,
+			error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+		},
+		500,
+	);
 }
 
 /**
