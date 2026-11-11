@@ -109,6 +109,35 @@ describe("mockAuthApi", () => {
 		expect(data.success).toBe(true);
 	});
 
+	// Refresh and logout answer only with a live refresh token, so no contract
+	// case reaches their success path; signup, login and me are pinned there.
+	// apps/api sets the header on both by hand (routes/auth.ts).
+	it("sends Content-Type on the refresh and logout responses", async () => {
+		const signup = await mockAuthApi("/auth/signup", {
+			method: "POST",
+			body: JSON.stringify({
+				email: `headers-${crypto.randomUUID()}@example.com`,
+				password: crypto.randomUUID(),
+			}),
+		});
+		const issued = (await signup.json()) as { refreshToken: string };
+
+		const refresh = await mockAuthApi("/auth/refresh", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: issued.refreshToken }),
+		});
+		expect(refresh.status).toBe(200);
+		expect(refresh.headers.get("Content-Type")).toBe("application/json");
+
+		const rotated = (await refresh.json()) as { refreshToken: string };
+		const logout = await mockAuthApi("/auth/logout", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken: rotated.refreshToken }),
+		});
+		expect(logout.status).toBe(200);
+		expect(logout.headers.get("Content-Type")).toBe("application/json");
+	});
+
 	it("createMockFetch intercepts /auth/* paths only", async () => {
 		const mockFetch = createMockFetch();
 
