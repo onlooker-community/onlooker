@@ -38,4 +38,24 @@ describe("listLessons", () => {
 			"/api/lessons?status=active&project=aaaaaaaaaaaa&cursor=c1",
 		);
 	});
+
+	// A stack is free text, unlike a project key, so it has to arrive encoded.
+	it("repeats the stack parameter for each stack, encoded", async () => {
+		await listLessons({ stack: ["vite", "c++"] });
+		expect(mocks.get).toHaveBeenCalledWith(
+			"/api/lessons?stack=vite&stack=c%2B%2B",
+		);
+	});
+
+	it("keeps status, project, stack and cursor together", async () => {
+		await listLessons({
+			statuses: ["active"],
+			project: ["aaaaaaaaaaaa"],
+			stack: ["vite"],
+			cursor: "c1",
+		});
+		expect(mocks.get).toHaveBeenCalledWith(
+			"/api/lessons?status=active&project=aaaaaaaaaaaa&stack=vite&cursor=c1",
+		);
+	});
 });
