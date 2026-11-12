@@ -203,9 +203,14 @@ export interface StreamEntry {
 	 * output's own age is NOT a substitute, which is the false alarm this
 	 * whole design removed.
 	 *
-	 * For an `output: null` entry this field is now RECORD ONLY: it gates
-	 * nothing, because `writeEvents` is that branch's whole downstream axis
-	 * (see `eventsAreTheWriteAxis`). It is kept because the reading behind it
+	 * On either branch it is also the write window's denominator: the
+	 * window counts only the sessions in which one of these hooks fired,
+	 * falling back to all of `hooks` when this is undefined or empty
+	 * (ONL-68). That narrowing can only count fewer sessions, never more.
+	 *
+	 * For an `output: null` entry this field gates nothing, because
+	 * `writeEvents` is that branch's whole downstream axis (see
+	 * `eventsAreTheWriteAxis`). It is kept because the reading behind it
 	 * - which of a plugin's hooks reliably reach an emission, established by
 	 * reading each script rather than inferring from its name - is real work
 	 * that would otherwise be lost, and because it stays the natural place to
@@ -297,12 +302,13 @@ export interface StreamEntry {
 	 *
 	 * The write axis asks the same question and answers it differently, by
 	 * narrowing its denominator to the sessions the entry's own hooks fired
-	 * in. That narrowing keys on all of `hooks` too, and `onlooker-kqc4`
-	 * records where doing so is wrong for a conditional WRITER - librarian,
+	 * in - its `writeHooks` where it declares them, all of `hooks`
+	 * otherwise (ONL-68). The two fields are mirrors of each other and
+	 * neither substitutes for the other: this one says the trigger was due,
+	 * `writeHooks` says a WRITE was. A conditional writer like librarian,
 	 * whose session-level hooks fire every session while its lessons are
-	 * written rarely and legitimately. The two fields are mirrors of each
-	 * other and neither substitutes for the other: this one says the trigger
-	 * was due, kqc4 asks whether a WRITE was.
+	 * written rarely and legitimately, has neither a `writeHooks` nor a
+	 * write axis, so that narrowing never reaches it.
 	 *
 	 * This is the same question the write axis already asks - was this
 	 * session a real chance for this entry? - answered for liveness the only
@@ -892,9 +898,12 @@ export const STREAMS: readonly StreamEntry[] = [
 		// name case for agent-spawn-tracker and skill-usage-tracker; a
 		// missing session_id is the only bail for the rest) and were kept.
 		//
-		// That reading is now RECORD ONLY: `writeEvents` below is what gates
-		// this entry's downstream axis. Kept because reading fourteen scripts
-		// in full is the evidence behind it, and this is where it belongs.
+		// That reading no longer gates anything: `writeEvents` below is what
+		// gates this entry's downstream axis. It does set the write window's
+		// denominator (ONL-68), which changes nothing here, because
+		// session-start-tracker fires in every session and is on the list.
+		// Kept because reading fourteen scripts in full is the evidence
+		// behind it, and this is where it belongs.
 		writeHooks: [
 			"session-start-tracker",
 			"session-end-tracker",
@@ -2484,12 +2493,22 @@ function computeVerdict(
 	// the trigger DID fire with nothing recorded is still the frozen-ledger
 	// shape, and still `stopped`.
 	//
+	// The trigger is `writeHooks` where the entry declares it, because those
+	// are the hooks whose firing means a write was due, and the rest of
+	// `hooks` were left out of it for firing when none was (ONL-68). bursar
+	// is the case: bursar-session-start opens a session that bursar-session-
+	// end writes at the close of, so a session still open, or one that died
+	// before SessionEnd, ran session-start alone and was never a chance to
+	// write. An entry with no `writeHooks` keeps the whole list, which only
+	// ever counts more sessions, never fewer.
+	//
 	// An entry naming no hooks would produce an empty set and could never
 	// reach `stopped` on this axis. No table entry has that shape, and if one
 	// ever does, resting on liveness alone is the conservative direction taken
 	// everywhere else here.
+	const triggers = entry.writeHooks?.length ? entry.writeHooks : entry.hooks;
 	const triggeredIn = new Set<string>();
-	for (const hook of entry.hooks) {
+	for (const hook of triggers) {
 		for (const session of hooks.sessionsByHook[hook] ?? []) {
 			triggeredIn.add(session);
 		}

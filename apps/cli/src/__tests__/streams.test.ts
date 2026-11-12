@@ -1604,6 +1604,32 @@ describe("surveyStreams", () => {
 		);
 	});
 
+	// ONL-68. The same fixture as the one above, except the hook that fires in
+	// each of the six is bursar-session-start - listed in `hooks`, and not in
+	// `writeHooks`, because it fires a whole session before the write
+	// bursar-session-end performs. A session that opened and has not closed
+	// yet, or died before SessionEnd, never reached the writer. Measured on
+	// this machine from 2026-10-13: 8 of 873 bursar sessions ran session-start
+	// alone, and enough of them open at once (concurrent sessions do it) read
+	// a healthy bursar `STOPPED`.
+	it("does not charge a writer for sessions only its non-write hook fired in", async () => {
+		const { cwd, home, configDir, env } = machine({
+			plugins: ["bursar"],
+			projectKeys: ["aaaaaaaaaaaa"],
+			opportunities: 6,
+			opportunitiesEndingOn: "2026-08-29",
+			triggerHook: "bursar-session-start",
+			files: [
+				[
+					join("bursar", "projects", "aaaaaaaaaaaa", "sessions.jsonl"),
+					"2026-08-07T00:00:00Z",
+				],
+			],
+		});
+		const survey = await surveyStreams({ cwd, home, configDir, env });
+		expect(verdictFor(survey, "bursar")?.kind).toBe("recording");
+	});
+
 	// NOT events alone: for an `output: null` entry that names `writeEvents`
 	// the axes SPLIT - those events are the downstream being judged, and its
 	// hooks are the only proof of life left. A hook firing close behind the
