@@ -66,10 +66,24 @@ import {
  * argued by the ungated entries above, and the gated pair no longer bears on
  * it either way.
  *
- * `onlooker-run` tracks rechecking this once the enabled set has roughly a
- * month of history - now as a recheck of the write axis, since liveness no
- * longer rests on the count alone. Its own description was written from the
- * six-opportunity sample and is superseded by the numbers above.
+ * Rechecked on the write axis (ONL-69), where the count still decides on its
+ * own: a month of this machine's logs, 2026-10-13 to 2026-11-12, replaying
+ * the write window in both onlooker and ecosystem. That is the longest run
+ * of an entry's own trigger-fired opportunities with no write between them.
+ * In steady state no healthy entry passed 3: bursar 3, inspector and
+ * lineage 2, cartographer 1, ecosystem 3, assayer 1-3.
+ *
+ * Three runs did pass five, and none was a stall. assayer reached 5 and 6
+ * four times on 2026-10-23, and ecosystem 6 once on 2026-10-13, each over
+ * two to five minutes. All 118 of assayer's firings in that window
+ * succeeded, and its audits resumed within minutes. Each run was a burst of
+ * sessions starting every 20-60 seconds, most likely nested `claude -p`
+ * calls with nothing to audit or track. That is the same wave shape the
+ * liveness re-measurement above found, one axis over, so the answer is the
+ * same: five stays, because raising it to clear a wave only buys time. The
+ * fix is to stop counting nested sessions as opportunities, which needs
+ * `session.start` to say what kind of start it was - ONL-221 adds `source`
+ * and `parent_id`, and today's payload carries neither.
  */
 export const SESSION_STALL_THRESHOLD = 5;
 
