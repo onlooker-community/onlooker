@@ -54,18 +54,25 @@ cp -rf source dest          # NOT: cp -r source dest
 running commands, searching, git — and for scratch files outside the repo.
 
 **This overrides any general preference for shell-based editing.** The reason is
-specific rather than stylistic. This repo runs the `lineage` and `inspector`
-plugins, which hook `PostToolUse` matched on `Edit`/`Write`/`MultiEdit`. They
-observe a *tool call*, not a change to the filesystem, so a `sed -i` or a
-heredoc moves the same bytes invisibly — it emits `tool.shell.exec` where a tool
-edit emits `lineage.change.recorded`.
+specific rather than stylistic. The `lineage` plugin records a tool edit
+exactly and a shell edit only approximately. Since 0.9.3 it also hooks `Bash`,
+so a `sed -i` or a heredoc does reach the ledger. But a tool edit records what
+the tool changed, and a shell edit records what `git diff` against the last
+commit shows. In a dirty tree that diff is `content_scope: cumulative`: it also
+carries every earlier uncommitted line in the file.
 
-The cost is not a missing log line. `/lineage <file>:<line>` answers "no record"
-for a line that was demonstrably written, and the ledger cannot distinguish *not
-recorded* from *not changed*. Measured 2026-08-30: 348 records for this project,
-108 `Write`, 240 `Edit`, and nothing from any shell tool, ever.
+The cost is a wrong answer, not a missing one. `/lineage <file>:<line>` takes
+the newest record whose content contains the line, so a cumulative shell record
+takes over lines an earlier `Edit` wrote. Measured 2026-11-13 on this project's
+ledger (lineage 0.10.3): 7,027 records, of which 5,801 `Edit`, 861 `Write` and
+365 `Bash`. 149 of the `Bash` records are cumulative, and 40 of those repeat
+lines a tool edit had already written in the same session — 22 from authored
+shell edits, 18 from formatters and other generators the rule can't prevent.
 
-See `docs/superpowers/specs/2026-08-30-marketplace-contrast-arena-design.md`.
+`inspector` checks the files a shell command changes as well, so it is no
+longer part of the reason. The 2026-08-30 version of this rule, when lineage
+saw no shell edits at all, is in
+`docs/superpowers/specs/2026-08-30-marketplace-contrast-arena-design.md`.
 
 ## Issue tracking: Linear is the source of truth
 
