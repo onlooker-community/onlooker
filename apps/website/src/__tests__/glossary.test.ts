@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import Term from "../components/Term.astro";
 import { GLOSSARY } from "../data/glossary";
 import { glossaryHref, undefinedTermIds } from "../lib/glossary";
+import { returnPath } from "../lib/return-path";
 import GlossaryPage from "../pages/glossary.astro";
 
 const BLOG = new URL("../content/blog/", import.meta.url);
@@ -98,20 +99,71 @@ describe("/glossary", () => {
 	});
 });
 
+describe("returnPath", () => {
+	it("accepts a post's path", () => {
+		expect(returnPath("/blog/contrast-arena/")).toBe("/blog/contrast-arena/");
+	});
+
+	// `from` is read from the URL, so anyone can write a link with any value.
+	// Only a post on this site may become the back link's target.
+	for (const from of [
+		null,
+		"",
+		"https://example.com/blog/x/",
+		"//example.com/blog/x/",
+		"/blog/../signup/",
+		"/blog/",
+		"/blog/x",
+		"/signup/",
+		"javascript:alert(1)",
+	]) {
+		it(`refuses ${JSON.stringify(from)}`, () => {
+			expect(returnPath(from)).toBeNull();
+		});
+	}
+});
+
+describe("/glossary back link", () => {
+	// Hidden until the page's script finds a `from` it accepts, so a reader who
+	// opened the glossary directly never sees a link back to nowhere.
+	it("is rendered hidden", async () => {
+		const container = await AstroContainer.create();
+		const html = await container.renderToString(GlossaryPage);
+		expect(html).toMatch(
+			/<a[^>]*data-back[^>]*hidden[^>]*>|<a[^>]*hidden[^>]*data-back[^>]*>/,
+		);
+	});
+});
+
 describe("Term", () => {
 	async function render(id: string, text: string): Promise<string> {
 		const container = await AstroContainer.create();
 		return container.renderToString(Term, {
 			props: { id },
 			slots: { default: text },
+			request: new Request("https://onlooker.dev/blog/a-post/"),
 		});
 	}
 
-	it("links its text to the term's entry", async () => {
+	it("links its text to the term's entry, saying which post it came from", async () => {
 		const html = await render("home-repo", "home repo");
 		expect(html).toMatch(
-			/<a[^>]*href="\/glossary\/#home-repo"[^>]*>home repo<\/a>/,
+			/<a[^>]*href="\/glossary\/\?from=%2Fblog%2Fa-post%2F#home-repo"[^>]*>home repo<\/a>/,
 		);
+	});
+
+	it("carries the definition as the link's tooltip", async () => {
+		const html = await render("home-repo", "home repo");
+		const tip = html.match(
+			/<span[^>]*role="tooltip"[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/span>\s*<\/span>/,
+		);
+		// Astro escapes the definition's apostrophe; the browser shows it.
+		expect(tip?.[2].replaceAll("&#39;", "'")).toContain(
+			GLOSSARY.find((e) => e.id === "home-repo")?.definition,
+		);
+		// Without aria-describedby a screen reader hears the link and never the
+		// definition the mouse user sees.
+		expect(html).toMatch(new RegExp(`<a[^>]*aria-describedby="${tip?.[1]}"`));
 	});
 
 	it("fails to render a term the glossary does not define", async () => {

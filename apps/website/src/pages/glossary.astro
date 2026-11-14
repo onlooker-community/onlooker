@@ -10,6 +10,8 @@ export const prerender = true;
   description="Plain-language definitions of the terms Onlooker's posts and pages use."
 >
   <main class="prose-page">
+    <!-- Shown by the script below only for a `from` returnPath accepts. -->
+    <a class="breadcrumb back-link" href="/blog/" data-back hidden>← Back to the post</a>
     <header class="page-header">
       <p class="eyebrow">Glossary</p>
       <h1>The words we use</h1>
@@ -25,7 +27,54 @@ export const prerender = true;
   </main>
 </Layout>
 
+<script>
+  import { returnPath } from "../lib/return-path";
+
+  // A <Term> link says which post it was on (?from=/blog/<slug>/). The page
+  // is prerendered, so the back link is filled in here, in the browser.
+  const link = document.querySelector("[data-back]");
+  const to = returnPath(new URLSearchParams(location.search).get("from"));
+
+  if (link instanceof HTMLAnchorElement && to) {
+    link.href = to;
+    link.hidden = false;
+
+    // Following a term to another entry on this page adds history entries,
+    // and then history.back() would only step back through them.
+    let movedWithinPage = false;
+    addEventListener("hashchange", () => {
+      movedWithinPage = true;
+    });
+
+    link.addEventListener("click", (event) => {
+      // Arrived straight from that post: going back returns the reader to
+      // where they were in it, not to the top.
+      const ref = document.referrer ? new URL(document.referrer) : null;
+      if (!movedWithinPage && ref?.origin === location.origin && ref.pathname === to) {
+        event.preventDefault();
+        history.back();
+      }
+    });
+  }
+</script>
+
 <style>
+  /* Sticky because a term's link lands on its entry, often far down the
+   * page, and a back link left at the top would be scrolled out of sight
+   * exactly when the reader wants it. */
+  .back-link {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 16px 0;
+    background: var(--bg);
+  }
+
+  /* .breadcrumb sets display: flex, which would otherwise beat `hidden`. */
+  .back-link[hidden] {
+    display: none;
+  }
+
   .glossary {
     display: flex;
     flex-direction: column;
@@ -39,8 +88,8 @@ export const prerender = true;
   dt {
     font-weight: 700;
     color: var(--text-1);
-    /* Clears the page top when a link lands on the anchor. */
-    scroll-margin-top: 24px;
+    /* Clears the sticky back link when a link lands on the anchor. */
+    scroll-margin-top: 72px;
   }
 
   dt:target {

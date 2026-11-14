@@ -1,4 +1,4 @@
-import { GLOSSARY } from "../data/glossary";
+import { GLOSSARY, type GlossaryEntry } from "../data/glossary";
 
 const IDS = new Set(GLOSSARY.map((e) => e.id));
 
@@ -22,18 +22,28 @@ export function undefinedTermIds(source: string): string[] {
 }
 
 /**
- * The link for a glossary term. Throws for an id the glossary does not
- * define. That stops a component test, but not a build - see
- * undefinedTermIds.
- *
- * Trailing slash for the reason postPath gives: production answers /glossary
- * with a redirect to /glossary/.
+ * The entry for a glossary id. Throws for an id the glossary does not define.
+ * That stops a component test, but not a build - see undefinedTermIds.
  */
-export function glossaryHref(id: string): string {
-	if (!IDS.has(id)) {
+export function glossaryEntry(id: string): GlossaryEntry {
+	const entry = GLOSSARY.find((e) => e.id === id);
+	if (!entry) {
 		throw new Error(
 			`<Term id="${id}">: no such glossary entry. Add it to src/data/glossary.ts, or fix the id.`,
 		);
 	}
-	return `/glossary/#${id}`;
+	return entry;
+}
+
+/**
+ * The link for a glossary term. `from` is the page the link sits on, which
+ * the glossary turns into its back link (see lib/return-path.ts).
+ *
+ * Trailing slash for the reason postPath gives: production answers /glossary
+ * with a redirect to /glossary/.
+ */
+export function glossaryHref(id: string, from?: string): string {
+	glossaryEntry(id);
+	const query = from ? `?from=${encodeURIComponent(from)}` : "";
+	return `/glossary/${query}#${id}`;
 }
