@@ -69,6 +69,16 @@ export default defineConfig({
 				access: "public",
 				default: false,
 			}),
+			// Builds a pull request preview: drafts are kept and every page asks
+			// not to be indexed. Only deploy.yml's `preview-website` job sets it;
+			// the production deploy never does, so onlooker.dev drops drafts.
+			// astro:env for MARKETPLACE_REQUIRED's reason - the blog pages
+			// prerender in workerd. See src/lib/blog-posts.ts (ONL-257).
+			PREVIEW_DRAFTS: envField.boolean({
+				context: "server",
+				access: "public",
+				default: false,
+			}),
 		},
 	},
 });
