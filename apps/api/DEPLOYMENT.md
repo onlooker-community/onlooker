@@ -521,6 +521,17 @@ also means **every request is a worker invocation and a real D1 read** — nothi
 absorbs repeats, which is why the rate limiting rule above is the only thing
 standing in front of this route.
 
+**Off is a decision, not an oversight (ONL-127, 2026-11-13).** Rechecked that
+day: still no `[cache]` block, still no `Cf-Cache-Status` on a live 200, and the
+404 still carries no `Cache-Control`. Production held 2 public lessons, the
+newest from 2026-11-06. A cache over a table that small saves a handful of
+sub-millisecond D1 reads, and in exchange the takedown controls would no longer
+work without a purge: a retracted lesson would keep being served from the edge
+to readers who never fetched it. Leave it off until the cost is real, which
+means public lesson reads showing up in the worker's request or D1 numbers, or
+the rate limiting rule starting to block real readers. When that happens, the
+next paragraph is the work, and all of it ships in one change.
+
 **If you ever add `[cache] enabled = true`, read this section first.** Workers
 Caching applies RFC 9111 heuristic freshness to responses that set no
 `Cache-Control` at all: a `200` is cached for two hours and a `404` for three
@@ -529,7 +540,10 @@ path, so a miss is never cached" holds *only* while caching is off — under
 Workers Caching it is exactly backwards, and 404s for lesson ids that do not
 exist would start being served from cache. Turning it on would also put a real
 edge copy behind the takedown story, which `ctx.cache.purge()` exists to
-invalidate.
+invalidate. So enabling it means, in the same change: `ctx.cache.purge()` in
+both `POST /api/admin/lessons/:id/retract` and `POST /api/admin/author-blocks`
+(purging every lesson the blocked author has public), and an
+explicit `Cache-Control` on the 404, chosen on purpose rather than inherited.
 
 No test can observe any of this: `exports.default.fetch` in the test harness
 never populates an edge cache, which is why the retraction and block tests in
