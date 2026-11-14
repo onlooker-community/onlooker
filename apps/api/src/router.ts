@@ -379,6 +379,11 @@ export const ROUTES: Route[] = [
 		cors: "app",
 		handler: handleBrowserTransition,
 	},
+
+	// =========================================================================
+	// Activity feed (session-authenticated; the /lessons sync routes read the
+	// same feed for machines - see routes/activity.ts)
+	// =========================================================================
 	{
 		method: "GET",
 		path: "/api/activity",
@@ -386,6 +391,10 @@ export const ROUTES: Route[] = [
 		cors: "app",
 		handler: handleActivity,
 	},
+
+	// =========================================================================
+	// Sessions (the hosted session feed, as the browser reads it)
+	// =========================================================================
 	{
 		method: "GET",
 		path: "/api/sessions",
@@ -393,6 +402,10 @@ export const ROUTES: Route[] = [
 		cors: "app",
 		handler: handleGetSessions,
 	},
+
+	// =========================================================================
+	// Projects and their labels
+	// =========================================================================
 	{
 		method: "GET",
 		path: "/api/projects",
