@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // App reaches for the API client at module scope and RequireAuth would bounce
 // an unauthenticated render, so auth is the seam - the same one
@@ -23,19 +23,40 @@ vi.mock("../auth", () => ({
 // ProfilePage fetches on mount. Left unmocked it would try a real request and
 // the page would render its loading branch, which still renders the shell -
 // but a stub keeps the test about routing rather than about timing.
+//
+// Keyed to ProfilePage's path (ONL-78). The data is profile-shaped, so a page
+// that moved onto the hook with any other path would get the wrong shape back
+// and fail somewhere far from here. Instead the stub records the path and
+// throws, and afterEach names it.
+const fetchMock = vi.hoisted(() => ({ unexpected: [] as string[] }));
+
 vi.mock("../hooks/useAuthenticatedFetch", () => ({
-	useAuthenticatedFetch: () => ({
-		data: {
-			name: "Someone",
-			email: "someone@example.com",
-			createdAt: "2026-01-01T00:00:00.000Z",
-			lastLoginAt: "2026-08-30T00:00:00.000Z",
-		},
-		loading: false,
-		error: null,
-		refetch: vi.fn(),
-	}),
+	useAuthenticatedFetch: (path: string) => {
+		if (path !== "/api/users/me") {
+			fetchMock.unexpected.push(path);
+			throw new Error(`useAuthenticatedFetch stub has no data for ${path}`);
+		}
+		return {
+			data: {
+				name: "Someone",
+				email: "someone@example.com",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				lastLoginAt: "2026-08-30T00:00:00.000Z",
+			},
+			loading: false,
+			error: null,
+			refetch: vi.fn(),
+		};
+	},
 }));
+
+afterEach(() => {
+	// Emptied before asserting, so one failing test does not carry its paths
+	// into the next one's failure.
+	const unexpected = [...new Set(fetchMock.unexpected)];
+	fetchMock.unexpected.length = 0;
+	expect(unexpected, "paths the fetch stub has no data for").toEqual([]);
+});
 
 // SettingsPage calls getProfile() on mount, same reason as the fetch stub
 // above - a stub keeps the test about routing rather than about timing.
