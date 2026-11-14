@@ -1,6 +1,7 @@
 import { getRssString } from "@astrojs/rss";
 import { describe, expect, it } from "vitest";
 import {
+	dropsDrafts,
 	feedItems,
 	formatDate,
 	postPath,
@@ -52,6 +53,25 @@ describe("selectPublished", () => {
 		const before = posts.map((p) => p.id);
 		selectPublished(posts, true);
 		expect(posts.map((p) => p.id)).toEqual(before);
+	});
+});
+
+describe("dropsDrafts", () => {
+	// The production deploy never sets PREVIEW_DRAFTS, so this is the case
+	// onlooker.dev builds in. If a preview flag that is off could still keep
+	// drafts, an unfinished post would ship.
+	it("drops drafts from a production build", () => {
+		expect(dropsDrafts({ prod: true, previewDrafts: false })).toBe(true);
+	});
+
+	// The preview-website job in deploy.yml builds with PREVIEW_DRAFTS=true so a
+	// pull request's draft can be read on its preview URL (ONL-257).
+	it("keeps drafts in a preview build", () => {
+		expect(dropsDrafts({ prod: true, previewDrafts: true })).toBe(false);
+	});
+
+	it("keeps drafts under astro dev", () => {
+		expect(dropsDrafts({ prod: false, previewDrafts: false })).toBe(false);
 	});
 });
 

@@ -166,6 +166,13 @@ expect_match "false" apps "several app docs together do not" \
 	"apps/api/DEPLOYMENT.md"
 expect_match "true" website "markdown under src/ deploys" \
 	"apps/website/src/content/post.md"
+# The case a pull request preview exists for: a blog post on its own. deploy.yml
+# asks --match website whether a pull request gets a preview, so a post that
+# matched nothing would get no preview URL (ONL-257).
+expect_match "true" website "a blog post alone deploys the website" \
+	"apps/website/src/content/blog/a-new-post.mdx"
+expect_match "false" website "the website's own readme does not" \
+	"apps/website/README.md"
 expect_match "true" apps "an app doc alongside its code deploys" \
 	"apps/api/DEV.md" "apps/api/src/router.ts"
 

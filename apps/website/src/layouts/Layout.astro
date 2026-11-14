@@ -1,5 +1,6 @@
 ---
 import "../styles/globals.css";
+import { PREVIEW_DRAFTS } from "astro:env/server";
 import { SITE_URL } from "../lib/site";
 
 interface Props {
@@ -29,6 +30,8 @@ const canonical = new URL(canonicalPath, SITE_URL).href;
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    {/* A pull request preview is public and can carry drafts; keep it out of search. */}
+    {PREVIEW_DRAFTS && <meta name="robots" content="noindex" />}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content={ogType} />
