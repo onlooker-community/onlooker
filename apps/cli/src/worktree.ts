@@ -3,10 +3,11 @@ import { execFileSync } from "node:child_process";
 /**
  * Files the working tree has changed, relative to the repository root.
  *
- * This is the only subprocess in the CLI. Nothing else here shells out, and
- * that was a property worth keeping - but the alternatives are parsing `.git`
- * by hand or asking a person to list their own changed files, and both are
- * worse than one well-guarded `git` call.
+ * One of two subprocesses in the CLI, both `git`; the other is the root
+ * lookup in `settings.ts`. Nothing else here shells out, and that was a
+ * property worth keeping - but the alternatives are parsing `.git` by hand or
+ * asking a person to list their own changed files, and both are worse than
+ * one well-guarded `git` call.
  *
  * Null on every failure: no git on PATH, not a repository, a git that errors.
  * Relevance only ever splits the output into "about what you are changing" and

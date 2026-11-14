@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { configCommand } from "./commands/config";
 import { crashReports } from "./commands/crash-reports";
 import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
@@ -20,14 +21,15 @@ import {
 	withSpinner,
 } from "./ui";
 
-// No argument-parsing library. Six commands and one flag do not justify one,
-// and a switch is easier to read than the framework would be.
+// No argument-parsing library. Seven commands and a handful of flags do not
+// justify one, and a switch is easier to read than the framework would be.
 const COMMANDS: Array<[name: string, does: string]> = [
 	["link", "connect this machine with a token from the Machines page"],
 	["sync", "push every approved lesson"],
 	["playbook", "which mirrored lessons apply here"],
 	["status", "what is linked, and what is waiting"],
 	["doctor", "which plugin streams are still recording"],
+	["config", "read and change plugin settings, per project or account"],
 	["crash-reports", "whether this CLI may report its own crashes"],
 ];
 
@@ -103,6 +105,12 @@ export async function run(
 			);
 			show("doctor", report.text);
 			return report.code;
+		} else if (command === "config") {
+			// The env `run` was given, not process.env, so a test and a wrapping
+			// script decide which config directory is meant.
+			const text = configCommand(argv.slice(3), { cwd: process.cwd(), env });
+			if (argv.includes("--json")) console.log(text);
+			else show("config", text);
 		} else if (command === "crash-reports") {
 			show("crash-reports", crashReports(argv[3], { theme: out }));
 		} else if (
