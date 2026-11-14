@@ -288,14 +288,20 @@ export function deletePath(root: JsonObject, path: string[]): boolean {
 	return true;
 }
 
-/** Every leaf beneath `node`, as dotted paths. Arrays are leaves. */
+/**
+ * Every leaf beneath `node`, as dotted paths. Arrays are leaves, and so is an
+ * object with a dot in any key: inspector.checks is keyed by file extension,
+ * and a path through `.sh` joins to a key no one can type back.
+ */
 export function leaves(
 	node: Json | undefined,
 	prefix: string[] = [],
 ): string[][] {
 	if (
 		!isObject(node) ||
-		(Object.keys(node).length === 0 && prefix.length > 0)
+		(prefix.length > 0 &&
+			(Object.keys(node).length === 0 ||
+				Object.keys(node).some((key) => key.includes("."))))
 	) {
 		return prefix.length === 0 ? [] : [prefix];
 	}

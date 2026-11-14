@@ -335,6 +335,23 @@ describe("onlooker config list", () => {
 			"librarian.lesson_sync.remind = true  (default)",
 		]);
 	});
+
+	it("lists an object keyed by dotted names as one setting, which get can name", () => {
+		// inspector.checks is keyed by file extension. Split on those dots, it
+		// listed as `inspector.checks..sh`, which no key can address.
+		const w = world();
+		writeJson(join(w.repo, ".claude", "settings.json"), {
+			librarian: { checks: { ".sh": ["shellcheck"] } },
+		});
+		const out = config(w, "list", "librarian");
+		expect(out.split("\n")).toContain(
+			'librarian.checks = {".sh":["shellcheck"]}  (project)',
+		);
+		expect(out).not.toContain("librarian.checks..sh");
+		expect(config(w, "get", "librarian.checks")).toBe(
+			'librarian.checks = {".sh":["shellcheck"]}  (project)',
+		);
+	});
 });
 
 describe("onlooker config, through the CLI", () => {
