@@ -151,29 +151,31 @@ export default function App() {
 	// a lesson click refetch the whole pool instead of reading it from memory.
 	// resetKey only resets state that is already set; see ErrorBoundary.
 	return (
-		<ErrorBoundary
-			resetKey={location.pathname}
-			// The prop existed and nothing passed it, so a render throw in
-			// production left a trace in exactly one place: the console of the
-			// person it broke for. That is where the blank dashboard went.
-			onError={(error, info) =>
-				monitor.captureException(error, {
-					tags: { kind: "render" },
-					extra: { componentStack: info.componentStack ?? undefined },
-				})
-			}
-		>
-			{/*
-			  Above Routes, so neither a route change nor RequireAuth's
-			  session-expiry redirect can unmount it and take the token with
-			  it. It reads no auth state at all: session expiry nulls `user`
-			  through the same path a logout does, so the two are
-			  indistinguishable from here, and only one of them may end a
-			  reveal. The Sign out buttons dismiss it themselves. See
-			  reveal.tsx for the full story.
-			*/}
-			<RevealProvider>
-				<InertWhileRevealed>
+		// Above Routes, so neither a route change nor RequireAuth's
+		// session-expiry redirect can unmount it and take the token with it. It
+		// reads no auth state at all: session expiry nulls `user` through the
+		// same path a logout does, so the two are indistinguishable from here,
+		// and only one of them may end a reveal. The Sign out buttons dismiss it
+		// themselves. See reveal.tsx for the full story.
+		//
+		// Outside ErrorBoundary for the same reason (ONL-77): the boundary
+		// replaces everything inside it with its fallback, so with the provider
+		// inside, a page that threw during render took the token down with it.
+		<RevealProvider>
+			<InertWhileRevealed>
+				<ErrorBoundary
+					resetKey={location.pathname}
+					// The prop existed and nothing passed it, so a render throw in
+					// production left a trace in exactly one place: the console of
+					// the person it broke for. That is where the blank dashboard
+					// went.
+					onError={(error, info) =>
+						monitor.captureException(error, {
+							tags: { kind: "render" },
+							extra: { componentStack: info.componentStack ?? undefined },
+						})
+					}
+				>
 					<Routes>
 						<Route path="/" element={<RootRedirect />} />
 						<Route path="/login" element={<LoginPage />} />
@@ -265,14 +267,14 @@ export default function App() {
 						/>
 						<Route path="*" element={<NotFoundPage />} />
 					</Routes>
-				</InertWhileRevealed>
-				{/*
-				  Outside the wrapper above, and portaled to document.body
-				  besides. Both are required: a dialog inside the inert subtree
-				  would be disabled by the very attribute meant to protect it.
-				*/}
-				<RevealHost />
-			</RevealProvider>
-		</ErrorBoundary>
+				</ErrorBoundary>
+			</InertWhileRevealed>
+			{/*
+			  Outside the wrapper above, and portaled to document.body
+			  besides. Both are required: a dialog inside the inert subtree
+			  would be disabled by the very attribute meant to protect it.
+			*/}
+			<RevealHost />
+		</RevealProvider>
 	);
 }
