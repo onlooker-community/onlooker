@@ -1,0 +1,35 @@
+---
+// Links a term to its /glossary entry and shows the definition as a tooltip
+// on hover and keyboard focus. Use it on the term's first appearance in a
+// post: the tooltip's id is per term, so a second <Term> for the same id on
+// one page would repeat it.
+//
+// The tooltip is plain CSS (see .term-tip in styles/globals.css). Touch
+// screens have no hover, so there a tap simply follows the link.
+import { glossaryEntry, glossaryHref } from "../lib/glossary";
+
+interface Props {
+	id: string;
+}
+
+const { id } = Astro.props;
+const { term, definition } = glossaryEntry(id);
+const href = glossaryHref(id, Astro.url.pathname);
+const tipId = `term-tip-${id}`;
+---
+
+<span class="term-wrap"><a class="term" href={href} aria-describedby={tipId}><slot /></a><span class="term-tip" role="tooltip" id={tipId}><strong>{term}</strong> {definition}</span></span>
+
+<script>
+	// WCAG 1.4.13: content shown on hover must be dismissable without moving
+	// the pointer. Escape hides every tooltip until the pointer or focus moves.
+	const root = document.documentElement;
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") root.classList.add("term-tips-dismissed");
+	});
+	for (const type of ["pointermove", "focusin"]) {
+		document.addEventListener(type, () =>
+			root.classList.remove("term-tips-dismissed"),
+		);
+	}
+</script>

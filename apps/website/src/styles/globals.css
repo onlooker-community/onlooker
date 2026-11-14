@@ -552,6 +552,85 @@ footer {
 	color: var(--accent);
 }
 
+/* A <Term> link goes to a definition, not to another page about the thing,
+ * so it reads as one: dotted, not solid. */
+.prose a.term {
+	text-decoration-style: dotted;
+}
+
+/* <Term>'s definition, above the term on hover or keyboard focus. CSS only;
+ * the one script in Term.astro adds Escape to dismiss it. */
+.term-wrap {
+	position: relative;
+}
+
+.term-tip {
+	position: absolute;
+	z-index: 10;
+	left: 0;
+	bottom: 100%;
+	margin-bottom: 8px;
+	width: max-content;
+	max-width: min(36ch, 80vw);
+	padding: 10px 12px;
+	font-family: var(--sans);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 1.5;
+	color: var(--text-2);
+	background: var(--bg-2);
+	border: 1px solid var(--border-2);
+	border-radius: 6px;
+	box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 60%, transparent);
+	visibility: hidden;
+	opacity: 0;
+	transition:
+		opacity 0.15s ease,
+		visibility 0.15s;
+}
+
+/* Spans the gap to the term, so the pointer can move onto the tooltip
+ * without it closing - WCAG 1.4.13 asks that it stay while hovered. */
+.term-tip::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 100%;
+	height: 8px;
+}
+
+.term-tip strong {
+	display: block;
+	margin-bottom: 4px;
+	font-family: var(--mono);
+	font-size: 11px;
+	font-weight: 400;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--accent);
+}
+
+.term-wrap:hover .term-tip,
+.term:focus-visible + .term-tip {
+	visibility: visible;
+	opacity: 1;
+}
+
+/* After the two rules above, at the same specificity, so Escape wins. */
+:root.term-tips-dismissed .term-tip {
+	visibility: hidden;
+	opacity: 0;
+}
+
+/* No hover on a touch screen: a tap follows the link to the glossary, and a
+ * tooltip left open by the tap would sit over the text. */
+@media (hover: none) {
+	.term-tip {
+		display: none;
+	}
+}
+
 .prose :not(pre) > code {
 	font-family: var(--mono);
 	font-size: 0.9em;

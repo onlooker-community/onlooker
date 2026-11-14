@@ -9,7 +9,9 @@ import { getViteConfig } from "astro/config";
 // laziness. Loading it brings in the Cloudflare adapter's vite plugin, which
 // refuses to run under vitest - it rejects the `resolve.external` that vitest's
 // ssr environment sets. Nothing rendered here needs the adapter or the env
-// schema; only middleware.ts reads astro:env, and no test imports it.
+// schema. Layout.astro does read astro:env (PREVIEW_DRAFTS), and without the
+// schema every variable there is undefined, so a rendered Layout is the
+// production one: no noindex.
 //
 // `test` is Vitest's, but getViteConfig is typed against a nested Vite 7
 // UserConfig (via @cloudflare/vite-plugin) that does not declare it. Naming

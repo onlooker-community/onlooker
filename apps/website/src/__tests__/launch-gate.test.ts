@@ -14,6 +14,8 @@ describe("isPublicBeforeLaunch", () => {
 		"/plugins/",
 		"/plugins/archivist",
 		"/plugins/archivist/",
+		"/glossary",
+		"/glossary/",
 	]) {
 		it(`lets ${path} through`, () => {
 			expect(isPublicBeforeLaunch(path)).toBe(true);
@@ -21,8 +23,15 @@ describe("isPublicBeforeLaunch", () => {
 	}
 
 	// /blogx and /pluginsx are the prefix matches a careless startsWith would
-	// let through.
-	for (const path of ["/blogx", "/pluginsx", "/signup", ""]) {
+	// let through. The glossary is one page, so nothing under it is public.
+	for (const path of [
+		"/blogx",
+		"/pluginsx",
+		"/glossaryx",
+		"/glossary/anything",
+		"/signup",
+		"",
+	]) {
 		it(`keeps ${JSON.stringify(path)} behind the gate`, () => {
 			expect(isPublicBeforeLaunch(path)).toBe(false);
 		});
