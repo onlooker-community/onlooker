@@ -552,6 +552,12 @@ footer {
 	color: var(--accent);
 }
 
+/* A <Term> link goes to a definition, not to another page about the thing,
+ * so it reads as one: dotted, not solid. */
+.prose a.term {
+	text-decoration-style: dotted;
+}
+
 .prose :not(pre) > code {
 	font-family: var(--mono);
 	font-size: 0.9em;

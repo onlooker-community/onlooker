@@ -1,0 +1,13 @@
+---
+// Links a term to its /glossary entry. Use it on the term's first appearance
+// in a post; an id the glossary does not define fails the build.
+import { glossaryHref } from "../lib/glossary";
+
+interface Props {
+	id: string;
+}
+
+const href = glossaryHref(Astro.props.id);
+---
+
+<a class="term" href={href}><slot /></a>

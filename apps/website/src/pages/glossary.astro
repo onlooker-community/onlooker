@@ -1,0 +1,53 @@
+---
+import { GLOSSARY } from "../data/glossary";
+import Layout from "../layouts/Layout.astro";
+
+export const prerender = true;
+---
+
+<Layout
+  title="Glossary — Onlooker"
+  description="Plain-language definitions of the terms Onlooker's posts and pages use."
+>
+  <main class="prose-page">
+    <header class="page-header">
+      <p class="eyebrow">Glossary</p>
+      <h1>The words we use</h1>
+    </header>
+    <dl class="prose glossary">
+      {GLOSSARY.map(({ id, term, definition }) => (
+        <div class="entry">
+          <dt id={id}>{term}</dt>
+          <dd>{definition}</dd>
+        </div>
+      ))}
+    </dl>
+  </main>
+</Layout>
+
+<style>
+  .glossary {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .entry {
+    margin: 0;
+  }
+
+  dt {
+    font-weight: 700;
+    color: var(--text-1);
+    /* Clears the page top when a link lands on the anchor. */
+    scroll-margin-top: 24px;
+  }
+
+  dt:target {
+    color: var(--accent);
+  }
+
+  dd {
+    margin: 4px 0 0;
+  }
+</style>

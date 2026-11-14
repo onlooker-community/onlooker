@@ -2,11 +2,23 @@
 import { render } from "astro:content";
 import { publishedPosts } from "../../data/blog";
 import BlogPost from "../../layouts/BlogPost.astro";
+import { undefinedTermIds } from "../../lib/glossary";
 
 export const prerender = true;
 
 export async function getStaticPaths() {
-	return (await publishedPosts()).map((post) => ({
+	const posts = await publishedPosts();
+	// Here rather than in <Term>, because a throw here stops the build and a
+	// throw mid-render does not. See undefinedTermIds.
+	for (const post of posts) {
+		const missing = undefinedTermIds(post.body ?? "");
+		if (missing.length > 0) {
+			throw new Error(
+				`${post.id}: <Term> ids with no glossary entry: ${missing.join(", ")}. Add them to src/data/glossary.ts, or fix the ids.`,
+			);
+		}
+	}
+	return posts.map((post) => ({
 		params: { slug: post.id },
 		props: { post },
 	}));
