@@ -545,6 +545,7 @@ jobs:
       staging: ${{ steps.filter.outputs.staging }}
       production: ${{ steps.filter.outputs.production }}
       website: ${{ steps.filter.outputs.website }}
+      preview: ${{ steps.filter.outputs.preview }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -557,6 +558,9 @@ jobs:
         id: filter
         env:
           GH_TOKEN: ${{ github.token }}
+          # Passed through env rather than interpolated into the script, like
+          # every other value a pull request supplies.
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # The logic lives in scripts/deployable.sh so it can be tested
           # offline - see scripts/deployable.test.sh, which the lint job runs.
@@ -584,8 +588,34 @@ jobs:
             echo "staging=true" >> "$GITHUB_OUTPUT"
             echo "production=true" >> "$GITHUB_OUTPUT"
             echo "website=true" >> "$GITHUB_OUTPUT"
+
+            # The one question a pull request does ask: does it change the
+            # website, so that preview-website should upload a preview? It is
+            # the website surface's own path list, so a docs-only change gets
+            # no preview for the same reason it gets no deploy (ONL-251).
+            #
+            # Measured from the merge base, so the files main gained since the
+            # branch was cut are not counted as this pull request's. A failure
+            # answers `true`: an unneeded preview costs a minute, and nothing
+            # it uploads is ever served from onlooker.dev.
+            #
+            # The diff is captured before it is matched, not piped: this shell
+            # has no pipefail, so a failed `git diff` piped into the matcher
+            # would hand it an empty list and read as "no website change".
+            PREVIEW=false
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              if CHANGED="$(git -c core.quotePath=false diff --name-only "${PR_BASE_SHA}...HEAD")"; then
+                PREVIEW="$(printf '%s\n' "${CHANGED}" | ./scripts/deployable.sh --match website)"
+              else
+                echo "deployable: preview check failed; previewing rather than guessing"
+                PREVIEW=true
+              fi
+            fi
+            echo "preview=${PREVIEW}"
+            echo "preview=${PREVIEW}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "preview=false" >> "$GITHUB_OUTPUT"
 
           # A failure here must not become a blocked deploy. The script answers
           # `true` for every failure it anticipates - no deployments on record,
@@ -1095,6 +1125,179 @@ jobs:
             console.log(`Commit: ${commit_sha}`);
 
   # ============================================================================
+  # PREVIEW WEBSITE
+  # ============================================================================
+  # A preview URL for each pull request that changes the website, so a draft
+  # post can be read rendered - on a phone, by a reviewer without the branch -
+  # before it is published. The site has no staging; until this job the only
+  # place a draft rendered was astro dev on the author's machine (ONL-257).
+  #
+  # It uploads a Worker VERSION and never deploys one. `wrangler versions
+  # upload` adds a version to onlooker-community-website without moving any
+  # traffic to it, so onlooker.dev keeps serving whatever deploy-website last
+  # deployed. The version is reachable only at its preview URLs, which
+  # wrangler.jsonc keeps on with `preview_urls: true`. The guard steps either
+  # side of the upload check that the production deployment did not change.
+  #
+  # Not in `required`, on purpose and against that job's rule that every pull
+  # request job is listed. This verifies nothing: a Cloudflare outage or an
+  # expired token would otherwise block every website pull request from
+  # merging over a convenience. A failed preview shows red on the pull request
+  # and stops nothing.
+  preview-website:
+    name: Preview Website
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Same-repository pull requests only. A fork's run gets no secrets, and
+    # neither does Dependabot's, so for both the upload could only fail.
+    if: >-
+      github.event_name == 'pull_request'
+      && needs.changes.outputs.preview == 'true'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    # Never `website`. scripts/deployable.sh measures the website from the last
+    # successful deployment recorded in that environment, so a preview recorded
+    # there would mark an unmerged commit as live on onlooker.dev and the next
+    # merge would skip its deploy.
+    environment:
+      name: website-preview
+      url: ${{ steps.upload.outputs.url }}
+    # One preview per pull request at a time. A superseded upload is safe to
+    # cancel - it is never deployed - and the workflow already cancels an
+    # earlier run of the same pull request.
+    concurrency:
+      group: preview-website-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # See deploy-production: pnpm is installed after this step.
+          package-manager-cache: false
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website dependencies
+        run: pnpm build --filter='@onlooker/website^...'
+
+      # PREVIEW_DRAFTS keeps drafts and marks every page noindex; see
+      # astro.config.mjs. No SENTRY_AUTH_TOKEN, so no source maps upload, and
+      # no PUBLIC_MONITORING_RELEASE: a release no upload matches files its
+      # stacks where nothing symbolicates them. MARKETPLACE_REQUIRED is left
+      # off, so a GitHub outage falls back to the fixture instead of failing a
+      # preview.
+      - name: Build Website preview
+        run: pnpm --filter @onlooker/website build
+        env:
+          PREVIEW_DRAFTS: 'true'
+
+      # pipefail and the emptiness check are what make the comparison below
+      # mean anything. Without them a failed status call hands jq nothing, jq
+      # prints nothing and exits 0, and two empty strings compare equal - a
+      # guard that passes because it could not look.
+      - name: Record the production deployment
+        id: before
+        run: |
+          set -o pipefail
+          DEPLOYMENT="$(pnpm --silent --filter @onlooker/website exec wrangler deployments status --json | jq -c '{id, versions}')"
+          if [ -z "${DEPLOYMENT}" ] || [ "$(jq -r .id <<< "${DEPLOYMENT}")" = "null" ]; then
+            echo "::error title=No production deployment::could not read onlooker-community-website's active deployment"
+            exit 1
+          fi
+          echo "deployment=${DEPLOYMENT}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # The alias is per pull request, so every push moves the same URL to the
+      # newest version and the link in the comment never goes stale.
+      #
+      # ENVIRONMENT:staging so the worker's Sentry events are not filed as
+      # production. "preview" is not in @onlooker/monitoring's vocabulary and
+      # would fall back to production.
+      - name: Upload Website preview
+        id: upload
+        run: |
+          pnpm --filter @onlooker/website exec wrangler versions upload \
+            --preview-alias "pr-${PR_NUMBER}" \
+            --tag "pr-${PR_NUMBER}" \
+            --message "Preview of #${PR_NUMBER} at ${HEAD_SHA}" \
+            --var ENVIRONMENT:staging
+          # Read from wrangler's machine output rather than scraped from its
+          # log, which is formatted for people and changes between versions.
+          URL="$(jq -r 'select(.type == "version-upload") | .preview_alias_url // empty' "${WRANGLER_OUTPUT_FILE_PATH}" | tail -n 1)"
+          if [ -z "${URL}" ]; then
+            echo "::error title=No preview URL::wrangler uploaded a version but reported no preview alias URL"
+            exit 1
+          fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+      # Fails loudly if onlooker.dev's deployment moved. Nothing above deploys,
+      # so this should never fire; it is here so "a preview never touches
+      # production" is checked by every run instead of promised by a comment.
+      # A deploy-website run that finished in between would also trip it -
+      # rerun this job if so.
+      - name: Check the production deployment did not change
+        run: |
+          set -o pipefail
+          AFTER="$(pnpm --silent --filter @onlooker/website exec wrangler deployments status --json | jq -c '{id, versions}')"
+          if [ -z "${BEFORE}" ] || [ "${AFTER}" != "${BEFORE}" ]; then
+            echo "::error title=Production deployment changed::before ${BEFORE} after ${AFTER}"
+            exit 1
+          fi
+          echo "production deployment unchanged: ${AFTER}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BEFORE: ${{ steps.before.outputs.deployment }}
+
+      # One comment per pull request, edited on each push rather than added
+      # again, found by the marker on its first line.
+      - name: Post the preview URL
+        uses: actions/github-script@v8
+        env:
+          PREVIEW_URL: ${{ steps.upload.outputs.url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = '<!-- preview-website -->';
+            const body = [
+              marker,
+              `**Website preview:** ${process.env.PREVIEW_URL}`,
+              '',
+              `Built from ${process.env.HEAD_SHA.substring(0, 7)}, with drafts. ` +
+                'Not deployed to onlooker.dev, and every page is noindex.',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number,
+            });
+            const mine = comments.find((c) => c.body?.startsWith(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  # ============================================================================
   # REQUIRED CHECK GATE
   # ============================================================================
   # The single context the org ruleset requires, so branch rules never name
@@ -1108,7 +1311,8 @@ jobs:
   #
   # Every job that runs on a pull request is listed. A job that runs on a PR
   # but is missing here can fail red while the gate reports green, which is
-  # worse than not gating it at all.
+  # worse than not gating it at all. The one exception is preview-website,
+  # left out on purpose; its own comment says why.
   required:
     name: All checks passed
     runs-on: ubuntu-latest

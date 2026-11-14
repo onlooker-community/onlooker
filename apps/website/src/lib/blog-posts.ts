@@ -30,15 +30,23 @@ export type PostData = z.infer<typeof postSchema>;
 export type PostLike = { id: string; data: PostData };
 
 /**
- * The posts a build publishes, newest first. Production drops drafts; dev
- * keeps them, because the site has no staging and dev is the only place a
- * draft can be read rendered (ONL-257 tracks preview deploys).
+ * Whether a build leaves drafts out. Only a production build that is not a
+ * pull request preview does: the site has no staging, so a preview URL and
+ * astro dev are the only places a draft can be read rendered (ONL-257).
  */
+export function dropsDrafts(build: {
+	prod: boolean;
+	previewDrafts: boolean;
+}): boolean {
+	return build.prod && !build.previewDrafts;
+}
+
+/** The posts a build publishes, newest first. */
 export function selectPublished<
 	T extends { data: { draft: boolean; published: Date } },
->(posts: readonly T[], production: boolean): T[] {
+>(posts: readonly T[], dropDrafts: boolean): T[] {
 	return posts
-		.filter((p) => !production || !p.data.draft)
+		.filter((p) => !dropDrafts || !p.data.draft)
 		.sort((a, b) => b.data.published.valueOf() - a.data.published.valueOf());
 }
 
