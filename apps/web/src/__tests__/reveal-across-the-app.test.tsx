@@ -80,6 +80,14 @@ vi.mock("../api/accountApi", async (importOriginal) => ({
 	deleteAccount: mocks.deleteAccount,
 }));
 
+// A page that throws during render, so ErrorBoundary catches for real. Which
+// page does not matter; /projects is one no other test here visits.
+vi.mock("../pages/ProjectsPage", () => ({
+	default: () => {
+		throw new Error("a page render throw");
+	},
+}));
+
 const { default: App } = await import("../App");
 const { auth } = await import("../auth");
 
@@ -124,6 +132,12 @@ function Elsewhere() {
 			*/}
 			<button type="button" onClick={() => navigate("/login")}>
 				out to the login page
+			</button>
+			<button type="button" onClick={() => navigate("/lessons")}>
+				over to lessons
+			</button>
+			<button type="button" onClick={() => navigate("/projects")}>
+				to a page that throws
 			</button>
 		</>
 	);
@@ -252,5 +266,57 @@ describe("a revealed token across the app", () => {
 		// RevealProvider emit no DOM of their own.
 		const wrapper = container.firstElementChild as HTMLElement;
 		expect(wrapper.hasAttribute("inert")).toBe(true);
+	});
+
+	// /lessons is the layout route, and the one a signed-in visitor lands on
+	// from "/". The reveal has to outlive the move onto it like any other.
+	it("stays open on /lessons", async () => {
+		mocks.get.mockImplementation(async (path: string) => {
+			if (path.startsWith("/api/lessons"))
+				return { lessons: [], cursor: null, has_more: false, owned_ids: [] };
+			if (path.startsWith("/api/projects")) return { projects: [] };
+			if (path.startsWith("/api/project-labels")) return { labels: [] };
+			return { user: USER };
+		});
+		const { container } = await renderApp("/machines");
+		await mintFromMachinesPage();
+
+		fireEvent.click(screen.getByRole("button", { name: /over to lessons/i }));
+
+		// Really on /lessons, not still on /machines.
+		expect(
+			await screen.findByRole("heading", { level: 1, name: "Lessons" }),
+		).toBeTruthy();
+		expect(screen.queryByLabelText(/machine name/i)).toBeNull();
+
+		expect(screen.getByRole("dialog").textContent).toContain(MINTED.token);
+		const wrapper = container.firstElementChild as HTMLElement;
+		expect(wrapper.hasAttribute("inert")).toBe(true);
+	});
+
+	// ErrorBoundary replaces everything inside it with its fallback. If the
+	// provider is inside the boundary, a page that throws takes the only copy
+	// of the token down with it.
+	it("survives a page that throws while rendering", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		try {
+			await renderApp("/machines");
+			await mintFromMachinesPage();
+
+			fireEvent.click(
+				screen.getByRole("button", { name: /to a page that throws/i }),
+			);
+
+			// The boundary really caught - without this the test could pass on
+			// a page that never threw.
+			expect(await screen.findByText(/something went wrong/i)).toBeTruthy();
+
+			const dialog = screen.getByRole("dialog");
+			expect(dialog.textContent).toContain(MINTED.token);
+		} finally {
+			consoleError.mockRestore();
+		}
 	});
 });
