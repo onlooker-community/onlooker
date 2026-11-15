@@ -4,6 +4,7 @@ import cloudflare from "@astrojs/cloudflare";
 import mdx from "@astrojs/mdx";
 import sentry from "@sentry/astro";
 import { defineConfig, envField } from "astro/config";
+import { completePages } from "./src/lib/complete-pages.ts";
 import { SITE_URL } from "./src/lib/site.ts";
 
 // https://astro.build/config
@@ -50,6 +51,9 @@ export default defineConfig({
 			// passes the GitHub secret so shipped stacks are readable.
 			authToken: process.env.SENTRY_AUTH_TOKEN,
 		}),
+		// Fails the build on a page cut off by a throw mid-render, which the
+		// adapter otherwise writes out and exits 0 (ONL-294).
+		completePages(),
 	],
 	env: {
 		schema: {
