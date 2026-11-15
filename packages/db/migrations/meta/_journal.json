@@ -162,6 +162,13 @@
       "when": 1794353880001,
       "tag": "0022_puzzling_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794771461461,
+      "tag": "0023_previous_calypso",
+      "breakpoints": true
     }
   ]
 }

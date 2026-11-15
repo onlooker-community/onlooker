@@ -626,9 +626,16 @@ export const project_labels = sqliteTable(
 		 * anonymizeUser deletes these rows itself.
 		 */
 		machine_id: text("machine_id").notNull().default(""),
-		/** 'user' today; 'cli' is reserved for ONL-197. The user's label wins. */
+		/** 'user' or 'cli' (ONL-197). The user's label wins. */
 		source: text("source").notNull(),
 		label: text("label").notNull(),
+		/**
+		 * The machine that last wrote a `cli` row, or '' for a user row
+		 * (ONL-197). Not in the key: one remote key has one CLI label, owned by
+		 * whichever machine wrote it last, and `DELETE /machine/project-labels`
+		 * removes only the rows this machine owns.
+		 */
+		written_by: text("written_by").notNull().default(""),
 		updated_at: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => ({

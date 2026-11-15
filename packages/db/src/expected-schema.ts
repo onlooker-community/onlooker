@@ -525,6 +525,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "written_by",
+				type: "TEXT",
+				notnull: 1,
+				pk: 0,
+			},
+			{
 				name: "updated_at",
 				type: "TEXT",
 				notnull: 1,

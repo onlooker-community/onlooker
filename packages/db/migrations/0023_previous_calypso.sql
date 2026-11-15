@@ -1,0 +1,1 @@
+ALTER TABLE `project_labels` ADD `written_by` text DEFAULT '' NOT NULL;
