@@ -1,4 +1,7 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 
 /**
  * A user's name for one project key, as the browser sees it (ONL-189).
@@ -15,28 +18,53 @@ export interface ProjectLabel {
 }
 
 /**
- * Every label this user has typed.
+ * Every label this user has, one per key.
  *
- * Only `source = 'user'`: nothing else writes rows yet. When ONL-197 adds
- * `'cli'`, this is where the user's label is preferred over the CLI's.
+ * The user's label when there is one, otherwise the one the CLI derived
+ * (ONL-197).
  */
 export async function listProjectLabels(
 	db: D1Database,
 	userId: string,
 ): Promise<ProjectLabel[]> {
+	// 'user' sorts after 'cli', so within one (key, machine) the user's row
+	// is read last and overwrites the CLI's in the map below.
 	const { results } = await db
 		.prepare(
 			`SELECT project_key, machine_id, label FROM project_labels
-			  WHERE user_id = ? AND source = 'user'
-			  ORDER BY project_key, machine_id`,
+			  WHERE user_id = ? AND source IN ('cli', 'user')
+			  ORDER BY project_key, machine_id, source`,
 		)
 		.bind(userId)
 		.all<{ project_key: string; machine_id: string; label: string }>();
-	return results.map((row) => ({
-		project_key: row.project_key,
-		machine_id: row.machine_id === "" ? null : row.machine_id,
-		label: row.label,
-	}));
+	const byIdentity = new Map<string, ProjectLabel>();
+	for (const row of results) {
+		byIdentity.set(`${row.machine_id}\n${row.project_key}`, {
+			project_key: row.project_key,
+			machine_id: row.machine_id === "" ? null : row.machine_id,
+			label: row.label,
+		});
+	}
+	return [...byIdentity.values()];
+}
+
+/** The label the list shows for one key: the user's, else the CLI's. */
+export async function labelFor(
+	db: D1Database,
+	userId: string,
+	projectKey: string,
+	machineId: string | null,
+): Promise<string | null> {
+	const row = await db
+		.prepare(
+			`SELECT label FROM project_labels
+			  WHERE user_id = ? AND project_key = ? AND machine_id = ?
+			    AND source IN ('cli', 'user')
+			  ORDER BY source DESC LIMIT 1`,
+		)
+		.bind(userId, projectKey, machineId ?? "")
+		.first<{ label: string }>();
+	return row?.label ?? null;
 }
 
 /** Whether `machineId` is one of this user's machines, revoked or not. */
@@ -69,6 +97,89 @@ export async function setProjectLabel(
 		)
 		.bind(userId, label.project_key, label.machine_id ?? "", label.label)
 		.run();
+}
+
+/** One label a machine derived, before the server scopes it. */
+export interface CliLabelInput {
+	project_key: string;
+	basis: "remote" | "root";
+	label: string;
+}
+
+/**
+ * Store labels the CLI derived, each only if this machine reported that key
+ * under that basis (ONL-197, problem 1). Remote rows are shared, so the last
+ * machine to write one owns it; root rows belong to this machine alone.
+ */
+export async function putCliLabels(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+	labels: CliLabelInput[],
+): Promise<{ stored: number; skipped: number }> {
+	if (labels.length === 0) return { stored: 0, skipped: 0 };
+	const { results } = await db
+		.prepare(
+			`SELECT DISTINCT project_key, basis FROM session_projects
+			  WHERE user_id = ? AND machine_id = ?`,
+		)
+		.bind(userId, machineId)
+		.all<{ project_key: string; basis: string }>();
+	const reported = new Set(results.map((r) => `${r.basis}\n${r.project_key}`));
+
+	// One body may name a key twice. Each would upsert and count, so keep the
+	// last per (basis, key) and count distinct rows.
+	const distinct = [
+		...new Map(labels.map((l) => [`${l.basis}\n${l.project_key}`, l])).values(),
+	];
+	const writes = distinct
+		.filter((l) => reported.has(`${l.basis}\n${l.project_key}`))
+		.map((l) =>
+			db
+				.prepare(
+					`INSERT INTO project_labels (user_id, project_key, machine_id, source, label, written_by)
+					 VALUES (?, ?, ?, 'cli', ?, ?)
+					 ON CONFLICT (user_id, project_key, machine_id, source)
+					 DO UPDATE SET label = excluded.label, written_by = excluded.written_by,
+					               updated_at = CURRENT_TIMESTAMP`,
+				)
+				.bind(
+					userId,
+					l.project_key,
+					l.basis === "root" ? machineId : "",
+					l.label,
+					machineId,
+				),
+		);
+	if (writes.length > 0) await db.batch(writes);
+	return { stored: writes.length, skipped: distinct.length - writes.length };
+}
+
+/**
+ * The statement that removes the CLI labels this machine wrote last. Returned
+ * rather than run so revoking a machine can batch it with the revoke.
+ */
+export function cliLabelsDelete(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM project_labels
+			  WHERE user_id = ? AND source = 'cli' AND written_by = ?`,
+		)
+		.bind(userId, machineId);
+}
+
+/** Remove the CLI labels this machine wrote last; the user's stay. */
+export async function deleteCliLabels(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+): Promise<number> {
+	const result = await cliLabelsDelete(db, userId, machineId).run();
+	return result.meta.changes ?? 0;
 }
 
 /** Remove the user's name for a key, so the web falls back to the hash. */

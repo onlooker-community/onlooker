@@ -4,6 +4,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { hashToken } from "../utils/crypto.js";
 import { client } from "./client.js";
 import { pluginCount } from "./machine-inventory.js";
+import { cliLabelsDelete } from "./project-labels.js";
 
 /**
  * A machine token as the web app is allowed to see it: everything except
@@ -130,25 +131,29 @@ export async function verifyMachineToken(
 /**
  * Revoke one machine. Returns false when the token does not exist or belongs to
  * someone else - the caller cannot tell those apart, which is deliberate.
+ *
+ * Also deletes the CLI labels this machine wrote (ONL-197): revoking withdraws
+ * its consent, and a revoked machine can no longer run `off`. Its sessions
+ * stay. One batch, so a revoke never lands without its deletion. The delete is
+ * scoped to `userId`, so it removes nothing when the machine is someone else's.
  */
 export async function revokeMachineToken(
 	db: D1Database,
 	userId: string,
 	id: string,
 ): Promise<boolean> {
-	const result = await client(db)
-		.update(machine_tokens)
-		.set({ revoked_at: new Date().toISOString() })
-		.where(
-			and(
-				eq(machine_tokens.id, id),
-				eq(machine_tokens.user_id, userId),
-				isNull(machine_tokens.revoked_at),
-			),
-		)
-		.returning({ id: machine_tokens.id });
+	const [revoked] = await db.batch<{ id: string }>([
+		db
+			.prepare(
+				`UPDATE machine_tokens SET revoked_at = ?
+				  WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+				  RETURNING id`,
+			)
+			.bind(new Date().toISOString(), id, userId),
+		cliLabelsDelete(db, userId, id),
+	]);
 
-	return result.length > 0;
+	return revoked.results.length > 0;
 }
 
 /**

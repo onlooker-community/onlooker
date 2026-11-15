@@ -310,7 +310,16 @@ describe("project_labels", () => {
 			"source",
 			"updated_at",
 			"user_id",
+			"written_by",
 		]);
+	});
+
+	// Not in the key: one remote key has one CLI label, owned by whichever
+	// machine wrote it last, so a second machine's upload replaces the row
+	// rather than adding one beside it (ONL-197).
+	it("keeps written_by out of the primary key", () => {
+		const pk = getTableConfig(project_labels).primaryKeys[0];
+		expect(pk?.columns.map((c) => c.name)).not.toContain("written_by");
 	});
 
 	// Source is in the key so a label the CLI uploads (ONL-197) sits beside
