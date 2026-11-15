@@ -414,6 +414,22 @@ export async function scanEvents(opts: {
 	return scan;
 }
 
+/**
+ * Where a session started, for project labels alone (ONL-197).
+ *
+ * The one payload field this module reads, and it does not ride on
+ * `EventEnvelope`: `summarizeSessions` must still be unable to see any
+ * payload, so the directory goes to a separate callback that only the label
+ * code passes. It never leaves the machine. Only the label derived from the
+ * repository there is sent, and only after `onlooker project-labels on`.
+ */
+export interface SessionStart {
+	timestamp: string;
+	project: string;
+	project_basis: "remote" | "root";
+	working_directory: string;
+}
+
 /** What one pass over `logs/onlooker-events.jsonl` found for session reporting. */
 export interface EventLogEnvelopes {
 	/**
@@ -453,7 +469,9 @@ async function* emptyEnvelopes(): AsyncGenerator<EventEnvelope> {}
  * return immediately after opening the file, with the streaming read still
  * ahead of it rather than already done.
  *
- * `payload` is never read. Only `event_type`, `session_id`, `timestamp`,
+ * `payload` is never read, except `payload.working_directory` on
+ * `session.start`, and only when a caller passes `onSessionStart`; see
+ * `SessionStart`. Only `event_type`, `session_id`, `timestamp`,
  * `machine_id`, `plugin`, `project` and `project_basis` are pulled off each
  * parsed line - all envelope fields, which is what keeps the payload-safety
  * boundary this projection draws intact. The list is exhaustive on purpose: a
@@ -473,6 +491,7 @@ async function* emptyEnvelopes(): AsyncGenerator<EventEnvelope> {}
 async function* streamEnvelopes(
 	stream: ReturnType<typeof createReadStream>,
 	path: string,
+	onSessionStart?: (start: SessionStart) => void,
 ): AsyncGenerator<EventEnvelope> {
 	try {
 		for await (const line of createInterface({
@@ -500,6 +519,33 @@ async function* streamEnvelopes(
 				continue;
 			}
 
+			// Narrowed to the two legal values rather than passed through as
+			// any string: this is untrusted input from a log many
+			// independent writers append to, and `project_basis` is the
+			// field a consumer branches on to decide whether a key may be
+			// aggregated across machines at all.
+			const basis =
+				record.project_basis === "remote" || record.project_basis === "root"
+					? record.project_basis
+					: undefined;
+
+			if (onSessionStart && record.event_type === "session.start") {
+				const payload = record.payload as Record<string, unknown> | undefined;
+				const dir = payload?.working_directory;
+				if (
+					typeof record.project === "string" &&
+					basis &&
+					typeof dir === "string"
+				) {
+					onSessionStart({
+						timestamp: record.timestamp,
+						project: record.project,
+						project_basis: basis,
+						working_directory: dir,
+					});
+				}
+			}
+
 			yield {
 				event_type: record.event_type,
 				session_id: record.session_id,
@@ -509,15 +555,7 @@ async function* streamEnvelopes(
 				plugin: typeof record.plugin === "string" ? record.plugin : undefined,
 				project:
 					typeof record.project === "string" ? record.project : undefined,
-				// Narrowed to the two legal values rather than passed through as
-				// any string: this is untrusted input from a log many
-				// independent writers append to, and `project_basis` is the
-				// field a consumer branches on to decide whether a key may be
-				// aggregated across machines at all.
-				project_basis:
-					record.project_basis === "remote" || record.project_basis === "root"
-						? record.project_basis
-						: undefined,
+				project_basis: basis,
 			};
 		}
 	} catch (error) {
@@ -549,6 +587,7 @@ async function* streamEnvelopes(
  */
 export async function readEventEnvelopes(
 	env: NodeJS.ProcessEnv = process.env,
+	opts: { onSessionStart?: (start: SessionStart) => void } = {},
 ): Promise<EventLogEnvelopes> {
 	const path = join(onlookerDir(env), "logs", "onlooker-events.jsonl");
 
@@ -572,7 +611,10 @@ export async function readEventEnvelopes(
 		};
 	}
 
-	return { envelopes: streamEnvelopes(stream, path), unavailable: null };
+	return {
+		envelopes: streamEnvelopes(stream, path, opts.onSessionStart),
+		unavailable: null,
+	};
 }
 
 /**
