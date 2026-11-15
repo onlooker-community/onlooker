@@ -271,3 +271,61 @@ describe("PUT /machine/project-labels", () => {
 		expect(await rows()).toHaveLength(2);
 	});
 });
+
+function deleteLabels(machineToken: string): Promise<Response> {
+	return exports.default.fetch(`${BASE}/machine/project-labels`, {
+		method: "DELETE",
+		headers: { Authorization: `Bearer ${machineToken}` },
+	});
+}
+
+describe("DELETE /machine/project-labels", () => {
+	it("deletes only what this machine wrote, and never the user's", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		const desktop = await mint(ada, "desktop");
+		await report(laptop.token, KEY, "remote");
+		await report(desktop.token, OTHER, "root");
+		await putLabels(laptop.token, {
+			derivation: 1,
+			labels: [
+				{
+					project_key: KEY,
+					basis: "remote",
+					label: "onlooker-community/onlooker",
+				},
+			],
+		});
+		await putLabels(desktop.token, {
+			derivation: 1,
+			labels: [{ project_key: OTHER, basis: "root", label: "notes" }],
+		});
+		await exports.default.fetch(`${BASE}/api/project-labels`, {
+			method: "PUT",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${ada}`,
+			},
+			body: JSON.stringify({
+				project_key: KEY,
+				machine_id: null,
+				label: "mine",
+			}),
+		});
+
+		const response = await deleteLabels(laptop.token);
+		expect(await response.json()).toEqual({ deleted: 1 });
+		expect(await rows()).toMatchObject([
+			{ project_key: KEY, source: "user", label: "mine" },
+			{ project_key: OTHER, source: "cli", written_by: desktop.id },
+		]);
+	});
+
+	it("is a no-op the second time", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		expect(await (await deleteLabels(laptop.token)).json()).toEqual({
+			deleted: 0,
+		});
+	});
+});

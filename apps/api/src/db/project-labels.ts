@@ -147,6 +147,22 @@ export async function putCliLabels(
 	return { stored: writes.length, skipped: labels.length - writes.length };
 }
 
+/** Remove the CLI labels this machine wrote last; the user's stay. */
+export async function deleteCliLabels(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+): Promise<number> {
+	const result = await db
+		.prepare(
+			`DELETE FROM project_labels
+			  WHERE user_id = ? AND source = 'cli' AND written_by = ?`,
+		)
+		.bind(userId, machineId)
+		.run();
+	return result.meta.changes ?? 0;
+}
+
 /** Remove the user's name for a key, so the web falls back to the hash. */
 export async function clearProjectLabel(
 	db: D1Database,

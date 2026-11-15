@@ -1,4 +1,8 @@
-import { type CliLabelInput, putCliLabels } from "../db/project-labels.js";
+import {
+	type CliLabelInput,
+	deleteCliLabels,
+	putCliLabels,
+} from "../db/project-labels.js";
 import { requireMachineToken } from "../middleware/machine-auth.js";
 import type { WorkerEnv } from "../types";
 import { ApiError } from "../types";
@@ -72,4 +76,21 @@ export async function handlePutMachineProjectLabels(
 	});
 
 	return Response.json(await putCliLabels(env.DB, userId, machineId, labels));
+}
+
+/**
+ * DELETE /machine/project-labels
+ *
+ * What `onlooker project-labels off` calls (ONL-197, problem 6). Only rows
+ * this machine wrote last: another machine that still consents keeps its
+ * own, and re-asserts a shared repo's label on its next sync.
+ */
+export async function handleDeleteMachineProjectLabels(
+	request: Request,
+	env: WorkerEnv,
+): Promise<Response> {
+	const { userId, machineId } = await requireMachineToken(request, env);
+	return Response.json({
+		deleted: await deleteCliLabels(env.DB, userId, machineId),
+	});
 }

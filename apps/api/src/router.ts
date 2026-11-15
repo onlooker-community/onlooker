@@ -20,6 +20,7 @@ import {
 	handleCreateMachine,
 	handleCreateOrg,
 	handleDeleteAccount,
+	handleDeleteMachineProjectLabels,
 	handleDeleteOrg,
 	handleDeletionPreview,
 	handleForgotPassword,
@@ -335,6 +336,13 @@ export const ROUTES: Route[] = [
 		auth: "machine",
 		cors: "app",
 		handler: handlePutMachineProjectLabels,
+	},
+	{
+		method: "DELETE",
+		path: "/machine/project-labels",
+		auth: "machine",
+		cors: "app",
+		handler: handleDeleteMachineProjectLabels,
 	},
 
 	// =========================================================================
