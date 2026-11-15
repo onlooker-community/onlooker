@@ -99,6 +99,23 @@ describe("resolveProject", () => {
 		expect(resolveProject(wt)).toMatchObject({ kind: "root", root: dir });
 	});
 
+	// A hook or a `git rebase --exec` exports GIT_DIR; inherited, it would
+	// make every directory resolve to that one repo.
+	it("ignores an inherited GIT_DIR and GIT_WORK_TREE", () => {
+		const dir = repo();
+		git(dir, "remote", "add", "origin", "git@github.com:a/mine.git");
+		const other = repo();
+		git(other, "remote", "add", "origin", "git@github.com:a/other.git");
+		vi.stubEnv("GIT_DIR", join(other, ".git"));
+		vi.stubEnv("GIT_WORK_TREE", other);
+		vi.stubEnv("GIT_COMMON_DIR", join(other, ".git"));
+		vi.stubEnv("GIT_INDEX_FILE", join(other, ".git", "index"));
+		expect(resolveProject(dir)).toMatchObject({
+			kind: "remote",
+			url: "git@github.com:a/mine.git",
+		});
+	});
+
 	it("says a deleted directory is missing", () => {
 		const dir = repo();
 		rmSync(dir, { recursive: true });

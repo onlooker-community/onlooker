@@ -24,11 +24,26 @@ export function projectKey(input: string): string {
 
 class NoGit extends Error {}
 
+/**
+ * Variables that point git at a repository regardless of `-C`. A sync run
+ * from a git hook, or under `git rebase --exec`, inherits them, and every
+ * directory would then resolve to that one repo.
+ */
+const REDIRECTS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_COMMON_DIR",
+	"GIT_INDEX_FILE",
+];
+
 /** Git's stdout without its trailing newline, or null when git said no. */
 function git(dir: string, ...args: string[]): string | null {
+	const env = { ...process.env };
+	for (const name of REDIRECTS) delete env[name];
 	try {
 		return execFileSync("git", ["-C", dir, ...args], {
 			encoding: "utf8",
+			env,
 			stdio: ["ignore", "pipe", "ignore"],
 			timeout: 5000,
 		}).replace(/\n$/, "");
