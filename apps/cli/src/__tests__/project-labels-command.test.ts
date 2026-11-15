@@ -75,6 +75,19 @@ describe("project-labels", () => {
 		expect(await projectLabels("status", { env })).toMatch(/deletion pending/);
 	});
 
+	// Off, then on again before the deletion went through: the choice is on,
+	// and the old names still go first.
+	it("says on when turned back on with a deletion still pending", async () => {
+		const env = linked();
+		await projectLabels("on", { env });
+		await projectLabels("off", { env, fetchImpl: answering(503, {}) });
+		const text = await projectLabels("on", { env });
+		expect(text).toMatch(
+			/^Project labels: on - names sent earlier are deleted first, on the next sync/,
+		);
+		expect(await projectLabels("status", { env })).not.toMatch(/off/);
+	});
+
 	it("keeps the token and refuses an unknown action", async () => {
 		const env = linked();
 		await projectLabels("on", { env });

@@ -18,6 +18,7 @@ import {
 	writeConfig,
 } from "../config";
 import { parseLesson } from "../lessons";
+import { projectKey } from "../project-key";
 import { lessonDigest, readPushed } from "../pushed";
 import { stripSgr } from "../ui";
 
@@ -1077,12 +1078,23 @@ describe("sync reports project labels", () => {
 		return dir;
 	}
 
-	/** 25 events (the report threshold) for s1, opening with a session.start in `dir`. */
-	function sessionIn(dir: string): Record<string, unknown>[] {
-		const [first, ...rest] = sessionEvents("s1", 25).map((e) => ({
+	/**
+	 * `count` events (25 is the report threshold) for one session, opening
+	 * with a session.start in `dir`. By default s1 in onlooker's repo.
+	 */
+	function sessionIn(
+		dir: string,
+		{
+			id = "s1",
+			project = "6a7678979e31",
+			basis = "remote",
+			count = 25,
+		}: { id?: string; project?: string; basis?: string; count?: number } = {},
+	): Record<string, unknown>[] {
+		const [first, ...rest] = sessionEvents(id, count).map((e) => ({
 			...e,
-			project: "6a7678979e31",
-			project_basis: "remote",
+			project,
+			project_basis: basis,
 		}));
 		return [
 			{
@@ -1161,6 +1173,50 @@ describe("sync reports project labels", () => {
 		});
 		await sync({ env, fetchImpl });
 		expect(labelCalls(fetchImpl)).toEqual([]);
+	});
+
+	// Deleting asks nothing of the session rows, so an outage on that leg
+	// must not leave names on the server that someone asked to remove.
+	it("finishes a pending deletion when the session report was refused", async () => {
+		const env = linked();
+		optIn(env, { projectLabels: false, projectLabelsPending: "delete" });
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = routed({
+			sessions: { ok: false, status: 503, json: async () => ({}) },
+		});
+		await sync({ env, fetchImpl });
+		expect(labelCalls(fetchImpl).map(([, init]) => init.method)).toEqual([
+			"DELETE",
+		]);
+		expect(readConfig(env).projectLabelsPending).toBeUndefined();
+	});
+
+	// A session under the report threshold sent no row, so the server would
+	// skip its key and the note would say "not reported" on every sync.
+	it("names only keys the session report carried", async () => {
+		const env = linked();
+		optIn(env);
+		const small = realpathSync(
+			mkdtempSync(join(tmpdir(), "onlooker-sync-small-")),
+		);
+		execFileSync("git", ["init", "-q"], { cwd: small, env: isolatedGit });
+		withEventLog(env, [
+			...sessionIn(onlookerRepo()),
+			...sessionIn(small, {
+				id: "s2",
+				project: projectKey(`root:${small}`),
+				basis: "root",
+				count: 3,
+			}),
+		]);
+		const fetchImpl = accepts();
+		await sync({ env, fetchImpl });
+		const [call] = labelCalls(fetchImpl);
+		expect(
+			JSON.parse(call?.[1].body ?? "{}").labels.map(
+				(l: { project_key: string }) => l.project_key,
+			),
+		).toEqual(["6a7678979e31"]);
 	});
 });
 

@@ -35,7 +35,14 @@ export const WHAT_IS_SENT = [
 /** One line for `status` and this command. */
 export function describeLabels(config: CliConfig, theme: Theme): string {
 	if (config.projectLabelsPending === "delete") {
-		return warn(theme, "off, deletion pending - the next sync retries it");
+		// Turned back on before an `off`'s deletion went through: the choice
+		// is on, and the sync that retries the deletion uploads nothing.
+		return config.projectLabels === true
+			? warn(
+					theme,
+					"on - names sent earlier are deleted first, on the next sync",
+				)
+			: warn(theme, "off, deletion pending - the next sync retries it");
 	}
 	if (config.projectLabels === true) return ok(theme, "on");
 	return `off ${muted(theme, "- `onlooker project-labels on` to name projects from git")}`;

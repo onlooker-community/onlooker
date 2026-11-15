@@ -57,7 +57,9 @@ was deferred with seven problems any design must solve:
     nothing even if what follows fails. Then it calls
     `DELETE /machine/project-labels`. On failure it sets
     `projectLabelsPending: "delete"` and says so; on success it clears it.
-  - `status` shows on, off, or "off, deletion pending".
+  - `status` shows on, off, or "off, deletion pending". Turned back on
+    before a deletion went through, it shows "on - names sent earlier are
+    deleted first, on the next sync".
 - `onlooker status` gains the same one line.
 
 ### Candidates
@@ -65,7 +67,12 @@ was deferred with seven problems any design must solve:
 From the same 7-day window `reportSessions` uses: every `session.start` with a
 `working_directory`, a 12-hex `project` and a `project_basis`. Grouped by
 (key, basis); the newest start's directory is kept, and the older ones are
-tried in turn if it fails verification.
+tried in turn if it fails verification, at most five directories per key.
+
+Only keys this sync's session report carried are candidates: the
+`(basis, key)` pairs in the `counts_by_project` of the summaries that landed.
+A session under `summarizeSessions`' threshold sends no row, so the server
+would skip its key, and every sync would say so.
 
 ### Verification (problems 1, 2, 4)
 
@@ -122,17 +129,26 @@ taught before any CLI sends it.
 
 ### Sync
 
-`reportProjectLabels` runs after `reportSessions` succeeds. The server checks
-each key against the session rows just sent.
+`reportProjectLabels` runs on every sync, after `reportSessions`, and is told
+whether the session report landed. The server checks each key against the
+session rows just sent, so only the upload waits on that report.
 
-- `projectLabelsPending: "delete"` first: retry the DELETE, clear the flag on
-  success, and upload nothing either way.
-- Off: nothing.
-- On: verify, derive, `PUT` all labels in one request (a machine has tens of
-  projects, not thousands).
+- `projectLabelsPending: "delete"` first, whatever the session report did:
+  retry the DELETE, clear the flag on success, and upload nothing either way.
+- Off, or the session report did not land: nothing.
+- On: verify, derive, `PUT` the labels in one request, at most 500 (the
+  server's cap) in candidate order, with the rest counted as held back. A
+  machine has tens of projects, not thousands.
+- `off` can run while a sync does. `cli.json` is read again just before the
+  `PUT`, which is skipped unless labels are still on with no deletion
+  pending, and again after it: off by then, the sync deletes what it sent
+  (pending on failure, like `off`) and says so.
+- A `200` whose body lacks numeric `stored` and `skipped` is reported as
+  "Project labels not sent: unexpected response".
 - Non-fatal and never silent, like the other reports: for example "Project
-  labels: 4 sent, 2 skipped (directory gone: 1, remote changed: 1)". Nothing is
-  printed when on and nothing was skipped.
+  labels: 4 sent, 2 skipped (directory gone: 1, key changed: 1)". "Key
+  changed" covers a remote, basis or root that moved since the session.
+  Nothing is printed when on and nothing was skipped or held back.
 
 ## Part 2: the API
 
