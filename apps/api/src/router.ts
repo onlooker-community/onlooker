@@ -93,9 +93,10 @@ export interface Route {
 	 * `principal` is what a handler acts on: `dispatch` resolves it from the
 	 * route's declared `auth` before the handler runs, via `resolvePrincipal`,
 	 * and almost every handler reads `userId` off it rather than verifying its
-	 * own credential. Four handlers still make their own call because each
+	 * own credential. Six handlers still make their own call because each
 	 * needs a field `Principal` deliberately does not carry (see `db/pool.ts`):
-	 * `handlePutInventory` and `handlePostSessions` need `machineId`,
+	 * `handlePutInventory`, `handlePostSessions` and the two
+	 * `machine-project-labels` handlers need `machineId`,
 	 * `handleGetUserProfile` needs `email`, and `handlePushLessons` needs the
 	 * machine token's `orgId`. The `machineId` and `orgId` ones re-verify
 	 * against D1 and re-write `last_used_at`; the `email` one is a local HMAC
