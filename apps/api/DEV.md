@@ -97,6 +97,10 @@ is, and every route's `auth` is one of:
 ### Machine self-report
 - `PUT /machine/inventory` (machine) - Replace this machine's inventory
 - `POST /machine/sessions` (machine) - Report session summaries
+- `PUT /machine/project-labels` (machine) - Name projects this machine
+  reported, from git; opt-in on the CLI
+- `DELETE /machine/project-labels` (machine) - Delete every name this
+  machine sent
 
 ### Lessons (sync, for plugins)
 - `POST /lessons` (machine) - Push lessons to the pool
