@@ -4,6 +4,7 @@ import { crashReports } from "./commands/crash-reports";
 import { doctor } from "./commands/doctor";
 import { link } from "./commands/link";
 import { playbook } from "./commands/playbook";
+import { projectLabels } from "./commands/project-labels";
 import { status } from "./commands/status";
 import { sync } from "./commands/sync";
 import { isCrash } from "./errors";
@@ -31,6 +32,7 @@ const COMMANDS: Array<[name: string, does: string]> = [
 	["doctor", "which plugin streams are still recording"],
 	["config", "read and change plugin settings, per project or account"],
 	["crash-reports", "whether this CLI may report its own crashes"],
+	["project-labels", "whether sync may name your projects from git"],
 ];
 
 export function usage(theme: Theme): string {
@@ -113,6 +115,8 @@ export async function run(
 			else show("config", text);
 		} else if (command === "crash-reports") {
 			show("crash-reports", crashReports(argv[3], { theme: out }));
+		} else if (command === "project-labels") {
+			show("project-labels", await projectLabels(argv[3], { theme: out }));
 		} else if (
 			command === undefined ||
 			command === "--help" ||

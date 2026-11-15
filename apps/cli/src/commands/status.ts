@@ -16,6 +16,7 @@ import {
 	type Theme,
 	warn,
 } from "../ui";
+import { describeLabels } from "./project-labels";
 
 export interface StatusDeps {
 	env?: NodeJS.ProcessEnv;
@@ -46,6 +47,7 @@ export async function status({
 		field("API:", config.apiBaseUrl),
 		field("Config:", configPath(env)),
 		field("Crashes:", describeConsent(crashConsent(env), theme)),
+		field("Labels:", describeLabels(config, theme)),
 	];
 
 	if (!config.machineToken) {
