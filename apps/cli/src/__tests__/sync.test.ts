@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sync } from "../commands/sync";
 import {
 	type CliConfig,
@@ -1003,6 +1003,16 @@ describe("sync reports session summaries", () => {
  * and only after the session report that tells the server the keys are real.
  */
 describe("sync reports project labels", () => {
+	// `resolveProject` runs git with this process's environment, so a
+	// developer's `url.<base>.insteadOf` would rewrite the origin URL.
+	beforeEach(() => {
+		vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
+		vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	// Cut off from the developer's global config, which signs commits and
 	// seeds hooks through a template directory (see project-key.test.ts).
 	const isolatedGit = {

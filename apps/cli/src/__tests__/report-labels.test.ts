@@ -1,6 +1,49 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ApiClient } from "../api";
+import { writeConfig } from "../config";
 import type { Resolved } from "../project-key";
-import { planLabels } from "../report-labels";
+import { planLabels, reportProjectLabels } from "../report-labels";
+
+describe("reportProjectLabels never throws", () => {
+	const client = {} as ApiClient;
+	const optedIn = (): NodeJS.ProcessEnv => {
+		const env = {
+			ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-report-labels-")),
+		};
+		writeConfig(
+			{
+				apiBaseUrl: "https://api.onlooker.dev",
+				machineToken: "tok",
+				projectLabels: true,
+			},
+			env,
+		);
+		return env;
+	};
+
+	it("returns a note when deriving a label throws", async () => {
+		const note = await reportProjectLabels(
+			client,
+			optedIn(),
+			[{ key: "6a7678979e31", basis: "remote", dirs: ["/a"] }],
+			undefined,
+			() => {
+				throw new Error("EACCES: git exploded");
+			},
+		);
+		expect(note).toBe("Project labels not sent: EACCES: git exploded");
+	});
+
+	it("returns a note when cli.json cannot be read", async () => {
+		const env = optedIn();
+		writeFileSync(join(env.ONLOOKER_DIR as string, "cli.json"), "{not json");
+		const note = await reportProjectLabels(client, env, []);
+		expect(note).toMatch(/^Project labels not sent: /);
+	});
+});
 
 const K = "6a7678979e31";
 const table =

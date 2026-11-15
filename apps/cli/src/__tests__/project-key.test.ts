@@ -2,8 +2,18 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectKey, resolveProject } from "../project-key";
+
+// `resolveProject` runs git with this process's environment, so a developer's
+// `url.<base>.insteadOf` would rewrite the URL the assertions below expect.
+beforeEach(() => {
+	vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
+	vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+});
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
 
 // Parity with the ecosystem's _onlooker_sha256_first12. Each pair is a real
 // key from this machine's event log, next to the origin URL it came from.

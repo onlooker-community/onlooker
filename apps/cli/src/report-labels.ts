@@ -74,6 +74,24 @@ export async function reportProjectLabels(
 	env: NodeJS.ProcessEnv,
 	candidates: Candidate[],
 	fetchImpl?: typeof fetch,
+	resolve: (dir: string) => Resolved = resolveProject,
+): Promise<string | null> {
+	// Everything, not just the PUT: an unreadable cli.json, a git failure
+	// `resolveProject` rethrows, or a disk error inside the deletion must not
+	// escape and cost the lesson push that follows this report.
+	try {
+		return await reportLabels(client, env, candidates, fetchImpl, resolve);
+	} catch (error) {
+		return `Project labels not sent: ${(error as Error).message}`;
+	}
+}
+
+async function reportLabels(
+	client: ApiClient,
+	env: NodeJS.ProcessEnv,
+	candidates: Candidate[],
+	fetchImpl: typeof fetch | undefined,
+	resolve: (dir: string) => Resolved,
 ): Promise<string | null> {
 	const config = readConfig(env);
 	if (config.projectLabelsPending === "delete") {
@@ -82,7 +100,7 @@ export async function reportProjectLabels(
 	}
 	if (config.projectLabels !== true) return null;
 
-	const plan = planLabels(candidates);
+	const plan = planLabels(candidates, resolve);
 	const skipped = Object.entries(plan.skipped)
 		.map(([why, n]) => `${why}: ${n}`)
 		.join(", ");
