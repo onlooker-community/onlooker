@@ -1,4 +1,12 @@
+import { DERIVATION } from "./project-label";
 import type { SessionSummary } from "./sessions";
+
+/** One name for one project, as `sync` uploads it. */
+export interface LabelUpload {
+	project_key: string;
+	basis: "remote" | "root";
+	label: string;
+}
 
 /**
  * The hosted API, and the four things a failure can mean.
@@ -184,6 +192,12 @@ export interface ApiClient {
 	reportSessions(summaries: SessionSummary[]): Promise<void>;
 	/** One window of the machine-side delta, oldest first. */
 	readDelta(since: number, limit: number): Promise<DeltaResponse>;
+	/** Upload derived project names; the server skips any it refuses. */
+	putProjectLabels(
+		labels: LabelUpload[],
+	): Promise<{ stored: number; skipped: number }>;
+	/** Delete every name this machine uploaded. */
+	deleteProjectLabels(): Promise<{ deleted: number }>;
 }
 
 /** The longest a 429 may hold a request, whatever its Retry-After says. */
@@ -311,5 +325,14 @@ export function createClient(
 				body: sessionReportBody(summaries),
 			});
 		},
+		putProjectLabels: (labels) =>
+			call<{ stored: number; skipped: number }>("/machine/project-labels", {
+				method: "PUT",
+				body: JSON.stringify({ derivation: DERIVATION, labels }),
+			}),
+		deleteProjectLabels: () =>
+			call<{ deleted: number }>("/machine/project-labels", {
+				method: "DELETE",
+			}),
 	};
 }

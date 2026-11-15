@@ -6,8 +6,8 @@ import { CliError } from "./errors";
 /**
  * Where the CLI keeps the machine token, and which API it talks to.
  *
- * Deliberately one flat JSON file rather than a config library. There are three
- * settings; a library would be more code than the thing it configures.
+ * Deliberately one flat JSON file rather than a config library. There are a handful
+ * of settings; a library would be more code than the thing it configures.
  */
 export interface CliConfig {
 	apiBaseUrl: string;
@@ -18,6 +18,17 @@ export interface CliConfig {
 	 * nothing is sent.
 	 */
 	crashReports?: boolean;
+	/**
+	 * Whether `sync` may upload labels derived from this machine's git
+	 * remotes (ONL-197). Absent until `onlooker project-labels on|off`;
+	 * absent and false both mean nothing is sent.
+	 */
+	projectLabels?: boolean;
+	/**
+	 * Set when `off` could not delete what was uploaded. Every later sync
+	 * retries the deletion, and uploads nothing, until it succeeds.
+	 */
+	projectLabelsPending?: "delete";
 }
 
 const DEFAULT_API = "https://api.onlooker.dev";
@@ -78,6 +89,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 			typeof stored.crashReports === "boolean"
 				? stored.crashReports
 				: undefined,
+		projectLabels:
+			typeof stored.projectLabels === "boolean"
+				? stored.projectLabels
+				: undefined,
+		projectLabelsPending:
+			stored.projectLabelsPending === "delete" ? "delete" : undefined,
 	};
 }
 

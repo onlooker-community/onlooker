@@ -1,4 +1,4 @@
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -56,5 +56,27 @@ describe("config", () => {
 		writeConfig({ apiBaseUrl: "https://api.onlooker.dev" }, env);
 		require("node:fs").writeFileSync(configPath(env), "{ not json");
 		expect(() => readConfig(env)).toThrow(/could not be read/i);
+	});
+
+	it("keeps the project-label choice, and drops values that are not one", () => {
+		const env = sandbox();
+		writeConfig(
+			{
+				apiBaseUrl: "https://api.onlooker.dev",
+				projectLabels: true,
+				projectLabelsPending: "delete",
+			},
+			env,
+		);
+		expect(readConfig(env)).toMatchObject({
+			projectLabels: true,
+			projectLabelsPending: "delete",
+		});
+		writeFileSync(
+			configPath(env),
+			JSON.stringify({ projectLabels: "yes", projectLabelsPending: "later" }),
+		);
+		expect(readConfig(env).projectLabels).toBeUndefined();
+		expect(readConfig(env).projectLabelsPending).toBeUndefined();
 	});
 });

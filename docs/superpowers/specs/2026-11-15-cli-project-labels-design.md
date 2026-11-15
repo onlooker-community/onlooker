@@ -57,7 +57,9 @@ was deferred with seven problems any design must solve:
     nothing even if what follows fails. Then it calls
     `DELETE /machine/project-labels`. On failure it sets
     `projectLabelsPending: "delete"` and says so; on success it clears it.
-  - `status` shows on, off, or "off, deletion pending".
+  - `status` shows on, off, or "off, deletion pending". Turned back on
+    before a deletion went through, it shows "on - names sent earlier are
+    deleted first, on the next sync".
 - `onlooker status` gains the same one line.
 
 ### Candidates
@@ -65,7 +67,12 @@ was deferred with seven problems any design must solve:
 From the same 7-day window `reportSessions` uses: every `session.start` with a
 `working_directory`, a 12-hex `project` and a `project_basis`. Grouped by
 (key, basis); the newest start's directory is kept, and the older ones are
-tried in turn if it fails verification.
+tried in turn if it fails verification, at most five directories per key.
+
+Only keys this sync's session report carried are candidates: the
+`(basis, key)` pairs in the `counts_by_project` of the summaries that landed.
+A session under `summarizeSessions`' threshold sends no row, so the server
+would skip its key, and every sync would say so.
 
 ### Verification (problems 1, 2, 4)
 
@@ -94,15 +101,24 @@ name.
 `apps/cli/src/project-label.ts`, a pure function from the verified URL or root
 to a label or nothing.
 
-- **Remote.** Parse every form git accepts, then keep only the path:
+- **Remote.** Trim the URL (the key still hashes it exactly as git printed
+  it), parse every form git accepts, then keep only the path:
   - scp-like `[user@]host:path`
   - `ssh://`, `git+ssh://`, `ssh+git://`, `git://`, `http://`, `https://`,
-    each with optional `user[:password]@` and `:port`
+    each with optional `user[:password]@` and `:port`, in any letter case
   - `file://` and local paths yield no label: the path is local disclosure and
     not a name.
-  Then drop a trailing `/` and `.git`, and take the last two segments. Fewer
-  than two segments yields no label. Percent-encoding is decoded only to check
-  the result, which must not contain `@`, `:` or `/` beyond the one separator.
+  - Bracketed IPv6 scp (`git@[::1]:a/b.git`) is not parsed and yields no
+    label. No label never alternates with a label, so supporting it later
+    needs no new number.
+  Then drop a trailing `/` and a trailing `.git` in any case, drop any `_git`
+  segment (Azure DevOps: `dev.azure.com/org/proj/_git/repo` is `proj/repo`),
+  and take the last two segments. Fewer than two segments yields no label.
+  Percent-encoding is decoded and the decoded name is what is sent
+  (`a%20x/b` is `a x/b`). The decoded name must not contain `@`, `:`, `?`,
+  `#` or a `/` beyond the one separator: an encoded one would arrive as a
+  credential, a query or a second path. A `~user` segment is kept as it is
+  (`ssh://h/~alice/b.git` is `~alice/b`; `host:~/repo` is `~/repo`).
 - **Root.** The basename of the verified root.
 - Both pass the server's label rules locally (no control or invisible
   formatting characters, not empty, at most 200 bytes) so a refusal is not
@@ -113,17 +129,26 @@ taught before any CLI sends it.
 
 ### Sync
 
-`reportProjectLabels` runs after `reportSessions` succeeds. The server checks
-each key against the session rows just sent.
+`reportProjectLabels` runs on every sync, after `reportSessions`, and is told
+whether the session report landed. The server checks each key against the
+session rows just sent, so only the upload waits on that report.
 
-- `projectLabelsPending: "delete"` first: retry the DELETE, clear the flag on
-  success, and upload nothing either way.
-- Off: nothing.
-- On: verify, derive, `PUT` all labels in one request (a machine has tens of
-  projects, not thousands).
+- `projectLabelsPending: "delete"` first, whatever the session report did:
+  retry the DELETE, clear the flag on success, and upload nothing either way.
+- Off, or the session report did not land: nothing.
+- On: verify, derive, `PUT` the labels in one request, at most 500 (the
+  server's cap) in candidate order, with the rest counted as held back. A
+  machine has tens of projects, not thousands.
+- `off` can run while a sync does. `cli.json` is read again just before the
+  `PUT`, which is skipped unless labels are still on with no deletion
+  pending, and again after it: off by then, the sync deletes what it sent
+  (pending on failure, like `off`) and says so.
+- A `200` whose body lacks numeric `stored` and `skipped` is reported as
+  "Project labels not sent: unexpected response".
 - Non-fatal and never silent, like the other reports: for example "Project
-  labels: 4 sent, 2 skipped (directory gone: 1, remote changed: 1)". Nothing is
-  printed when on and nothing was skipped.
+  labels: 4 sent, 2 skipped (directory gone: 1, key changed: 1)". "Key
+  changed" covers a remote, basis or root that moved since the session.
+  Nothing is printed when on and nothing was skipped or held back.
 
 ## Part 2: the API
 
