@@ -42,6 +42,7 @@ import {
 	handlePublicLesson,
 	handlePushLessons,
 	handlePutInventory,
+	handlePutMachineProjectLabels,
 	handlePutProjectLabel,
 	handleReadLessons,
 	handleRefresh,
@@ -327,6 +328,13 @@ export const ROUTES: Route[] = [
 		auth: "machine",
 		cors: "app",
 		handler: handlePostSessions,
+	},
+	{
+		method: "PUT",
+		path: "/machine/project-labels",
+		auth: "machine",
+		cors: "app",
+		handler: handlePutMachineProjectLabels,
 	},
 
 	// =========================================================================

@@ -96,6 +96,57 @@ export async function setProjectLabel(
 		.run();
 }
 
+/** One label a machine derived, before the server scopes it. */
+export interface CliLabelInput {
+	project_key: string;
+	basis: "remote" | "root";
+	label: string;
+}
+
+/**
+ * Store labels the CLI derived, each only if this machine reported that key
+ * under that basis (ONL-197, problem 1). Remote rows are shared, so the last
+ * machine to write one owns it; root rows belong to this machine alone.
+ */
+export async function putCliLabels(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+	labels: CliLabelInput[],
+): Promise<{ stored: number; skipped: number }> {
+	if (labels.length === 0) return { stored: 0, skipped: 0 };
+	const { results } = await db
+		.prepare(
+			`SELECT DISTINCT project_key, basis FROM session_projects
+			  WHERE user_id = ? AND machine_id = ?`,
+		)
+		.bind(userId, machineId)
+		.all<{ project_key: string; basis: string }>();
+	const reported = new Set(results.map((r) => `${r.basis}\n${r.project_key}`));
+
+	const writes = labels
+		.filter((l) => reported.has(`${l.basis}\n${l.project_key}`))
+		.map((l) =>
+			db
+				.prepare(
+					`INSERT INTO project_labels (user_id, project_key, machine_id, source, label, written_by)
+					 VALUES (?, ?, ?, 'cli', ?, ?)
+					 ON CONFLICT (user_id, project_key, machine_id, source)
+					 DO UPDATE SET label = excluded.label, written_by = excluded.written_by,
+					               updated_at = CURRENT_TIMESTAMP`,
+				)
+				.bind(
+					userId,
+					l.project_key,
+					l.basis === "root" ? machineId : "",
+					l.label,
+					machineId,
+				),
+		);
+	if (writes.length > 0) await db.batch(writes);
+	return { stored: writes.length, skipped: labels.length - writes.length };
+}
+
 /** Remove the user's name for a key, so the web falls back to the hash. */
 export async function clearProjectLabel(
 	db: D1Database,

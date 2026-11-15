@@ -45,6 +45,7 @@ export {
 	handleGetInventory,
 	handlePutInventory,
 } from "./machine-inventory";
+export { handlePutMachineProjectLabels } from "./machine-project-labels";
 export {
 	handleCreateMachine,
 	handleListMachines,
