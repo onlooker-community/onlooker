@@ -52,6 +52,29 @@ async function list(token: string): Promise<unknown> {
 	return ((await response.json()) as { labels: unknown }).labels;
 }
 
+/** A CLI row as PUT /machine/project-labels would leave it. */
+async function cliRow(
+	userId: string,
+	machineId: string,
+	label: string,
+	rowMachine = "",
+): Promise<void> {
+	await db()
+		.prepare(
+			`INSERT INTO project_labels (user_id, project_key, machine_id, source, label, written_by)
+			 VALUES (?, ?, ?, 'cli', ?, ?)`,
+		)
+		.bind(userId, KEY, rowMachine, label, machineId)
+		.run();
+}
+
+async function userIdOf(accessToken: string): Promise<string> {
+	const response = await exports.default.fetch(`${BASE}/api/users/me`, {
+		headers: { Authorization: `Bearer ${accessToken}` },
+	});
+	return ((await response.json()) as { id: string }).id;
+}
+
 beforeEach(async () => {
 	await db().prepare("DELETE FROM project_labels").run();
 	await db().prepare("DELETE FROM machine_tokens").run();
@@ -244,5 +267,61 @@ describe("PUT /api/project-labels", () => {
 			label: "onlooker",
 		});
 		expect(response.status).toBe(401);
+	});
+});
+
+describe("CLI labels beside the user's (ONL-197)", () => {
+	it("lists a CLI label when the user has named nothing", async () => {
+		const ada = await signup("ada@example.com");
+		const machine = await mint(ada, "laptop");
+		await cliRow(
+			await userIdOf(ada),
+			machine.id,
+			"onlooker-community/onlooker",
+		);
+		expect(await list(ada)).toEqual([
+			{
+				project_key: KEY,
+				machine_id: null,
+				label: "onlooker-community/onlooker",
+			},
+		]);
+	});
+
+	it("prefers the user's label over the CLI's", async () => {
+		const ada = await signup("ada@example.com");
+		const machine = await mint(ada, "laptop");
+		await cliRow(
+			await userIdOf(ada),
+			machine.id,
+			"onlooker-community/onlooker",
+		);
+		await put(ada, { project_key: KEY, machine_id: null, label: "mine" });
+		expect(await list(ada)).toEqual([
+			{ project_key: KEY, machine_id: null, label: "mine" },
+		]);
+	});
+
+	// The page shows what the PUT answers, so a clear must answer with what
+	// the list will say after it, or the CLI's name reappears on reload.
+	it("answers a clear with the CLI label it falls back to", async () => {
+		const ada = await signup("ada@example.com");
+		const machine = await mint(ada, "laptop");
+		await cliRow(
+			await userIdOf(ada),
+			machine.id,
+			"onlooker-community/onlooker",
+		);
+		await put(ada, { project_key: KEY, machine_id: null, label: "mine" });
+		const response = await put(ada, {
+			project_key: KEY,
+			machine_id: null,
+			label: null,
+		});
+		expect(await response.json()).toEqual({
+			project_key: KEY,
+			machine_id: null,
+			label: "onlooker-community/onlooker",
+		});
 	});
 });

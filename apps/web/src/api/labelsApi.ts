@@ -3,9 +3,9 @@ import { apiClient } from "./client";
 // A user's names for their project keys (ONL-189). Beside sessionsApi.ts and
 // deliberately the same shape: transport belongs to client.ts.
 //
-// Browser-authenticated, and the user is the only writer: a name exists here
-// because someone typed it, never because a path or an origin URL left their
-// machine. The CLI's opt-in upload is a separate route (ONL-197).
+// Browser-authenticated. The user writes here; a machine that opted in writes
+// `owner/repo` labels through its own route (ONL-197), and the list prefers
+// the user's.
 
 export const LABEL_ENDPOINTS = {
 	labels: "/api/project-labels",

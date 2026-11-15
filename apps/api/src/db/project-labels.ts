@@ -15,28 +15,53 @@ export interface ProjectLabel {
 }
 
 /**
- * Every label this user has typed.
+ * Every label this user has, one per key.
  *
- * Only `source = 'user'`: nothing else writes rows yet. When ONL-197 adds
- * `'cli'`, this is where the user's label is preferred over the CLI's.
+ * The user's label when there is one, otherwise the one the CLI derived
+ * (ONL-197).
  */
 export async function listProjectLabels(
 	db: D1Database,
 	userId: string,
 ): Promise<ProjectLabel[]> {
+	// 'user' sorts after 'cli', so within one (key, machine) the user's row
+	// is read last and overwrites the CLI's in the map below.
 	const { results } = await db
 		.prepare(
 			`SELECT project_key, machine_id, label FROM project_labels
-			  WHERE user_id = ? AND source = 'user'
-			  ORDER BY project_key, machine_id`,
+			  WHERE user_id = ? AND source IN ('cli', 'user')
+			  ORDER BY project_key, machine_id, source`,
 		)
 		.bind(userId)
 		.all<{ project_key: string; machine_id: string; label: string }>();
-	return results.map((row) => ({
-		project_key: row.project_key,
-		machine_id: row.machine_id === "" ? null : row.machine_id,
-		label: row.label,
-	}));
+	const byIdentity = new Map<string, ProjectLabel>();
+	for (const row of results) {
+		byIdentity.set(`${row.machine_id}\n${row.project_key}`, {
+			project_key: row.project_key,
+			machine_id: row.machine_id === "" ? null : row.machine_id,
+			label: row.label,
+		});
+	}
+	return [...byIdentity.values()];
+}
+
+/** The label the list shows for one key: the user's, else the CLI's. */
+export async function labelFor(
+	db: D1Database,
+	userId: string,
+	projectKey: string,
+	machineId: string | null,
+): Promise<string | null> {
+	const row = await db
+		.prepare(
+			`SELECT label FROM project_labels
+			  WHERE user_id = ? AND project_key = ? AND machine_id = ?
+			    AND source IN ('cli', 'user')
+			  ORDER BY source DESC LIMIT 1`,
+		)
+		.bind(userId, projectKey, machineId ?? "")
+		.first<{ label: string }>();
+	return row?.label ?? null;
 }
 
 /** Whether `machineId` is one of this user's machines, revoked or not. */
