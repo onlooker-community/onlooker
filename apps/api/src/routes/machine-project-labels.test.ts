@@ -81,7 +81,7 @@ function putLabels(machineToken: string, body: unknown): Promise<Response> {
 async function rows(): Promise<unknown[]> {
 	const { results } = await db()
 		.prepare(
-			"SELECT project_key, machine_id, source, label, written_by FROM project_labels ORDER BY project_key",
+			"SELECT project_key, machine_id, source, label, written_by FROM project_labels ORDER BY project_key, source",
 		)
 		.all();
 	return results;
@@ -201,7 +201,7 @@ describe("PUT /machine/project-labels", () => {
 		await report(laptop.token, KEY, "remote");
 		const response = await putLabels(laptop.token, {
 			derivation: 1,
-			labels: [{ project_key: KEY, basis: "remote", label: "a‮b" }],
+			labels: [{ project_key: KEY, basis: "remote", label: "a\u{202E}b" }],
 		});
 		expect(response.status).toBe(400);
 		expect(await response.json()).toMatchObject({
@@ -219,6 +219,55 @@ describe("PUT /machine/project-labels", () => {
 		}));
 		const response = await putLabels(laptop.token, { derivation: 1, labels });
 		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: { code: "invalid_labels" },
+		});
+	});
+
+	it("refuses a body over the byte cap before parsing it", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		const response = await putLabels(laptop.token, {
+			derivation: 1,
+			labels: [],
+			padding: "x".repeat(129 * 1024),
+		});
+		expect(response.status).toBe(413);
+		expect(await response.json()).toMatchObject({
+			error: { code: "labels_too_large" },
+		});
+	});
+
+	it("refuses a body that is not JSON", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		const response = await exports.default.fetch(
+			`${BASE}/machine/project-labels`,
+			{
+				method: "PUT",
+				headers: { Authorization: `Bearer ${laptop.token}` },
+				body: "{nope",
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: { code: "invalid_labels" },
+		});
+	});
+
+	it("counts a key sent twice once, and keeps the later label", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		await report(laptop.token, KEY, "remote");
+		const response = await putLabels(laptop.token, {
+			derivation: 1,
+			labels: [
+				{ project_key: KEY, basis: "remote", label: "first/one" },
+				{ project_key: KEY, basis: "remote", label: "second/two" },
+			],
+		});
+		expect(await response.json()).toEqual({ stored: 1, skipped: 0 });
+		expect(await rows()).toMatchObject([{ label: "second/two" }]);
 	});
 
 	it("lets a second machine take over a shared remote label", async () => {
@@ -268,7 +317,10 @@ describe("PUT /machine/project-labels", () => {
 				},
 			],
 		});
-		expect(await rows()).toHaveLength(2);
+		expect(await rows()).toMatchObject([
+			{ source: "cli", label: "onlooker-community/onlooker" },
+			{ source: "user", label: "mine" },
+		]);
 	});
 });
 
@@ -321,11 +373,106 @@ describe("DELETE /machine/project-labels", () => {
 		]);
 	});
 
+	// Remote rows are shared: once the desktop took the label over, the
+	// laptop's `off` must not remove what the desktop still consents to.
+	it("leaves a label another machine took over", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		const desktop = await mint(ada, "desktop");
+		await report(laptop.token, KEY, "remote");
+		await report(desktop.token, KEY, "remote");
+		const body = {
+			derivation: 1,
+			labels: [
+				{
+					project_key: KEY,
+					basis: "remote",
+					label: "onlooker-community/onlooker",
+				},
+			],
+		};
+		await putLabels(laptop.token, body);
+		await putLabels(desktop.token, body);
+
+		const response = await deleteLabels(laptop.token);
+		expect(await response.json()).toEqual({ deleted: 0 });
+		expect(await rows()).toMatchObject([
+			{ project_key: KEY, source: "cli", written_by: desktop.id },
+		]);
+	});
+
 	it("is a no-op the second time", async () => {
 		const ada = await signup("ada@example.com");
 		const laptop = await mint(ada, "laptop");
 		expect(await (await deleteLabels(laptop.token)).json()).toEqual({
 			deleted: 0,
 		});
+	});
+});
+
+function userLabel(accessToken: string, key: string, label: string) {
+	return exports.default.fetch(`${BASE}/api/project-labels`, {
+		method: "PUT",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${accessToken}`,
+		},
+		body: JSON.stringify({ project_key: key, machine_id: null, label }),
+	});
+}
+
+function revoke(accessToken: string, id: string): Promise<Response> {
+	return exports.default.fetch(`${BASE}/api/machines/${id}`, {
+		method: "DELETE",
+		headers: { Authorization: `Bearer ${accessToken}` },
+	});
+}
+
+// Revoking withdraws the machine's consent, and a revoked machine can no
+// longer run `off` itself (decided 2026-11-15).
+describe("DELETE /api/machines/:id", () => {
+	it("deletes the CLI labels that machine wrote", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		await report(laptop.token, KEY, "remote");
+		await putLabels(laptop.token, {
+			derivation: 1,
+			labels: [{ project_key: KEY, basis: "remote", label: "a/b" }],
+		});
+		expect((await revoke(ada, laptop.id)).status).toBe(200);
+		expect(await rows()).toEqual([]);
+	});
+
+	it("keeps the user's labels and other machines' CLI labels", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		const desktop = await mint(ada, "desktop");
+		await report(laptop.token, KEY, "remote");
+		await report(desktop.token, OTHER, "root");
+		await putLabels(laptop.token, {
+			derivation: 1,
+			labels: [{ project_key: KEY, basis: "remote", label: "a/b" }],
+		});
+		await putLabels(desktop.token, {
+			derivation: 1,
+			labels: [{ project_key: OTHER, basis: "root", label: "notes" }],
+		});
+		await userLabel(ada, KEY, "mine");
+		await revoke(ada, laptop.id);
+		expect(await rows()).toMatchObject([
+			{ project_key: KEY, source: "user", label: "mine" },
+			{ project_key: OTHER, source: "cli", written_by: desktop.id },
+		]);
+	});
+
+	it("keeps the machine's sessions", async () => {
+		const ada = await signup("ada@example.com");
+		const laptop = await mint(ada, "laptop");
+		await report(laptop.token, KEY, "remote");
+		await revoke(ada, laptop.id);
+		const row = await db()
+			.prepare("SELECT COUNT(*) AS n FROM session_summaries")
+			.first<{ n: number }>();
+		expect(row?.n).toBe(1);
 	});
 });

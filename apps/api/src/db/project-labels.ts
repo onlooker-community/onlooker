@@ -1,4 +1,7 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type {
+	D1Database,
+	D1PreparedStatement,
+} from "@cloudflare/workers-types";
 
 /**
  * A user's name for one project key, as the browser sees it (ONL-189).
@@ -124,7 +127,12 @@ export async function putCliLabels(
 		.all<{ project_key: string; basis: string }>();
 	const reported = new Set(results.map((r) => `${r.basis}\n${r.project_key}`));
 
-	const writes = labels
+	// One body may name a key twice. Each would upsert and count, so keep the
+	// last per (basis, key) and count distinct rows.
+	const distinct = [
+		...new Map(labels.map((l) => [`${l.basis}\n${l.project_key}`, l])).values(),
+	];
+	const writes = distinct
 		.filter((l) => reported.has(`${l.basis}\n${l.project_key}`))
 		.map((l) =>
 			db
@@ -144,7 +152,24 @@ export async function putCliLabels(
 				),
 		);
 	if (writes.length > 0) await db.batch(writes);
-	return { stored: writes.length, skipped: labels.length - writes.length };
+	return { stored: writes.length, skipped: distinct.length - writes.length };
+}
+
+/**
+ * The statement that removes the CLI labels this machine wrote last. Returned
+ * rather than run so revoking a machine can batch it with the revoke.
+ */
+export function cliLabelsDelete(
+	db: D1Database,
+	userId: string,
+	machineId: string,
+): D1PreparedStatement {
+	return db
+		.prepare(
+			`DELETE FROM project_labels
+			  WHERE user_id = ? AND source = 'cli' AND written_by = ?`,
+		)
+		.bind(userId, machineId);
 }
 
 /** Remove the CLI labels this machine wrote last; the user's stay. */
@@ -153,13 +178,7 @@ export async function deleteCliLabels(
 	userId: string,
 	machineId: string,
 ): Promise<number> {
-	const result = await db
-		.prepare(
-			`DELETE FROM project_labels
-			  WHERE user_id = ? AND source = 'cli' AND written_by = ?`,
-		)
-		.bind(userId, machineId)
-		.run();
+	const result = await cliLabelsDelete(db, userId, machineId).run();
 	return result.meta.changes ?? 0;
 }
 

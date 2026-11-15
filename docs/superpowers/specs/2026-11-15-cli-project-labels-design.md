@@ -164,9 +164,10 @@ Idempotent; returns `{ deleted }`.
 
 `listProjectLabels` returns one label per (key, machine): the `user` row when
 there is one, otherwise the `cli` row. Clearing a user label falls back to the
-CLI's. Removing a revoked machine keeps its labels, as it keeps its sessions
-(2026-11-01 delete-revoked-machines). Revoking a machine stops its writes,
-because its token stops working. `anonymizeUser` already deletes every row.
+CLI's. Revoking a machine deletes the CLI labels it wrote last, because
+revoking withdraws its consent and it can no longer run `off` (decided
+2026-11-15). Its sessions stay. Another opted-in machine re-asserts a shared
+repo's label on its next sync. `anonymizeUser` already deletes every row.
 
 ## Part 3: release and tests
 

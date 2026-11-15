@@ -20,6 +20,13 @@ const DERIVATION = 1;
 const MAX_LABELS = 500;
 
 /**
+ * 500 rows of about 250 bytes (a 12-character key, a basis and a label of up
+ * to 200) is 125 KB at the very most and a real machine sends a few KB; 128 KB
+ * leaves headroom. It bounds what is read and parsed, which MAX_LABELS cannot.
+ */
+const MAX_LABELS_BYTES = 128 * 1024;
+
+/**
  * PUT /machine/project-labels
  *
  * Labels a machine derived from its own repositories, sent only after
@@ -32,9 +39,16 @@ export async function handlePutMachineProjectLabels(
 ): Promise<Response> {
 	const { userId, machineId } = await requireMachineToken(request, env);
 
+	const raw = await request.text();
+	// Measured in bytes, not characters, and before parsing: the row cap below
+	// applies only after a full parse, which is the allocation this bounds.
+	if (new TextEncoder().encode(raw).length > MAX_LABELS_BYTES) {
+		throw new ApiError(413, "labels_too_large", "Too many labels at once");
+	}
+
 	let body: { derivation?: unknown; labels?: unknown };
 	try {
-		body = (await request.json()) as typeof body;
+		body = JSON.parse(raw) as typeof body;
 	} catch {
 		throw new ApiError(400, "invalid_labels", "Labels must be JSON");
 	}

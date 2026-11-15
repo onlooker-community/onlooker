@@ -226,7 +226,7 @@ describe("PUT /api/project-labels", () => {
 		["a zero-width space", { label: "on​looker" }],
 		// Reorders what is displayed after it: the classic way to make a
 		// name read as something it is not.
-		["a bidi override", { label: "‮ekoolno" }],
+		["a bidi override", { label: "\u{202E}ekoolno" }],
 		["a lone surrogate", { label: "on\uD800looker" }],
 	])("refuses %s", async (_name, overrides) => {
 		const ada = await signup("ada@example.com");
