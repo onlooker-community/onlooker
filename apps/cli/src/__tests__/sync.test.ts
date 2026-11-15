@@ -1,15 +1,22 @@
+import { execFileSync } from "node:child_process";
 import {
 	cpSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { sync } from "../commands/sync";
-import { writeConfig } from "../config";
+import {
+	type CliConfig,
+	readConfig,
+	readStoredConfig,
+	writeConfig,
+} from "../config";
 import { parseLesson } from "../lessons";
 import { lessonDigest, readPushed } from "../pushed";
 import { stripSgr } from "../ui";
@@ -77,10 +84,21 @@ const routed = (
 		sessions?: unknown;
 		pull?: unknown;
 		push?: unknown;
+		labels?: unknown;
 	} = {},
 ) =>
 	vi.fn().mockImplementation(async (url: unknown, init: { body: string }) => {
 		const path = String(url);
+		if (path.endsWith("/machine/project-labels")) {
+			return (
+				over.labels ?? {
+					ok: true,
+					status: 200,
+					json: async () =>
+						init.body ? { stored: 1, skipped: 0 } : { deleted: 1 },
+				}
+			);
+		}
 		if (path.endsWith("/machine/inventory")) {
 			return (
 				over.inventory ?? {
@@ -124,7 +142,10 @@ const routed = (
 const accepts = () => routed();
 
 /** Which of sync's four requests a URL is. */
-const leg = (url: string): "inventory" | "sessions" | "pull" | "push" => {
+const leg = (
+	url: string,
+): "inventory" | "sessions" | "labels" | "pull" | "push" => {
+	if (url.endsWith("/machine/project-labels")) return "labels";
 	if (url.endsWith("/machine/inventory")) return "inventory";
 	if (url.endsWith("/machine/sessions")) return "sessions";
 	return url.includes("since=") ? "pull" : "push";
@@ -974,6 +995,162 @@ describe("sync reports session summaries", () => {
 		const sent = JSON.parse(reports[0][1].body);
 		expect(sent.sessions).toHaveLength(1);
 		expect(sent.sessions[0].event_count).toBe(25);
+	});
+});
+
+/**
+ * Project labels: derived from git on this machine, sent only once opted in,
+ * and only after the session report that tells the server the keys are real.
+ */
+describe("sync reports project labels", () => {
+	// Cut off from the developer's global config, which signs commits and
+	// seeds hooks through a template directory (see project-key.test.ts).
+	const isolatedGit = {
+		...process.env,
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_CONFIG_NOSYSTEM: "1",
+	};
+
+	function eventEnvelope(
+		session_id: string,
+		event_type: string,
+		minutesAgo: number,
+	): Record<string, unknown> {
+		return {
+			event_type,
+			session_id,
+			timestamp: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+		};
+	}
+
+	function sessionEvents(
+		session_id: string,
+		count: number,
+	): Record<string, unknown>[] {
+		return Array.from({ length: count }, (_, i) =>
+			eventEnvelope(session_id, "tool.shell.exec", count - i),
+		);
+	}
+
+	function withEventLog(env: NodeJS.ProcessEnv, lines: unknown[]): void {
+		const dir = join(env.ONLOOKER_DIR as string, "logs");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "onlooker-events.jsonl"),
+			`${lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n")}\n`,
+		);
+	}
+
+	const labelCalls = (fetchImpl: {
+		mock: { calls: unknown[][] };
+	}): FetchCall[] =>
+		fetchImpl.mock.calls.filter(([url]) =>
+			String(url).endsWith("/machine/project-labels"),
+		) as FetchCall[];
+
+	/** A temp repo whose origin is onlooker's, so its key is 6a7678979e31. */
+	function onlookerRepo(): string {
+		const dir = realpathSync(
+			mkdtempSync(join(tmpdir(), "onlooker-sync-repo-")),
+		);
+		execFileSync("git", ["init", "-q"], { cwd: dir, env: isolatedGit });
+		execFileSync(
+			"git",
+			[
+				"remote",
+				"add",
+				"origin",
+				"git@github.com:onlooker-community/onlooker.git",
+			],
+			{ cwd: dir, env: isolatedGit },
+		);
+		return dir;
+	}
+
+	/** 25 events (the report threshold) for s1, opening with a session.start in `dir`. */
+	function sessionIn(dir: string): Record<string, unknown>[] {
+		const [first, ...rest] = sessionEvents("s1", 25).map((e) => ({
+			...e,
+			project: "6a7678979e31",
+			project_basis: "remote",
+		}));
+		return [
+			{
+				...first,
+				event_type: "session.start",
+				payload: { working_directory: dir },
+			},
+			...rest,
+		];
+	}
+
+	const optIn = (env: NodeJS.ProcessEnv, extra: Record<string, unknown> = {}) =>
+		writeConfig(
+			{ ...readStoredConfig(env), projectLabels: true, ...extra } as CliConfig,
+			env,
+		);
+
+	it("sends nothing until opted in", async () => {
+		const env = linked();
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = accepts();
+		await sync({ env, fetchImpl });
+		expect(labelCalls(fetchImpl)).toEqual([]);
+	});
+
+	it("names a verified repo owner/repo once opted in", async () => {
+		const env = linked();
+		optIn(env);
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = accepts();
+		await sync({ env, fetchImpl });
+		const [call] = labelCalls(fetchImpl);
+		expect(call?.[1].method).toBe("PUT");
+		expect(JSON.parse(call?.[1].body ?? "{}")).toEqual({
+			derivation: 1,
+			labels: [
+				{
+					project_key: "6a7678979e31",
+					basis: "remote",
+					label: "onlooker-community/onlooker",
+				},
+			],
+		});
+	});
+
+	it("finishes a pending deletion instead of uploading", async () => {
+		const env = linked();
+		optIn(env, { projectLabels: false, projectLabelsPending: "delete" });
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = accepts();
+		await sync({ env, fetchImpl });
+		expect(labelCalls(fetchImpl).map(([, init]) => init.method)).toEqual([
+			"DELETE",
+		]);
+		expect(readConfig(env).projectLabelsPending).toBeUndefined();
+	});
+
+	it("keeps the deletion pending, and says so, when it is refused", async () => {
+		const env = linked();
+		optIn(env, { projectLabels: false, projectLabelsPending: "delete" });
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = routed({
+			labels: { ok: false, status: 503, json: async () => ({}) },
+		});
+		const text = await sync({ env, fetchImpl });
+		expect(readConfig(env).projectLabelsPending).toBe("delete");
+		expect(text).toMatch(/pending/i);
+	});
+
+	it("sends no labels when the session report was refused", async () => {
+		const env = linked();
+		optIn(env);
+		withEventLog(env, sessionIn(onlookerRepo()));
+		const fetchImpl = routed({
+			sessions: { ok: false, status: 503, json: async () => ({}) },
+		});
+		await sync({ env, fetchImpl });
+		expect(labelCalls(fetchImpl)).toEqual([]);
 	});
 });
 

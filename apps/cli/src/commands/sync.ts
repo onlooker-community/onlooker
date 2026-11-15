@@ -10,10 +10,12 @@ import { readConfig } from "../config";
 import { CliError } from "../errors";
 import { readEventEnvelopes } from "../eventlog";
 import { collectInventory } from "../inventory";
+import { CandidateCollector } from "../label-candidates";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 import { type PullOutcome, pull } from "../pull";
 import { lessonDigest, writePushed } from "../pushed";
+import { reportProjectLabels } from "../report-labels";
 import { summarizeSessions } from "../sessions";
 import { muted, ok, PLAIN, type Theme, warn } from "../ui";
 
@@ -86,19 +88,25 @@ const SESSION_WINDOW_DAYS = 7;
  * once summarizing actually starts pulling lines. Both are worded as the same
  * kind of local problem; only a refused request from `client.reportSessions`
  * is worded as a transport one.
+ *
+ * `since` is the caller's, and the same value its `collector` was built with:
+ * the one pass over the log feeds both the summaries and the project-label
+ * candidates, so the two windows must agree. The collector is filled as a side
+ * effect of the stream being read, so it holds nothing if the log is
+ * unavailable.
  */
 async function reportSessions(
 	client: ApiClient,
 	env: NodeJS.ProcessEnv,
+	collector: CandidateCollector,
+	since: string,
 ): Promise<string | null> {
-	const { envelopes, unavailable } = await readEventEnvelopes(env);
+	const { envelopes, unavailable } = await readEventEnvelopes(env, {
+		onSessionStart: (start) => collector.add(start),
+	});
 	if (unavailable !== null) {
 		return `Sessions not reported: ${unavailable}`;
 	}
-
-	const since = new Date(
-		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-	).toISOString();
 
 	let summaries: Awaited<ReturnType<typeof summarizeSessions>>;
 	try {
@@ -212,7 +220,22 @@ export async function sync({
 	// the push would never fire for the machines whose page is emptiest. The
 	// note it returns rides along with whatever this command was going to say.
 	const inventoryNote = await reportInventory(client, env);
-	const sessionsNote = await reportSessions(client, env);
+	const since = new Date(
+		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+	).toISOString();
+	const collector = new CandidateCollector(since);
+	const sessionsNote = await reportSessions(client, env, collector, since);
+	// Only after the sessions landed: the server names a key only if this
+	// machine has reported it, and the report just sent is what says so.
+	const labelsNote =
+		sessionsNote === null
+			? await reportProjectLabels(
+					client,
+					env,
+					collector.candidates(),
+					fetchImpl,
+				)
+			: null;
 
 	const notice = (note: string | null) =>
 		note === null ? null : `${warn(theme, "○")} ${note}`;
@@ -227,7 +250,13 @@ export async function sync({
 	 */
 	const withNote = async (message: string): Promise<string> => {
 		const received = describePull(await pull({ client, env }), theme);
-		return [message, received, notice(inventoryNote), notice(sessionsNote)]
+		return [
+			message,
+			received,
+			notice(inventoryNote),
+			notice(sessionsNote),
+			notice(labelsNote),
+		]
 			.filter((line): line is string => line !== null)
 			.join("\n");
 	};
