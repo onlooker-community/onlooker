@@ -31,8 +31,14 @@ export function isValidLabel(label: string): boolean {
  * Only the path is ever kept, so userinfo, host and port cannot reach the
  * label whatever form the URL takes. A local remote (`file://`, a path) has
  * no name worth sending and its path would be a disclosure, so it is null.
+ *
+ * Bracketed IPv6 scp (`git@[::1]:a/b.git`) is not parsed and yields null.
+ * Null never alternates with a label, so naming it later needs no new
+ * derivation number.
  */
-export function remoteLabel(url: string): string | null {
+export function remoteLabel(raw: string): string | null {
+	// Trimmed here only: the key hashes the exact string git printed.
+	const url = raw.trim();
 	let path: string;
 	const scheme = SCHEME.exec(url)?.[1]?.toLowerCase();
 	if (scheme !== undefined) {
@@ -50,11 +56,13 @@ export function remoteLabel(url: string): string | null {
 		path = scp[1] ?? "";
 	}
 
+	// `_git` is Azure DevOps' marker between project and repo
+	// (dev.azure.com/org/proj/_git/repo), not a name.
 	const segments = path
 		.replace(/\/+$/, "")
-		.replace(/\.git$/, "")
+		.replace(/\.git$/i, "")
 		.split("/")
-		.filter(Boolean);
+		.filter((segment) => segment !== "" && segment !== "_git");
 	if (segments.length < 2) return null;
 	const owner = segments[segments.length - 2] ?? "";
 	const repo = segments[segments.length - 1] ?? "";
@@ -65,9 +73,13 @@ export function remoteLabel(url: string): string | null {
 	} catch {
 		return null;
 	}
-	// Decoded only to check: an encoded `@`, `:` or `/` is a name that could
-	// carry a credential or a second path, and none is a real repo name.
-	if (/[@:]/.test(label) || label.split("/").length !== 2) return null;
+	// The decoded name is what is sent, because it is the one a person would
+	// recognize (`a%20x` is the repo `a x`). The check runs on it for the same
+	// reason: an encoded `@`, `:`, `?`, `#` or `/` would arrive as a credential,
+	// a query or a second path, and none is part of a real repo name. `?` and
+	// `#` also catch a query an scp-like remote, which is never parsed as a
+	// URL, would otherwise keep.
+	if (/[@:?#]/.test(label) || label.split("/").length !== 2) return null;
 	return isValidLabel(label) ? label : null;
 }
 

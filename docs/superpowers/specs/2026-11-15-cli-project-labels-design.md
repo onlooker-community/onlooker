@@ -94,15 +94,24 @@ name.
 `apps/cli/src/project-label.ts`, a pure function from the verified URL or root
 to a label or nothing.
 
-- **Remote.** Parse every form git accepts, then keep only the path:
+- **Remote.** Trim the URL (the key still hashes it exactly as git printed
+  it), parse every form git accepts, then keep only the path:
   - scp-like `[user@]host:path`
   - `ssh://`, `git+ssh://`, `ssh+git://`, `git://`, `http://`, `https://`,
-    each with optional `user[:password]@` and `:port`
+    each with optional `user[:password]@` and `:port`, in any letter case
   - `file://` and local paths yield no label: the path is local disclosure and
     not a name.
-  Then drop a trailing `/` and `.git`, and take the last two segments. Fewer
-  than two segments yields no label. Percent-encoding is decoded only to check
-  the result, which must not contain `@`, `:` or `/` beyond the one separator.
+  - Bracketed IPv6 scp (`git@[::1]:a/b.git`) is not parsed and yields no
+    label. No label never alternates with a label, so supporting it later
+    needs no new number.
+  Then drop a trailing `/` and a trailing `.git` in any case, drop any `_git`
+  segment (Azure DevOps: `dev.azure.com/org/proj/_git/repo` is `proj/repo`),
+  and take the last two segments. Fewer than two segments yields no label.
+  Percent-encoding is decoded and the decoded name is what is sent
+  (`a%20x/b` is `a x/b`). The decoded name must not contain `@`, `:`, `?`,
+  `#` or a `/` beyond the one separator: an encoded one would arrive as a
+  credential, a query or a second path. A `~user` segment is kept as it is
+  (`ssh://h/~alice/b.git` is `~alice/b`; `host:~/repo` is `~/repo`).
 - **Root.** The basename of the verified root.
 - Both pass the server's label rules locally (no control or invisible
   formatting characters, not empty, at most 200 bytes) so a refusal is not
