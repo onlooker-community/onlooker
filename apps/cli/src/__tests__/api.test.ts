@@ -418,3 +418,48 @@ describe("readDelta", () => {
 		).rejects.toMatchObject({ failure: { kind: "unauthorized" } });
 	});
 });
+
+describe("project labels", () => {
+	function recording() {
+		const calls: { url: string; init?: RequestInit }[] = [];
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(async (url: string, init?: RequestInit) => {
+				calls.push({ url, init });
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({ stored: 1, skipped: 0, deleted: 2 }),
+				};
+			});
+		return { calls, fetchImpl };
+	}
+
+	it("puts the derivation version and the labels", async () => {
+		const { calls, fetchImpl } = recording();
+		const labels = [
+			{ project_key: "6a7678979e31", basis: "remote" as const, label: "a/b" },
+		];
+		await createClient("https://api.test", "tok", fetchImpl).putProjectLabels(
+			labels,
+		);
+		expect(calls[0]?.url).toBe("https://api.test/machine/project-labels");
+		expect(calls[0]?.init?.method).toBe("PUT");
+		expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+			derivation: 1,
+			labels,
+		});
+	});
+
+	it("deletes this machine's labels", async () => {
+		const { calls, fetchImpl } = recording();
+		const got = await createClient(
+			"https://api.test",
+			"tok",
+			fetchImpl,
+		).deleteProjectLabels();
+		expect(calls[0]?.url).toBe("https://api.test/machine/project-labels");
+		expect(calls[0]?.init?.method).toBe("DELETE");
+		expect(got.deleted).toBe(2);
+	});
+});

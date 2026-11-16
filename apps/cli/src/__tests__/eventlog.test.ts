@@ -1082,3 +1082,41 @@ describe("byteAtOffsetIsNewline", () => {
 		expect(byteAtOffsetIsNewline("/does/not/matter", -1)).toBe(true);
 	});
 });
+
+describe("readEventEnvelopes onSessionStart", () => {
+	it("hands session.start directories to the callback and never to the envelope", async () => {
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				session_id: "s1",
+				timestamp: "2026-11-15T12:00:00.000Z",
+				project: "6a7678979e31",
+				project_basis: "remote",
+				payload: { working_directory: "/src/onlooker" },
+			},
+			{
+				event_type: "tool.used",
+				session_id: "s1",
+				timestamp: "2026-11-15T12:01:00.000Z",
+				project: "6a7678979e31",
+				project_basis: "remote",
+				payload: { working_directory: "/elsewhere" },
+			},
+		]);
+		const starts: unknown[] = [];
+		const { envelopes } = await readEventEnvelopes(env, {
+			onSessionStart: (s) => starts.push(s),
+		});
+		const seen = await collect(envelopes);
+
+		expect(starts).toEqual([
+			{
+				timestamp: "2026-11-15T12:00:00.000Z",
+				project: "6a7678979e31",
+				project_basis: "remote",
+				working_directory: "/src/onlooker",
+			},
+		]);
+		expect(JSON.stringify(seen)).not.toContain("working_directory");
+	});
+});

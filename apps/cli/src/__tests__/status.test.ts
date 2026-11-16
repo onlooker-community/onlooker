@@ -17,6 +17,15 @@ const ok = () =>
 	});
 
 describe("status", () => {
+	it("shows whether project labels are on", async () => {
+		const env = { ONLOOKER_DIR: mkdtempSync(join(tmpdir(), "onlooker-st-")) };
+		writeConfig(
+			{ apiBaseUrl: "https://api.onlooker.dev", projectLabels: true },
+			env,
+		);
+		expect(await status({ env, fetchImpl: ok() })).toMatch(/Labels:\s+on/);
+	});
+
 	it("says so when nothing is linked, without calling the API", async () => {
 		const fetchImpl = ok();
 		const message = await status({
@@ -243,7 +252,7 @@ describe("status", () => {
 		const columns = message
 			.split("\n")
 			.map((line) => /^\S+\s+/.exec(line)?.[0].length);
-		expect(message.split("\n")).toHaveLength(5);
+		expect(message.split("\n")).toHaveLength(6);
 		expect(new Set(columns).size).toBe(1);
 	});
 
@@ -287,7 +296,7 @@ describe("status", () => {
 		const message = await status({ env, fetchImpl: ok() });
 		// Continuation lines start with a space and carry no label.
 		const labeled = message.split("\n").filter((line) => /^\S/.test(line));
-		expect(labeled.length).toBe(6);
+		expect(labeled.length).toBe(7);
 		for (const line of labeled) {
 			// The first colon is always the label's - a value containing one
 			// (the API URL) has it later. Every value begins at column 10.

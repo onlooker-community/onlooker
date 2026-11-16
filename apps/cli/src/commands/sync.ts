@@ -10,10 +10,12 @@ import { readConfig } from "../config";
 import { CliError } from "../errors";
 import { readEventEnvelopes } from "../eventlog";
 import { collectInventory } from "../inventory";
+import { CandidateCollector } from "../label-candidates";
 import { batch, discoverApproved, MAX_BATCH, parseLesson } from "../lessons";
 import { pipelineClause, surveyPipeline } from "../pipeline";
 import { type PullOutcome, pull } from "../pull";
 import { lessonDigest, writePushed } from "../pushed";
+import { reportProjectLabels } from "../report-labels";
 import { summarizeSessions } from "../sessions";
 import { muted, ok, PLAIN, type Theme, warn } from "../ui";
 
@@ -86,19 +88,30 @@ const SESSION_WINDOW_DAYS = 7;
  * once summarizing actually starts pulling lines. Both are worded as the same
  * kind of local problem; only a refused request from `client.reportSessions`
  * is worded as a transport one.
+ *
+ * `since` is the caller's, and the same value its `collector` was built with:
+ * the one pass over the log feeds both the summaries and the project-label
+ * candidates, so the two windows must agree. The collector is filled as a side
+ * effect of the stream being read, so it holds nothing if the log is
+ * unavailable.
+ *
+ * `reported` is every `${basis}\n${key}` in the summaries that landed. A
+ * session under the threshold sends no row, so the server would skip its key;
+ * labels are offered only for these.
  */
 async function reportSessions(
 	client: ApiClient,
 	env: NodeJS.ProcessEnv,
-): Promise<string | null> {
-	const { envelopes, unavailable } = await readEventEnvelopes(env);
+	collector: CandidateCollector,
+	since: string,
+): Promise<{ note: string | null; reported: Set<string> }> {
+	const reported = new Set<string>();
+	const { envelopes, unavailable } = await readEventEnvelopes(env, {
+		onSessionStart: (start) => collector.add(start),
+	});
 	if (unavailable !== null) {
-		return `Sessions not reported: ${unavailable}`;
+		return { note: `Sessions not reported: ${unavailable}`, reported };
 	}
-
-	const since = new Date(
-		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-	).toISOString();
 
 	let summaries: Awaited<ReturnType<typeof summarizeSessions>>;
 	try {
@@ -107,9 +120,12 @@ async function reportSessions(
 		// A failure discovered mid-stream rather than up front - see
 		// `EventLogEnvelopes.unavailable`'s own docstring. Still a local
 		// problem, so it is worded like one rather than like a refusal.
-		return `Sessions not reported: ${(error as Error).message}`;
+		return {
+			note: `Sessions not reported: ${(error as Error).message}`,
+			reported,
+		};
 	}
-	if (summaries.length === 0) return null;
+	if (summaries.length === 0) return { note: null, reported };
 
 	// Several requests rather than one (ONL-188): a busy week is larger than
 	// the API takes in a single body, and one refused body reported nothing.
@@ -123,13 +139,24 @@ async function reportSessions(
 			await client.reportSessions(chunk);
 		} catch (error) {
 			const reason = (error as Error).message;
-			return sent === 0
-				? `Sessions not reported: ${reason}`
-				: `Sessions partly reported: ${sent} of ${summaries.length} sent before the API refused the rest: ${reason}`;
+			return {
+				note:
+					sent === 0
+						? `Sessions not reported: ${reason}`
+						: `Sessions partly reported: ${sent} of ${summaries.length} sent before the API refused the rest: ${reason}`,
+				reported,
+			};
 		}
 		sent += chunk.length;
+		for (const summary of chunk) {
+			for (const [key, { basis }] of Object.entries(
+				summary.counts_by_project,
+			)) {
+				reported.add(`${basis}\n${key}`);
+			}
+		}
 	}
-	return null;
+	return { note: null, reported };
 }
 
 /**
@@ -212,7 +239,26 @@ export async function sync({
 	// the push would never fire for the machines whose page is emptiest. The
 	// note it returns rides along with whatever this command was going to say.
 	const inventoryNote = await reportInventory(client, env);
-	const sessionsNote = await reportSessions(client, env);
+	const since = new Date(
+		Date.now() - SESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+	).toISOString();
+	const collector = new CandidateCollector(since);
+	const { note: sessionsNote, reported } = await reportSessions(
+		client,
+		env,
+		collector,
+		since,
+	);
+	// Uploads only after the sessions landed, and only for the keys they
+	// carried: the server names a key only if this machine has reported it,
+	// and the report just sent is what says so. A pending deletion asks
+	// nothing of the session rows, so it runs whatever that report did.
+	const labelsNote = await reportProjectLabels(
+		client,
+		env,
+		collector.candidates().filter((c) => reported.has(`${c.basis}\n${c.key}`)),
+		{ upload: sessionsNote === null, fetchImpl },
+	);
 
 	const notice = (note: string | null) =>
 		note === null ? null : `${warn(theme, "○")} ${note}`;
@@ -227,7 +273,13 @@ export async function sync({
 	 */
 	const withNote = async (message: string): Promise<string> => {
 		const received = describePull(await pull({ client, env }), theme);
-		return [message, received, notice(inventoryNote), notice(sessionsNote)]
+		return [
+			message,
+			received,
+			notice(inventoryNote),
+			notice(sessionsNote),
+			notice(labelsNote),
+		]
 			.filter((line): line is string => line !== null)
 			.join("\n");
 	};

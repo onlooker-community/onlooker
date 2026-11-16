@@ -3,8 +3,9 @@ import { execFileSync } from "node:child_process";
 /**
  * Files the working tree has changed, relative to the repository root.
  *
- * One of two subprocesses in the CLI, both `git`; the other is the root
- * lookup in `settings.ts`. Nothing else here shells out, and that was a
+ * One of three subprocess sites in the CLI, all `git`; the others are the
+ * root lookup in `settings.ts` and the project key derivation in
+ * `project-key.ts`. Nothing else here shells out, and that was a
  * property worth keeping - but the alternatives are parsing `.git` by hand or
  * asking a person to list their own changed files, and both are worse than
  * one well-guarded `git` call.

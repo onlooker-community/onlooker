@@ -188,13 +188,16 @@ describe("presentation", () => {
 		expect(text.split("\n")[0]).toBe(
 			" ONLOOKER  push approved lessons to app.onlooker.dev",
 		);
-		// The column is as wide as the longest name, `crash-reports`, plus two.
-		expect(text).toContain("  onlooker link           connect this machine");
+		// The column is as wide as the longest name, `project-labels`, plus two.
+		expect(text).toContain("  onlooker link            connect this machine");
 		expect(text).toContain(
-			"  onlooker playbook       which mirrored lessons apply here",
+			"  onlooker playbook        which mirrored lessons apply here",
 		);
 		expect(text).toContain(
-			"  onlooker crash-reports  whether this CLI may report its own crashes",
+			"  onlooker crash-reports   whether this CLI may report its own crashes",
+		);
+		expect(text).toContain(
+			"  onlooker project-labels  whether sync may name your projects from git",
 		);
 	});
 
