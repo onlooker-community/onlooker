@@ -257,11 +257,12 @@ export async function handlePushLessons(
 	// 1. Everything decidable without touching the database.
 	//
 	// Two passes, because the org is only needed if the batch contains an org
-	// lesson and only parsing can tell. `requireMachineToken` re-verifies
-	// against D1 and rewrites last_used_at, so paying it on every push - the
-	// hottest machine route - to serve the minority that share with an org
-	// would be the wrong trade. A private or public push runs exactly the
-	// queries it ran before this change.
+	// lesson and only parsing can tell. Called directly, `requireMachineToken`
+	// verifies against D1 and rewrites last_used_at, so paying it on every
+	// push - the hottest machine route - to serve the minority that share with
+	// an org would be the wrong trade. Through the router it is answered from
+	// the verification `resolvePrincipal` already made for this request
+	// (ONL-223), so there the condition costs nothing either way.
 	//
 	// The first pass asks ONLY what each candidate claims to be, and screens
 	// nothing. That is deliberate on both counts.

@@ -98,17 +98,18 @@ export interface Route {
 	 * `handlePutInventory`, `handlePostSessions` and the two
 	 * `machine-project-labels` handlers need `machineId`,
 	 * `handleGetUserProfile` needs `email`, and `handlePushLessons` needs the
-	 * machine token's `orgId`. The `machineId` and `orgId` ones re-verify
-	 * against D1 and re-write `last_used_at`; the `email` one is a local HMAC
-	 * verify with no I/O.
+	 * machine token's `orgId`. The `machineId` and `orgId` ones get back the
+	 * verification `resolvePrincipal` already made for this request, so they
+	 * add no D1 read and no second `last_used_at` write (ONL-223, see
+	 * middleware/machine-auth.ts); the `email` one is a local HMAC verify with
+	 * no I/O.
 	 *
 	 * `handlePushLessons` is the only one that resolves CONDITIONALLY, and on
 	 * purpose: it screens the batch first and calls `requireMachineToken`
-	 * only when some lesson in it is `visibility: "org"`. Push is the hottest
-	 * machine route, so a private or public push must not pay a D1 round trip
-	 * and a `last_used_at` rewrite to serve the minority that share with an
-	 * org. Screening is pure, so it runs twice instead - see the comments in
-	 * `routes/lessons.ts`.
+	 * only when some lesson in it is `visibility: "org"`. Through the router
+	 * that call is now answered from the request's own verification, so the
+	 * condition saves nothing there; it matters only when the handler is
+	 * called directly. See the comments in `routes/lessons.ts`.
 	 */
 	handler: (
 		request: Request,
