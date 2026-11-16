@@ -1,0 +1,122 @@
+---
+title: "Your Claude config might not be in ~/.claude"
+description: "Five places in Onlooker's plugins looked for Claude Code's config in ~/.claude instead of asking where it was. None of them failed. Each one reported success and did nothing."
+published: 2026-11-15
+tags: ["plugins"]
+draft: false
+---
+
+import Term from "../../components/Term.astro";
+
+Claude Code keeps its settings, its memory and your global `CLAUDE.md` in one directory. By default that's `~/.claude`. If you set `CLAUDE_CONFIG_DIR`, it's wherever you point it, and plenty of people point it somewhere else. A common reason is keeping accounts apart, with something like `~/.claude-personal` for your own work and another directory for a client. The machine Onlooker is built on is set up that way.
+
+A <Term id="hook">hook</Term> that needs one of those files has to work out where the directory is. Hooks inherit `CLAUDE_CONFIG_DIR` from Claude Code, so the answer is already in the environment. Between August and November we found five places in Onlooker's plugins that didn't check it and used `$HOME/.claude` instead. None of them crashed or logged an error. Each one reported success.
+
+## A wrong path looks like an empty one
+
+Hook code that reads a directory usually starts with a guard like this:
+
+```bash
+[[ -d "$mem_dir" ]] || exit 0
+```
+
+The guard handles a real case. A project where nobody has saved a memory yet has no memory directory, so a plugin that audits memories has nothing to do there, and exiting 0 is correct.
+
+The guard can't tell why the directory is missing, though. "This project has no memories" and "I looked in the wrong place" both show up as a missing directory, and the guard treats them the same. When the path is wrong, the plugin behaves the way it would in a project with no memories. It exits cleanly, and the <Term id="hook-health-log">hook-health log</Term> records a success.
+
+That's why nobody noticed for so long. A plugin that finds nothing looks the same as one with nothing to find, and neither leaves anything to look at.
+
+## Five places that hardcoded the path
+
+In the order we found them:
+
+- **2026-08-30, memory recall in the <Term id="substrate">substrate</Term>.** It missed the memories it was supposed to inject when a session starts.
+- **2026-09-02, curator and librarian's memory store path.** They missed the memory store they audit and write to.
+- **2026-09-02, the config loader every plugin shares.** It missed user-level plugin settings.
+- **2026-10-04, curator's fallback path**, which is used only when curator's config fails to load. It missed the live memory store.
+- **2026-11-08, cartographer's global instruction files.** It missed your global `CLAUDE.md` and `rules/`.
+
+The first was the substrate's memory-recall hook. Its base directory defaulted to `$HOME/.claude`, and a second bug in the same line encoded the project path wrongly. Together they meant SessionStart memory recall injected nothing in any repo on the machine, while still costing 55 to 115 ms per session and reporting success.
+
+Curator and librarian shipped this default for their memory store:
+
+```bash
+'${HOME}/.claude/projects/${CLAUDE_PROJECT_ENCODED}/memory'
+```
+
+Their resolvers substituted `${HOME}` and the project, and `.claude` was a literal. On this machine, the path resolved to a directory under `~/.claude` that didn't exist, while the real store was in `~/.claude-personal`. Curator would check that the directory existed, find it didn't, and report a clean scan. We found it on 2026-09-02, while preparing the <Term id="wave">wave</Term> that would roll both plugins out more widely, and fixed it the same night.
+
+The config loader was the same bug with a longer reach. Every plugin reads its settings through one shared loader, which layers user-level overrides from `settings.json` and `settings.local.json` on top of the shipped defaults. It read those two files from `$HOME/.claude`. On any machine with a relocated config directory, the user layers of the precedence chain couldn't be reached, for every plugin. Nobody had set a user-level override yet, so nothing was being dropped. The first person to set one would have seen it ignored, with no error.
+
+## A wrong path that exists is worse
+
+The fourth one was harder to spot. When curator's config failed to load, it fell back to a path written into the script, and that path still said `${HOME}/.claude`. The fallback only ran when something else had already gone wrong, so it seemed harmless.
+
+When we filed it on 2026-10-04, `~/.claude` still existed on this machine. It was left over from before the move to `~/.claude-personal` and still held three stale project directories. So if the fallback had run, curator would have found a directory and audited it. Its findings would have looked real, but they would have described an abandoned store, not the one Claude Code was using.
+
+A missing directory at least produces nothing. A stale directory produces wrong answers, and it can hide another bug, since the audit appears to run. We fixed the fallback on 2026-11-05. As of 2026-11-15, `~/.claude` no longer exists here.
+
+## Cartographer reported clean
+
+Cartographer audits instruction files. One of its checks, `scope_collision`, compares a project's rules against your global ones. This is how it collected the global ones until 2026-11-08:
+
+```bash
+cartographer_collect_global_files() {
+	# Global ~/.claude/CLAUDE.md and ~/.claude/rules/*.md
+	if [[ -f "$HOME/.claude/CLAUDE.md" ]]; then
+		printf '%s\n' "$HOME/.claude/CLAUDE.md"
+	fi
+	if [[ -d "$HOME/.claude/rules" ]]; then
+		find "$HOME/.claude/rules" -maxdepth 2 -type f -name "*.md" 2>/dev/null
+	fi
+}
+```
+
+Running that function on this machine today, before and after the fix:
+
+```console
+== before
+exit=0
+== after
+/Users/meaganwaller/.claude-personal/CLAUDE.md
+exit=0
+```
+
+Before the fix, the function printed nothing and exited 0. With nothing to compare against, `scope_collision` found no collisions, and cartographer reported it as a clean result.
+
+## The rule
+
+Resolve the config directory from the environment, and fall back to `~/.claude` only when the variable is unset:
+
+```bash
+claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+```
+
+```js
+const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+```
+
+Onlooker's code checks one more variable first, `CLAUDE_HOME`, so tests can redirect the directory without touching `CLAUDE_CONFIG_DIR`. Claude Code doesn't set it, so it only matters if you set it yourself.
+
+Getting the path right is half of the fix. The other half is keeping "I couldn't work out where to look" separate from "I looked and found nothing." Curator got this wrong in a different way: when Claude Code didn't export the encoded project name, curator couldn't build the path at all, and it reported that as `outcome: "ok"`. It now ends that scan with `curator.scan.errored` and `reason: "memory_path_unresolved"`. A store that resolves but doesn't exist yet still reports `ok`, because that's what a new project looks like.
+
+That still leaves one case curator can't detect. If a path resolves but points to the wrong place, the hook can't tell that apart from a project with no memories. The only fix for that is resolving the path correctly in the first place.
+
+## The sweep
+
+After cartographer, we went looking for the rest. The sweep was a grep for `~/.claude`, `$HOME/.claude` and `${HOME}/.claude` across every markdown file, every `plugin.json`, the marketplace manifest, and the comment lines of every shell script. Then we checked each documentation hit against the code it described.
+
+Cartographer turned out to be the only code path left that hardcoded the directory. The docs were a different story. They said `~/.claude` nearly everywhere, which told anyone with a relocated directory that the plugins ignored their config. Several READMEs also told people to put plugin overrides in `~/.claude/settings.json`. On a machine like this one, nothing reads that file. Anyone who followed those READMEs would have reproduced the config-loader bug by hand.
+
+Running the same grep against the plugin code on 2026-11-15, at ecosystem `9a00f698`, every remaining `$HOME/.claude` in `plugins/` and `scripts/` is either a comment explaining one of these bugs or the fallback in the rule above.
+
+## The fix
+
+[Ecosystem #580](https://github.com/onlooker-community/ecosystem/pull/580) shipped on 2026-11-08 and was released in cartographer 0.13.2. It has two parts:
+
+- Cartographer resolves its global directory in the same order as the config loader: `CLAUDE_HOME`, then `CLAUDE_CONFIG_DIR`, then `$HOME/.claude`. A new test covers a relocated directory, the fallback, the precedence and the empty case. The three tests that use a relocated directory failed before the fix.
+- Every documentation path the sweep found now reads `${CLAUDE_CONFIG_DIR:-~/.claude}/…`, which shows the fallback in place. The headers of all 17 plugin config libs use the config loader's own `<claude_dir>` wording. In total, the PR touched 42 files.
+
+Each of the five fixes has a test of its own. Nothing yet fails the build when someone writes a sixth `$HOME/.claude`, so for now the sweep is a grep we have to remember to rerun.
+
+If you keep your config somewhere other than `~/.claude`, update your plugins and run `/cartographer` again. Your global `CLAUDE.md` is now part of the audit, so `scope_collision` has something to compare against.
