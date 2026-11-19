@@ -34,6 +34,18 @@ vi.mock("../api/lessonsApi", () => ({
 	listActivity: () => Promise.resolve({ events: [], nextCursor: null }),
 }));
 
+// The signed-in case lands on /home now, which reads sessions and labels on
+// mount (ONL-298).
+vi.mock("../api/sessionsApi", () => ({
+	SESSION_ENDPOINTS: { sessions: "/api/sessions" },
+	listSessions: () =>
+		Promise.resolve({ sessions: [], cursor: null, has_more: false }),
+}));
+vi.mock("../api/labelsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/labelsApi")>()),
+	listLabels: () => Promise.resolve(new Map()),
+}));
+
 const { default: App } = await import("../App");
 
 describe("/", () => {
@@ -54,7 +66,7 @@ describe("/", () => {
 		expect(await screen.findByLabelText(/password/i)).toBeDefined();
 	});
 
-	it("sends a signed-in person to the pool", async () => {
+	it("sends a signed-in person home", async () => {
 		authState.user = { id: "u1", email: "someone@example.com" };
 
 		render(
@@ -64,7 +76,7 @@ describe("/", () => {
 		);
 
 		expect(
-			await screen.findByRole("navigation", { name: /sections/i }),
+			await screen.findByRole("heading", { level: 1, name: "Home" }),
 		).toBeDefined();
 	});
 

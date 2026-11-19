@@ -4,6 +4,11 @@ import type { IconName } from "./Icon";
 // hand-written copy of it: a route added here is covered without anyone
 // remembering to extend the test.
 export const SECTIONS = [
+	// Sun: the week at a glance. Home is Orgs' already, and Sun clears the
+	// coverage floor in packages/brand/assets.test.ts on every moving ground
+	// (probed 2026-11-18, with Briefcase failing at 5% to prove the probe
+	// measured). See ONL-298.
+	{ to: "/home", label: "Home", icon: "Sun" },
 	// Basket, not ChestTreasure: the brand doc's mapping named ChestTreasure
 	// for the approved pool, but it measures 9% legible against the night
 	// panel this renders on. See onlooker-1kr, and the amendment on the

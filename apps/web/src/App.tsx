@@ -8,6 +8,7 @@ import { monitor } from "./monitoring";
 import AcceptInvitePage from "./pages/AcceptInvitePage";
 import ActivityPage from "./pages/ActivityPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import HomePage from "./pages/HomePage";
 import LessonDetail from "./pages/LessonDetail";
 import LessonsPage from "./pages/LessonsPage";
 import LoginPage from "./pages/LoginPage";
@@ -107,10 +108,9 @@ function Protected({ children }: { children: ReactNode }) {
 /**
  * `/` is a decision, not a page.
  *
- * onlooker-yfw deleted the placeholder dashboard - handler, contract cases,
- * mock branch and page - and landed RequireAuth on /lessons. The landing route
- * moved then; HomePage stayed behind saying "Welcome to the Onlooker platform"
- * over a link to the pool.
+ * onlooker-yfw deleted the placeholder dashboard and landed signed-in people
+ * on /lessons. ONL-298 gave them a real one: /home summarizes the week and
+ * links into each section.
  *
  * It waits for the session rather than guessing. Redirecting on an unresolved
  * one would send a signed-in person refreshing / to /login and then back,
@@ -133,7 +133,7 @@ function RootRedirect() {
 		);
 	}
 
-	return <Navigate to={user ? "/lessons" : "/login"} replace />;
+	return <Navigate to={user ? "/home" : "/login"} replace />;
 }
 
 export default function App() {
@@ -192,6 +192,14 @@ export default function App() {
 						  signing up. See AcceptInvitePage's own doc comment.
 						*/}
 						<Route path="/orgs/invites/:token" element={<AcceptInvitePage />} />
+						<Route
+							path="/home"
+							element={
+								<Protected>
+									<HomePage />
+								</Protected>
+							}
+						/>
 						<Route
 							path="/settings"
 							element={
