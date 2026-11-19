@@ -16,13 +16,17 @@ plugins and lessons at once. To find out, you open each section in turn.
   ordering. Every number comes from the same rollup code the Sessions page
   uses (`lib/sessionRollup.ts`, `lib/pluginActivity.ts`), so the two pages
   cannot disagree.
-- **An overview, never a copy.** Each panel heading links to its full section.
+- **An overview, never a copy.** Each panel ends with a link to its full
+  section. At the foot rather than in the heading, because `Panel`'s title is
+  plain text in an h2, and every other panel's is too.
 - **Couldn't load is not nothing here.** Each panel loads and fails on its own,
   and a failure never renders as an empty state.
-- **The window is the last 7 days, measured from now,** by `started_at` for
-  sessions and `at` for activity. When the loaded rows don't reach back 7 days
-  and the API reports more pages, the panel says "most recent N" instead, the
-  rule `SessionsSummary` already follows.
+- **The window is today and the six days before it,** from local midnight in
+  the reader's timezone, by `started_at` for sessions and `at` for activity.
+  Calendar days rather than 168 hours, so the seven day bars and the headline
+  count describe the same rows. When the loaded rows don't reach back to the
+  window's start and the API reports more pages, the panel says "most recent
+  N" instead, the rule `SessionsSummary` already follows.
 
 ## Routing and placement
 
@@ -32,7 +36,9 @@ plugins and lessons at once. To find out, you open each section in turn.
 - `SECTIONS` in `components/sections.ts` gets `{ to: "/home", label: "Home" }`
   first. That puts it under `shell-headings.test.tsx` automatically. Its icon
   must clear the coverage floor in `packages/brand/assets.test.ts`, and must
-  not be one another section already uses. `Home` is taken by Orgs.
+  not be one another section already uses. `Home` is taken by Orgs, so the
+  icon is `Sun`, added to `UNPLATED_ICONS`. Probed 2026-11-18 against the
+  floor, with Briefcase as the known failure (5%) to prove the probe measures.
 
 ## Loading
 
@@ -51,7 +57,7 @@ use.
 
 ### Recent sessions
 
-Heading links to `/sessions`.
+Links to `/sessions`.
 
 - Headline: "23 sessions · 14h 10m in the last 7 days", or "most recent 200
   sessions" when capped.
@@ -63,7 +69,7 @@ Heading links to `/sessions`.
 
 ### Plugins
 
-Heading links to `/sessions`.
+Links to `/sessions`.
 
 **Activity.** `pluginActivity` per session in the window, summed by
 `lib/pluginRollup.ts` into one line per plugin:
@@ -92,7 +98,7 @@ Heading links to `/sessions`.
 
 ### Lessons
 
-Heading links to `/activity`.
+Links to `/activity`.
 
 - Headline: "2 published · 1 status change in the last 7 days", counted from
   the first `listActivity` page. When that page doesn't reach back 7 days and
@@ -108,6 +114,10 @@ Heading links to `/activity`.
 - `lib/pluginRollup.ts`: summing `pluginActivity` across sessions, and the
   silent list from inventories. Pure.
 - `pages/HomePage.tsx`: loading and per-panel state.
+- `components/DayBar.tsx`: one day's bar row, pulled out of `SessionsSummary`
+  so the home panel and the Sessions page draw days the same way. A day with
+  no sessions draws an empty track, where `SessionsSummary`'s 2% minimum
+  would draw a sliver.
 - `components/HomeSessionsPanel.tsx`, `HomePluginsPanel.tsx`,
   `HomeLessonsPanel.tsx`: presentational, deciding nothing, like
   `SessionsSummary`. Flat in `components/`, as every other component is.
@@ -124,7 +134,9 @@ Heading links to `/activity`.
   state), and capped wording. Plugins also: one inventory request failed.
 - Routing: `/` goes to `/home` signed in and to `/login` signed out.
 - In the browser, against the mock API: light and dark, and phone width with no
-  horizontal scroll.
+  horizontal scroll. The mock never holds sessions (`mockApi.ts`, GET
+  /api/sessions), so locally this shows only the empty states. The loaded
+  state is covered by the panel tests and checked in production after deploy.
 
 ## Delivery
 
