@@ -22,10 +22,11 @@ export default function LoginPage() {
 	}>({});
 
 	// RequireAuth stashes the page the user was blocked from in `state.from`;
-	// send them back there after login, falling back to the pool.
+	// send them back there after login, falling back to "/", which RootRedirect
+	// resolves to wherever a signed-in person lands.
 	const returnTo =
 		(location.state as { from?: { pathname?: string } } | null)?.from
-			?.pathname ?? "/lessons";
+			?.pathname ?? "/";
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
