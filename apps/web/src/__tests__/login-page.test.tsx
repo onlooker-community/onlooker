@@ -33,7 +33,7 @@ function renderLogin(entries: Array<string | object> = ["/login"]) {
 		<MemoryRouter initialEntries={entries}>
 			<Routes>
 				<Route path="/login" element={<LoginPage />} />
-				<Route path="/lessons" element={<p>lessons reached</p>} />
+				<Route path="/" element={<p>root reached</p>} />
 				<Route path="/settings" element={<p>settings reached</p>} />
 			</Routes>
 		</MemoryRouter>,
@@ -69,10 +69,12 @@ describe("LoginPage", () => {
 		);
 	});
 
-	it("sends the user to the pool once login resolves", async () => {
+	// "/" is RootRedirect's to resolve, so it stays the one place that decides
+	// where a signed-in person lands.
+	it("sends the user to the root once login resolves", async () => {
 		renderLogin();
 		fillAndSubmit();
-		expect(await screen.findByText("lessons reached")).toBeDefined();
+		expect(await screen.findByText("root reached")).toBeDefined();
 	});
 
 	// RequireAuth stashes the blocked page in location state. Losing this sends
@@ -91,7 +93,7 @@ describe("LoginPage", () => {
 		renderLogin();
 		fillAndSubmit();
 		expect(await screen.findByText("Invalid email or password")).toBeDefined();
-		expect(screen.queryByText("lessons reached")).toBeNull();
+		expect(screen.queryByText("root reached")).toBeNull();
 	});
 
 	// The provider surfaces failures it handled itself - an expired session, a

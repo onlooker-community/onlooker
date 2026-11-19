@@ -55,9 +55,10 @@ export default function SignupPage() {
 
 		try {
 			// On success the auth factory stores the token and hydrates the
-			// session, so the user is already logged in — go straight to the app.
+			// session, so the user is already logged in. "/" is RootRedirect's to
+			// resolve, so it stays the one place that picks the landing page.
 			await signup(email.trim(), password, name.trim());
-			navigate("/lessons");
+			navigate("/");
 		} catch (err) {
 			setSubmitError(
 				err instanceof Error ? err.message : "Could not create your account.",
