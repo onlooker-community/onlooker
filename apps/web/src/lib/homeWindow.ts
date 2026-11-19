@@ -46,6 +46,11 @@ export interface Windowed<T> {
 	complete: boolean;
 }
 
+/**
+ * Rows from the window's first midnight up to the end of today. Rows after
+ * today are left out like malformed ones - a machine with a fast clock can
+ * report tomorrow, and a day bar must exist for every counted row.
+ */
 export function withinWindow<T>(
 	rows: T[],
 	at: (row: T) => string,
@@ -53,12 +58,16 @@ export function withinWindow<T>(
 	hasMore: boolean,
 ): Windowed<T> {
 	const start = windowStart(now).getTime();
+	// Exclusive: local midnight at the start of tomorrow.
+	const endDate = windowStart(now);
+	endDate.setDate(endDate.getDate() + WINDOW_DAYS);
+	const end = endDate.getTime();
 	const inside: T[] = [];
 	let reachedBefore = false;
 	for (const row of rows) {
 		const time = new Date(at(row)).getTime();
 		// In no window, and in no day bar either.
-		if (Number.isNaN(time)) continue;
+		if (Number.isNaN(time) || time >= end) continue;
 		if (time >= start) inside.push(row);
 		else reachedBefore = true;
 	}

@@ -75,6 +75,22 @@ describe("withinWindow", () => {
 
 	// A malformed timestamp is in no window. Counting it would put a row in
 	// the headline that no day bar contains.
+	// A machine with a fast clock can report tomorrow. No day bar exists for it,
+	// so counting it would put a row in the headline that no bar contains.
+	it("leaves out rows dated after today", () => {
+		const rows = [
+			{ at: "2026-11-19T00:00:00Z" },
+			{ at: "2026-11-18T23:59:59Z" },
+		];
+		const { rows: inside } = withinWindow(rows, at, NOW, false);
+		expect(inside.map((r) => r.at)).toEqual(["2026-11-18T23:59:59Z"]);
+	});
+
+	it("does not treat a future row as proof the window is covered", () => {
+		const rows = [{ at: "2026-11-19T00:00:00Z" }];
+		expect(withinWindow(rows, at, NOW, true).complete).toBe(false);
+	});
+
 	it("skips a row whose timestamp does not parse", () => {
 		const rows = [{ at: "not a date" }, { at: "2026-11-18T10:00:00Z" }];
 		expect(withinWindow(rows, at, NOW, false).rows).toHaveLength(1);
