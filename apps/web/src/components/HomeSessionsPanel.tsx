@@ -7,10 +7,10 @@
  * disagree about a number.
  */
 
+import { useId } from "react";
 import { Link } from "react-router-dom";
-import type { LabelMap } from "../api/labelsApi";
+import { type LabelMap, labelIdentity } from "../api/labelsApi";
 import type { SessionSummary } from "../api/sessionsApi";
-import { projectName } from "../lib/projectEntries";
 import {
 	formatDurationMs,
 	plural,
@@ -18,6 +18,7 @@ import {
 	rollupSessions,
 } from "../lib/sessionRollup";
 import DayBar from "./DayBar";
+import { RepositoryName } from "./ProjectName";
 import { PALETTE } from "./palette";
 import { Panel } from "./ui";
 
@@ -37,6 +38,7 @@ export default function HomeSessionsPanel({
 	days: string[];
 	labels: LabelMap;
 }) {
+	const listId = useId();
 	const footer = (
 		<p style={{ margin: "var(--space-3) 0 0" }}>
 			<Link to="/sessions" style={{ color: PALETTE.accent }}>
@@ -59,8 +61,15 @@ export default function HomeSessionsPanel({
 
 	const rollup = rollupSessions(sessions, !complete);
 	const byDay = new Map(rollup.days.map((day) => [day.day, day]));
+	// Capped, the pages not loaded are older than every loaded row, so a day
+	// before the oldest loaded one is unknown rather than empty. `rollup.days`
+	// is newest first, so its last entry is the oldest loaded day.
+	const oldestLoaded = rollup.days[rollup.days.length - 1]?.day;
+	const oldestIndex = oldestLoaded ? days.indexOf(oldestLoaded) : -1;
+	const drawn =
+		complete || oldestIndex < 0 ? days : days.slice(0, oldestIndex + 1);
 	const busiest = Math.max(
-		...days.map((day) => byDay.get(day)?.durationMs ?? 0),
+		...drawn.map((day) => byDay.get(day)?.durationMs ?? 0),
 	);
 	const total = formatDurationMs(rollup.durationMs);
 	const top = rollupProjects(sessions).projects.slice(0, TOP_REPOSITORIES);
@@ -79,7 +88,7 @@ export default function HomeSessionsPanel({
 				{headline}
 			</div>
 
-			{days.map((day) => (
+			{drawn.map((day) => (
 				<DayBar
 					key={day}
 					label={day}
@@ -88,23 +97,53 @@ export default function HomeSessionsPanel({
 					busiestMs={busiest}
 				/>
 			))}
-
-			{top.length > 0 ? (
-				<ul
-					data-testid="home-repositories"
+			{drawn.length < days.length ? (
+				<p
 					style={{
-						margin: "var(--space-3) 0 0",
-						padding: 0,
-						listStyle: "none",
+						margin: "var(--space-2) 0 0",
+						color: PALETTE.muted,
+						fontSize: "0.85em",
 					}}
 				>
-					{top.map((project) => (
-						<li key={`${project.machineId ?? ""}:${project.key}`}>
-							{projectName(project.key, project.machineId, labels)} ·{" "}
-							{plural(project.events, "event")}
-						</li>
-					))}
-				</ul>
+					Older days not loaded.
+				</p>
+			) : null}
+
+			{top.length > 0 ? (
+				<>
+					<p
+						id={listId}
+						style={{
+							margin: "var(--space-3) 0 0",
+							color: PALETTE.muted,
+							fontSize: "0.85em",
+						}}
+					>
+						Top repositories
+					</p>
+					<ul
+						data-testid="home-repositories"
+						aria-labelledby={listId}
+						style={{
+							margin: "var(--space-1) 0 0",
+							padding: 0,
+							listStyle: "none",
+						}}
+					>
+						{top.map((project) => (
+							<li key={`${project.machineId ?? ""}:${project.key}`}>
+								<RepositoryName
+									project={{ key: project.key, machineId: project.machineId }}
+									name={
+										labels.get(labelIdentity(project.key, project.machineId)) ??
+										null
+									}
+								/>{" "}
+								· {plural(project.events, "event")}
+							</li>
+						))}
+					</ul>
+				</>
 			) : null}
 
 			{footer}

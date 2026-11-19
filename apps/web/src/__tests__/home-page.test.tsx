@@ -126,11 +126,19 @@ describe("HomePage", () => {
 	it("still renders the panel when the labels read fails", async () => {
 		mocks.listLabels.mockRejectedValue(new Error("nope"));
 		mocks.listSessions.mockResolvedValue({
-			sessions: [session()],
+			sessions: [
+				session({
+					counts_by_project: {
+						aaaaaaaaaaaa: { basis: "remote", event_count: 30 },
+					},
+				}),
+			],
 			cursor: null,
 			has_more: false,
 		});
 		renderPage();
 		expect(await screen.findByTestId("home-sessions-headline")).toBeTruthy();
+		// The raw key is the fallback, not a blank.
+		expect(screen.getByText("aaaaaaaaaaaa")).toBeTruthy();
 	});
 });

@@ -62,7 +62,9 @@ Links to `/sessions`.
 - Headline: "23 sessions · 14h 10m in the last 7 days", or "most recent 200
   sessions" when capped.
 - A bar per day for 7 days, from `rollupSessions`. Days with no sessions show
-  as empty bars, not as missing rows.
+  as empty bars, not as missing rows. When the window is capped, bars stop at
+  the oldest loaded day, followed by "Older days not loaded.", because a day
+  the page never read is unknown, not empty.
 - The top 3 repositories by event count, from `rollupProjects`, named through
   `ProjectName`.
 - Empty (no sessions in the window): says so, and points at `onlooker sync`.

@@ -82,6 +82,46 @@ describe("HomeSessionsPanel", () => {
 		expect(screen.getAllByText("0 sessions")).toHaveLength(6);
 	});
 
+	// Days older than the oldest loaded session were never read, so they are
+	// unknown rather than empty. A "0 sessions" bar would claim otherwise.
+	it("stops the bars at the oldest loaded day when capped", () => {
+		renderPanel({
+			complete: false,
+			sessions: [
+				session({ session_id: "a" }),
+				session({
+					session_id: "b",
+					started_at: "2026-11-16T09:00:00Z",
+					ended_at: "2026-11-16T10:00:00Z",
+				}),
+			],
+		});
+		for (const day of DAYS.slice(0, 3))
+			expect(screen.getByText(day)).toBeTruthy();
+		for (const day of DAYS.slice(3)) expect(screen.queryByText(day)).toBeNull();
+		expect(screen.getAllByText("0 sessions")).toHaveLength(1);
+		expect(screen.getByText("Older days not loaded.")).toBeTruthy();
+	});
+
+	it("draws all seven days and no note when complete", () => {
+		renderPanel({ sessions: [session()] });
+		for (const day of DAYS) expect(screen.getByText(day)).toBeTruthy();
+		expect(screen.queryByText("Older days not loaded.")).toBeNull();
+	});
+
+	it("adds no note when capped but the oldest loaded day is the window's first", () => {
+		renderPanel({
+			complete: false,
+			sessions: [
+				session({
+					started_at: "2026-11-12T09:00:00Z",
+					ended_at: "2026-11-12T10:00:00Z",
+				}),
+			],
+		});
+		expect(screen.queryByText("Older days not loaded.")).toBeNull();
+	});
+
 	it("names the top three repositories, by the user's label where there is one", () => {
 		const project = (event_count: number) => ({
 			basis: "remote" as const,
@@ -100,13 +140,20 @@ describe("HomeSessionsPanel", () => {
 			],
 			labels: new Map([[labelIdentity("aaaaaaaaaaaa", null), "onlooker"]]),
 		});
-		const list = screen.getByTestId("home-repositories");
+		const list = screen.getByRole("list", { name: "Top repositories" });
+		expect(list).toBe(screen.getByTestId("home-repositories"));
 		const rows = within(list).getAllByRole("listitem");
 		expect(rows.map((row) => row.textContent)).toEqual([
 			"onlooker · 30 events",
 			"bbbbbbbbbbbb · 20 events",
 			"cccccccccccc · 10 events",
 		]);
+		// A named row keeps its key reachable in a title.
+		expect(
+			within(rows[0] as HTMLElement)
+				.getByText("onlooker")
+				.getAttribute("title"),
+		).toBe("aaaaaaaaaaaa");
 	});
 
 	it("leaves out the repository list when no session carried a repository", () => {
