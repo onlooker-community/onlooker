@@ -97,6 +97,14 @@ Links to `/sessions`.
 - If any inventory request fails, the line says it couldn't check, and lists
   nothing. A partial list would name plugins as silent that a failed machine
   may have run.
+- If the week is capped, the line lists nothing either, for the same reason:
+  an unread session may hold the events that would clear a plugin.
+- A plugin the schema names no events of its own for is never listed. Measured
+  2026-11-19: `ecosystem` is installed everywhere and emits nothing under its
+  own name, so it would be "silent" every week. That week, 8 of the 18
+  installed Onlooker plugins sent no events by prefix.
+- If the sessions read fails, the panel says its activity comes from sessions
+  that could not be loaded, without a second alert.
 
 ### Lessons
 
