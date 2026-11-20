@@ -32,7 +32,7 @@ export interface PluginActivity {
 	unclassified: string[];
 }
 
-interface Tally {
+export interface PluginTally {
 	output: number;
 	skipped: number;
 	failed: number;
@@ -41,7 +41,7 @@ interface Tally {
 }
 
 /** "curator.scan.complete" -> "curator"; the same split counts_by_prefix uses. */
-function pluginOf(type: string): string {
+export function pluginOf(type: string): string {
 	const dot = type.indexOf(".");
 	return dot === -1 ? type : type.slice(0, dot);
 }
@@ -49,21 +49,20 @@ function pluginOf(type: string): string {
 const byName = (a: string, b: string) => a.localeCompare(b);
 
 /**
- * Null when the session carried no per-type counts - a CLI older than 2.12.0 -
- * so the row can fall back to prefixes instead of claiming nothing ran.
+ * Each plugin's events by role, from one session's per-type counts. Observed
+ * events are the harness rather than a plugin, so they are left out.
+ *
+ * Exported for the home page's week (lib/pluginRollup.ts), which sums these
+ * across sessions: the strings pluginActivity formats cannot be added up.
  */
-export function pluginActivity(
+export function pluginTallies(
 	countsByType: Record<string, number>,
-	limit: number,
-): PluginActivity | null {
-	const entries = Object.entries(countsByType);
-	if (entries.length === 0) return null;
-
+): Map<string, PluginTally> {
 	// A Map rather than an object literal: the plugin segment is whatever the
 	// event log carried, and "__proto__" or "constructor" would read through
 	// Object.prototype on a plain object.
-	const tallies = new Map<string, Tally>();
-	for (const [type, count] of entries) {
+	const tallies = new Map<string, PluginTally>();
+	for (const [type, count] of Object.entries(countsByType)) {
 		const role = roleOf(type);
 		// The harness rather than a plugin - see the role's definition in the
 		// schema.
@@ -80,8 +79,20 @@ export function pluginActivity(
 		tally[role ?? "unknown"] += count;
 		tallies.set(plugin, tally);
 	}
+	return tallies;
+}
 
-	const all = [...tallies.entries()];
+/**
+ * Null when the session carried no per-type counts - a CLI older than 2.12.0 -
+ * so the row can fall back to prefixes instead of claiming nothing ran.
+ */
+export function pluginActivity(
+	countsByType: Record<string, number>,
+	limit: number,
+): PluginActivity | null {
+	if (Object.keys(countsByType).length === 0) return null;
+
+	const all = [...pluginTallies(countsByType).entries()];
 	// Output is the stronger statement, so a plugin that produced is named
 	// there and nowhere else on the line - except for failures, which are
 	// worth saying beside output.
