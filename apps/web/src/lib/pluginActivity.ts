@@ -41,7 +41,7 @@ export interface PluginTally {
 }
 
 /** "curator.scan.complete" -> "curator"; the same split counts_by_prefix uses. */
-function pluginOf(type: string): string {
+export function pluginOf(type: string): string {
 	const dot = type.indexOf(".");
 	return dot === -1 ? type : type.slice(0, dot);
 }

@@ -9,6 +9,7 @@
 import { EVENT_TYPE_ROLES } from "@onlooker-community/schema/event-roles";
 import type { Inventory, Machine } from "../api/machinesApi";
 import type { SessionSummary } from "../api/sessionsApi";
+import { pluginOf } from "./pluginActivity";
 
 /** Plugins from any other marketplace never emit Onlooker events. */
 const ONLOOKER_MARKETPLACE = "onlooker-community";
@@ -21,7 +22,7 @@ const ONLOOKER_MARKETPLACE = "onlooker-community";
 const EMITTERS = new Set(
 	Object.entries(EVENT_TYPE_ROLES)
 		.filter(([, role]) => role !== "observed")
-		.map(([type]) => type.slice(0, type.indexOf("."))),
+		.map(([type]) => pluginOf(type)),
 );
 
 /** Machines whose inventory can say what is installed: live, and reported. */
