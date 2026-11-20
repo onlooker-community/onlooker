@@ -47,8 +47,9 @@ On mount, in parallel:
 1. `listSessions({ limit: 200 })` feeds Recent sessions and Plugins.
 2. `listActivity()`, the first page of the reader's own lesson events, feeds
    Lessons.
-3. `listMachines()`, then `getMachineInventory(id)` for each machine with no
-   `revoked_at` and no `removed_at`, feeds the silent-plugin line of Plugins.
+3. `listMachines()`, then `getMachineInventory(id)` for each machine that is
+   live (no `revoked_at`, no `removed_at`) and has reported an inventory
+   (`inventory_at` set), feeds the silent-plugin line of Plugins.
 
 A failed request gets the same `lib/apiErrors.ts` wording the section pages
 use.
@@ -92,6 +93,14 @@ Links to `/sessions`.
 - A plugin counts as installed when some active machine has a scope with
   `enabled` true or null. Null means the CLI could not tell, and dropping it
   would hide a plugin that may be on.
+- A plugin counts as heard when a session's `counts_by_prefix` or its
+  `plugins` names it. `plugins` comes from each event's envelope, which is how
+  archivist is heard: its output goes out as `onlooker.artifact.ready`, under
+  another plugin's prefix.
+- "No Onlooker plugins are installed." is a different case from "No machine
+  has reported its installed plugins.". The first means machines reported and
+  none has an Onlooker plugin enabled. The second means no machine has
+  reported an inventory.
 - The wording is "no events", not "broken". Some plugins fire rarely, and a
   plugin installed for one project is quiet everywhere else.
 - If any inventory request fails, the line says it couldn't check, and lists
@@ -121,8 +130,9 @@ Links to `/activity`.
 
 - `lib/homeWindow.ts`: the 7-day cutoff, filtering rows into it, and whether
   the window is complete or capped. Pure.
-- `lib/pluginRollup.ts`: summing `pluginActivity` across sessions, and the
-  silent list from inventories. Pure.
+- `lib/pluginRollup.ts`: summing `pluginActivity` across sessions. Pure.
+- `lib/installedPlugins.ts`: working out which plugins are installed, from
+  inventories, and which of them are silent. Pure.
 - `pages/HomePage.tsx`: loading and per-panel state.
 - `components/DayBar.tsx`: one day's bar row, pulled out of `SessionsSummary`
   so the home panel and the Sessions page draw days the same way. A day with
