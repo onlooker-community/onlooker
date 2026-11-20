@@ -3,12 +3,20 @@ process.env.TZ = "UTC";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Inventory, Machine } from "../api/machinesApi";
 import type { SessionSummary } from "../api/sessionsApi";
 import HomePage from "../pages/HomePage";
 
 const mocks = vi.hoisted(() => ({
 	listSessions: vi.fn(),
 	listLabels: vi.fn(),
+	listMachines: vi.fn(),
+	getMachineInventory: vi.fn(),
+}));
+
+vi.mock("../api/machinesApi", () => ({
+	listMachines: mocks.listMachines,
+	getMachineInventory: mocks.getMachineInventory,
 }));
 
 vi.mock("../api/sessionsApi", () => ({
@@ -39,6 +47,42 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 	};
 }
 
+function machine(over: Partial<Machine> = {}): Machine {
+	return {
+		id: "m1",
+		name: "laptop",
+		created_at: "2026-11-01T00:00:00Z",
+		last_used_at: null,
+		revoked_at: null,
+		removed_at: null,
+		inventory_at: "2026-11-18T00:00:00Z",
+		plugin_count: 1,
+		org_id: null,
+		...over,
+	};
+}
+
+function inventory(ids: string[]): Inventory {
+	return {
+		schema_version: 1,
+		collected_at: "2026-11-18T00:00:00Z",
+		project: null,
+		plugins: ids.map((id) => ({
+			id,
+			scopes: [
+				{
+					scope: "user",
+					version: "1.0.0",
+					git_commit_sha: null,
+					installed_at: null,
+					last_updated: null,
+					enabled: true,
+				},
+			],
+		})),
+	};
+}
+
 function renderPage() {
 	return render(
 		<MemoryRouter>
@@ -55,6 +99,9 @@ describe("HomePage", () => {
 		mocks.listSessions.mockReset();
 		mocks.listLabels.mockReset();
 		mocks.listLabels.mockResolvedValue(new Map());
+		mocks.listMachines.mockReset();
+		mocks.getMachineInventory.mockReset();
+		mocks.listMachines.mockResolvedValue({ machines: [] });
 	});
 
 	afterEach(() => {
@@ -75,7 +122,8 @@ describe("HomePage", () => {
 	it("shows loading until the sessions arrive", () => {
 		mocks.listSessions.mockReturnValue(new Promise(() => {}));
 		renderPage();
-		expect(screen.getByRole("status").textContent).toMatch(
+		// Two panels now load at once; the sessions panel is first.
+		expect(screen.getAllByRole("status")[0].textContent).toMatch(
 			/loading your sessions/i,
 		);
 	});
@@ -140,5 +188,79 @@ describe("HomePage", () => {
 		expect(await screen.findByTestId("home-sessions-headline")).toBeTruthy();
 		// The raw key is the fallback, not a blank.
 		expect(screen.getByText("aaaaaaaaaaaa")).toBeTruthy();
+	});
+
+	it("shows the week's plugin activity from the same sessions", async () => {
+		mocks.listSessions.mockResolvedValue({
+			sessions: [
+				session({
+					counts_by_type: { "historian.retrieval.surfaced": 4 },
+					counts_by_prefix: { historian: 4 },
+				}),
+			],
+			has_more: false,
+		});
+		renderPage();
+
+		expect(
+			await screen.findByText("historian", { selector: "li span" }),
+		).toBeDefined();
+		expect(screen.getByRole("list", { name: "This week" }).textContent).toBe(
+			"historian: produced 4 in 1 session",
+		);
+	});
+
+	it("reads the inventory of each reporting machine only", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listMachines.mockResolvedValue({
+			machines: [
+				machine({ id: "live" }),
+				machine({ id: "never", inventory_at: null }),
+				machine({ id: "gone", revoked_at: "2026-11-02T00:00:00Z" }),
+			],
+		});
+		mocks.getMachineInventory.mockResolvedValue({
+			inventory: inventory(["counsel@onlooker-community"]),
+			inventory_at: "2026-11-18T00:00:00Z",
+		});
+		renderPage();
+
+		expect(
+			await screen.findByText("Installed, no events in 7 days: counsel."),
+		).toBeDefined();
+		expect(mocks.getMachineInventory.mock.calls).toEqual([["live"]]);
+	});
+
+	it("says it couldn't check when one inventory read fails", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listMachines.mockResolvedValue({
+			machines: [machine({ id: "a" }), machine({ id: "b" })],
+		});
+		mocks.getMachineInventory
+			.mockResolvedValueOnce({
+				inventory: inventory(["counsel@onlooker-community"]),
+				inventory_at: "2026-11-18T00:00:00Z",
+			})
+			.mockRejectedValueOnce(new Error("boom"));
+		renderPage();
+
+		expect(
+			await screen.findByText("Couldn't check which plugins are installed."),
+		).toBeDefined();
+		expect(screen.queryByText(/Installed, no events/)).toBeNull();
+	});
+
+	// One alert for one failure: the Plugins panel says why it is empty
+	// without announcing the same failure a second time.
+	it("raises one alert when the sessions read fails", async () => {
+		mocks.listSessions.mockRejectedValue(new Error("down"));
+		renderPage();
+
+		expect(await screen.findAllByRole("alert")).toHaveLength(1);
+		expect(
+			screen.getByText(
+				"Plugin activity comes from your sessions, which could not be loaded.",
+			),
+		).toBeDefined();
 	});
 });

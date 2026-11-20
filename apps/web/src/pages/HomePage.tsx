@@ -1,10 +1,24 @@
-import { useEffect, useState } from "react";
+import type { IconName } from "@onlooker/brand";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type LabelMap, listLabels } from "../api/labelsApi";
-import { listSessions, type SessionsPage } from "../api/sessionsApi";
+import { getMachineInventory, listMachines } from "../api/machinesApi";
+import {
+	listSessions,
+	type SessionSummary,
+	type SessionsPage,
+} from "../api/sessionsApi";
+import HomePluginsPanel, {
+	type Installed,
+} from "../components/HomePluginsPanel";
 import HomeSessionsPanel from "../components/HomeSessionsPanel";
 import { Loading, Panel } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
-import { windowDays, withinWindow } from "../lib/homeWindow";
+import { type Windowed, windowDays, withinWindow } from "../lib/homeWindow";
+import {
+	installedOnlookerPlugins,
+	reportingMachines,
+} from "../lib/installedPlugins";
+import type { Load } from "../lib/load";
 
 // The landing page for a signed-in person (ONL-298): a summary of the last 7
 // days, each panel linking through to its section. Every panel loads and
@@ -14,13 +28,38 @@ import { windowDays, withinWindow } from "../lib/homeWindow";
 export const SESSIONS_LIMIT = 200;
 
 /**
- * A read in three states. "Failed" is kept apart from "loaded and empty" so a
- * panel can never render an empty week for a read that did not succeed.
+ * The loading and failed states a home panel shows for a read, so each panel
+ * states only what it draws once the read has arrived.
  */
-type Load<T> =
-	| { kind: "loading" }
-	| { kind: "loaded"; value: T }
-	| { kind: "failed"; message: string };
+function PanelFor<T>({
+	load,
+	title,
+	icon,
+	loading,
+	failed,
+	children,
+}: {
+	load: Load<T>;
+	title: string;
+	icon: IconName;
+	loading: string;
+	failed: (message: string) => ReactNode;
+	children: (value: T) => ReactNode;
+}) {
+	if (load.kind === "loading")
+		return (
+			<Panel title={title} icon={icon}>
+				<Loading label={loading} />
+			</Panel>
+		);
+	if (load.kind === "failed")
+		return (
+			<Panel title={title} icon={icon}>
+				{failed(load.message)}
+			</Panel>
+		);
+	return <>{children(load.value)}</>;
+}
 
 export default function HomePage() {
 	// Fixed at mount: the window must not move under rows already loaded.
@@ -31,6 +70,7 @@ export default function HomePage() {
 	// Empty until read, and empty if the read fails: every repository then
 	// shows its key, as on the Sessions page.
 	const [labels, setLabels] = useState<LabelMap>(new Map());
+	const [installed, setInstalled] = useState<Installed>({ kind: "loading" });
 
 	useEffect(() => {
 		let active = true;
@@ -55,41 +95,89 @@ export default function HomePage() {
 			.catch(() => {
 				// Deliberately quiet; see the state's own comment.
 			});
+		listMachines()
+			.then(({ machines }) =>
+				Promise.all(
+					reportingMachines(machines).map((machine) =>
+						getMachineInventory(machine.id).then((read) => read.inventory),
+					),
+				),
+			)
+			.then((inventories) => {
+				if (active)
+					setInstalled({
+						kind: "loaded",
+						names: installedOnlookerPlugins(inventories),
+					});
+			})
+			.catch(() => {
+				// Any one failure voids the list: see the Plugins panel's silent line.
+				if (active) setInstalled({ kind: "failed" });
+			});
 		return () => {
 			active = false;
 		};
 	}, []);
 
+	// Every panel reads the same window, so it is cut once, here.
+	const week = useMemo<Load<Windowed<SessionSummary>>>(
+		() =>
+			sessions.kind === "loaded"
+				? {
+						kind: "loaded",
+						value: withinWindow(
+							sessions.value.sessions,
+							(session) => session.started_at,
+							now,
+							sessions.value.has_more,
+						),
+					}
+				: sessions,
+		[sessions, now],
+	);
+
 	return (
 		<div style={{ display: "grid", gap: "var(--space-5)", maxWidth: "720px" }}>
-			{sessions.kind === "loading" ? (
-				<Panel title="Recent sessions" icon="Monitor">
-					<Loading label="Loading your sessions…" />
-				</Panel>
-			) : sessions.kind === "failed" ? (
-				<Panel title="Recent sessions" icon="Monitor">
+			<PanelFor
+				load={week}
+				title="Recent sessions"
+				icon="Monitor"
+				loading="Loading your sessions…"
+				failed={(message) => (
 					<p role="alert" style={{ margin: 0 }}>
-						{`Could not load your sessions. ${sessions.message}`.trim()}
+						{`Could not load your sessions. ${message}`.trim()}
 					</p>
-				</Panel>
-			) : (
-				(() => {
-					const windowed = withinWindow(
-						sessions.value.sessions,
-						(session) => session.started_at,
-						now,
-						sessions.value.has_more,
-					);
-					return (
-						<HomeSessionsPanel
-							sessions={windowed.rows}
-							complete={windowed.complete}
-							days={windowDays(now)}
-							labels={labels}
-						/>
-					);
-				})()
-			)}
+				)}
+			>
+				{(windowed) => (
+					<HomeSessionsPanel
+						sessions={windowed.rows}
+						complete={windowed.complete}
+						days={windowDays(now)}
+						labels={labels}
+					/>
+				)}
+			</PanelFor>
+			<PanelFor
+				load={week}
+				title="Plugins"
+				icon="Plug"
+				loading="Loading plugin activity…"
+				failed={() => (
+					// Not an alert: the sessions panel already announced this failure.
+					<p style={{ margin: 0 }}>
+						Plugin activity comes from your sessions, which could not be loaded.
+					</p>
+				)}
+			>
+				{(windowed) => (
+					<HomePluginsPanel
+						sessions={windowed.rows}
+						complete={windowed.complete}
+						installed={installed}
+					/>
+				)}
+			</PanelFor>
 		</div>
 	);
 }
