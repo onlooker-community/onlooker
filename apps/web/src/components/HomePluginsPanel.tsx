@@ -17,11 +17,14 @@ import { plural } from "../lib/sessionRollup";
 import { PALETTE } from "./palette";
 import { Panel } from "./ui";
 
-/** What the inventories say is installed, by bare plugin name. */
+/**
+ * What the inventories say is installed, by bare plugin name, and how many
+ * machines reported one.
+ */
 export type Installed =
 	| { kind: "loading" }
 	| { kind: "failed" }
-	| { kind: "loaded"; names: string[] };
+	| { kind: "loaded"; names: string[]; reporting: number };
 
 const muted = { color: PALETTE.muted, fontSize: "0.85em" } as const;
 
@@ -38,8 +41,9 @@ function silentLine(
 	// An unread session may hold the events that would clear a plugin.
 	if (!complete)
 		return "Not every session this week was loaded, so quiet plugins aren't listed.";
-	if (installed.names.length === 0)
+	if (installed.reporting === 0)
 		return "No machine has reported its installed plugins.";
+	if (installed.names.length === 0) return "No Onlooker plugins are installed.";
 	const silent = silentPlugins(installed.names, sessions);
 	return silent.length === 0
 		? "Every installed Onlooker plugin sent events this week."
@@ -64,7 +68,9 @@ export default function HomePluginsPanel({
 		<Panel title="Plugins" icon="Plug">
 			{rows.length === 0 && unclassified.length === 0 ? (
 				<p style={{ margin: 0, color: PALETTE.muted }}>
-					No plugin events in the last 7 days.
+					{complete
+						? "No plugin events in the last 7 days."
+						: `No plugin events in the most recent ${plural(sessions.length, "session")}.`}
 				</p>
 			) : (
 				<>

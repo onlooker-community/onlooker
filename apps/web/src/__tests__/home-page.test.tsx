@@ -250,6 +250,17 @@ describe("HomePage", () => {
 		expect(screen.queryByText(/Installed, no events/)).toBeNull();
 	});
 
+	it("says it couldn't check when the machine list fails", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listMachines.mockRejectedValue(new Error("down"));
+		renderPage();
+
+		expect(
+			await screen.findByText("Couldn't check which plugins are installed."),
+		).toBeDefined();
+		expect(mocks.getMachineInventory).not.toHaveBeenCalled();
+	});
+
 	// One alert for one failure: the Plugins panel says why it is empty
 	// without announcing the same failure a second time.
 	it("raises one alert when the sessions read fails", async () => {

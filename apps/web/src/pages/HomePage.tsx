@@ -96,18 +96,18 @@ export default function HomePage() {
 				// Deliberately quiet; see the state's own comment.
 			});
 		listMachines()
-			.then(({ machines }) =>
-				Promise.all(
-					reportingMachines(machines).map((machine) =>
+			.then(async ({ machines }) => {
+				const reporting = reportingMachines(machines);
+				const inventories = await Promise.all(
+					reporting.map((machine) =>
 						getMachineInventory(machine.id).then((read) => read.inventory),
 					),
-				),
-			)
-			.then((inventories) => {
+				);
 				if (active)
 					setInstalled({
 						kind: "loaded",
 						names: installedOnlookerPlugins(inventories),
+						reporting: reporting.length,
 					});
 			})
 			.catch(() => {

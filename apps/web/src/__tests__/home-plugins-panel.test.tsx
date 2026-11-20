@@ -35,7 +35,7 @@ const historianWeek = [
 
 function renderPanel(
 	sessions: SessionSummary[],
-	installed: Installed = { kind: "loaded", names: [] },
+	installed: Installed = { kind: "loaded", names: [], reporting: 1 },
 	complete = true,
 ) {
 	return render(
@@ -72,6 +72,20 @@ describe("HomePluginsPanel", () => {
 		expect(screen.queryByRole("list")).toBeNull();
 	});
 
+	it("says the most recent sessions when a capped week has no rows", () => {
+		renderPanel(
+			[session({})],
+			{ kind: "loaded", names: [], reporting: 1 },
+			false,
+		);
+		expect(
+			screen.getByText("No plugin events in the most recent 1 session."),
+		).toBeDefined();
+		expect(
+			screen.queryByText("No plugin events in the last 7 days."),
+		).toBeNull();
+	});
+
 	it("names unclassified plugins rather than dropping them", () => {
 		renderPanel([session({ counts_by_type: { "someplugin.new.thing": 1 } })]);
 		expect(screen.getByText("Unclassified: someplugin.")).toBeDefined();
@@ -81,6 +95,7 @@ describe("HomePluginsPanel", () => {
 		renderPanel(historianWeek, {
 			kind: "loaded",
 			names: ["counsel", "ecosystem", "historian", "warden"],
+			reporting: 1,
 		});
 		expect(silentLine()).toBe(
 			"Installed, no events in 7 days: counsel, warden.",
@@ -88,15 +103,24 @@ describe("HomePluginsPanel", () => {
 	});
 
 	it("says every installed plugin sent events when none were quiet", () => {
-		renderPanel(historianWeek, { kind: "loaded", names: ["historian"] });
+		renderPanel(historianWeek, {
+			kind: "loaded",
+			names: ["historian"],
+			reporting: 1,
+		});
 		expect(silentLine()).toBe(
 			"Every installed Onlooker plugin sent events this week.",
 		);
 	});
 
 	it("says no machine has reported when nothing is installed", () => {
-		renderPanel(historianWeek, { kind: "loaded", names: [] });
+		renderPanel(historianWeek, { kind: "loaded", names: [], reporting: 0 });
 		expect(silentLine()).toBe("No machine has reported its installed plugins.");
+	});
+
+	it("says no Onlooker plugins are installed when machines reported none", () => {
+		renderPanel(historianWeek, { kind: "loaded", names: [], reporting: 2 });
+		expect(silentLine()).toBe("No Onlooker plugins are installed.");
 	});
 
 	// A partial list would call plugins silent that a failed machine may have
@@ -115,7 +139,7 @@ describe("HomePluginsPanel", () => {
 	it("lists no quiet plugins when the week is capped", () => {
 		renderPanel(
 			historianWeek,
-			{ kind: "loaded", names: ["counsel", "historian"] },
+			{ kind: "loaded", names: ["counsel", "historian"], reporting: 1 },
 			false,
 		);
 		expect(screen.getByText("From the most recent 1 session.")).toBeDefined();
