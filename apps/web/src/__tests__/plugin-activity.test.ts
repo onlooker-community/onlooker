@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pluginActivity } from "../lib/pluginActivity";
+import { pluginActivity, pluginTallies } from "../lib/pluginActivity";
 
 describe("pluginActivity", () => {
 	// A session synced by a CLI older than 2.12.0 reported prefixes only. Null
@@ -176,5 +176,36 @@ describe("pluginActivity", () => {
 			pluginActivity({ "__proto__.thing": 1, "constructor.x": 1 }, 3)
 				?.unclassified,
 		).toEqual(["__proto__", "constructor"]);
+	});
+});
+
+describe("pluginTallies", () => {
+	// The week's rollup sums these across sessions, so they must be the raw
+	// counts per role, not the per-session strings pluginActivity formats.
+	it("counts each plugin's events by role, leaving observed out", () => {
+		const tallies = pluginTallies({
+			"historian.retrieval.surfaced": 3,
+			"historian.retrieval.started": 5,
+			"historian.embedder.failed": 2,
+			"tribunal.gate.skipped": 4,
+			"tool.file.read": 40,
+			"someplugin.new.thing": 1,
+		});
+
+		expect(Object.fromEntries(tallies)).toEqual({
+			historian: { output: 3, skipped: 0, failed: 2, lifecycle: 5, unknown: 0 },
+			tribunal: { output: 0, skipped: 4, failed: 0, lifecycle: 0, unknown: 0 },
+			someplugin: {
+				output: 0,
+				skipped: 0,
+				failed: 0,
+				lifecycle: 0,
+				unknown: 1,
+			},
+		});
+	});
+
+	it("is empty for a session with no per-type counts", () => {
+		expect(pluginTallies({}).size).toBe(0);
 	});
 });
