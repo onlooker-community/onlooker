@@ -1,12 +1,18 @@
 import type { IconName } from "@onlooker/brand";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type LabelMap, listLabels } from "../api/labelsApi";
+import {
+	type ActivityEvent,
+	type ActivityFeedPage,
+	listActivity,
+} from "../api/lessonsApi";
 import { getMachineInventory, listMachines } from "../api/machinesApi";
 import {
 	listSessions,
 	type SessionSummary,
 	type SessionsPage,
 } from "../api/sessionsApi";
+import HomeLessonsPanel from "../components/HomeLessonsPanel";
 import HomePluginsPanel, {
 	type Installed,
 } from "../components/HomePluginsPanel";
@@ -71,6 +77,9 @@ export default function HomePage() {
 	// shows its key, as on the Sessions page.
 	const [labels, setLabels] = useState<LabelMap>(new Map());
 	const [installed, setInstalled] = useState<Installed>({ kind: "loading" });
+	const [activity, setActivity] = useState<Load<ActivityFeedPage>>({
+		kind: "loading",
+	});
 
 	useEffect(() => {
 		let active = true;
@@ -114,6 +123,16 @@ export default function HomePage() {
 				// Any one failure voids the list: see the Plugins panel's silent line.
 				if (active) setInstalled({ kind: "failed" });
 			});
+		listActivity()
+			.then((page) => {
+				if (active) setActivity({ kind: "loaded", value: page });
+			})
+			.catch((error: unknown) => {
+				if (active) {
+					// No fallback sentence, for the reason the sessions read gives.
+					setActivity({ kind: "failed", message: describeError(error, "") });
+				}
+			});
 		return () => {
 			active = false;
 		};
@@ -134,6 +153,29 @@ export default function HomePage() {
 					}
 				: sessions,
 		[sessions, now],
+	);
+
+	// The same window, cut by `at`. Whether the page held anything at all is
+	// kept apart, so a quiet week is not mistaken for an empty feed.
+	const lessons = useMemo<
+		Load<{ week: Windowed<ActivityEvent>; feedEmpty: boolean }>
+	>(
+		() =>
+			activity.kind === "loaded"
+				? {
+						kind: "loaded",
+						value: {
+							week: withinWindow(
+								activity.value.events,
+								(event) => event.at,
+								now,
+								activity.value.has_more,
+							),
+							feedEmpty: activity.value.events.length === 0,
+						},
+					}
+				: activity,
+		[activity, now],
 	);
 
 	return (
@@ -175,6 +217,25 @@ export default function HomePage() {
 						sessions={windowed.rows}
 						complete={windowed.complete}
 						installed={installed}
+					/>
+				)}
+			</PanelFor>
+			<PanelFor
+				load={lessons}
+				title="Lessons"
+				icon="Book"
+				loading="Loading your lesson activity…"
+				failed={(message) => (
+					<p role="alert" style={{ margin: 0 }}>
+						{`Could not load your lesson activity. ${message}`.trim()}
+					</p>
+				)}
+			>
+				{({ week: lessonWeek, feedEmpty }) => (
+					<HomeLessonsPanel
+						events={lessonWeek.rows}
+						complete={lessonWeek.complete}
+						feedEmpty={feedEmpty}
 					/>
 				)}
 			</PanelFor>

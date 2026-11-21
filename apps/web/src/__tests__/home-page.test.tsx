@@ -3,6 +3,7 @@ process.env.TZ = "UTC";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ActivityEvent } from "../api/lessonsApi";
 import type { Inventory, Machine } from "../api/machinesApi";
 import type { SessionSummary } from "../api/sessionsApi";
 import HomePage from "../pages/HomePage";
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	listLabels: vi.fn(),
 	listMachines: vi.fn(),
 	getMachineInventory: vi.fn(),
+	listActivity: vi.fn(),
 }));
 
 vi.mock("../api/machinesApi", () => ({
@@ -28,6 +30,12 @@ vi.mock("../api/sessionsApi", () => ({
 vi.mock("../api/labelsApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../api/labelsApi")>()),
 	listLabels: mocks.listLabels,
+}));
+
+// importOriginal so the types and endpoints stay real; only the read is faked.
+vi.mock("../api/lessonsApi", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../api/lessonsApi")>()),
+	listActivity: mocks.listActivity,
 }));
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -83,6 +91,17 @@ function inventory(ids: string[]): Inventory {
 	};
 }
 
+function activity(over: Partial<ActivityEvent> = {}): ActivityEvent {
+	return {
+		seq: 1,
+		kind: "create",
+		at: "2026-11-18T09:00:00Z",
+		lesson_id: "l1",
+		claim: "A lesson",
+		...over,
+	};
+}
+
 function renderPage() {
 	return render(
 		<MemoryRouter>
@@ -102,6 +121,12 @@ describe("HomePage", () => {
 		mocks.listMachines.mockReset();
 		mocks.getMachineInventory.mockReset();
 		mocks.listMachines.mockResolvedValue({ machines: [] });
+		mocks.listActivity.mockReset();
+		mocks.listActivity.mockResolvedValue({
+			events: [],
+			cursor: null,
+			has_more: false,
+		});
 	});
 
 	afterEach(() => {
@@ -122,7 +147,7 @@ describe("HomePage", () => {
 	it("shows loading until the sessions arrive", () => {
 		mocks.listSessions.mockReturnValue(new Promise(() => {}));
 		renderPage();
-		// Two panels now load at once; the sessions panel is first.
+		// Several panels load at once; the sessions panel is first.
 		expect(screen.getAllByRole("status")[0].textContent).toMatch(
 			/loading your sessions/i,
 		);
@@ -274,6 +299,72 @@ describe("HomePage", () => {
 			screen.getByText(
 				"Plugin activity comes from your sessions, which could not be loaded.",
 			),
+		).toBeDefined();
+	});
+
+	it("asks for the first page of lesson activity", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		renderPage();
+		await screen.findByText(/no lesson activity yet/i);
+		expect(mocks.listActivity).toHaveBeenCalledWith();
+	});
+
+	it("counts only the lesson activity inside the window", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listActivity.mockResolvedValue({
+			events: [
+				activity({ seq: 2 }),
+				activity({ seq: 1, at: "2026-11-05T09:00:00Z" }),
+			],
+			cursor: "next",
+			has_more: true,
+		});
+		renderPage();
+		expect(
+			(await screen.findByTestId("home-lessons-headline")).textContent,
+		).toBe("1 published in the last 7 days");
+	});
+
+	it("says latest N events when the page doesn't reach back to the window's start", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listActivity.mockResolvedValue({
+			events: [activity()],
+			cursor: "next",
+			has_more: true,
+		});
+		renderPage();
+		expect(
+			(await screen.findByTestId("home-lessons-headline")).textContent,
+		).toBe("1 published in your latest 1 event");
+	});
+
+	// Older events exist, so the feed is not empty and "yet" would be false.
+	it("says the week was quiet when the feed's events are all older", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listActivity.mockResolvedValue({
+			events: [activity({ at: "2026-11-01T09:00:00Z" })],
+			cursor: null,
+			has_more: false,
+		});
+		renderPage();
+		expect(
+			await screen.findByText("No lesson activity in the last 7 days."),
+		).toBeDefined();
+	});
+
+	// A failed read is not a quiet week, and it blanks only its own panel.
+	it("says it could not load lesson activity, and never shows the empty state", async () => {
+		mocks.listSessions.mockResolvedValue({ sessions: [], has_more: false });
+		mocks.listActivity.mockRejectedValue(new Error("Server unreachable"));
+		renderPage();
+		const alerts = await screen.findAllByRole("alert");
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0].textContent).toBe(
+			"Could not load your lesson activity. Server unreachable",
+		);
+		expect(screen.queryByText(/no lesson activity/i)).toBeNull();
+		expect(
+			await screen.findByText(/no sessions in the last 7 days/i),
 		).toBeDefined();
 	});
 });
