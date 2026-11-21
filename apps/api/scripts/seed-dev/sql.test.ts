@@ -28,11 +28,32 @@ async function count(sql: string): Promise<number> {
 }
 
 describe("the seed's SQL", () => {
-	it("deletes only seed accounts and seed orgs", () => {
+	it("deletes only seed accounts, seed machines and seed orgs", () => {
 		expect(resetSql()).toEqual([
 			"DELETE FROM users WHERE email LIKE '%@onlooker.test';",
+			"DELETE FROM machine_tokens WHERE id IN ('seed-desktop', 'seed-laptop', 'seed-spare', 'seed-old-laptop', 'seed-old-desktop', 'seed-ada-machine', 'seed-sam-machine');",
 			"DELETE FROM orgs WHERE id LIKE 'seed-%';",
 		]);
+	});
+
+	it("reclaims machine ids the retired bash seed left on another account", async () => {
+		await env.DB.prepare(
+			"INSERT INTO users (id, email, password_hash) VALUES ('dev-own', 'me@example.com', 'x')",
+		).run();
+		await env.DB.prepare(
+			"INSERT INTO machine_tokens (id, user_id, name, token_hash) VALUES ('seed-desktop', 'dev-own', 'old', 'old-hash')",
+		).run();
+
+		await run(resetSql());
+		await run(baseSql(input()));
+
+		expect(
+			await count("SELECT COUNT(*) AS n FROM users WHERE id = 'dev-own'"),
+		).toBe(1);
+		const row = await env.DB.prepare(
+			"SELECT user_id FROM machine_tokens WHERE id = 'seed-desktop'",
+		).first<{ user_id: string }>();
+		expect(row?.user_id).toBe("seed-user-dev");
 	});
 
 	it("writes the base rows into the real schema", async () => {

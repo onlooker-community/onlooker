@@ -34,6 +34,14 @@ const nullable = (value: string | null) => (value === null ? "NULL" : q(value));
 export function resetSql(): string[] {
 	return [
 		`DELETE FROM users WHERE email LIKE '%@${SEED_DOMAIN}';`,
+		// The retired bash seed (`seed:dev <email>`) inserted machines with these
+		// ids under the developer's own account, which the delete above never
+		// touches. `machine_tokens.id` is the primary key, so they would make
+		// baseSql fail on UNIQUE. Ids don't depend on the date, so any `now` will
+		// do. The delete cascades to that old seed's sessions.
+		`DELETE FROM machine_tokens WHERE id IN (${machines(new Date(0))
+			.map((m) => q(m.id))
+			.join(", ")});`,
 		"DELETE FROM orgs WHERE id LIKE 'seed-%';",
 	];
 }
