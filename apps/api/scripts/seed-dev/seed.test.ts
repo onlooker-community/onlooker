@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { sessions } from "./fixtures";
+import { lessonTimeline, sessions } from "./fixtures";
 import { runSeed, type SeedDeps } from "./seed";
 
 const BASE = "https://api.onlooker.dev";
@@ -103,17 +103,22 @@ describe("runSeed", () => {
 		await env.DB.prepare(
 			"INSERT INTO users (id, email, password_hash) VALUES ('bystander', 'bystander@example.com', 'x')",
 		).run();
-		await runSeed(deps());
-		const first = await count(
+		const tables = [
 			"SELECT COUNT(*) AS n FROM lessons WHERE user_id LIKE 'seed-%'",
-		);
+			"SELECT COUNT(*) AS n FROM session_summaries WHERE user_id LIKE 'seed-%'",
+			"SELECT COUNT(*) AS n FROM session_projects WHERE user_id LIKE 'seed-%'",
+			"SELECT COUNT(*) AS n FROM lesson_feed WHERE user_id LIKE 'seed-%'",
+			"SELECT COUNT(*) AS n FROM machine_tokens WHERE user_id LIKE 'seed-%'",
+			"SELECT COUNT(*) AS n FROM org_invites WHERE org_id LIKE 'seed-%'",
+			"SELECT COUNT(*) AS n FROM orgs WHERE id LIKE 'seed-%'",
+		];
+		const counts = () => Promise.all(tables.map((sql) => count(sql)));
+		await runSeed(deps());
+		const first = await counts();
+		expect(first.every((n) => n > 0)).toBe(true);
 		await runSeed(deps(new Date(NOW.getTime() + 3_600_000)));
 
-		expect(
-			await count(
-				"SELECT COUNT(*) AS n FROM lessons WHERE user_id LIKE 'seed-%'",
-			),
-		).toBe(first);
+		expect(await counts()).toEqual(first);
 		expect(
 			await count("SELECT COUNT(*) AS n FROM users WHERE id = 'bystander'"),
 		).toBe(1);
@@ -130,6 +135,30 @@ describe("runSeed", () => {
 		};
 		await expect(runSeed(refuse)).rejects.toThrow(
 			/POST \/machine\/sessions.*400.*nope/,
+		);
+	});
+
+	// POST /lessons answers 200 even when it refuses a lesson, so only the
+	// per-lesson outcome says so.
+	it("stops when POST /lessons answers 200 without creating the lesson", async () => {
+		const real = deps();
+		const lessonId = (
+			lessonTimeline(NOW).find((e) => e.kind === "push") as {
+				lesson: { id: string };
+			}
+		).lesson.id;
+		const refuse: SeedDeps = {
+			...real,
+			request: async (path, init) =>
+				path === "/lessons"
+					? new Response(
+							JSON.stringify({ results: [{ id: lessonId, outcome: "noop" }] }),
+							{ status: 200 },
+						)
+					: real.request(path, init),
+		};
+		await expect(runSeed(refuse)).rejects.toThrow(
+			new RegExp(`POST /lessons refused ${lessonId}: noop`),
 		);
 	});
 });
