@@ -41,8 +41,8 @@ states can only be seen in tests.
 - `sam@onlooker.test`, not in the org: the author of public lessons from
   outside it.
 - Org "Onlooker Dev", owned by dev, with Ada as a member.
-- Two invites to it: one pending, whose `/orgs/invites/<token>` link the seed
-  prints, and one expired.
+- Two invites to it: one pending, to Sam, whose `/orgs/invites/<token>` link
+  the seed prints (log in as Sam to accept it), and one expired.
 
 ### Machines (Machines, Home)
 
@@ -59,7 +59,7 @@ states can only be seen in tests.
 
 ### Sessions (Home, Sessions, Projects)
 
-- About 25 sessions over the last 7 days on the desktop and laptop, with one
+- About 20 sessions over the last 7 days on the desktop and laptop, with one
   quiet day in the middle, and older sessions back to 45 days.
 - Plugin activity covering every row kind on Home's Plugins panel and the
   Sessions rows: produced, failed beside output, failed only, found nothing,
@@ -93,17 +93,35 @@ need no data.
 ### Units
 
 `apps/api/scripts/seed-dev/`, next to what it depends on (`bcryptjs`,
-`@onlooker-community/lesson-contract`, the API's vitest). Run with `tsx`.
+`@onlooker-community/lesson-contract`, the API's vitest). The runner is
+started with the root's `tsx`.
 
 - `fixtures.ts`: pure data built from a `now` argument: accounts, org,
-  invites, machines, inventories, sessions, lessons. Dates are relative to
-  `now`.
-- `sql.ts`: builds the SQL for the base rows from the fixtures. Pure.
-- `push.ts`: sends sessions, inventories and lessons to the local API with
-  each machine's token, and lesson transitions after them.
-- `main.ts`: checks, resets, writes, pushes, then prints.
+  invites, machines, inventories, labels, sessions, lessons, and the timeline
+  of lesson events. Dates are relative to `now`.
+- `sql.ts`: builds the SQL statements, as a list, for the reset, the base rows,
+  and the after-push step. Pure.
+- `seed.ts`: `runSeed`, which runs the whole seed through two injected
+  functions, one that executes SQL statements and one that sends an HTTP
+  request to the API. It hashes the password and tokens, writes, pushes, and
+  returns what the runner prints.
+- `local.ts`: the fixed local target, the database name, the wrangler
+  arguments and the API address. Pure, so a test can pin that nothing in it
+  points anywhere but the local database and `localhost`.
+- `main.ts`: the Node runner. It checks the local API answers, then calls
+  `runSeed` with wrangler (through a temp SQL file) and `fetch`, then prints.
 
-Root `pnpm seed:dev` runs it through the API package.
+Root `pnpm seed:dev` runs `tsx apps/api/scripts/seed-dev/main.ts`.
+
+`apps/api/tsconfig.json` and the API's lint script take in `scripts`, so the
+seed is typechecked and linted like the rest of the API.
+
+### Machine tokens
+
+The API refuses any token not shaped `onlk_` plus 64 hex characters. Each
+seed machine's token is `onlk_` plus the SHA-256 hex of
+`seed-token-<machine id>`, so it is fixed across runs, and its row stores the
+SHA-256 of that whole token, as `hashToken` does.
 
 ### Local only, by construction
 
@@ -123,13 +141,22 @@ fixed, so two runs produce the same rows, dated from a new `now`.
 
 ### Order
 
-1. SQL: accounts (bcrypt hashes at the API's cost), org, memberships,
-   invites (token hashes the same SHA-256 `hashToken` uses), machine tokens
-   (`seed-token-<machine>`, stored hashed), user project labels.
-2. API: sessions, then inventories, then lessons in promotion order, then
-   lesson status transitions.
-3. SQL: mark the revoked machine revoked and the removed machine removed,
-   after their data is in, since a revoked token can no longer push.
+1. SQL: reset, then accounts (bcrypt hashes at the API's cost of 10), org,
+   memberships, invites (token hashes the same SHA-256 `hashToken` uses),
+   machine tokens, user project labels.
+2. API: sessions (`POST /machine/sessions`), then inventories
+   (`PUT /machine/inventory`), then the lesson timeline in time order: each
+   lesson pushed (`POST /lessons`) and each status change
+   (`POST /lessons/:id/status`) as its own event. Lessons are immutable once
+   pushed, so a status change can only go through that route.
+3. SQL, after the pushes:
+   - Revoke the old laptop, and revoke and remove the old desktop. A removed
+     machine is always revoked too, as the API's own remove does, and a
+     revoked token can no longer push, so this comes last.
+   - Backdate each `lesson_feed` row to its event's time. Ingest stamps every
+     row with the moment of the push, which would put the whole Activity
+     history on one day. Events are pushed in time order, so `seq` and `at`
+     agree.
 
 ### Errors
 
@@ -143,9 +170,15 @@ The login, the dev password, the pending invite's link, and the pages to open.
 ## Tests, written first
 
 - Every fixture lesson parses with `ZLesson`.
-- The SQL touches only `@onlooker.test` accounts and `seed-` ids, and every
-  wrangler invocation carries `--local`.
+- The SQL touches only `@onlooker.test` accounts and `seed-` ids, and the
+  wrangler arguments always carry `--local` against `onlooker-db-local`, and
+  the API address is `localhost`. This replaces the CI step that ran
+  `scripts/seed-dev-projects.test.sh`.
 - Fixture dates move with `now`.
+- The whole seed runs in-process in the API's Workers test pool: its SQL
+  against the migrated test database and every push through the real worker.
+  So a fixture ingest would refuse fails a test, not a developer's seed run.
+  Running it twice leaves the same rows.
 - Coverage: the fixtures include each lesson status and visibility, each
   plugin row kind, and each machine state listed above, asserted from the
   data so a later edit cannot quietly drop one.
