@@ -1,11 +1,15 @@
 ---
-import LatestPost from "../components/blog/LatestPost.astro";
+import LatestLink from "../components/LatestLink.astro";
 import { publishedPosts } from "../data/blog";
+import { publishedEntries } from "../data/changelog";
 import Layout from "../layouts/Layout.astro";
+import { postPath } from "../lib/blog-posts";
+import { entryPath } from "../lib/changelog-entries";
 
 export const prerender = true;
 
 const posts = await publishedPosts();
+const entries = await publishedEntries();
 ---
 
 <Layout
@@ -82,7 +86,16 @@ const posts = await publishedPosts();
       >
     </div>
 
-    <LatestPost post={posts[0]} />
+    <LatestLink
+      label="Latest post"
+      href={posts[0] && postPath(posts[0].id)}
+      title={posts[0]?.data.title}
+    />
+    <LatestLink
+      label="Latest update"
+      href={entries[0] && entryPath(entries[0].id)}
+      title={entries[0]?.data.title}
+    />
   </main>
 </Layout>
 
