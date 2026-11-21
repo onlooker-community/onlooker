@@ -9,7 +9,8 @@
  * this one wrote, so a partial seed costs nothing.
  */
 
-import * as bcrypt from "bcryptjs";
+// Default import, unlike utils/crypto.ts: the seed also runs under Node, where bcryptjs's CommonJS export is only on `default`.
+import bcrypt from "bcryptjs";
 import {
 	invites,
 	lessonTimeline,
