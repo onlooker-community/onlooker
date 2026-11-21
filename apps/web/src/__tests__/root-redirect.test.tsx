@@ -41,6 +41,10 @@ vi.mock("../api/sessionsApi", () => ({
 	listSessions: () =>
 		Promise.resolve({ sessions: [], cursor: null, has_more: false }),
 }));
+vi.mock("../api/machinesApi", () => ({
+	listMachines: () => Promise.resolve({ machines: [] }),
+	getMachineInventory: vi.fn(),
+}));
 vi.mock("../api/labelsApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../api/labelsApi")>()),
 	listLabels: () => Promise.resolve(new Map()),
