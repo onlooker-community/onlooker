@@ -6,20 +6,7 @@ import { PALETTE } from "../components/palette";
 import { EmptyState, Loading, Panel, Plate } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { dayKey, timeOf } from "../lib/dayKey";
-
-/**
- * What happened, in the order the feed recorded it.
- *
- * A `status` row says only that the status changed. lesson_feed has no from/to
- * columns, and naming the lesson's CURRENT status on a past event would be
- * wrong for anything that changed twice - a lesson retracted in March and
- * reinstated in April would show both events as "active". See the design spec.
- */
-function describeKind(kind: string): string {
-	if (kind === "create") return "Published";
-	if (kind === "status") return "Status changed";
-	return kind;
-}
+import { describeKind } from "../lib/lessonActivity";
 
 export default function ActivityPage() {
 	const [events, setEvents] = useState<ActivityEvent[] | null>(null);
@@ -171,6 +158,7 @@ export default function ActivityPage() {
 							data-testid="activity-row"
 							style={{
 								padding: "var(--space-3) 0",
+								overflowWrap: "anywhere",
 								// Matching MachinesPage, OrgsPage, LessonsPage and now
 								// the sessions feed. The last row omits it rather than
 								// doubling against Panel's own edge.
