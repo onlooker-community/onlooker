@@ -1,7 +1,10 @@
+import { ZLesson } from "@onlooker-community/lesson-contract";
 import { describe, expect, it } from "vitest";
 import {
 	invites,
 	LABELS,
+	type LessonEvent,
+	lessonTimeline,
 	MEMBERSHIPS,
 	machines,
 	ORG,
@@ -170,5 +173,90 @@ describe("seed sessions", () => {
 	it("gives every session a unique id", () => {
 		const ids = all.map((s) => s.body.session_id);
 		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
+describe("seed lessons", () => {
+	const timeline = lessonTimeline(NOW);
+	const pushes = timeline.flatMap((e) => (e.kind === "push" ? [e] : []));
+	const changes = timeline.flatMap((e) => (e.kind === "status" ? [e] : []));
+	const machineOwner = new Map(machines(NOW).map((m) => [m.id, m.owner]));
+
+	it("pushes only lessons the contract accepts", () => {
+		for (const { lesson } of pushes)
+			expect(ZLesson.safeParse(lesson).success).toBe(true);
+	});
+
+	it("pushes every lesson active, and changes status only through the route", () => {
+		for (const { lesson } of pushes) {
+			expect(lesson.status).toBe("active");
+			expect(lesson.superseded_by).toBeNull();
+		}
+	});
+
+	it("ends with dev's lessons in every status and every visibility", () => {
+		const finalStatus = new Map(pushes.map((p) => [p.lesson.id, "active"]));
+		for (const c of changes) finalStatus.set(c.lessonId, c.status);
+		const devs = pushes.filter((p) => machineOwner.get(p.machine) === "dev");
+		expect(new Set(devs.map((p) => finalStatus.get(p.lesson.id)))).toEqual(
+			new Set(["active", "refuted", "superseded", "retracted"]),
+		);
+		expect(new Set(devs.map((p) => p.lesson.visibility))).toEqual(
+			new Set(["private", "org", "public"]),
+		);
+	});
+
+	it("supersedes a lesson with one already pushed", () => {
+		const superseded = changes.find((c) => c.status === "superseded");
+		const ids = pushes.map((p) => p.lesson.id);
+		expect(superseded?.supersededBy).not.toBeNull();
+		const replacementPushed = timeline.findIndex(
+			(e) => e.kind === "push" && e.lesson.id === superseded?.supersededBy,
+		);
+		expect(replacementPushed).toBeGreaterThanOrEqual(0);
+		expect(replacementPushed).toBeLessThan(
+			timeline.indexOf(superseded as LessonEvent),
+		);
+		expect(ids).toContain(superseded?.supersededBy);
+	});
+
+	it("pushes org lessons only from machines bound to the org", () => {
+		const orgMachines = new Set(
+			machines(NOW)
+				.filter((m) => m.orgId)
+				.map((m) => m.id),
+		);
+		for (const p of pushes)
+			if (p.lesson.visibility === "org")
+				expect(orgMachines.has(p.machine)).toBe(true);
+	});
+
+	it("gives every public lesson a unanimous jury", () => {
+		for (const { lesson } of pushes)
+			if (lesson.visibility === "public")
+				expect(lesson.consensus.agreed).toBe(lesson.consensus.judges);
+	});
+
+	it("has lessons from all three authors", () => {
+		expect(new Set(pushes.map((p) => machineOwner.get(p.machine)))).toEqual(
+			new Set(["dev", "ada", "sam"]),
+		);
+	});
+
+	it("runs in time order, over two weeks, with one status change per lesson at most", () => {
+		const times = timeline.map((e) => e.at);
+		expect([...times].sort()).toEqual(times);
+		expect(new Date(times[0]) < new Date(NOW.getTime() - 12 * 86_400_000)).toBe(
+			true,
+		);
+		const changed = changes.map((c) => c.lessonId);
+		expect(new Set(changed).size).toBe(changed.length);
+	});
+
+	it("never changes a lesson before it is pushed", () => {
+		for (const c of changes) {
+			const pushedAt = pushes.find((p) => p.lesson.id === c.lessonId)?.at ?? "";
+			expect(pushedAt < c.at).toBe(true);
+		}
 	});
 });

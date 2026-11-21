@@ -9,6 +9,8 @@
  * like a real account: each one is here because some view has a branch for it.
  */
 
+import type { TLesson } from "@onlooker-community/lesson-contract";
+
 /** One passphrase for every seed account. Local only; printed by the runner. */
 export const SEED_PASSPHRASE = "onlooker-dev-seed";
 
@@ -506,4 +508,339 @@ export function sessions(now: Date): SeedSession[] {
 			return { machine, body };
 		},
 	);
+}
+
+export type SeedLessonBody = TLesson;
+
+export type LessonEvent =
+	| { at: string; kind: "push"; machine: string; lesson: SeedLessonBody }
+	| {
+			at: string;
+			kind: "status";
+			machine: string;
+			lessonId: string;
+			status: "refuted" | "superseded" | "retracted";
+			supersededBy: string | null;
+	  };
+
+/** Fixed per author, 32 hex as the contract requires. */
+const AUTHOR_KEYS: Record<UserKey, string> = {
+	dev: "d".repeat(32),
+	ada: "a".repeat(32),
+	sam: "5".repeat(32),
+};
+
+/** A ULID-shaped id: "01JSEED", a digit per author, then a counter. */
+function ulid(digit: number, n: number): string {
+	return `01JSEED${digit}${String(n).padStart(18, "0")}`;
+}
+
+const AUTHOR_DIGIT: Record<UserKey, number> = { dev: 1, ada: 2, sam: 3 };
+
+interface LessonSpec {
+	author: UserKey;
+	n: number;
+	machine: string;
+	claim: string;
+	rationale: string;
+	stack: string[];
+	scope: TLesson["applies_to"]["scope"];
+	visibility: TLesson["visibility"];
+	projectKey: string;
+	/** Days, then hours, before now. */
+	promoted: [number, number];
+	jury: [number, number];
+}
+
+function lessonFrom(now: Date, spec: LessonSpec): SeedLessonBody {
+	const promotedAt = daysAgo(now, spec.promoted[0], spec.promoted[1]);
+	return {
+		id: ulid(AUTHOR_DIGIT[spec.author], spec.n),
+		schema_version: 2,
+		claim: spec.claim,
+		rationale: spec.rationale,
+		evidence: {
+			artifact_ids: [ulid(9, AUTHOR_DIGIT[spec.author] * 100 + spec.n)],
+			session_ids: [`seed-session-${String(spec.n).padStart(2, "0")}`],
+			project_key: spec.projectKey,
+			observed_at: daysAgo(now, spec.promoted[0], spec.promoted[1] + 2),
+			resolution: "Confirmed on the next run.",
+		},
+		applies_to: {
+			stack: spec.stack,
+			scope: spec.scope,
+			file_patterns: [],
+			task_kinds: [],
+		},
+		visibility: spec.visibility,
+		consensus: {
+			judges: spec.jury[0],
+			agreed: spec.jury[1],
+			decided_at: promotedAt,
+		},
+		status: "active",
+		superseded_by: null,
+		source: spec.visibility === "private" ? "local" : spec.visibility,
+		author_key: AUTHOR_KEYS[spec.author],
+		promoted_at: promotedAt,
+	};
+}
+
+const anyVersion = (justification: string) =>
+	({ kind: "version_independent", justification }) as const;
+
+export function lessonTimeline(now: Date): LessonEvent[] {
+	const spec = (s: LessonSpec) => lessonFrom(now, s);
+	const lessons: { machine: string; lesson: SeedLessonBody }[] = [
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 1,
+				machine: "seed-desktop",
+				claim: "Pin rollup when vite is below 6",
+				rationale:
+					"Vite 5 bundles a rollup range that drifts between installs.",
+				stack: ["vite", "rollup"],
+				scope: { kind: "versioned", versions: { vite: "<6" } },
+				visibility: "private",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [13, 0],
+				jury: [3, 2],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 2,
+				machine: "seed-desktop",
+				claim: "Run migrations before the worker deploys",
+				rationale:
+					"A worker that reads a column before it exists fails every request.",
+				stack: ["wrangler", "d1"],
+				scope: anyVersion("Ordering holds for any wrangler version."),
+				visibility: "private",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [12, 0],
+				jury: [3, 2],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 3,
+				machine: "seed-desktop",
+				claim: "Seed local data with wrangler d1 execute",
+				rationale: "Raw SQL is the fastest way to fill a local database.",
+				stack: ["wrangler", "d1"],
+				scope: anyVersion("Applies to any local D1."),
+				visibility: "private",
+				projectKey: PROJECTS.scratch,
+				promoted: [11, 0],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 5,
+				machine: "seed-desktop",
+				claim: "Cache bcrypt hashes between test runs",
+				rationale: "Hashing at cost 10 dominates the suite's setup time.",
+				stack: ["bcryptjs"],
+				scope: anyVersion("Any bcryptjs."),
+				visibility: "private",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [9, 0],
+				jury: [3, 2],
+			}),
+		},
+		{
+			machine: "seed-laptop",
+			lesson: spec({
+				author: "dev",
+				n: 6,
+				machine: "seed-laptop",
+				claim: "Bind a machine token to the org before pushing org lessons",
+				rationale:
+					"Ingest stamps org lessons with the token's org and nothing else.",
+				stack: ["onlooker-cli"],
+				scope: anyVersion("A rule of the API, not of a version."),
+				visibility: "org",
+				projectKey: PROJECTS.scratch,
+				promoted: [8, 0],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 8,
+				machine: "seed-desktop",
+				claim: "Write timestamps as ISO strings with a trailing Z",
+				rationale:
+					"Lexical order then matches time order, which cursors rely on.",
+				stack: ["typescript"],
+				scope: anyVersion("Any runtime."),
+				visibility: "public",
+				projectKey: PROJECTS.unnamed,
+				promoted: [6, 0],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-laptop",
+			lesson: spec({
+				author: "dev",
+				n: 7,
+				machine: "seed-laptop",
+				claim: "Org lessons reach only members of the org",
+				rationale:
+					"The pool reads org lessons through the reader's memberships.",
+				stack: ["drizzle-orm"],
+				scope: { kind: "versioned", versions: { "drizzle-orm": "<1" } },
+				visibility: "org",
+				projectKey: PROJECTS.onlookerSsh,
+				promoted: [4, 0],
+				jury: [2, 2],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 4,
+				machine: "seed-desktop",
+				claim: "Push seed data through the API's ingest routes",
+				rationale:
+					"Ingest validates lessons and builds the derived tables; raw SQL skips both.",
+				stack: ["wrangler", "d1"],
+				scope: anyVersion("Applies to any local D1."),
+				visibility: "private",
+				projectKey: PROJECTS.scratch,
+				promoted: [2, 3],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-desktop",
+			lesson: spec({
+				author: "dev",
+				n: 9,
+				machine: "seed-desktop",
+				claim: "Pin workerd's compatibility date in tests",
+				rationale:
+					"Unpinned, the test runner asks for today's date and breaks at midnight.",
+				stack: ["cloudflare-workers"],
+				scope: anyVersion("Any workerd."),
+				visibility: "public",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [0, 3],
+				jury: [2, 2],
+			}),
+		},
+		{
+			machine: "seed-ada-machine",
+			lesson: spec({
+				author: "ada",
+				n: 1,
+				machine: "seed-ada-machine",
+				claim: "Name the org in every invite email",
+				rationale: "An invite that only names a person reads as spam.",
+				stack: ["email"],
+				scope: anyVersion("Any mail provider."),
+				visibility: "org",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [10, 0],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-ada-machine",
+			lesson: spec({
+				author: "ada",
+				n: 2,
+				machine: "seed-ada-machine",
+				claim: "Keep invite windows short in development",
+				rationale:
+					"A one-day window surfaces expiry handling in a single session.",
+				stack: ["wrangler"],
+				scope: anyVersion("A development setting."),
+				visibility: "org",
+				projectKey: PROJECTS.onlookerSsh,
+				promoted: [3, 0],
+				jury: [2, 2],
+			}),
+		},
+		{
+			machine: "seed-sam-machine",
+			lesson: spec({
+				author: "sam",
+				n: 1,
+				machine: "seed-sam-machine",
+				claim: "Lowercase emails before comparing them",
+				rationale: "Mixed-case signups otherwise fail invite matching.",
+				stack: ["typescript"],
+				scope: anyVersion("Any runtime."),
+				visibility: "public",
+				projectKey: PROJECTS.unnamed,
+				promoted: [7, 0],
+				jury: [3, 3],
+			}),
+		},
+		{
+			machine: "seed-sam-machine",
+			lesson: spec({
+				author: "sam",
+				n: 2,
+				machine: "seed-sam-machine",
+				claim: "Cap request bodies by bytes, not array length",
+				rationale: "A short array of huge items passes a length cap.",
+				stack: ["cloudflare-workers"],
+				scope: anyVersion("Any worker."),
+				visibility: "public",
+				projectKey: PROJECTS.onlookerHttps,
+				promoted: [1, 0],
+				jury: [3, 3],
+			}),
+		},
+	];
+
+	const pushes: LessonEvent[] = lessons.map(({ machine, lesson }) => ({
+		at: lesson.promoted_at,
+		kind: "push",
+		machine,
+		lesson,
+	}));
+	const changes: LessonEvent[] = [
+		{
+			at: daysAgo(now, 5),
+			kind: "status",
+			machine: "seed-desktop",
+			lessonId: ulid(1, 2),
+			status: "refuted",
+			supersededBy: null,
+		},
+		{
+			at: daysAgo(now, 2),
+			kind: "status",
+			machine: "seed-desktop",
+			lessonId: ulid(1, 3),
+			status: "superseded",
+			supersededBy: ulid(1, 4),
+		},
+		{
+			at: daysAgo(now, 1),
+			kind: "status",
+			machine: "seed-desktop",
+			lessonId: ulid(1, 5),
+			status: "retracted",
+			supersededBy: null,
+		},
+	];
+	return [...pushes, ...changes].sort((a, b) => a.at.localeCompare(b.at));
 }
