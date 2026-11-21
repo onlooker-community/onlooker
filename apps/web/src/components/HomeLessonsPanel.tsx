@@ -83,6 +83,8 @@ export default function HomeLessonsPanel({
 						key={event.seq}
 						style={{
 							padding: "var(--space-3) 0",
+							// A claim can hold a path or URL with no break point; wrap it, don't scroll.
+							overflowWrap: "anywhere",
 							borderBottom: `2px solid ${PALETTE.border}`,
 						}}
 					>

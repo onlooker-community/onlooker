@@ -158,6 +158,7 @@ export default function ActivityPage() {
 							data-testid="activity-row"
 							style={{
 								padding: "var(--space-3) 0",
+								overflowWrap: "anywhere",
 								// Matching MachinesPage, OrgsPage, LessonsPage and now
 								// the sessions feed. The last row omits it rather than
 								// doubling against Panel's own edge.
