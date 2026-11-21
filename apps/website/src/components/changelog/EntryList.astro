@@ -1,0 +1,34 @@
+---
+import {
+	type EntryLike,
+	entryPath,
+	formatWeek,
+	isoDay,
+} from "../../lib/changelog-entries";
+
+interface Props {
+	entries: EntryLike[];
+}
+
+const { entries } = Astro.props;
+---
+
+{
+  entries.length === 0 ? (
+    <p class="post-empty">Nothing published yet.</p>
+  ) : (
+    <ol class="post-list">
+      {entries.map((entry) => (
+        <li class="post-item">
+          <time datetime={isoDay(entry.data.weekEnd)}>
+            {formatWeek(entry.data.weekStart, entry.data.weekEnd)}
+          </time>
+          <h2 class="post-title">
+            <a href={entryPath(entry.id)}>{entry.data.title}</a>
+          </h2>
+          <p class="post-description">{entry.data.summary}</p>
+        </li>
+      ))}
+    </ol>
+  )
+}

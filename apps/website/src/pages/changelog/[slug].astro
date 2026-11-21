@@ -1,0 +1,37 @@
+---
+import { render } from "astro:content";
+import { publishedEntries } from "../../data/changelog";
+import { allProse } from "../../data/plugins";
+import ChangelogEntry from "../../layouts/ChangelogEntry.astro";
+import { entryProblems } from "../../lib/changelog-entries";
+import { undefinedTermIds } from "../../lib/glossary";
+
+export const prerender = true;
+
+export async function getStaticPaths() {
+	const entries = await publishedEntries();
+	const plugins = new Set(allProse.map((p) => p.slug));
+	// Here rather than mid-render, because a throw here stops the build and a
+	// throw mid-render does not. See undefinedTermIds.
+	const problems = entries.flatMap((entry) => [
+		...entryProblems(entry, plugins),
+		...undefinedTermIds(entry.body ?? "").map(
+			(id) => `${entry.id}: <Term> id with no glossary entry: ${id}`,
+		),
+	]);
+	if (problems.length > 0) {
+		throw new Error(`Changelog entries to fix:\n${problems.join("\n")}`);
+	}
+	return entries.map((entry) => ({
+		params: { slug: entry.id },
+		props: { entry },
+	}));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+
+<ChangelogEntry entry={entry}>
+  <Content />
+</ChangelogEntry>

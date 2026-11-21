@@ -16,6 +16,10 @@ describe("isPublicBeforeLaunch", () => {
 		"/plugins/archivist/",
 		"/glossary",
 		"/glossary/",
+		"/changelog",
+		"/changelog/",
+		"/changelog/2026-11-20/",
+		"/changelog/rss.xml",
 	]) {
 		it(`lets ${path} through`, () => {
 			expect(isPublicBeforeLaunch(path)).toBe(true);
@@ -27,6 +31,7 @@ describe("isPublicBeforeLaunch", () => {
 	for (const path of [
 		"/blogx",
 		"/pluginsx",
+		"/changelogx",
 		"/glossaryx",
 		"/glossary/anything",
 		"/signup",

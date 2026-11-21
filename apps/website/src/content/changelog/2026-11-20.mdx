@@ -1,0 +1,45 @@
+---
+title: "Lock fix for eight plugins, a glossary, louder site builds"
+weekStart: 2026-11-14
+weekEnd: 2026-11-20
+summary: "This week we fixed a lock bug shared by eight plugins, added a glossary to the site, and made site builds fail loudly instead of shipping a broken page."
+plugins:
+  - name: bursar
+    version: "0.9.6"
+  - name: cartographer
+    version: "0.13.6"
+  - name: counsel
+    version: "0.13.5"
+  - name: governor
+    version: "0.8.5"
+  - name: historian
+    version: "0.13.6"
+  - name: inspector
+    version: "0.11.2"
+  - name: lineage
+    version: "0.10.5"
+  - name: scribe
+    version: "0.11.5"
+draft: false
+---
+
+import Term from "../../components/Term.astro";
+
+## Plugins
+
+- **Two hooks can no longer hold the same lock.** Bursar, cartographer, counsel, governor, historian, inspector, lineage and scribe share one lock. When a hook released it at the same moment another hook decided it was stale, both could end up holding it, and for lineage that meant a change recorded twice in the ledger. A lock whose holder is still running is now never removed, and a new test drives that exact timing.
+
+## onlooker.dev
+
+- **New glossary.** Terms like <Term id="contrast-arena">contrast arena</Term> and <Term id="substrate">substrate</Term> now have one plain definition each in the [glossary](/glossary/), and posts link to them the first time they come up.
+- **New post:** ["Your Claude config might not be in ~/.claude"](/blog/claude-config-dir/), on the plugins that assumed a default config path and what we changed.
+
+## Reliability
+
+- **Site builds fail on a half-rendered page.** If a page broke partway through rendering, the build used to pass and publish the cut-off page. Now the build stops and names the page.
+
+## Behind the scenes
+
+We hardened the test suites (CLI tests can no longer reach a live server, and a flaky lineage test now reports what it saw when it fails), fixed a few tests that only failed when run on their own, and tidied internal docs.
+
+If you run any of the plugins above, update them to pick up the lock fix.
