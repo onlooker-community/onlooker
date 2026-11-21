@@ -288,3 +288,222 @@ export const LABELS: SeedLabel[] = [
 		label: "archived project",
 	},
 ];
+
+/** One element of POST /machine/sessions' `sessions` array. */
+export interface SessionBody {
+	session_id: string;
+	started_at: string;
+	ended_at: string | null;
+	event_count: number;
+	counts_by_prefix: Record<string, number>;
+	/** Absent for a CLI older than 2.12.0. */
+	counts_by_type?: Record<string, number>;
+	counts_by_project: Record<
+		string,
+		{ basis: "remote" | "root"; event_count: number }
+	>;
+	plugins: string[];
+	prompts: number;
+	compactions: number;
+}
+
+export interface SeedSession {
+	machine: string;
+	body: SessionBody;
+}
+
+/**
+ * Plugin mixes, one per kind of row the web draws. `tool.*` and `session.*`
+ * are the harness (observed), so they count toward a session's events and
+ * never toward a plugin.
+ */
+const PROFILES: Record<
+	string,
+	{
+		types?: Record<string, number>;
+		prefixes?: Record<string, number>;
+		plugins: string[];
+	}
+> = {
+	produced: {
+		types: {
+			"historian.retrieval.started": 3,
+			"historian.retrieval.complete": 3,
+			"historian.retrieval.surfaced": 2,
+			"lineage.change.recorded": 14,
+			"bursar.session.recorded": 1,
+			"tool.file.read": 30,
+			"session.start": 1,
+		},
+		plugins: ["historian", "lineage", "bursar"],
+	},
+	failedBesideOutput: {
+		types: {
+			"historian.retrieval.surfaced": 1,
+			"historian.embedder.failed": 2,
+			"lineage.change.recorded": 6,
+			"tool.file.read": 18,
+		},
+		plugins: ["historian", "lineage"],
+	},
+	failedOnly: {
+		types: { "governor.ledger.write_failed": 1, "tool.file.read": 9 },
+		plugins: ["governor"],
+	},
+	foundNothing: {
+		types: {
+			"curator.scan.started": 1,
+			"curator.scan.complete": 1,
+			"tool.file.read": 12,
+		},
+		plugins: ["curator"],
+	},
+	skipped: {
+		types: { "tribunal.gate.skipped": 3, "tool.file.read": 7 },
+		plugins: ["tribunal"],
+	},
+	unclassified: {
+		types: { "futureplugin.signal.raised": 2, "tool.file.read": 5 },
+		plugins: ["futureplugin"],
+	},
+	// archivist's output goes out under another plugin's prefix, so the
+	// envelope's `plugins` is the only place it is heard.
+	archivist: {
+		types: { "onlooker.artifact.ready": 2, "tool.file.read": 11 },
+		plugins: ["archivist"],
+	},
+	librarian: {
+		types: {
+			"librarian.candidate.proposed": 2,
+			"librarian.lesson.promoted": 1,
+			"tool.file.read": 20,
+		},
+		plugins: ["librarian"],
+	},
+	// A CLI older than 2.12.0: prefixes only, no per-type counts.
+	oldCli: {
+		prefixes: { inspector: 4, tool: 16 },
+		plugins: ["inspector"],
+	},
+};
+
+/** [machine, days ago, hours back, minutes long (null: running), profile, projects] */
+type SessionRow = [
+	string,
+	number,
+	number,
+	number | null,
+	keyof typeof PROFILES,
+	[string, "remote" | "root", number][],
+];
+
+const P = PROJECTS;
+const SESSION_ROWS: SessionRow[] = [
+	[
+		"seed-laptop",
+		0,
+		1,
+		null,
+		"failedBesideOutput",
+		[[P.onlookerHttps, "remote", 318]],
+	],
+	["seed-desktop", 0, 4, 95, "produced", [[P.onlookerHttps, "remote", 1240]]],
+	["seed-desktop", 0, 7, 40, "archivist", [[P.scratch, "root", 64]]],
+	[
+		"seed-laptop",
+		1,
+		2,
+		120,
+		"produced",
+		[
+			[P.onlookerSsh, "remote", 96],
+			[P.unnamed, "remote", 41],
+		],
+	],
+	[
+		"seed-desktop",
+		1,
+		5,
+		30,
+		"foundNothing",
+		[[P.onlookerHttps, "remote", 210]],
+	],
+	["seed-desktop", 1, 9, 15, "skipped", [[P.unnamed, "remote", 27]]],
+	["seed-desktop", 2, 1, 10, "produced", [[P.onlookerHttps, "remote", 60]]],
+	["seed-desktop", 2, 3, 200, "produced", [[P.onlookerHttps, "remote", 800]]],
+	["seed-laptop", 2, 6, 45, "failedOnly", [[P.scratch, "root", 12]]],
+	["seed-laptop", 2, 9, 60, "librarian", [[P.onlookerSsh, "remote", 140]]],
+	// Nothing 3 days ago: a quiet day draws an empty bar.
+	["seed-desktop", 4, 2, 75, "produced", [[P.onlookerHttps, "remote", 400]]],
+	["seed-desktop", 4, 5, 20, "unclassified", [[P.unnamed, "remote", 18]]],
+	[
+		"seed-laptop",
+		4,
+		8,
+		90,
+		"failedBesideOutput",
+		[[P.onlookerHttps, "remote", 260]],
+	],
+	["seed-laptop", 5, 2, 110, "produced", [[P.onlookerSsh, "remote", 300]]],
+	["seed-desktop", 5, 5, 35, "oldCli", [[P.scratch, "root", 30]]],
+	["seed-desktop", 5, 9, 25, "foundNothing", [[P.onlookerHttps, "remote", 90]]],
+	["seed-laptop", 6, 1, 30, "produced", [[P.onlookerSsh, "remote", 70]]],
+	["seed-desktop", 6, 3, 150, "produced", [[P.onlookerHttps, "remote", 520]]],
+	["seed-laptop", 6, 6, 50, "skipped", [[P.unnamed, "remote", 33]]],
+	["seed-desktop", 6, 9, 65, "librarian", [[P.onlookerHttps, "remote", 150]]],
+	// Older than the week.
+	["seed-laptop", 9, 2, 80, "produced", [[P.scratch, "root", 12]]],
+	[
+		"seed-old-laptop",
+		20,
+		3,
+		60,
+		"produced",
+		[[P.onlookerHttps, "remote", 200]],
+	],
+	["seed-old-desktop", 45, 5, 120, "produced", [[P.retired, "root", 503]]],
+];
+
+function prefixesOf(types: Record<string, number>): Record<string, number> {
+	const prefixes: Record<string, number> = {};
+	for (const [type, count] of Object.entries(types)) {
+		const prefix = type.slice(0, type.indexOf("."));
+		prefixes[prefix] = (prefixes[prefix] ?? 0) + count;
+	}
+	return prefixes;
+}
+
+export function sessions(now: Date): SeedSession[] {
+	return SESSION_ROWS.map(
+		([machine, days, hours, minutes, profileName, projects], index) => {
+			const profile = PROFILES[profileName];
+			const counts_by_prefix = profile.types
+				? prefixesOf(profile.types)
+				: (profile.prefixes ?? {});
+			const started = daysAgo(now, days, hours);
+			const body: SessionBody = {
+				session_id: `seed-session-${String(index + 1).padStart(2, "0")}`,
+				started_at: started,
+				ended_at:
+					minutes === null
+						? null
+						: new Date(
+								new Date(started).getTime() + minutes * 60_000,
+							).toISOString(),
+				event_count: Object.values(counts_by_prefix).reduce((a, b) => a + b, 0),
+				counts_by_prefix,
+				counts_by_project: Object.fromEntries(
+					projects.map(([key, basis, event_count]) => [
+						key,
+						{ basis, event_count },
+					]),
+				),
+				plugins: profile.plugins,
+				prompts: 2 + (index % 5),
+				compactions: index % 4 === 0 ? 1 : 0,
+			};
+			if (profile.types) body.counts_by_type = profile.types;
+			return { machine, body };
+		},
+	);
+}

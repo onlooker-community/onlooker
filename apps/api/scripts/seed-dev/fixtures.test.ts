@@ -6,6 +6,7 @@ import {
 	machines,
 	ORG,
 	SEED_DOMAIN,
+	sessions,
 	USERS,
 } from "./fixtures";
 
@@ -99,5 +100,75 @@ describe("seed labels", () => {
 	it("leaves remote keys unscoped", () => {
 		const onlooker = LABELS.filter((l) => l.label === "onlooker");
 		expect(onlooker.map((l) => l.machineId)).toEqual(["", ""]);
+	});
+});
+
+describe("seed sessions", () => {
+	const all = sessions(NOW);
+	const week = all.filter(
+		(s) =>
+			new Date(s.body.started_at) > new Date(NOW.getTime() - 7 * 86_400_000),
+	);
+
+	it("puts about 20 sessions in the last 7 days, with one quiet day", () => {
+		expect(week.length).toBeGreaterThanOrEqual(18);
+		const days = new Set(week.map((s) => s.body.started_at.slice(0, 10)));
+		expect(days.has("2026-11-17")).toBe(false);
+	});
+
+	it("reaches back past the week, to the removed machine's last session", () => {
+		const oldest = all.map((s) => s.body.started_at).sort()[0];
+		expect(oldest.slice(0, 10)).toBe("2026-10-06");
+	});
+
+	it("leaves exactly one session running", () => {
+		expect(all.filter((s) => s.body.ended_at === null)).toHaveLength(1);
+	});
+
+	// Each kind of row Home's Plugins panel and the Sessions rows draw.
+	it("covers every kind of plugin activity", () => {
+		const types = week.flatMap((s) => Object.keys(s.body.counts_by_type ?? {}));
+		expect(types).toEqual(
+			expect.arrayContaining([
+				"historian.retrieval.surfaced", // produced
+				"historian.embedder.failed", // failed beside output
+				"governor.ledger.write_failed", // failed only
+				"curator.scan.complete", // found nothing
+				"tribunal.gate.skipped", // skipped
+				"futureplugin.signal.raised", // unclassified
+				"onlooker.artifact.ready", // archivist, heard only through plugins
+			]),
+		);
+		expect(week.some((s) => s.body.counts_by_type === undefined)).toBe(true);
+		expect(week.some((s) => s.body.plugins.includes("archivist"))).toBe(true);
+	});
+
+	it("derives each session's prefixes and event count from its types", () => {
+		for (const { body } of all) {
+			if (!body.counts_by_type) continue;
+			const sum = Object.values(body.counts_by_type).reduce((a, b) => a + b, 0);
+			expect(body.event_count).toBe(sum);
+			expect(
+				Object.values(body.counts_by_prefix).reduce((a, b) => a + b, 0),
+			).toBe(sum);
+		}
+	});
+
+	it("keeps every event type in the shape ingest accepts", () => {
+		const shape = /^(?=.{1,64}$)[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$/;
+		for (const { body } of all)
+			for (const type of Object.keys(body.counts_by_type ?? {}))
+				expect(type).toMatch(shape);
+	});
+
+	it("spans two repositories in one session", () => {
+		expect(
+			all.some((s) => Object.keys(s.body.counts_by_project).length === 2),
+		).toBe(true);
+	});
+
+	it("gives every session a unique id", () => {
+		const ids = all.map((s) => s.body.session_id);
+		expect(new Set(ids).size).toBe(ids.length);
 	});
 });
