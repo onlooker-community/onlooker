@@ -73,15 +73,20 @@ cd apps/website
 pnpm dev          # Astro dev server at http://localhost:4321
 ```
 
-A local account has no sessions until a machine syncs to `localhost`. To give
-one projects and sessions to look at, sign up in the local web app, then:
+A fresh local stack has nothing to look at. To fill every signed-in view, start
+`pnpm dev`, then in another terminal:
 
 ```sh
-pnpm seed:dev you@example.com
+pnpm seed:dev
 ```
 
-It writes only to the local database, marks its rows `seed-`, and replaces them
-on each run. See `scripts/seed-dev-projects.sh`.
+Log in as `dev@onlooker.test` with the password it prints. It creates three
+accounts, an org with a pending and an expired invite, machines in every state,
+a week of sessions and lessons in every status, all through the running local
+API. It writes only to the local database and `localhost:8787`, replaces its
+own rows on each run, and leaves any other local account alone. Accounts on
+`@onlooker.test` are the seed's: don't sign up with that domain. See
+`apps/api/scripts/seed-dev/`.
 
 ### Building
 
