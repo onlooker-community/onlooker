@@ -199,3 +199,15 @@ body {
 	background: var(--panel);
 	border: 2px solid var(--ink-dim);
 }
+
+/*
+ * Hover on a section link, and the one place this file reaches for
+ * !important. The links' color is inline - it follows the active route, which
+ * a stylesheet cannot know - and an inline style beats any selector short of
+ * !important. The current link is left alone: it is already the brightest
+ * thing in the bar, and a hover that dimmed or recolored it would read as the
+ * page changing.
+ */
+.app-nav-link:hover:not([aria-current="page"]) {
+	color: var(--ink-hi) !important;
+}

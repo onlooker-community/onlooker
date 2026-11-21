@@ -75,6 +75,8 @@ function Breakdown({
 					</span>
 				</>
 			) : null}
+			{/* A labeled line is a sentence; the bare prefix line is not. */}
+			{label ? "." : null}
 		</div>
 	);
 }
@@ -89,13 +91,18 @@ function Breakdown({
  * read as work done, which is what the prefix line got wrong.
  */
 function Activity({ activity }: { activity: PluginActivity }) {
+	// Written as labeled lines a person would read aloud: what ran and did
+	// nothing is a finding, and "Ran without output: curator" says so where
+	// "ran idle" asked the reader to know the term.
 	const quiet = [
-		activity.idle.length > 0 ? `ran idle: ${activity.idle.join(", ")}` : null,
+		activity.idle.length > 0
+			? `Ran without output: ${activity.idle.join(", ")}.`
+			: null,
 		activity.skipped.length > 0
-			? `skipped: ${activity.skipped.join(", ")}`
+			? `Skipped: ${activity.skipped.join(", ")}.`
 			: null,
 		activity.unclassified.length > 0
-			? `unclassified: ${activity.unclassified.join(", ")}`
+			? `Unclassified: ${activity.unclassified.join(", ")}.`
 			: null,
 	].filter((part) => part !== null);
 
@@ -109,7 +116,7 @@ function Activity({ activity }: { activity: PluginActivity }) {
 	) {
 		return (
 			<div data-testid="session-no-plugins" style={EVIDENCE_STYLE}>
-				no plugin activity
+				No plugin activity.
 			</div>
 		);
 	}
@@ -117,11 +124,15 @@ function Activity({ activity }: { activity: PluginActivity }) {
 	return (
 		<>
 			{activity.produced.shown ? (
-				<Breakdown shape={activity.produced} testId="session-produced" />
+				<Breakdown
+					shape={activity.produced}
+					testId="session-produced"
+					label="Produced"
+				/>
 			) : null}
 			{quiet.length > 0 ? (
 				<div data-testid="session-quiet" style={EVIDENCE_STYLE}>
-					{quiet.join(" · ")}
+					{quiet.join(" ")}
 				</div>
 			) : null}
 			{activity.failed.length > 0 ? (
@@ -129,11 +140,11 @@ function Activity({ activity }: { activity: PluginActivity }) {
 					data-testid="session-failed"
 					style={{ ...EVIDENCE_STYLE, color: PALETTE.danger }}
 				>
-					{/* The word "failed" carries it for a screen reader. */}
+					{/* The word "Failed" carries it for a screen reader. */}
 					<span aria-hidden="true">✕ </span>
-					{activity.failed
-						.map(({ plugin, count }) => `${plugin} failed ${count}×`)
-						.join(" · ")}
+					{`Failed: ${activity.failed
+						.map(({ plugin, count }) => `${plugin} ${count}×`)
+						.join(", ")}.`}
 				</div>
 			) : null}
 		</>
@@ -152,7 +163,6 @@ export default function SessionRow({
 	activity,
 	repos,
 	repoCount,
-	last,
 }: {
 	time: string;
 	/**
@@ -192,8 +202,6 @@ export default function SessionRow({
 	 * say "repo" or "repos" without parsing the line it labels.
 	 */
 	repoCount: number;
-	/** The last row in a day panel skips its border, which Panel supplies. */
-	last: boolean;
 }) {
 	return (
 		<div
@@ -202,8 +210,10 @@ export default function SessionRow({
 			// second element.
 			data-testid="session-row"
 			style={{
-				padding: "var(--space-3) 0",
-				borderBottom: last ? "none" : `2px solid ${PALETTE.border}`,
+				// Every row closes with a rule, the last included: a day's section
+				// opens with its own heading rule, so nothing else draws this one.
+				padding: "var(--space-4) 0",
+				borderBottom: `2px solid ${PALETTE.border}`,
 			}}
 		>
 			<div
@@ -214,7 +224,16 @@ export default function SessionRow({
 					gap: "var(--space-3)",
 				}}
 			>
-				<span style={{ flex: "none" }}>{time}</span>
+				<span
+					style={{
+						flex: "none",
+						fontSize: "1.05rem",
+						fontWeight: 700,
+						color: "var(--ink-hi)",
+					}}
+				>
+					{time}
+				</span>
 				{machineName ? (
 					<span style={{ flex: "none", color: PALETTE.muted }}>
 						{machineName}
@@ -263,7 +282,7 @@ export default function SessionRow({
 					// Labeled because it sits under the plugin lines in the same
 					// style, and "95 6a7678979e31" otherwise reads as one more
 					// plugin count (ONL-196).
-					label={repoCount === 1 ? "repo" : "repos"}
+					label={repoCount === 1 ? "Repository" : "Repositories"}
 				/>
 			) : null}
 		</div>

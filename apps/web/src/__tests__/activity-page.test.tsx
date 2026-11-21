@@ -213,6 +213,22 @@ describe("/activity when the feed is empty", () => {
 		renderAppAt("/activity");
 		expect(await screen.findByText(/nothing has happened yet/i)).toBeDefined();
 	});
+
+	// A panel with a heading and somewhere to go, not a stub. The link is the
+	// same one the Lessons page's empty pool offers: nothing is published
+	// until a machine is connected.
+	it("is a panel with a heading and a way to connect a machine", async () => {
+		mocks.listActivity.mockResolvedValue(EMPTY);
+		renderAppAt("/activity");
+		expect(
+			await screen.findByRole("heading", { name: /nothing has happened yet/i }),
+		).toBeDefined();
+		expect(
+			screen
+				.getByRole("link", { name: /connect a machine/i })
+				.getAttribute("href"),
+		).toBe("/machines");
+	});
 });
 
 describe("/activity pagination", () => {

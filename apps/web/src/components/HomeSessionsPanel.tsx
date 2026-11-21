@@ -7,10 +7,11 @@
  * disagree about a number.
  */
 
-import { useId } from "react";
 import { Link } from "react-router-dom";
 import { type LabelMap, labelIdentity } from "../api/labelsApi";
 import type { SessionSummary } from "../api/sessionsApi";
+import { dayKey } from "../lib/dayKey";
+import { failuresIn } from "../lib/homeFailures";
 import {
 	formatDurationMs,
 	plural,
@@ -20,9 +21,27 @@ import {
 import DayBar from "./DayBar";
 import { RepositoryName } from "./ProjectName";
 import { PALETTE } from "./palette";
-import { Panel } from "./ui";
+import StatBand, { type Stat } from "./StatBand";
+import { Caption, Lead, LeadValue, Panel, Plate } from "./ui";
 
 export const TOP_REPOSITORIES = 3;
+
+/** How many failures "Worth a look" names before it says there are more. */
+export const WORTH_A_LOOK = 3;
+
+const TWO_UP = {
+	display: "grid",
+	gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))",
+} as const;
+
+/** "once", "twice", "3 times" - a failure count as a person would say it. */
+function times(count: number): string {
+	return count === 1 ? "once" : count === 2 ? "twice" : `${count} times`;
+}
+
+function capitalized(word: string): string {
+	return word.charAt(0).toUpperCase() + word.slice(1);
+}
 
 export default function HomeSessionsPanel({
 	sessions,
@@ -38,7 +57,6 @@ export default function HomeSessionsPanel({
 	days: string[];
 	labels: LabelMap;
 }) {
-	const listId = useId();
 	const footer = (
 		<p style={{ margin: "var(--space-3) 0 0" }}>
 			<Link to="/sessions" style={{ color: PALETTE.accent }}>
@@ -75,78 +93,184 @@ export default function HomeSessionsPanel({
 	const top = rollupProjects(sessions).projects.slice(0, TOP_REPOSITORIES);
 
 	const counted = plural(rollup.sessions, "session");
-	const headline = complete
-		? `${counted}${total ? ` · ${total}` : ""} in the last 7 days`
-		: `most recent ${counted}${total ? ` · ${total}` : ""}`;
 
+	// A sentence rather than a label. The numbers are the same ones the old
+	// headline carried, from the same rollup; only the wording changed, so the
+	// Sessions page and this one still cannot disagree about them. A capped
+	// read says "most recent" for the reason SessionsSummary does: the rows
+	// loaded are not the whole window, and a total would claim they are.
+	const tail = total ? (
+		<>
+			, <LeadValue>{total}</LeadValue> in all
+		</>
+	) : null;
+
+	// The day the most time went to, said only when one day holds it. A tie, or
+	// a window with no time in it, has no busiest day, and naming one would be a
+	// pick. Capped, the loaded days are all that was compared.
+	const busyDays = drawn.filter(
+		(day) => (byDay.get(day)?.durationMs ?? 0) === busiest,
+	);
+	const dayCaption =
+		busiest > 0 && busyDays.length === 1
+			? complete
+				? `The busiest day was ${busyDays[0]}.`
+				: `Of the days loaded, the busiest was ${busyDays[0]}.`
+			: "Time reported each day, newest first.";
+
+	const failures = failuresIn(sessions);
+	const worth = failures.notes.slice(0, WORTH_A_LOOK);
+	const stats: Stat[] = [
+		{
+			value: rollup.sessions.toLocaleString(),
+			label: rollup.sessions === 1 ? "session" : "sessions",
+		},
+		...(total ? [{ value: total, label: "of session time" }] : []),
+		{
+			value: failures.total.toLocaleString(),
+			label: failures.total === 1 ? "plugin failure" : "plugin failures",
+			danger: failures.total > 0,
+		},
+	];
+
+	// A block rather than a fragment: a grid parent would not collapse the
+	// lead's own bottom margin into its gap, and the band would sit twice as
+	// far from it as the mockup has it.
 	return (
-		<Panel title="Recent sessions" icon="Monitor">
+		<div>
+			<Lead testId="home-sessions-headline">
+				{complete ? (
+					<>
+						In the last 7 days your machines reported{" "}
+						<LeadValue>{counted}</LeadValue>
+						{tail}.
+					</>
+				) : (
+					<>
+						The most recent <LeadValue>{counted}</LeadValue> your machines
+						reported{tail}.
+					</>
+				)}
+			</Lead>
+
+			<StatBand
+				label={
+					complete ? "The last 7 days in numbers" : "The most recent sessions"
+				}
+				stats={stats}
+			/>
+
 			<div
-				data-testid="home-sessions-headline"
-				style={{ marginBottom: "var(--space-3)" }}
+				style={{
+					...TWO_UP,
+					gap: "var(--space-7)",
+					marginTop: "var(--space-7)",
+				}}
 			>
-				{headline}
+				<Panel title="Day by day" icon="Monitor" open>
+					<Caption>{dayCaption}</Caption>
+					{drawn.map((day) => (
+						<DayBar
+							key={day}
+							label={day}
+							sessions={byDay.get(day)?.sessions ?? 0}
+							durationMs={byDay.get(day)?.durationMs ?? 0}
+							busiestMs={busiest}
+						/>
+					))}
+					{drawn.length < days.length ? (
+						<p
+							style={{
+								margin: "var(--space-2) 0 0",
+								color: PALETTE.muted,
+								fontSize: "0.85em",
+							}}
+						>
+							Older days not loaded.
+						</p>
+					) : null}
+				</Panel>
+
+				{top.length > 0 ? (
+					<Panel title="Top repositories" icon="Document" open>
+						<Caption>
+							{complete
+								? "Where the events came from in the last 7 days."
+								: "Where the events in the loaded sessions came from."}
+						</Caption>
+						<ul
+							data-testid="home-repositories"
+							aria-label="Top repositories"
+							style={{
+								margin: 0,
+								padding: 0,
+								listStyle: "none",
+								borderTop: `2px solid ${PALETTE.border}`,
+							}}
+						>
+							{top.map((project) => (
+								<li
+									key={`${project.machineId ?? ""}:${project.key}`}
+									style={{
+										padding: "var(--space-3) 0",
+										borderBottom: `2px solid ${PALETTE.border}`,
+									}}
+								>
+									<RepositoryName
+										project={{ key: project.key, machineId: project.machineId }}
+										name={
+											labels.get(
+												labelIdentity(project.key, project.machineId),
+											) ?? null
+										}
+									/>{" "}
+									· {plural(project.events, "event")}
+								</li>
+							))}
+						</ul>
+					</Panel>
+				) : null}
 			</div>
 
-			{drawn.map((day) => (
-				<DayBar
-					key={day}
-					label={day}
-					sessions={byDay.get(day)?.sessions ?? 0}
-					durationMs={byDay.get(day)?.durationMs ?? 0}
-					busiestMs={busiest}
-				/>
-			))}
-			{drawn.length < days.length ? (
-				<p
-					style={{
-						margin: "var(--space-2) 0 0",
-						color: PALETTE.muted,
-						fontSize: "0.85em",
-					}}
-				>
-					Older days not loaded.
-				</p>
+			{worth.length > 0 ? (
+				<div style={{ marginTop: "var(--space-7)" }}>
+					<Panel title="Worth a look" icon="Eye" open>
+						<div
+							data-testid="home-worth-a-look"
+							style={{ ...TWO_UP, gap: "var(--space-4)" }}
+						>
+							{worth.map((note) => (
+								<div
+									key={`${note.session.session_id}:${note.plugin}`}
+									style={{
+										display: "flex",
+										gap: "var(--space-4)",
+										alignItems: "flex-start",
+										background: "var(--panel)",
+										border: `2px solid ${PALETTE.border}`,
+										padding: "var(--space-4)",
+									}}
+								>
+									<Plate tone="red" icon="Plug" />
+									<p style={{ margin: 0, lineHeight: 1.55 }}>
+										{`${capitalized(note.plugin)} failed ${times(note.count)} in a session on ${dayKey(note.session.started_at)}. `}
+										<Link to="/sessions" style={{ color: PALETTE.accent }}>
+											Open Sessions
+										</Link>
+									</p>
+								</div>
+							))}
+						</div>
+						{failures.notes.length > worth.length ? (
+							<p style={{ margin: "var(--space-3) 0 0", color: PALETTE.muted }}>
+								{`${failures.notes.length - worth.length} more not shown.`}
+							</p>
+						) : null}
+					</Panel>
+				</div>
 			) : null}
 
-			{top.length > 0 ? (
-				<>
-					<p
-						id={listId}
-						style={{
-							margin: "var(--space-3) 0 0",
-							color: PALETTE.muted,
-							fontSize: "0.85em",
-						}}
-					>
-						Top repositories
-					</p>
-					<ul
-						data-testid="home-repositories"
-						aria-labelledby={listId}
-						style={{
-							margin: "var(--space-1) 0 0",
-							padding: 0,
-							listStyle: "none",
-						}}
-					>
-						{top.map((project) => (
-							<li key={`${project.machineId ?? ""}:${project.key}`}>
-								<RepositoryName
-									project={{ key: project.key, machineId: project.machineId }}
-									name={
-										labels.get(labelIdentity(project.key, project.machineId)) ??
-										null
-									}
-								/>{" "}
-								· {plural(project.events, "event")}
-							</li>
-						))}
-					</ul>
-				</>
-			) : null}
-
-			{footer}
-		</Panel>
+			<div style={{ marginTop: "var(--space-5)" }}>{footer}</div>
+		</div>
 	);
 }

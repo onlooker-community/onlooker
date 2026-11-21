@@ -59,6 +59,12 @@
 	--text-body-md: 0.95rem;
 	--text-body-lg: 1.25rem;
 
+	/* The lead sentence a page opens with. The body face on purpose: a whole
+	 * sentence set in a pixel face is measurably harder to read, and this is the
+	 * one place a page asks the reader to read one. rem, like the other body
+	 * steps, so it follows the reader's font-size preference. */
+	--text-body-xl: 1.75rem;
+
 	/* Monospace, for the small uppercase chrome the display face is too large
 	 * for. Also rem. */
 	--text-data-sm: 0.7rem;

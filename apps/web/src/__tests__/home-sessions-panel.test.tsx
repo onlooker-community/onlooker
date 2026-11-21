@@ -63,14 +63,14 @@ describe("HomeSessionsPanel", () => {
 			],
 		});
 		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
-			"2 sessions · 2h 0m in the last 7 days",
+			"In the last 7 days your machines reported 2 sessions, 2h 0m in all.",
 		);
 	});
 
 	it("says what it loaded, not a total, when capped", () => {
 		renderPanel({ sessions: [session()], complete: false });
 		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
-			"most recent 1 session · 1h 0m",
+			"The most recent 1 session your machines reported, 1h 0m in all.",
 		);
 	});
 
@@ -159,6 +159,150 @@ describe("HomeSessionsPanel", () => {
 	it("leaves out the repository list when no session carried a repository", () => {
 		renderPanel({ sessions: [session()] });
 		expect(screen.queryByTestId("home-repositories")).toBeNull();
+	});
+
+	describe("the stat band", () => {
+		const band = () => within(screen.getByTestId("stat-band"));
+
+		it("shows sessions, time and failures as three numbers", () => {
+			renderPanel({
+				sessions: [
+					session({ session_id: "a" }),
+					session({
+						session_id: "b",
+						started_at: "2026-11-16T09:00:00Z",
+						ended_at: "2026-11-16T10:00:00Z",
+					}),
+				],
+			});
+			expect(band().getByText("2")).toBeTruthy();
+			expect(band().getByText("sessions")).toBeTruthy();
+			expect(band().getByText("2h 0m")).toBeTruthy();
+			expect(band().getByText("of session time")).toBeTruthy();
+			expect(band().getByText("0")).toBeTruthy();
+			expect(band().getByText("plugin failures")).toBeTruthy();
+		});
+
+		it("uses singular labels for one", () => {
+			renderPanel({
+				sessions: [
+					session({ counts_by_type: { "historian.embedder.failed": 1 } }),
+				],
+			});
+			expect(band().getByText("session")).toBeTruthy();
+			expect(band().getByText("plugin failure")).toBeTruthy();
+		});
+
+		it("sums failures across sessions", () => {
+			renderPanel({
+				sessions: [
+					session({
+						session_id: "a",
+						counts_by_type: { "historian.embedder.failed": 2 },
+					}),
+					session({
+						session_id: "b",
+						counts_by_type: { "governor.ledger.write_failed": 1 },
+					}),
+				],
+			});
+			expect(band().getByText("3")).toBeTruthy();
+			expect(band().getByText("plugin failures")).toBeTruthy();
+		});
+	});
+
+	describe("the captions", () => {
+		it("names the busiest day when one day holds the most time", () => {
+			renderPanel({
+				sessions: [
+					session({ session_id: "a" }),
+					session({
+						session_id: "b",
+						started_at: "2026-11-16T09:00:00Z",
+						ended_at: "2026-11-16T09:30:00Z",
+					}),
+				],
+			});
+			expect(
+				screen.getByText("The busiest day was Wednesday, November 18."),
+			).toBeTruthy();
+		});
+
+		// Naming one of two equal days would be a pick, not a finding.
+		it("names no busiest day on a tie", () => {
+			renderPanel({
+				sessions: [
+					session({ session_id: "a" }),
+					session({
+						session_id: "b",
+						started_at: "2026-11-16T10:00:00Z",
+						ended_at: "2026-11-16T11:00:00Z",
+					}),
+				],
+			});
+			expect(screen.queryByText(/busiest/)).toBeNull();
+			expect(
+				screen.getByText("Time reported each day, newest first."),
+			).toBeTruthy();
+		});
+
+		it("says of the loaded days when capped", () => {
+			renderPanel({ sessions: [session()], complete: false });
+			expect(
+				screen.getByText(
+					"Of the days loaded, the busiest was Wednesday, November 18.",
+				),
+			).toBeTruthy();
+		});
+	});
+
+	describe("worth a look", () => {
+		const failing = (id: string, startedAt: string, count: number) =>
+			session({
+				session_id: id,
+				started_at: startedAt,
+				ended_at: startedAt,
+				counts_by_type: { "historian.embedder.failed": count },
+			});
+
+		it("is absent when nothing failed", () => {
+			renderPanel({ sessions: [session()] });
+			expect(screen.queryByTestId("home-worth-a-look")).toBeNull();
+			expect(screen.queryByText("Worth a look")).toBeNull();
+		});
+
+		it("says which plugin failed, how often and when, and links to Sessions", () => {
+			renderPanel({
+				sessions: [failing("a", "2026-11-17T10:00:00Z", 2)],
+			});
+			const cards = within(screen.getByTestId("home-worth-a-look"));
+			expect(
+				cards.getByText(
+					/^Historian failed twice in a session on Tuesday, November 17\./,
+				),
+			).toBeTruthy();
+			expect(
+				cards.getByRole("link", { name: "Open Sessions" }).getAttribute("href"),
+			).toBe("/sessions");
+		});
+
+		it("names the worst first and says how many it left out", () => {
+			renderPanel({
+				sessions: [
+					failing("a", "2026-11-18T10:00:00Z", 1),
+					failing("b", "2026-11-17T10:00:00Z", 5),
+					failing("c", "2026-11-16T10:00:00Z", 1),
+					failing("d", "2026-11-15T10:00:00Z", 1),
+				],
+			});
+			const texts = Array.from(
+				screen.getByTestId("home-worth-a-look").querySelectorAll("p"),
+				(p) => p.textContent ?? "",
+			);
+			expect(texts).toHaveLength(3);
+			expect(texts[0]).toMatch(/failed 5 times/);
+			expect(screen.getByText("1 more not shown.")).toBeTruthy();
+		});
 	});
 
 	it("says so when the window holds no sessions", () => {

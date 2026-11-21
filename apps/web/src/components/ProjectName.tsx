@@ -7,6 +7,7 @@
  */
 
 import { type KeyboardEvent, useState } from "react";
+import { Link } from "react-router-dom";
 import { describeError } from "../lib/apiErrors";
 import { PALETTE } from "./palette";
 import { Button } from "./ui";
@@ -18,24 +19,34 @@ export function RepositoryName({
 	project,
 	name,
 	onEdit,
+	href,
 }: {
 	project: NamedProject;
 	name: string | null;
+	/** Makes the name a link to the project's own page. */
+	href?: string;
 	/** Omitted when the row cannot be named; the rename control goes with it. */
 	onEdit?: () => void;
 }) {
+	const label = name ? (
+		// The key moves to a title rather than disappearing: it is what
+		// the CLI and the session lines' tails still speak in.
+		<span title={project.key} style={{ flex: "none" }}>
+			{name}
+		</span>
+	) : (
+		<span style={{ flex: "none", fontFamily: "var(--font-data)" }}>
+			{project.key}
+		</span>
+	);
 	return (
 		<>
-			{name ? (
-				// The key moves to a title rather than disappearing: it is what
-				// the CLI and the session lines' tails still speak in.
-				<span title={project.key} style={{ flex: "none" }}>
-					{name}
-				</span>
+			{href ? (
+				<Link to={href} style={{ color: PALETTE.accent }}>
+					{label}
+				</Link>
 			) : (
-				<span style={{ flex: "none", fontFamily: "var(--font-data)" }}>
-					{project.key}
-				</span>
+				label
 			)}
 			{onEdit ? (
 				<button

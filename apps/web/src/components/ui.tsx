@@ -113,6 +113,7 @@ export function Panel({
 	title,
 	icon,
 	variant,
+	open,
 	children,
 }: {
 	title?: string;
@@ -133,6 +134,16 @@ export function Panel({
 	 * prop does not become a lie if gold is ever retuned.
 	 */
 	variant?: "notice" | "danger";
+	/**
+	 * Drop the box and keep the rule: no fill, no side or bottom border, and
+	 * only the top edge left to say where the section starts.
+	 *
+	 * For a section that is part of reading the page, not a thing set apart on
+	 * it. A box says "this is separate"; a long page of boxes says that about
+	 * everything, and none of it reads as one piece. A `variant` still wins
+	 * where it is set, because there the border itself is the message.
+	 */
+	open?: boolean;
 	children: ReactNode;
 }) {
 	const border =
@@ -143,12 +154,20 @@ export function Panel({
 				: PALETTE.border;
 	return (
 		<section
-			style={{
-				background: "var(--panel)",
-				border: `2px solid ${border}`,
-				borderRadius: 0,
-				padding: "1rem",
-			}}
+			style={
+				open && !variant
+					? {
+							borderTop: `2px solid ${border}`,
+							borderRadius: 0,
+							padding: "var(--space-4) 0 0",
+						}
+					: {
+							background: "var(--panel)",
+							border: `2px solid ${border}`,
+							borderRadius: 0,
+							padding: "1rem",
+						}
+			}
 		>
 			{title ? (
 				<h2
@@ -169,6 +188,76 @@ export function Panel({
 			) : null}
 			{children}
 		</section>
+	);
+}
+
+/**
+ * One plain line under a section's heading, saying what the section shows.
+ *
+ * The heading names it and this reads it: "Where the events came from this
+ * week." A caption states what the section is for and, where it can, what it
+ * found. It never restates every number below it.
+ */
+export function Caption({ children }: { children: ReactNode }) {
+	return (
+		<p
+			style={{
+				margin: "0 0 var(--space-4)",
+				fontSize: "var(--text-body-md)",
+				lineHeight: 1.5,
+				color: PALETTE.muted,
+			}}
+		>
+			{children}
+		</p>
+	);
+}
+
+/**
+ * The sentence a page opens with, in the body face at --text-body-xl.
+ *
+ * Says what the page found in words a person would use, so the reader gets the
+ * answer before the detail under it. Wrap the figures in `LeadValue` so the
+ * eye can find them without reading the whole line.
+ *
+ * Deliberately not the display face: Abaddon renders crisply only at multiples
+ * of 16px, and a sentence in a pixel face is harder to read at length. The
+ * measure is capped near 44rem for the same reason.
+ */
+export function Lead({
+	children,
+	testId,
+}: {
+	children: ReactNode;
+	testId?: string;
+}) {
+	return (
+		<p
+			data-testid={testId}
+			style={{
+				margin: `0 0 var(--space-6)`,
+				maxWidth: "44rem",
+				fontFamily: "var(--font-body)",
+				fontSize: "var(--text-body-xl)",
+				lineHeight: 1.4,
+				textWrap: "pretty",
+			}}
+		>
+			{children}
+		</p>
+	);
+}
+
+/**
+ * A figure inside a `Lead`. An accent, not a plate - it is ink on the page
+ * ground, and accents are the tokens that shift with the theme to stay
+ * readable. Bold as well as colored, so it is not marked by hue alone.
+ */
+export function LeadValue({ children }: { children: ReactNode }) {
+	return (
+		<strong style={{ color: PALETTE.accent, fontWeight: 700 }}>
+			{children}
+		</strong>
 	);
 }
 

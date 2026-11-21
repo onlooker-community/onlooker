@@ -33,6 +33,10 @@ const PRODUCT_SECTIONS = SECTIONS.filter(
 const sectionLink = ({ isActive }: { isActive: boolean }) => ({
 	display: "inline-flex",
 	alignItems: "center",
+	// A touch target, not a line of text: the bar's links are 11px of type
+	// and a thumb needs 44px of height to hit one. Height only - the width
+	// is the label's, so the bar does not spread.
+	minHeight: "44px",
 	gap: "var(--space-1)",
 	// An accent, not a plate - this is ink on the header's ground, and
 	// accents are the tokens that shift with the theme to stay readable.
@@ -233,7 +237,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
 						<div className="app-nav-group">
 							{PRODUCT_SECTIONS.map((section) => (
-								<NavLink key={section.to} to={section.to} style={sectionLink}>
+								<NavLink
+									key={section.to}
+									to={section.to}
+									className="app-nav-link"
+									style={sectionLink}
+								>
 									{/* Decorative: the visible label right beside it carries
 									    the meaning, same as StatusBadge's icon. */}
 									<Icon name={section.icon} />
@@ -276,6 +285,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 										<NavLink
 											key={section.to}
 											to={section.to}
+											className="app-nav-link"
 											style={sectionLink}
 										>
 											<Icon name={section.icon} />
@@ -326,9 +336,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
 					 */}
 					{expanded ? (
 						<nav id="app-menu" className="app-menu" aria-label="All sections">
-							<div style={{ display: "grid", gap: "var(--space-4)" }}>
+							<div style={{ display: "grid", gap: "var(--space-1)" }}>
 								{PRODUCT_SECTIONS.map((section) => (
-									<NavLink key={section.to} to={section.to} style={sectionLink}>
+									<NavLink
+										key={section.to}
+										to={section.to}
+										className="app-nav-link"
+										style={sectionLink}
+									>
 										<Icon name={section.icon} />
 										{section.label}
 									</NavLink>
@@ -344,14 +359,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
 							 * where it read as one more item rather than the label for
 							 * the group.
 							 */}
-							<div style={{ display: "grid", gap: "var(--space-4)" }}>
+							<div style={{ display: "grid", gap: "var(--space-1)" }}>
 								{user ? (
 									<span className="app-menu-user">
 										{user.name || user.email}
 									</span>
 								) : null}
 								{ACCOUNT_SECTIONS.map((section) => (
-									<NavLink key={section.to} to={section.to} style={sectionLink}>
+									<NavLink
+										key={section.to}
+										to={section.to}
+										className="app-nav-link"
+										style={sectionLink}
+									>
 										<Icon name={section.icon} />
 										{section.label}
 									</NavLink>
@@ -413,7 +433,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 			<footer
 				style={{
 					maxWidth: "1100px",
-					margin: "0 auto",
+					// Air between the last of a page and the license line, so the
+					// rule reads as the page's end and not as one more section.
+					margin: "var(--space-7) auto 0",
 					padding: "var(--space-5) var(--space-5) var(--space-6)",
 					color: PALETTE.muted,
 					fontSize: "var(--text-body-sm)",

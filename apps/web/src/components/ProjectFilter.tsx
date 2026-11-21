@@ -12,11 +12,14 @@ export default function ProjectFilter({
 	entries,
 	value,
 	onChange,
+	disabled = false,
 }: {
 	entries: ProjectEntry[];
 	/** The selected entry's name, or null for every project. */
 	value: string | null;
 	onChange: (name: string | null) => void;
+	/** Kept on screen with nothing to choose, so a page does not lose it. */
+	disabled?: boolean;
 }) {
 	return (
 		<div>
@@ -35,22 +38,27 @@ export default function ProjectFilter({
 				}}
 			>
 				<Icon name="MagnifyingGlass" />
-				Project
+				Repository
 			</label>
 			<select
 				id="project-filter"
 				value={value ?? ""}
+				disabled={disabled}
 				onChange={(event) => onChange(event.target.value || null)}
 				style={{
-					padding: "0.4rem 0.5rem",
+					// A touch target, as the nav links are: 44px tall, and the
+					// label above it already says what it is.
+					minHeight: "44px",
+					padding: "0 var(--space-3)",
 					background: "var(--ground)",
 					color: "var(--ink)",
 					border: `2px solid ${PALETTE.border}`,
 					borderRadius: 0,
 					fontFamily: "var(--font-body)",
+					fontSize: "var(--text-body-md)",
 				}}
 			>
-				<option value="">All projects</option>
+				<option value="">All repositories</option>
 				{entries.map((entry) => (
 					<option key={entry.name} value={entry.name}>
 						{entry.name}

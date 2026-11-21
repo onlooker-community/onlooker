@@ -242,6 +242,26 @@ describe("/sessions when nothing has synced", () => {
 		).toBe("/machines");
 	});
 
+	// Both empty states are panels with a heading of their own, across the
+	// page, like the empty pools on Lessons and Activity.
+	it("gives the no-machine state a heading of its own", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockResolvedValue(NO_MACHINES);
+		renderAppAt("/sessions");
+		expect(
+			await screen.findByRole("heading", { name: /no machine has synced/i }),
+		).toBeDefined();
+	});
+
+	it("gives the threshold state a heading of its own", async () => {
+		mocks.listSessions.mockResolvedValue(EMPTY);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+		expect(
+			await screen.findByRole("heading", { name: /nothing has cleared/i }),
+		).toBeDefined();
+	});
+
 	it("says nothing cleared the threshold when machines have synced", async () => {
 		mocks.listSessions.mockResolvedValue(EMPTY);
 		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
@@ -394,15 +414,51 @@ describe("/sessions with a session logged", () => {
 		mocks.listSessions.mockResolvedValue(TWO_DAYS);
 		renderAppAt("/sessions");
 
-		// Excludes the summary header's own "What you loaded" heading by name
-		// rather than by count: that Panel is a level-2 heading too now, and a
-		// bare length check would conflate "one panel per day" with "one panel
-		// per day plus the summary."
-		const headings = await screen.findAllByRole("heading", { level: 2 });
-		const dayHeadings = headings.filter(
-			(h) => h.textContent !== "What you loaded",
-		);
+		// One level-2 heading per day, and nothing else at that level on this
+		// fixture: the summary is a sentence now, not a panel with a heading.
+		const dayHeadings = await screen.findAllByRole("heading", { level: 2 });
 		expect(dayHeadings).toHaveLength(2);
+	});
+});
+
+describe("/sessions day sections", () => {
+	// The meta sits beside the heading, not inside it, so the heading's own
+	// name stays the day alone.
+	it("says what each day held beside its heading", async () => {
+		mocks.listSessions.mockResolvedValue(TWO_DAYS);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+
+		const heading = await screen.findByRole("heading", {
+			level: 2,
+			name: /^Wednesday, September 16$/,
+		});
+		expect(heading.nextElementSibling?.textContent).toBe("1 session · 42m");
+	});
+
+	it("says nothing about failures when no plugin failed", async () => {
+		mocks.listSessions.mockResolvedValue(TWO_DAYS);
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+		const headline = await screen.findByTestId("sessions-headline");
+		expect(headline.textContent).not.toMatch(/failed/i);
+	});
+
+	it("says in how many sessions plugins failed", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...TWO_DAYS,
+			sessions: [
+				{
+					...TWO_DAYS.sessions[0],
+					counts_by_type: { "historian.embedder.failed": 2 },
+				},
+				TWO_DAYS.sessions[1],
+			],
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+		const headline = await screen.findByTestId("sessions-headline");
+		expect(headline.textContent).toMatch(/Plugins failed in 1 of them\./);
 	});
 });
 
@@ -445,7 +501,7 @@ describe("/sessions summary header", () => {
 		const renderedRows = screen.getAllByTestId("session-row");
 		const headline = screen.getByTestId("sessions-headline");
 		expect(headline.textContent).toMatch(
-			new RegExp(`^${renderedRows.length} sessions`),
+			new RegExp(`reported ${renderedRows.length} sessions`),
 		);
 	});
 
@@ -463,7 +519,9 @@ describe("/sessions summary header", () => {
 				</MemoryRouter>,
 			);
 		});
-		expect(screen.getByText(/most recent 1 session/)).toBeTruthy();
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/most recent 1 session/,
+		);
 	});
 
 	// Scoped to the row itself, not a page-wide getByText: SessionsSummary's
@@ -507,7 +565,7 @@ describe("/sessions summary header", () => {
 		// leaked into this empty state with zeroed totals. Anchoring on the
 		// Panel's own heading tests the fact this case is named for - that no
 		// header renders at all - rather than a wording detail of one.
-		expect(screen.queryByText("What you loaded")).toBeNull();
+		expect(screen.queryByTestId("sessions-headline")).toBeNull();
 	});
 
 	// The design's central claim, exercised across a page boundary: nothing
@@ -552,7 +610,7 @@ describe("/sessions summary header", () => {
 
 		expect(
 			(await screen.findByTestId("sessions-headline")).textContent,
-		).toMatch(/^most recent 1 session/);
+		).toMatch(/^The most recent 1 session/);
 
 		fireEvent.click(screen.getByRole("button", { name: /load more/i }));
 
@@ -560,7 +618,7 @@ describe("/sessions summary header", () => {
 			expect(screen.getAllByTestId("session-row")).toHaveLength(2);
 		});
 		const headline = screen.getByTestId("sessions-headline");
-		expect(headline.textContent).toMatch(/^2 sessions/);
+		expect(headline.textContent).toMatch(/reported 2 sessions/);
 		expect(headline.textContent).not.toMatch(/most recent/);
 		expect(mocks.listSessions).toHaveBeenLastCalledWith({
 			cursor: "c1",
@@ -790,12 +848,12 @@ describe("/sessions per repository", () => {
 		// Labeled, so the line does not read as one more plugin count under
 		// the plugin lines (ONL-196). Plural: the session touched four.
 		expect(repos.textContent).toMatch(
-			/^repos: 181 ee2cfbe428c7 · 35 54460a64b16d/,
+			/^Repositories: ee2cfbe428c7 181, 54460a64b16d 35/,
 		);
 
 		// The tail survives in a title, as the event breakdown's does.
 		const more = within(repos).getByText(/\+2 more/);
-		expect(more.getAttribute("title")).toBe("2 9701ec23092a · 1 a2241956835d");
+		expect(more.getAttribute("title")).toBe("9701ec23092a 2, a2241956835d 1");
 	});
 
 	it("labels a single repository in the singular", async () => {
@@ -804,7 +862,7 @@ describe("/sessions per repository", () => {
 
 		const rows = await screen.findAllByTestId("session-row");
 		expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
-			"repo: 41 6a7678979e31",
+			"Repository: 6a7678979e31 41.",
 		);
 	});
 
@@ -814,251 +872,6 @@ describe("/sessions per repository", () => {
 
 		const rows = await screen.findAllByTestId("session-row");
 		expect(within(rows[2]).queryByTestId("session-repos")).toBeNull();
-	});
-
-	it("rolls the loaded sessions up per repository", async () => {
-		mocks.listSessions.mockResolvedValue(MULTI_REPO);
-		renderAppAt("/sessions");
-
-		const panel = await screen.findByTestId("repositories-summary");
-		const rows = within(panel).getAllByTestId("repository-row");
-		expect(rows.map((r) => r.textContent)).toEqual([
-			expect.stringMatching(/ee2cfbe428c7.*1 session · 181 events/),
-			expect.stringMatching(/6a7678979e31.*1 session · 41 events/),
-			expect.stringMatching(/54460a64b16d.*1 session · 35 events/),
-			expect.stringMatching(/9701ec23092a.*1 session · 2 events/),
-			expect.stringMatching(/a2241956835d.*1 session · 1 event$/),
-		]);
-	});
-
-	// A root key hashes a local path, so it names a repository only on the
-	// machine that reported it. The row has to say which machine, or it reads
-	// as portable as every other key.
-	it("names the machine a root-derived key belongs to", async () => {
-		mocks.listSessions.mockResolvedValue(MULTI_REPO);
-		renderAppAt("/sessions");
-
-		const panel = await screen.findByTestId("repositories-summary");
-		const root = within(panel)
-			.getAllByTestId("repository-row")
-			.find((r) => r.textContent?.includes("a2241956835d"));
-		expect(root?.textContent).toMatch(/work laptop only/);
-	});
-
-	it("says how many loaded sessions it could not place", async () => {
-		mocks.listSessions.mockResolvedValue(MULTI_REPO);
-		renderAppAt("/sessions");
-
-		const panel = await screen.findByTestId("repositories-summary");
-		expect(
-			within(panel).queryByText(/1 session carried no repository/),
-		).not.toBeNull();
-	});
-
-	// Every row predates the column: nothing to roll up, and a panel that
-	// only says "nothing here" is noise above the feed.
-	it("renders no panel when no session carried a repository", async () => {
-		mocks.listSessions.mockResolvedValue(ONE_SESSION);
-		renderAppAt("/sessions");
-
-		await screen.findByTestId("session-row");
-		expect(screen.queryByTestId("repositories-summary")).toBeNull();
-	});
-
-	describe("named by the user (ONL-189)", () => {
-		function repoRow(panel: HTMLElement, text: string): HTMLElement {
-			const row = within(panel)
-				.getAllByTestId("repository-row")
-				.find((r) => r.textContent?.includes(text));
-			if (!row) throw new Error(`no repository row mentions ${text}`);
-			return row;
-		}
-
-		it("shows a name in place of its key, keeping the key in a title", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.listLabels.mockResolvedValue(
-				new Map([[labelIdentity("6a7678979e31", null), "onlooker"]]),
-			);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			const name = await within(panel).findByText("onlooker");
-			expect(name.getAttribute("title")).toBe("6a7678979e31");
-
-			const rows = await screen.findAllByTestId("session-row");
-			expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
-				"repo: 41 onlooker",
-			);
-		});
-
-		// Two clones named alike have been called one repository; the line
-		// adds them rather than letting one overwrite the other.
-		it("sums keys the user gave the same name", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.listLabels.mockResolvedValue(
-				new Map([
-					[labelIdentity("ee2cfbe428c7", null), "onlooker"],
-					[labelIdentity("54460a64b16d", null), "onlooker"],
-				]),
-			);
-			renderAppAt("/sessions");
-
-			const rows = await screen.findAllByTestId("session-row");
-			await waitFor(() =>
-				expect(
-					within(rows[1]).getByTestId("session-repos").textContent,
-				).toMatch(/^repos: 216 onlooker · 2 9701ec23092a/),
-			);
-		});
-
-		// The same key on another machine is another repository.
-		it("names a root key only on its own machine", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.listLabels.mockResolvedValue(
-				new Map([[labelIdentity("a2241956835d", "m2"), "elsewhere"]]),
-			);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			await waitFor(() => expect(mocks.listLabels).toHaveBeenCalled());
-			expect(repoRow(panel, "a2241956835d").textContent).not.toMatch(
-				/elsewhere/,
-			);
-		});
-
-		it("still shows every key when the names cannot be read", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.listLabels.mockRejectedValue(new Error("offline"));
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			expect(within(panel).getAllByTestId("repository-row")).toHaveLength(5);
-		});
-
-		it("renames a remote key in place", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			fireEvent.click(
-				within(panel).getByRole("button", {
-					name: "Rename repository 6a7678979e31",
-				}),
-			);
-			const input = within(panel).getByRole("textbox", {
-				name: "Name for 6a7678979e31",
-			});
-			fireEvent.change(input, { target: { value: " onlooker " } });
-			fireEvent.keyDown(input, { key: "Enter" });
-
-			await within(panel).findByText("onlooker");
-			expect(mocks.setLabel).toHaveBeenCalledWith(
-				"6a7678979e31",
-				null,
-				" onlooker ",
-			);
-			// The session line reads the same name, without a reload.
-			const rows = await screen.findAllByTestId("session-row");
-			expect(within(rows[0]).getByTestId("session-repos").textContent).toBe(
-				"repo: 41 onlooker",
-			);
-		});
-
-		it("renames a root key under its machine", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			fireEvent.click(
-				within(panel).getByRole("button", {
-					name: "Rename repository a2241956835d",
-				}),
-			);
-			fireEvent.change(
-				within(panel).getByRole("textbox", { name: "Name for a2241956835d" }),
-				{ target: { value: "scratch" } },
-			);
-			fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
-
-			await within(panel).findByText("scratch");
-			expect(mocks.setLabel).toHaveBeenCalledWith(
-				"a2241956835d",
-				"m1",
-				"scratch",
-			);
-		});
-
-		it("clears a name back to the key", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.listLabels.mockResolvedValue(
-				new Map([[labelIdentity("6a7678979e31", null), "onlooker"]]),
-			);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			fireEvent.click(
-				await within(panel).findByRole("button", {
-					name: "Rename repository onlooker",
-				}),
-			);
-			fireEvent.click(within(panel).getByRole("button", { name: "Clear" }));
-
-			await waitFor(() =>
-				expect(repoRow(panel, "6a7678979e31").textContent).not.toMatch(
-					/onlooker/,
-				),
-			);
-			expect(mocks.setLabel).toHaveBeenCalledWith("6a7678979e31", null, null);
-		});
-
-		it("cancels on Escape without saving", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			fireEvent.click(
-				within(panel).getByRole("button", {
-					name: "Rename repository 6a7678979e31",
-				}),
-			);
-			const input = within(panel).getByRole("textbox", {
-				name: "Name for 6a7678979e31",
-			});
-			fireEvent.change(input, { target: { value: "never mind" } });
-			fireEvent.keyDown(input, { key: "Escape" });
-
-			expect(within(panel).queryByRole("textbox")).toBeNull();
-			expect(mocks.setLabel).not.toHaveBeenCalled();
-		});
-
-		// What the server refused is said, and the typed name is kept so it can
-		// be fixed rather than retyped.
-		it("keeps the editor open and says why when a save fails", async () => {
-			mocks.listSessions.mockResolvedValue(MULTI_REPO);
-			mocks.setLabel.mockRejectedValue(new Error("label must not be empty"));
-			renderAppAt("/sessions");
-
-			const panel = await screen.findByTestId("repositories-summary");
-			fireEvent.click(
-				within(panel).getByRole("button", {
-					name: "Rename repository 6a7678979e31",
-				}),
-			);
-			const input = within(panel).getByRole("textbox", {
-				name: "Name for 6a7678979e31",
-			});
-			fireEvent.change(input, { target: { value: "x‮" } });
-			fireEvent.keyDown(input, { key: "Enter" });
-
-			expect(await within(panel).findByRole("alert")).not.toBeNull();
-			expect(
-				(
-					within(panel).getByRole("textbox", {
-						name: "Name for 6a7678979e31",
-					}) as HTMLInputElement
-				).value,
-			).toBe("x‮");
-		});
 	});
 });
 
@@ -1111,11 +924,11 @@ describe("/sessions filtered by project (ONL-209)", () => {
 	}
 
 	async function filterControl(): Promise<HTMLSelectElement> {
-		return (await screen.findByLabelText("Project")) as HTMLSelectElement;
+		return (await screen.findByLabelText("Repository")) as HTMLSelectElement;
 	}
 
 	function changeProject(name: string) {
-		fireEvent.change(screen.getByLabelText("Project"), {
+		fireEvent.change(screen.getByLabelText("Repository"), {
 			target: { value: name },
 		});
 	}
@@ -1128,7 +941,7 @@ describe("/sessions filtered by project (ONL-209)", () => {
 			within(select)
 				.getAllByRole("option")
 				.map((option) => option.textContent),
-		).toEqual(["All projects", KEY_A, KEY_B]);
+		).toEqual(["All repositories", KEY_A, KEY_B]);
 	});
 
 	it("sends no project on the first load", async () => {
@@ -1171,7 +984,7 @@ describe("/sessions filtered by project (ONL-209)", () => {
 				within(await filterControl())
 					.getAllByRole("option")
 					.map((option) => option.textContent),
-			).toEqual(["All projects", "onlooker"]),
+			).toEqual(["All repositories", "onlooker"]),
 		);
 
 		changeProject("onlooker");
@@ -1283,7 +1096,7 @@ describe("/sessions filtered by project (ONL-209)", () => {
 		expect(((await filterControl()) as HTMLSelectElement).value).toBe(KEY_A);
 		expect(screen.queryByText(/no machine has synced/i)).toBeNull();
 		expect(screen.queryByText(/threshold/i)).toBeNull();
-		expect(screen.queryByText("What you loaded")).toBeNull();
+		expect(screen.queryByTestId("sessions-headline")).toBeNull();
 	});
 
 	it("reports a failed filtered load under the control, and recovers", async () => {
@@ -1305,42 +1118,6 @@ describe("/sessions filtered by project (ONL-209)", () => {
 
 		await showsPrompts(5);
 		expect(screen.queryByRole("alert")).toBeNull();
-	});
-
-	it("falls back to all projects when the chosen name goes away", async () => {
-		mocks.listLabels.mockResolvedValue(
-			new Map([[labelIdentity(KEY_A, null), "alpha"]]),
-		);
-		mocks.listSessions.mockImplementation(async (options) =>
-			options.project ? pageOf(7, { keys: [KEY_A] }) : ONE_SESSION,
-		);
-		renderAppAt("/sessions");
-		await waitFor(async () =>
-			expect(
-				within(await filterControl())
-					.getAllByRole("option")
-					.map((option) => option.textContent),
-			).toContain("alpha"),
-		);
-		changeProject("alpha");
-		await showsPrompts(7);
-
-		const panel = await screen.findByTestId("repositories-summary");
-		fireEvent.click(
-			within(panel).getByRole("button", { name: "Rename repository alpha" }),
-		);
-		fireEvent.change(
-			within(panel).getByRole("textbox", { name: `Name for ${KEY_A}` }),
-			{ target: { value: "zeta" } },
-		);
-		fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
-
-		await waitFor(async () =>
-			expect(((await filterControl()) as HTMLSelectElement).value).toBe(""),
-		);
-		await waitFor(() =>
-			expect(mocks.listSessions).toHaveBeenLastCalledWith({ limit: 200 }),
-		);
 	});
 
 	// Leaving a filter that held nothing: until the reload lands, the rows on
@@ -1371,7 +1148,7 @@ describe("/sessions filtered by project (ONL-209)", () => {
 		function expectKeptTheControl(select: HTMLSelectElement) {
 			expect(screen.queryByText(/threshold/i)).toBeNull();
 			expect(screen.queryByText(/no machine has synced/i)).toBeNull();
-			expect(screen.getByLabelText("Project")).toBe(select);
+			expect(screen.getByLabelText("Repository")).toBe(select);
 			expect(document.activeElement).toBe(select);
 		}
 
@@ -1536,13 +1313,15 @@ describe("/sessions filtered by project (ONL-209)", () => {
 		expect(repos).toContain(KEY_B);
 	});
 
-	it("hides the filter and keeps the page working when projects cannot be read", async () => {
+	it("disables the filter and keeps the page working when projects cannot be read", async () => {
 		mocks.listProjects.mockRejectedValue(new Error("offline"));
 		renderAppAt("/sessions");
 
 		await screen.findByTestId("session-row");
 		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
-		expect(screen.queryByLabelText("Project")).toBeNull();
+		expect(
+			(screen.getByLabelText("Repository") as HTMLSelectElement).disabled,
+		).toBe(true);
 	});
 });
 
@@ -1600,7 +1379,7 @@ describe("/sessions per plugin", () => {
 
 		const row = await screen.findByTestId("session-row");
 		expect(within(row).getByTestId("session-produced").textContent).toBe(
-			"3 historian · 2 bursar · 1 onlooker",
+			"Produced: historian 3, bursar 2, onlooker 1.",
 		);
 	});
 
@@ -1612,7 +1391,7 @@ describe("/sessions per plugin", () => {
 
 		const row = await screen.findByTestId("session-row");
 		expect(within(row).getByTestId("session-quiet").textContent).toBe(
-			"ran idle: curator · skipped: scribe",
+			"Ran without output: curator. Skipped: scribe.",
 		);
 	});
 
@@ -1622,7 +1401,7 @@ describe("/sessions per plugin", () => {
 
 		const row = await screen.findByTestId("session-row");
 		expect(within(row).getByTestId("session-failed").textContent).toMatch(
-			/historian failed 2×/,
+			/Failed: historian 2×/,
 		);
 	});
 
@@ -1671,7 +1450,7 @@ describe("/sessions per plugin", () => {
 		// ending after line one as if something were missing (ONL-196).
 		expect(within(row).queryByText(/tool/)).toBeNull();
 		expect(within(row).getByTestId("session-no-plugins").textContent).toBe(
-			"no plugin activity",
+			"No plugin activity.",
 		);
 	});
 
