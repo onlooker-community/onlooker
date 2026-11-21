@@ -2,7 +2,7 @@
 title: "Lock fix for eight plugins, a glossary, louder site builds"
 weekStart: 2026-11-14
 weekEnd: 2026-11-20
-summary: "This week we fixed a lock bug shared by eight plugins, added a glossary to the site, and made site builds fail loudly instead of shipping a broken page."
+summary: "This week we fixed a lock bug shared by eight plugins, let librarian finish unattended lessons on its own, added a glossary to the site, and made site builds fail loudly instead of shipping a broken page."
 plugins:
   - name: bursar
     version: "0.9.6"
@@ -16,10 +16,14 @@ plugins:
     version: "0.13.6"
   - name: inspector
     version: "0.11.2"
+  - name: librarian
+    version: "0.28.1"
   - name: lineage
     version: "0.10.5"
   - name: scribe
     version: "0.11.5"
+  - name: tribunal
+    version: "1.10.0"
 draft: false
 ---
 
@@ -28,6 +32,9 @@ import Term from "../../components/Term.astro";
 ## Plugins
 
 - **Two hooks can no longer hold the same lock.** Bursar, cartographer, counsel, governor, historian, inspector, lineage and scribe share one lock. When a hook released it at the same moment another hook decided it was stale, both could end up holding it, and for lineage that meant a change recorded twice in the ledger. A lock whose holder is still running is now never removed, and a new test drives that exact timing.
+- **Unattended lessons no longer wait on a person.** With unattended lessons turned on, librarian used to leave some lesson candidates pending forever. One the model declined is now recorded as declined, and a versioned one goes through the same review as any other unattended lesson.
+- **Librarian says when approved lessons haven't reached the pool.** An approved lesson stays on your machine until `onlooker sync` runs, and nothing used to say so. Each session now says how many are waiting and what to run.
+- **Tribunal suggests a jury when a session earns one.** When a session edits many files or touches a sensitive path such as a migration, tribunal shows one line suggesting `/tribunal` at the end of the turn. It makes no model call and is on by default.
 
 ## onlooker.dev
 
@@ -42,4 +49,4 @@ import Term from "../../components/Term.astro";
 
 We hardened the test suites (CLI tests can no longer reach a live server, and a flaky lineage test now reports what it saw when it fails), fixed a few tests that only failed when run on their own, and tidied internal docs.
 
-If you run any of the plugins above, update them to pick up the lock fix.
+If you run any of the plugins above, update them to pick up the lock fix and the new librarian and tribunal behavior.

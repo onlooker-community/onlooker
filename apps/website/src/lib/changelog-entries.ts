@@ -26,7 +26,10 @@ export const entrySchema = z
 			.array(
 				z.object({
 					name: z.string().min(1),
-					version: z.string().regex(/^\d+\.\d+\.\d+$/),
+					version: z.string().regex(/^\d+\.\d+\.\d+$/, {
+						message:
+							"version must be x.y.z, from the plugin's own CHANGELOG.md",
+					}),
 				}),
 			)
 			.default([]),
@@ -151,6 +154,17 @@ export function entryProblems(
 	for (const plugin of entry.data.plugins) {
 		if (!knownPlugins.has(plugin.name))
 			problems.push(`plugins: no plugin page for "${plugin.name}"`);
+	}
+	// What changelog:new writes. The empty-section check catches the rest.
+	if (!entry.data.draft) {
+		if (entry.data.title.startsWith("Draft:"))
+			problems.push(
+				'title still starts with "Draft:"; write the entry\'s title',
+			);
+		if (entry.data.summary.startsWith("Draft."))
+			problems.push(
+				"summary is still the scaffold's placeholder; write one or two sentences",
+			);
 	}
 	problems.push(...sectionProblems(entry.body ?? "", entry.data.draft));
 	return problems.map((p) => `${entry.id}: ${p}`);

@@ -20,8 +20,8 @@ const fadeUp = animated.filter(({ rule }) =>
 );
 
 describe("animated blocks", () => {
-	// Six use fade-up today: five on the landing page and the latest-post
-	// line. Fewer found means the parser stopped seeing them.
+	// Six use fade-up today: five on the landing page and LatestLink
+	// (`.latest-link`). Fewer found means the parser stopped seeing them.
 	it("are found where the site uses them", () => {
 		expect(fadeUp.length).toBeGreaterThanOrEqual(6);
 	});

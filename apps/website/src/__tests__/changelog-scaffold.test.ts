@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sectionProblems } from "../lib/changelog-entries";
+import {
+	entryProblems,
+	entrySchema,
+	sectionProblems,
+} from "../lib/changelog-entries";
 import { scaffold, weekOf } from "../lib/changelog-scaffold";
 
 describe("weekOf", () => {
@@ -59,5 +63,27 @@ describe("scaffold", () => {
 	it("passes as a draft and fails as a published entry", () => {
 		expect(sectionProblems(body, true)).toEqual([]);
 		expect(sectionProblems(body, false)).toHaveLength(4);
+	});
+
+	// Ties the strings the scaffold writes to the strings the check rejects.
+	// The frontmatter lines are read with a regex, not a YAML parser.
+	it("fails on its title and summary once flipped to published", () => {
+		const field = (name: string) =>
+			new RegExp(`^${name}: "(.*)"$`, "m").exec(file)?.[1] ?? "";
+		const data = entrySchema.parse({
+			title: field("title"),
+			weekStart: week.weekStart,
+			weekEnd: week.weekEnd,
+			summary: field("summary"),
+			draft: false,
+		});
+		const problems = entryProblems(
+			{ id: week.weekEnd, body: "## Plugins\n\n- x\n", data },
+			new Set(),
+		);
+		expect(problems).toEqual([
+			`${week.weekEnd}: title still starts with "Draft:"; write the entry's title`,
+			`${week.weekEnd}: summary is still the scaffold's placeholder; write one or two sentences`,
+		]);
 	});
 });

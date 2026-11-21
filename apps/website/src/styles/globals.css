@@ -228,8 +228,8 @@ body::after {
 	color: var(--accent);
 }
 
-/* The nav is the logo, the Blog link and the tag, and at 48px of side padding
- * the row no longer fits a 360px phone. */
+/* The nav is the logo, the Plugins, Blog and Changelog links and the tag, and
+ * at 48px of side padding the row no longer fits a 360px phone. */
 @media (max-width: 640px) {
 	.site-nav {
 		padding: 20px 16px;
@@ -240,10 +240,10 @@ body::after {
 	}
 }
 
-/* At 360px the logo, the Blog link and the tag are tight in one row, and on a
- * phone the tag is the widest item and the least necessary. The Plugins link
- * returns with ONL-264 and makes this tighter. */
-@media (max-width: 400px) {
+/* The logo, the three links and the tag need about 403px plus padding, so
+ * below 480px the row crowds or overflows. On a phone the tag is the widest
+ * item and the least necessary, so it goes first. */
+@media (max-width: 480px) {
 	.nav-tag {
 		display: none;
 	}
@@ -363,9 +363,6 @@ footer {
 }
 
 @media (max-width: 640px) {
-	.site-nav {
-		padding: 20px 24px;
-	}
 	footer {
 		padding: 20px 24px;
 		flex-direction: column;

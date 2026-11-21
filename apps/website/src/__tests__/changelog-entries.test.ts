@@ -50,7 +50,7 @@ describe("entrySchema", () => {
 	it("refuses a version that is not x.y.z", () => {
 		expect(() =>
 			parsed({ plugins: [{ name: "lineage", version: "v0.10" }] }),
-		).toThrow();
+		).toThrow(/version must be x\.y\.z/);
 	});
 
 	it("refuses an entry with no summary", () => {
@@ -229,6 +229,57 @@ describe("entryProblems", () => {
 				known,
 			),
 		).toEqual(['2026-11-20: plugins: no plugin page for "lineag"']);
+	});
+
+	const draftTitle = "Draft: November 21 to 27, 2026";
+	const draftSummary =
+		"Draft. One or two sentences on what changed for readers this week.";
+
+	it("refuses a published entry that keeps the scaffold's title", () => {
+		expect(
+			entryProblems(
+				{
+					id: "2026-11-20",
+					body: BODY,
+					data: parsed({ title: draftTitle }),
+				},
+				known,
+			),
+		).toEqual([
+			'2026-11-20: title still starts with "Draft:"; write the entry\'s title',
+		]);
+	});
+
+	it("refuses a published entry that keeps the scaffold's summary", () => {
+		expect(
+			entryProblems(
+				{
+					id: "2026-11-20",
+					body: BODY,
+					data: parsed({ summary: draftSummary }),
+				},
+				known,
+			),
+		).toEqual([
+			"2026-11-20: summary is still the scaffold's placeholder; write one or two sentences",
+		]);
+	});
+
+	it("lets a draft keep both placeholders", () => {
+		expect(
+			entryProblems(
+				{
+					id: "2026-11-20",
+					body: BODY,
+					data: parsed({
+						title: draftTitle,
+						summary: draftSummary,
+						draft: true,
+					}),
+				},
+				known,
+			),
+		).toEqual([]);
 	});
 
 	it("prefixes section problems with the entry id", () => {
