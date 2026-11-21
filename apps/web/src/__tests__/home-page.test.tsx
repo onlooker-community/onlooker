@@ -144,7 +144,9 @@ describe("HomePage", () => {
 		renderPage();
 		expect(
 			(await screen.findByTestId("home-sessions-headline")).textContent,
-		).toBe("1 session · 1h 0m in the last 7 days");
+		).toBe(
+			"In the last 7 days your machines reported 1 session, 1h 0m in all.",
+		);
 	});
 
 	it("says most recent when 200 rows don't reach back to the window's start", async () => {
@@ -156,7 +158,7 @@ describe("HomePage", () => {
 		renderPage();
 		expect(
 			(await screen.findByTestId("home-sessions-headline")).textContent,
-		).toMatch(/^most recent 1 session/);
+		).toMatch(/^The most recent 1 session/);
 	});
 
 	// A failed read is not an empty week.

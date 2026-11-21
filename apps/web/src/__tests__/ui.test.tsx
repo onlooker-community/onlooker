@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { PALETTE } from "../components/palette";
 import {
 	Button,
+	Caption,
 	Chip,
 	EmptyState,
+	Lead,
+	LeadValue,
 	Loading,
 	Panel,
 	Plate,
@@ -230,6 +233,60 @@ describe("Panel", () => {
 	});
 });
 
+describe("Panel open", () => {
+	// An open panel is a section read as part of the page, so it keeps only the
+	// rule that says where it starts. A box would say it was set apart.
+	it("keeps the top rule and drops the box", () => {
+		const { container } = render(
+			<Panel title="Open" open>
+				body
+			</Panel>,
+		);
+		const section = container.querySelector("section");
+		expect(section?.style.borderTop).toBe(`2px solid ${PALETTE.border}`);
+		expect(section?.style.background).toBe("");
+		expect(section?.style.border).toBe("");
+	});
+
+	// A variant's border IS the message - notice and danger are signals - so
+	// `open` must not strip it.
+	it("is ignored when a variant is set", () => {
+		const { container } = render(
+			<Panel title="Verify" variant="notice" open>
+				body
+			</Panel>,
+		);
+		const section = container.querySelector("section");
+		expect(section?.style.border).toBe("2px solid var(--gold)");
+		expect(section?.style.background).toBe("var(--panel)");
+	});
+});
+
+describe("Lead", () => {
+	it("renders its sentence at the lead size in the body face", () => {
+		render(
+			<Lead testId="lead">
+				You have <LeadValue>3 sessions</LeadValue>.
+			</Lead>,
+		);
+		const lead = screen.getByTestId("lead");
+		expect(lead.textContent).toBe("You have 3 sessions.");
+		expect(lead.style.fontSize).toBe("var(--text-body-xl)");
+		expect(lead.style.fontFamily).toBe("var(--font-body)");
+	});
+
+	// Accents shift with the theme to stay readable; a plate would not, and
+	// text on the page ground in a plate color failed contrast in day mode.
+	it("colors a figure with the accent, not a plate", () => {
+		render(
+			<Lead>
+				<LeadValue>3 sessions</LeadValue>
+			</Lead>,
+		);
+		expect(screen.getByText("3 sessions").style.color).toBe(PALETTE.accent);
+	});
+});
+
 describe("EmptyState", () => {
 	it("renders its title and explanation", () => {
 		render(
@@ -294,5 +351,14 @@ describe("Loading", () => {
 		// replaces rendered a bare <p>, so a screen reader was told nothing
 		// was happening at all.
 		expect(screen.getByRole("status").textContent).toBe("Loading machines…");
+	});
+});
+
+describe("Caption", () => {
+	it("renders one muted line", () => {
+		render(<Caption>Where the events came from.</Caption>);
+		const line = screen.getByText("Where the events came from.");
+		expect(line.tagName).toBe("P");
+		expect(line.style.color).toBe("var(--ink-dim)");
 	});
 });

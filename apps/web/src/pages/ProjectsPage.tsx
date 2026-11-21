@@ -13,9 +13,18 @@ import {
 	RepositoryName,
 } from "../components/ProjectName";
 import { PALETTE } from "../components/palette";
-import { EmptyState, Loading, Panel } from "../components/ui";
+import {
+	EmptyState,
+	Lead,
+	LeadValue,
+	Loading,
+	Panel,
+	Plate,
+} from "../components/ui";
 import { When } from "../components/When";
 import { describeError } from "../lib/apiErrors";
+import { projectPath } from "../lib/projectPath";
+import { plural } from "../lib/sessionRollup";
 
 // Every project key the server knows, with the user's name for it (ONL-209).
 // Sessions names the keys among its loaded sessions; this lists them all, so
@@ -139,120 +148,143 @@ export default function ProjectsPage() {
 
 	if (projects.length === 0) {
 		return (
-			<div style={{ maxWidth: "640px" }}>
-				<EmptyState title="No projects yet">
-					A project appears here once a machine reports a session in a
-					repository.
-				</EmptyState>
-			</div>
+			<Panel title="No projects yet" icon="Document">
+				<div
+					style={{
+						display: "flex",
+						gap: "var(--space-4)",
+						alignItems: "flex-start",
+					}}
+				>
+					<Plate tone="teal" icon="Document" size={32} />
+					<p style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.6 }}>
+						A project appears here once a machine reports a session in a
+						repository.
+					</p>
+				</div>
+			</Panel>
 		);
 	}
 
 	// A table rather than a list: every row has the same five measures, and
 	// wrapped list rows left each one's numbers reading as the next row's.
 	// Scrolls inside the panel at phone width, so the columns stay columns.
+	const totalSessions = projects.reduce((sum, p) => sum + p.sessions, 0);
+	const namedCount = projects.filter((p) =>
+		labels.has(labelIdentity(p.project_key, p.machine_id)),
+	).length;
+
 	return (
-		<Panel title="Your projects" icon="Document">
-			<div style={{ overflowX: "auto" }}>
-				<table
-					aria-label="Your projects"
-					style={{ width: "100%", borderCollapse: "collapse" }}
-				>
-					<thead>
-						<tr>
-							<th scope="col" style={HEADER}>
-								Project
-							</th>
-							<th scope="col" style={HEADER}>
-								Seen on
-							</th>
-							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
-								Sessions
-							</th>
-							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
-								Events
-							</th>
-							<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
-								Last seen
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{projects.map((project) => {
-							const named = namedOf(project);
-							const name =
-								labels.get(labelIdentity(named.key, named.machineId)) ?? null;
-							return (
-								<tr key={rowKey(project)}>
-									<td style={{ ...CELL, width: "100%", minWidth: "16rem" }}>
-										{editing === rowKey(project) ? (
-											<NameEditor
-												project={named}
-												current={name}
-												onRename={rename}
-												onDone={() => setEditing(null)}
-											/>
-										) : (
-											<div
-												style={{
-													display: "flex",
-													flexWrap: "wrap",
-													alignItems: "baseline",
-													gap: "var(--space-2)",
-												}}
-											>
-												<RepositoryName
+		<div>
+			<Lead testId="projects-headline">
+				Your machines have reported{" "}
+				<LeadValue>{plural(projects.length, "project")}</LeadValue> and{" "}
+				<LeadValue>{plural(totalSessions, "session")}</LeadValue> in all
+				{namedCount > 0 ? `; ${namedCount.toLocaleString()} named` : ""}.
+			</Lead>
+			<Panel title="Your projects" icon="Document" open>
+				<div style={{ overflowX: "auto" }}>
+					<table
+						aria-label="Your projects"
+						style={{ width: "100%", borderCollapse: "collapse" }}
+					>
+						<thead>
+							<tr>
+								<th scope="col" style={HEADER}>
+									Project
+								</th>
+								<th scope="col" style={HEADER}>
+									Seen on
+								</th>
+								<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+									Sessions
+								</th>
+								<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+									Events
+								</th>
+								<th scope="col" style={{ ...HEADER, ...NUMERIC }}>
+									Last seen
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{projects.map((project) => {
+								const named = namedOf(project);
+								const name =
+									labels.get(labelIdentity(named.key, named.machineId)) ?? null;
+								return (
+									<tr key={rowKey(project)}>
+										<td style={{ ...CELL, width: "100%", minWidth: "16rem" }}>
+											{editing === rowKey(project) ? (
+												<NameEditor
 													project={named}
-													name={name}
-													// A lesson records no basis, and a name is stored
-													// under a remote or a root identity. Guessing remote
-													// made the row claim "Every machine" after a reload,
-													// and a root session for the key later would not
-													// carry the name (ONL-239). It can be named once a
-													// session says which kind of key it is.
-													onEdit={
-														project.basis === null
-															? undefined
-															: () => setEditing(rowKey(project))
-													}
+													current={name}
+													onRename={rename}
+													onDone={() => setEditing(null)}
 												/>
-											</div>
-										)}
-										{/* RepositoryName already shows the key when there is no name. */}
-										{name ? (
-											<div
-												style={{
-													fontFamily: "var(--font-data)",
-													fontSize: "0.85em",
-													color: PALETTE.muted,
-												}}
-											>
-												{project.project_key}
-											</div>
-										) : null}
-									</td>
-									<td style={{ ...CELL, whiteSpace: "nowrap" }}>
-										{seenOn(project, machines)}
-									</td>
-									<td style={{ ...CELL, ...NUMERIC }}>
-										{project.sessions.toLocaleString()}
-									</td>
-									<td style={{ ...CELL, ...NUMERIC }}>
-										{project.events.toLocaleString()}
-									</td>
-									<td style={{ ...CELL, ...NUMERIC }}>
-										{project.last_seen_at ? (
-											<When iso={project.last_seen_at} />
-										) : (
-											"—"
-										)}
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
-			</div>
-		</Panel>
+											) : (
+												<div
+													style={{
+														display: "flex",
+														flexWrap: "wrap",
+														alignItems: "baseline",
+														gap: "var(--space-2)",
+													}}
+												>
+													<RepositoryName
+														project={named}
+														name={name}
+														href={projectPath(named.key, named.machineId)}
+														// A lesson records no basis, and a name is stored
+														// under a remote or a root identity. Guessing remote
+														// made the row claim "Every machine" after a reload,
+														// and a root session for the key later would not
+														// carry the name (ONL-239). It can be named once a
+														// session says which kind of key it is.
+														onEdit={
+															project.basis === null
+																? undefined
+																: () => setEditing(rowKey(project))
+														}
+													/>
+												</div>
+											)}
+											{/* RepositoryName already shows the key when there is no name. */}
+											{name ? (
+												<div
+													style={{
+														fontFamily: "var(--font-data)",
+														fontSize: "0.85em",
+														color: PALETTE.muted,
+													}}
+												>
+													{project.project_key}
+												</div>
+											) : null}
+										</td>
+										<td style={{ ...CELL, whiteSpace: "nowrap" }}>
+											{seenOn(project, machines)}
+										</td>
+										<td style={{ ...CELL, ...NUMERIC }}>
+											{project.sessions.toLocaleString()}
+										</td>
+										<td style={{ ...CELL, ...NUMERIC }}>
+											{project.events.toLocaleString()}
+										</td>
+										<td style={{ ...CELL, ...NUMERIC }}>
+											{project.last_seen_at ? (
+												<When iso={project.last_seen_at} />
+											) : (
+												"—"
+											)}
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				</div>
+			</Panel>
+		</div>
 	);
 }

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { type ActivityEvent, listActivity } from "../api/lessonsApi";
 import { LoadMore } from "../components/LoadMore";
 import { PALETTE } from "../components/palette";
-import { EmptyState, Loading, Panel } from "../components/ui";
+import { EmptyState, Loading, Panel, Plate } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { dayKey, timeOf } from "../lib/dayKey";
 
@@ -93,14 +93,35 @@ export default function ActivityPage() {
 
 	if (events === null) return <Loading label="Loading your activity…" />;
 
+	// The common case for a new account, so it is a panel of its own across the
+	// full width - the same shape the Lessons page gives its empty pool - and
+	// not a centered stub in a narrow column. The copy is the feed's own: what
+	// lands here, and in what order.
 	if (events.length === 0) {
 		return (
-			<div style={{ maxWidth: "640px" }}>
-				<EmptyState title="Nothing has happened yet">
-					Lessons you publish and statuses you change will show up here, newest
-					first.
-				</EmptyState>
-			</div>
+			<Panel title="Nothing has happened yet" icon="Book">
+				<div
+					style={{
+						display: "flex",
+						gap: "var(--space-4)",
+						alignItems: "flex-start",
+					}}
+				>
+					<Plate tone="teal" icon="Book" size={32} />
+					<div>
+						<p style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.6 }}>
+							Lessons you publish and statuses you change will show up here,
+							newest first.
+						</p>
+						<p style={{ margin: "var(--space-3) 0 0" }}>
+							<Link to="/machines" style={{ color: PALETTE.accent }}>
+								Connect a machine
+							</Link>{" "}
+							to start.
+						</p>
+					</div>
+				</div>
+			</Panel>
 		);
 	}
 

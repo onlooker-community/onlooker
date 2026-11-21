@@ -1,174 +1,174 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1786215632715,
-      "tag": "0000_kind_starjammers",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1786843374104,
-      "tag": "0001_youthful_machine_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1787427948189,
-      "tag": "0002_sturdy_dagger",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1787430474563,
-      "tag": "0003_slim_pandemic",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1787542728357,
-      "tag": "0004_chunky_toro",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1787545731734,
-      "tag": "0005_sticky_ser_duncan",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1789100230072,
-      "tag": "0006_dusty_pyro",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1789697252140,
-      "tag": "0007_sad_xorn",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1790539251907,
-      "tag": "0008_stiff_swordsman",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1791055947351,
-      "tag": "0009_chilly_living_tribunal",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1791130430718,
-      "tag": "0010_dry_hardball",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1791164628828,
-      "tag": "0011_wet_zeigeist",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "6",
-      "when": 1791497308029,
-      "tag": "0012_classy_dreaming_celestial",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "6",
-      "when": 1791757989597,
-      "tag": "0013_kind_silverclaw",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "6",
-      "when": 1791851283443,
-      "tag": "0014_workable_serpent_society",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "6",
-      "when": 1792015110440,
-      "tag": "0015_aromatic_monster_badoon",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "6",
-      "when": 1792859230277,
-      "tag": "0016_funny_chameleon",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "6",
-      "when": 1792937486444,
-      "tag": "0017_salty_alex_power",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "6",
-      "when": 1793464262669,
-      "tag": "0018_brief_luminals",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "6",
-      "when": 1793566439856,
-      "tag": "0019_famous_moon_knight",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "6",
-      "when": 1793571450346,
-      "tag": "0020_typical_greymalkin",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "6",
-      "when": 1793592123896,
-      "tag": "0021_workable_sprite",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "6",
-      "when": 1794353880001,
-      "tag": "0022_puzzling_scalphunter",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "6",
-      "when": 1794771461461,
-      "tag": "0023_previous_calypso",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "sqlite",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "6",
+			"when": 1786215632715,
+			"tag": "0000_kind_starjammers",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1786843374104,
+			"tag": "0001_youthful_machine_man",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1787427948189,
+			"tag": "0002_sturdy_dagger",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1787430474563,
+			"tag": "0003_slim_pandemic",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1787542728357,
+			"tag": "0004_chunky_toro",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1787545731734,
+			"tag": "0005_sticky_ser_duncan",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1789100230072,
+			"tag": "0006_dusty_pyro",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1789697252140,
+			"tag": "0007_sad_xorn",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "6",
+			"when": 1790539251907,
+			"tag": "0008_stiff_swordsman",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "6",
+			"when": 1791055947351,
+			"tag": "0009_chilly_living_tribunal",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "6",
+			"when": 1791130430718,
+			"tag": "0010_dry_hardball",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "6",
+			"when": 1791164628828,
+			"tag": "0011_wet_zeigeist",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "6",
+			"when": 1791497308029,
+			"tag": "0012_classy_dreaming_celestial",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "6",
+			"when": 1791757989597,
+			"tag": "0013_kind_silverclaw",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "6",
+			"when": 1791851283443,
+			"tag": "0014_workable_serpent_society",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "6",
+			"when": 1792015110440,
+			"tag": "0015_aromatic_monster_badoon",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "6",
+			"when": 1792859230277,
+			"tag": "0016_funny_chameleon",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "6",
+			"when": 1792937486444,
+			"tag": "0017_salty_alex_power",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "6",
+			"when": 1793464262669,
+			"tag": "0018_brief_luminals",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "6",
+			"when": 1793566439856,
+			"tag": "0019_famous_moon_knight",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "6",
+			"when": 1793571450346,
+			"tag": "0020_typical_greymalkin",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "6",
+			"when": 1793592123896,
+			"tag": "0021_workable_sprite",
+			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "6",
+			"when": 1794353880001,
+			"tag": "0022_puzzling_scalphunter",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "6",
+			"when": 1794771461461,
+			"tag": "0023_previous_calypso",
+			"breakpoints": true
+		}
+	]
 }

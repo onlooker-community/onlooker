@@ -596,26 +596,58 @@ export default function LessonDetail() {
 			*/}
 			<h2
 				style={{
-					margin: "0 0 var(--space-3)",
+					margin: "0 0 var(--space-5)",
 					fontFamily: "var(--font-body)",
-					fontSize: "var(--text-body-lg)",
+					// The one sentence on this pane worth reading slowly, so it is
+					// set at the lead size and in the brightest ink.
+					fontSize: "var(--text-body-xl)",
+					fontWeight: 700,
+					lineHeight: 1.35,
+					color: "var(--ink-hi)",
+					textWrap: "pretty",
 				}}
 			>
 				{lesson.claim}
 			</h2>
 
-			<p style={{ margin: "0 0 var(--space-4)" }}>{lesson.rationale}</p>
-
-			<hr
+			{/*
+			  The rationale is a section of its own now, with the rule and the
+			  label the panels below carry, so the pane reads as claim, then
+			  why, then the facts - one rhythm rather than a paragraph and then
+			  a divider.
+			*/}
+			<section
 				style={{
-					border: "none",
+					marginBottom: "var(--space-5)",
+					paddingTop: "var(--space-4)",
 					borderTop: `2px solid ${PALETTE.border}`,
-					margin: "0 0 var(--space-4)",
 				}}
-			/>
+			>
+				<h3
+					style={{
+						margin: "0 0 var(--space-2)",
+						fontFamily: "var(--font-data)",
+						fontSize: "var(--text-data-md)",
+						letterSpacing: "1px",
+						textTransform: "uppercase",
+					}}
+				>
+					Why
+				</h3>
+				<p
+					style={{
+						margin: 0,
+						maxWidth: "40rem",
+						fontSize: "1.05rem",
+						lineHeight: 1.65,
+					}}
+				>
+					{lesson.rationale}
+				</p>
+			</section>
 
 			<div className="lessons-detail-panels">
-				<Panel title="Applies to" icon="MagnifyingGlass">
+				<Panel title="Applies to" icon="MagnifyingGlass" open>
 					<Field label="Stack">
 						<Chips values={appliesTo.stack} onSelect={filterByStack} />
 					</Field>
@@ -648,7 +680,7 @@ export default function LessonDetail() {
 					) : null}
 				</Panel>
 
-				<Panel title="Why it was trusted" icon="Trophy">
+				<Panel title="Why it was trusted" icon="Trophy" open>
 					<Field label="Consensus">
 						<p style={{ margin: 0 }}>
 							{consensus.agreed} of {consensus.judges} judges agreed on{" "}

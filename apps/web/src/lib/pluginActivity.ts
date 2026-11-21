@@ -13,7 +13,7 @@
  */
 
 import { roleOf } from "@onlooker-community/schema/event-roles";
-import { type Shape, topShape } from "./sessionRollup";
+import { type Shape, type ShapeStyle, topShape } from "./sessionRollup";
 
 export interface PluginActivity {
 	/** Output events per plugin - the row's leading line. */
@@ -89,6 +89,7 @@ export function pluginTallies(
 export function pluginActivity(
 	countsByType: Record<string, number>,
 	limit: number,
+	style: ShapeStyle = "count-first",
 ): PluginActivity | null {
 	if (Object.keys(countsByType).length === 0) return null;
 
@@ -104,6 +105,7 @@ export function pluginActivity(
 				all.filter(([, t]) => t.output > 0).map(([p, t]) => [p, t.output]),
 			),
 			limit,
+			style,
 		),
 		skipped: quiet
 			.filter(([, t]) => t.skipped > 0)

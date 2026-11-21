@@ -407,11 +407,22 @@ export default function MachinesPage() {
 				) : visible === null ? (
 					<Loading label="Loading machines…" />
 				) : visible.length === 0 ? (
-					<EmptyState title="No machines yet">
-						Mint a token above, then paste it into a plugin&apos;s config to
-						start syncing. If you lose a token, revoke its machine here and mint
-						another — an existing one cannot be shown again.
-					</EmptyState>
+					<Panel title="No machines yet" icon="Monitor">
+						<div
+							style={{
+								display: "flex",
+								gap: "var(--space-4)",
+								alignItems: "flex-start",
+							}}
+						>
+							<Plate tone="teal" icon="Monitor" size={32} />
+							<p style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.6 }}>
+								Mint a token above, then paste it into a plugin&apos;s config to
+								start syncing. If you lose a token, revoke its machine here and
+								mint another — an existing one cannot be shown again.
+							</p>
+						</div>
+					</Panel>
 				) : (
 					<Panel title="Your machines">
 						{/*

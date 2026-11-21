@@ -21,7 +21,10 @@
 		},
 		"./schema/*": "./schema/*"
 	},
-	"files": ["dist", "schema"],
+	"files": [
+		"dist",
+		"schema"
+	],
 	"scripts": {
 		"build": "tsc --project tsconfig.build.json && node scripts/emit-json-schema.mjs",
 		"dev": "tsc --watch",

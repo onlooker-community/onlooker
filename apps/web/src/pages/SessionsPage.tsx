@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import {
-	type LabelMap,
-	labelIdentity,
-	listLabels,
-	setLabel,
-} from "../api/labelsApi";
+import { type LabelMap, listLabels } from "../api/labelsApi";
 import { listMachines, type Machine } from "../api/machinesApi";
 import { listProjects, type Project } from "../api/projectsApi";
 import { listSessions, type SessionSummary } from "../api/sessionsApi";
 import { LoadMore } from "../components/LoadMore";
 import ProjectFilter from "../components/ProjectFilter";
 import { PALETTE } from "../components/palette";
-import RepositoriesSummary from "../components/RepositoriesSummary";
 import SessionRow, { REPO_LIMIT, SHAPE_LIMIT } from "../components/SessionRow";
 import SessionsSummary from "../components/SessionsSummary";
-import { EmptyState, Loading, Panel } from "../components/ui";
+import { EmptyState, Loading, Panel, Plate } from "../components/ui";
 import { describeError } from "../lib/apiErrors";
 import { timeOf } from "../lib/dayKey";
+import { failuresIn } from "../lib/homeFailures";
 import { pluginActivity } from "../lib/pluginActivity";
 import { projectEntries, projectName } from "../lib/projectEntries";
 import {
@@ -25,7 +20,6 @@ import {
 	formatDurationMs,
 	groupSessionsByDay,
 	plural,
-	rollupProjects,
 	rollupSessions,
 	topShape,
 } from "../lib/sessionRollup";
@@ -35,6 +29,13 @@ import {
 // ActivityPage this page has no threshold of its own to apply. The project
 // filter (ONL-209) narrows by repository, and is asked of the server. See
 // sessionsApi.ts's SessionsPage doc comment.
+
+/** " · 2h 41m" for a day's finished sessions, or nothing if none has an end. */
+function dayTotal(sessions: SessionSummary[]): string {
+	const ms = sessions.reduce((sum, s) => sum + (durationMsOf(s) ?? 0), 0);
+	const total = formatDurationMs(ms);
+	return total ? ` · ${total}` : "";
+}
 
 /** How long a session ran, or that it is still running. */
 function durationOf(startedAt: string, endedAt: string | null): string {
@@ -278,22 +279,6 @@ export default function SessionsPage() {
 		};
 	}, [filterKey]);
 
-	// Applies what the server stored - trimmed - rather than what was typed,
-	// and only once it is stored: a refused name never shows as if it took.
-	const rename = async (
-		project: { key: string; machineId: string | null },
-		label: string | null,
-	) => {
-		const stored = await setLabel(project.key, project.machineId, label);
-		setLabels((current) => {
-			const next = new Map(current);
-			const identity = labelIdentity(project.key, project.machineId);
-			if (stored === null) next.delete(identity);
-			else next.set(identity, stored);
-			return next;
-		});
-	};
-
 	const loadMore = async () => {
 		if (!cursor || loadingMore) return;
 		const requested = filterKey;
@@ -367,29 +352,47 @@ export default function SessionsPage() {
 		// filter result and an empty pool.
 		if (!hasSynced(machinesCheck.machines)) {
 			return (
-				<div style={{ maxWidth: "640px" }}>
-					<EmptyState
-						title="No machine has synced yet"
-						icon="Sleep"
-						tone="teal"
+				<Panel title="No machine has synced yet" icon="Monitor">
+					<div
+						style={{
+							display: "flex",
+							gap: "var(--space-4)",
+							alignItems: "flex-start",
+						}}
 					>
-						Sessions arrive once a machine using the CLI syncs its activity.{" "}
-						<NavLink to="/machines" style={{ color: PALETTE.accent }}>
-							Connect a machine
-						</NavLink>{" "}
-						to start.
-					</EmptyState>
-				</div>
+						<Plate tone="teal" icon="Sleep" size={32} />
+						<div>
+							<p style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.6 }}>
+								Sessions arrive once a machine using the CLI syncs its activity.
+							</p>
+							<p style={{ margin: "var(--space-3) 0 0" }}>
+								<NavLink to="/machines" style={{ color: PALETTE.accent }}>
+									Connect a machine
+								</NavLink>{" "}
+								to start.
+							</p>
+						</div>
+					</div>
+				</Panel>
 			);
 		}
 
 		return (
-			<div style={{ maxWidth: "640px" }}>
-				<EmptyState title="Nothing has cleared the threshold yet">
-					Most sessions are a handful of commands and stay below the bar this
-					page sets. Yours will show up here once one does real work.
-				</EmptyState>
-			</div>
+			<Panel title="Nothing has cleared the threshold yet" icon="Monitor">
+				<div
+					style={{
+						display: "flex",
+						gap: "var(--space-4)",
+						alignItems: "flex-start",
+					}}
+				>
+					<Plate tone="teal" icon="Monitor" size={32} />
+					<p style={{ margin: 0, fontSize: "1.05rem", lineHeight: 1.6 }}>
+						Most sessions are a handful of commands and stay below the bar this
+						page sets. Yours will show up here once one does real work.
+					</p>
+				</div>
+			</Panel>
 		);
 	}
 
@@ -403,12 +406,13 @@ export default function SessionsPage() {
 				: "";
 
 	return (
-		<div style={{ maxWidth: "640px", display: "grid", gap: "var(--space-4)" }}>
-			{entries.length > 0 ? (
+		<div style={{ display: "grid", gap: "var(--space-4)" }}>
+			{entries.length > 0 || sessions.length > 0 ? (
 				<ProjectFilter
 					entries={entries}
 					value={entry?.name ?? null}
 					onChange={setSelected}
+					disabled={entries.length === 0}
 				/>
 			) : null}
 
@@ -456,24 +460,11 @@ export default function SessionsPage() {
 			) : null}
 
 			{sessions.length > 0 ? (
-				<SessionsSummary rollup={rollupSessions(sessions, hasMore)} />
-			) : null}
-			{sessions.length > 0 ? (
-				<RepositoriesSummary
-					rollup={rollupProjects(sessions)}
-					complete={!hasMore}
-					machineName={(id) =>
-						machinesCheck.kind === "known"
-							? machineName(machinesCheck.machines, id)
-							: null
-					}
-					nameOf={(project) =>
-						labels.get(labelIdentity(project.key, project.machineId)) ?? null
-					}
-					onRename={rename}
+				<SessionsSummary
+					rollup={rollupSessions(sessions, hasMore)}
+					failedSessions={failuresIn(sessions).sessions}
 				/>
 			) : null}
-
 			{/* Same grouping rollupSessions's own day totals use - see
 			    groupSessionsByDay's doc comment in sessionRollup.ts for why a
 			    Map keyed by day is used rather than merging same-day sessions
@@ -481,7 +472,41 @@ export default function SessionsPage() {
 			    keeps the header's day order and this feed's day order
 			    structurally identical rather than independently maintained. */}
 			{groupSessionsByDay(sessions).map((group) => (
-				<Panel key={group.day} title={group.day} icon="Monitor">
+				<section key={group.day} style={{ marginTop: "var(--space-5)" }}>
+					{/*
+					  The day, and beside it what the day held. The meta sits
+					  outside the h2 so the heading's name stays the day alone.
+					*/}
+					<div
+						style={{
+							display: "flex",
+							flexWrap: "wrap",
+							alignItems: "baseline",
+							gap: "var(--space-1) var(--space-4)",
+							paddingBottom: "var(--space-3)",
+							borderBottom: `2px solid ${PALETTE.border}`,
+						}}
+					>
+						<h2
+							style={{
+								margin: 0,
+								fontSize: "var(--text-body-lg)",
+								fontWeight: 700,
+								color: "var(--ink-hi)",
+							}}
+						>
+							{group.day}
+						</h2>
+						<span
+							style={{
+								fontSize: "var(--text-body-md)",
+								color: PALETTE.muted,
+							}}
+						>
+							{plural(group.sessions.length, "session")}
+							{dayTotal(group.sessions)}
+						</span>
+					</div>
 					{group.sessions.map((session, index) => {
 						const name =
 							machinesCheck.kind === "known"
@@ -501,7 +526,11 @@ export default function SessionsPage() {
 							previous !== null && previous.machine_id === session.machine_id;
 
 						const shape = topShape(session.counts_by_prefix, SHAPE_LIMIT);
-						const repos = topShape(reposOf(session, labels), REPO_LIMIT);
+						const repos = topShape(
+							reposOf(session, labels),
+							REPO_LIMIT,
+							"name-first",
+						);
 
 						return (
 							<SessionRow
@@ -521,14 +550,17 @@ export default function SessionsPage() {
 								shown={shape.shown}
 								hidden={shape.hidden}
 								hiddenCount={shape.hiddenCount}
-								activity={pluginActivity(session.counts_by_type, SHAPE_LIMIT)}
+								activity={pluginActivity(
+									session.counts_by_type,
+									SHAPE_LIMIT,
+									"name-first",
+								)}
 								repos={repos}
 								repoCount={Object.keys(session.counts_by_project).length}
-								last={index === group.sessions.length - 1}
 							/>
 						);
 					})}
-				</Panel>
+				</section>
 			))}
 
 			{sessions.length > 0 ? (

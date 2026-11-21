@@ -137,7 +137,7 @@ export default function HomePage() {
 	);
 
 	return (
-		<div style={{ display: "grid", gap: "var(--space-5)", maxWidth: "720px" }}>
+		<div style={{ display: "grid", gap: "var(--space-6)" }}>
 			<PanelFor
 				load={week}
 				title="Recent sessions"

@@ -16,6 +16,7 @@ import MachinesPage from "./pages/MachinesPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import OrgsPage from "./pages/OrgsPage";
 import ProfilePage from "./pages/ProfilePage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SessionsPage from "./pages/SessionsPage";
@@ -270,6 +271,14 @@ export default function App() {
 							element={
 								<Protected>
 									<ProjectsPage />
+								</Protected>
+							}
+						/>
+						<Route
+							path="/projects/:key"
+							element={
+								<Protected>
+									<ProjectDetailPage />
 								</Protected>
 							}
 						/>

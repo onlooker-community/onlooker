@@ -253,6 +253,41 @@ describe("the list pane", () => {
 		).toBe("/machines");
 	});
 
+	// Nothing to select, so no pane asking for a selection, and the panel takes
+	// the width instead of sitting in a column beside a blank one.
+	it("gives an empty pool one panel and no lesson to select", async () => {
+		withPool([]);
+		await at("/lessons");
+		await screen.findByRole("heading", { name: /nothing has synced yet/i });
+		expect(
+			screen.getByText(/each shows up here with its rationale/i),
+		).toBeDefined();
+		expect(screen.queryByText(/select a lesson/i)).toBeNull();
+		expect(
+			document.querySelector(".lessons-layout")?.getAttribute("data-empty"),
+		).toBe("true");
+	});
+
+	it("does not draw the status line twice when an empty state says it", async () => {
+		withPool([]);
+		await at("/lessons");
+		await screen.findByRole("heading", { name: /nothing has synced yet/i });
+		// Still in the document, for a screen reader; just not drawn.
+		const region = screen.getByRole("status");
+		expect(region.textContent).toBe("Nothing has synced yet");
+		expect(region.style.position).toBe("absolute");
+	});
+
+	it("draws the status line when there are lessons to count", async () => {
+		withPool([VITE]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(screen.getByRole("status").style.position).toBe("");
+		expect(
+			document.querySelector(".lessons-layout")?.getAttribute("data-empty"),
+		).toBeNull();
+	});
+
 	// The error state offers Retry and the empty state does not, because one
 	// of them is worth trying again and the other is not.
 	it("offers a retry when the pool cannot be read", async () => {
@@ -263,6 +298,61 @@ describe("the list pane", () => {
 		withPool([VITE]);
 		fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 		expect(await screen.findByText(VITE.claim)).toBeDefined();
+	});
+});
+
+describe("the lead sentence", () => {
+	const headline = () => screen.getByTestId("lessons-headline").textContent;
+	const RETRACTED = {
+		...D1,
+		id: "01KZ45MKAM734ZS7JK24D2DK0T",
+		claim: "A claim the pool has since retracted",
+		status: "retracted" as const,
+	};
+
+	it("says what the pool holds, and that all of it is active", async () => {
+		withPool([VITE, D1]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(headline()).toBe("The pool holds 2 lessons, all active.");
+	});
+
+	it("counts the active ones when some are not", async () => {
+		withPool([VITE, RETRACTED]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(headline()).toBe("The pool holds 2 lessons, 1 active.");
+	});
+
+	// A cursor means the rows are the first pages and not the pool, so the
+	// sentence must not claim a total.
+	it("says loaded so far while more pages remain", async () => {
+		withPool([VITE], { cursor: "Y3Vyc29yLTE=", has_more: true });
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+		expect(headline()).toBe("The pool has 1 lesson loaded so far, all active.");
+	});
+
+	it("names the status filter instead of tallying it", async () => {
+		withPool([VITE]);
+		await at("/lessons");
+		await screen.findByText(VITE.claim);
+
+		withPool([RETRACTED]);
+		fireEvent.change(screen.getByLabelText(/status/i), {
+			target: { value: "retracted" },
+		});
+		await screen.findByText(RETRACTED.claim);
+		expect(headline()).toBe("The pool holds 1 retracted lesson.");
+	});
+
+	// The empty states already speak, and a sentence about zero would repeat
+	// them.
+	it("is absent when the pool is empty", async () => {
+		withPool([]);
+		await at("/lessons");
+		await screen.findByRole("heading", { name: /nothing has synced yet/i });
+		expect(screen.queryByTestId("lessons-headline")).toBeNull();
 	});
 });
 
@@ -1834,6 +1924,20 @@ describe("the visual language", () => {
 		);
 	});
 
+	// The rationale is its own labeled section, so the pane reads as claim,
+	// why, then the facts.
+	it("sets the rationale under a Why heading, after the claim", async () => {
+		withPool([VITE]);
+		await at(`/lessons/${VITE.id}`);
+		const claim = await screen.findByRole("heading", { name: VITE.claim });
+		const why = screen.getByRole("heading", { name: /^why$/i });
+		expect(why.tagName).toBe("H3");
+		expect(why.nextElementSibling?.textContent).toBe(VITE.rationale);
+		expect(
+			claim.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
 	// Retraction reaches every mirror on its next delta pull, so the evidence
 	// should be passed on the way to the button rather than after it.
 	it("puts the retract control after the evidence in document order", async () => {
@@ -1999,10 +2103,10 @@ describe("the project filter", () => {
 		);
 	}
 
-	const control = () => screen.findByLabelText(/^project$/i);
+	const control = () => screen.findByLabelText(/^repository$/i);
 
 	function choose(name: string) {
-		fireEvent.change(screen.getByLabelText(/^project$/i), {
+		fireEvent.change(screen.getByLabelText(/^repository$/i), {
 			target: { value: name },
 		});
 	}
@@ -2014,7 +2118,7 @@ describe("the project filter", () => {
 
 		const select = (await control()) as HTMLSelectElement;
 		expect(Array.from(select.options, (option) => option.text)).toEqual([
-			"All projects",
+			"All repositories",
 			KEY_LESSON,
 			"alpha",
 			"beta",
@@ -2029,7 +2133,7 @@ describe("the project filter", () => {
 		await screen.findByText(VITE.claim);
 		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
 
-		expect(screen.queryByLabelText(/^project$/i)).toBeNull();
+		expect(screen.queryByLabelText(/^repository$/i)).toBeNull();
 	});
 
 	it("shows no control, and still loads the pool, when projects cannot be read", async () => {
@@ -2039,7 +2143,7 @@ describe("the project filter", () => {
 
 		expect(await screen.findByText(VITE.claim)).toBeDefined();
 		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
-		expect(screen.queryByLabelText(/^project$/i)).toBeNull();
+		expect(screen.queryByLabelText(/^repository$/i)).toBeNull();
 		expect(screen.queryByText(/could not load the pool/i)).toBeNull();
 	});
 
@@ -2212,7 +2316,7 @@ describe("the project filter", () => {
 
 	// The control and the region live outside the branches that swap, so a
 	// failed read cannot strand someone inside a project they cannot leave.
-	it("keeps the control through a failed read, and All projects recovers", async () => {
+	it("keeps the control through a failed read, and All repositories recovers", async () => {
 		offerDefaults();
 		withPool([VITE]);
 		await at("/lessons");
@@ -2222,7 +2326,7 @@ describe("the project filter", () => {
 		choose("alpha");
 
 		expect(await screen.findByRole("button", { name: /retry/i })).toBeDefined();
-		const select = screen.getByLabelText(/^project$/i) as HTMLSelectElement;
+		const select = screen.getByLabelText(/^repository$/i) as HTMLSelectElement;
 		expect(select.value).toBe("alpha");
 		expect(screen.getByRole("status").textContent).toBe(
 			"Could not load the pool",
@@ -2261,7 +2365,7 @@ describe("the project filter", () => {
 		expect(screen.queryByText(STALE.claim)).toBeNull();
 		expect(screen.getByText(D1.claim)).toBeDefined();
 		expect(
-			(screen.getByLabelText(/^project$/i) as HTMLSelectElement).value,
+			(screen.getByLabelText(/^repository$/i) as HTMLSelectElement).value,
 		).toBe("beta");
 	});
 
@@ -2295,7 +2399,7 @@ describe("the project filter", () => {
 
 		await waitFor(() => expect(mocks.listLessons).toHaveBeenLastCalledWith({}));
 		expect(
-			(screen.getByLabelText(/^project$/i) as HTMLSelectElement).value,
+			(screen.getByLabelText(/^repository$/i) as HTMLSelectElement).value,
 		).toBe("");
 	});
 });

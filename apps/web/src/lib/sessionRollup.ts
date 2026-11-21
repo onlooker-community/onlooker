@@ -282,16 +282,29 @@ export interface Shape {
  * happened to produce it, so without the tiebreaker two sessions with
  * identical counts could render in different orders within one list.
  */
-export function topShape(counts: Record<string, number>, limit: number): Shape {
+export type ShapeStyle = "count-first" | "name-first";
+
+export function topShape(
+	counts: Record<string, number>,
+	limit: number,
+	// "3 historian · 2 bursar" is the compact form the prefix line has always
+	// used. "historian 3, bursar 2" is how a sentence says it, for the lines
+	// that read as one (a session's plugins, its repositories).
+	style: ShapeStyle = "count-first",
+): Shape {
 	const ordered = Object.entries(counts).sort(
 		([aName, aCount], [bName, bCount]) =>
 			bCount !== aCount ? bCount - aCount : aName.localeCompare(bName),
 	);
 
 	const say = (entries: [string, number][]) =>
-		entries
-			.map(([prefix, count]) => `${count.toLocaleString()} ${prefix}`)
-			.join(" · ");
+		style === "name-first"
+			? entries
+					.map(([prefix, count]) => `${prefix} ${count.toLocaleString()}`)
+					.join(", ")
+			: entries
+					.map(([prefix, count]) => `${count.toLocaleString()} ${prefix}`)
+					.join(" · ");
 
 	const tail = ordered.slice(limit);
 

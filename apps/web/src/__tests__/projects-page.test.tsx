@@ -5,6 +5,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The three reads are the seams, matching machines-page.test.tsx. labelIdentity
@@ -94,7 +95,11 @@ beforeEach(() => {
 
 describe("ProjectsPage", () => {
 	it("shows an unnamed key with its sessions, events and last seen", async () => {
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
@@ -103,8 +108,38 @@ describe("ProjectsPage", () => {
 		expect(row.querySelector("time")).toBeTruthy();
 	});
 
+	it("opens with a sentence totalling the projects and sessions", async () => {
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
+
+		const lead = await screen.findByTestId("projects-headline");
+		expect(lead.textContent).toBe(
+			"Your machines have reported 1 project and 3 sessions in all.",
+		);
+	});
+
+	it("links each name to the project's own page", async () => {
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
+
+		const [row] = await findRows();
+		expect(
+			within(row).getByRole("link", { name: KEY_A }).getAttribute("href"),
+		).toBe(`/projects/${KEY_A}`);
+	});
+
 	it("gives each measure its own column", async () => {
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await findRows();
 		expect(
@@ -117,7 +152,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project({ sessions: 0, events: 0, last_seen_at: null })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByRole("cell", { name: "—" })).toBeTruthy();
@@ -128,7 +167,11 @@ describe("ProjectsPage", () => {
 		mocks.listLabels.mockResolvedValue(
 			new Map([[labelIdentity(KEY_A, null), "onlooker"]]),
 		);
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText("onlooker")).toBeTruthy();
@@ -145,7 +188,11 @@ describe("ProjectsPage", () => {
 				[labelIdentity(KEY_B, null), "onlooker"],
 			]),
 		);
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await findRows();
 		expect(rows()).toHaveLength(2);
@@ -159,7 +206,11 @@ describe("ProjectsPage", () => {
 				project({ project_key: KEY_B, basis: "root", machine_id: "m1" }),
 			],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [remote, root] = await findRows();
 		expect(within(remote).getByText("Every machine")).toBeTruthy();
@@ -170,7 +221,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project({ basis: null, sessions: 0, events: 0 })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText("Seen on a lesson")).toBeTruthy();
@@ -180,7 +235,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project({ basis: "root", machine_id: "m2" })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText("old desktop only")).toBeTruthy();
@@ -188,7 +247,11 @@ describe("ProjectsPage", () => {
 
 	it("renames a remote key and shows the name the server stored", async () => {
 		mocks.setLabel.mockResolvedValue("onlooker");
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await findRows();
 		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
@@ -206,7 +269,11 @@ describe("ProjectsPage", () => {
 			projects: [project({ basis: "root", machine_id: "m1" })],
 		});
 		mocks.setLabel.mockResolvedValue("scratch");
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await findRows();
 		fireEvent.click(screen.getByRole("button", { name: /Rename repository/ }));
@@ -227,7 +294,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project({ basis: null, sessions: 0, events: 0 })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
@@ -243,7 +314,11 @@ describe("ProjectsPage", () => {
 				resolveLabels = resolve;
 			}),
 		);
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await waitFor(() => expect(mocks.listProjects).toHaveBeenCalled());
 		expect(
@@ -261,7 +336,11 @@ describe("ProjectsPage", () => {
 	it("still lists and renames keys when the names cannot be read", async () => {
 		mocks.listLabels.mockRejectedValue(new Error("boom"));
 		mocks.setLabel.mockResolvedValue("onlooker");
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText(KEY_A)).toBeTruthy();
@@ -280,7 +359,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project({ basis: "root", machine_id: "m1" })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		const [row] = await findRows();
 		expect(within(row).getByText("one machine only")).toBeTruthy();
@@ -290,7 +373,11 @@ describe("ProjectsPage", () => {
 		mocks.listProjects.mockResolvedValue({
 			projects: [project(), project({ project_key: KEY_B })],
 		});
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await findRows();
 		fireEvent.click(
@@ -308,7 +395,11 @@ describe("ProjectsPage", () => {
 
 	it("says so when the projects cannot be loaded", async () => {
 		mocks.listProjects.mockRejectedValue(new Error("boom"));
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		await waitFor(() =>
 			expect(screen.getByText("Could not load your projects")).toBeTruthy(),
@@ -317,8 +408,28 @@ describe("ProjectsPage", () => {
 
 	it("shows an empty state when there are no projects", async () => {
 		mocks.listProjects.mockResolvedValue({ projects: [] });
-		render(<ProjectsPage />);
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
 
 		expect(await screen.findByText("No projects yet")).toBeTruthy();
+	});
+
+	it("explains how a project appears, under a heading", async () => {
+		mocks.listProjects.mockResolvedValue({ projects: [] });
+		render(
+			<MemoryRouter>
+				<ProjectsPage />
+			</MemoryRouter>,
+		);
+
+		expect(
+			await screen.findByRole("heading", { name: "No projects yet" }),
+		).toBeTruthy();
+		expect(
+			screen.getByText(/once a machine reports a session in a repository/i),
+		).toBeTruthy();
 	});
 });

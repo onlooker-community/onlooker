@@ -134,6 +134,16 @@ describe("MachinesPage", () => {
 		).toBeDefined();
 	});
 
+	// A panel with a heading of its own, across the page, like the empty pools
+	// on Lessons and Activity - not a stub under the mint form.
+	it("gives the empty list a heading of its own", async () => {
+		withMachines();
+		await renderPage();
+		expect(
+			await screen.findByRole("heading", { name: /no machines yet/i }),
+		).toBeDefined();
+	});
+
 	it("lists machines by name", async () => {
 		withMachines(USED, NEVER_USED);
 		await renderPage();

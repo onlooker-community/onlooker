@@ -21,14 +21,6 @@ function rollup(over: Partial<Rollup> = {}): Rollup {
 	};
 }
 
-function dayRow(n: number) {
-	return { day: `Day ${n}`, sessions: 1, durationMs: 60_000 };
-}
-
-function dayRows(count: number) {
-	return [...Array(count)].map((_, i) => dayRow(i + 1));
-}
-
 describe("SessionsSummary", () => {
 	it("states a total when the rollup is complete", () => {
 		render(<SessionsSummary rollup={rollup()} />);
@@ -43,13 +35,9 @@ describe("SessionsSummary", () => {
 	// count of what exists.
 	it("says what it loaded, not a total, when incomplete", () => {
 		render(<SessionsSummary rollup={rollup({ complete: false })} />);
-		expect(screen.getByText(/most recent 41 sessions/)).toBeTruthy();
-	});
-
-	it("lists a row per day", () => {
-		render(<SessionsSummary rollup={rollup()} />);
-		expect(screen.getByText("Wednesday, September 24")).toBeTruthy();
-		expect(screen.getByText("Tuesday, September 23")).toBeTruthy();
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/^The most recent 41 sessions your machines reported/,
+		);
 	});
 
 	it("renders nothing at all when there are no sessions", () => {
@@ -59,30 +47,6 @@ describe("SessionsSummary", () => {
 			/>,
 		);
 		expect(container.firstChild).toBeNull();
-	});
-
-	it("renders every day without a summary line at 7 or fewer", () => {
-		render(<SessionsSummary rollup={rollup({ days: dayRows(7) })} />);
-		expect(screen.getAllByText(/^Day \d+$/)).toHaveLength(7);
-		expect(screen.queryByText(/more day/)).toBeNull();
-	});
-
-	// The cap is presentational only - it must never change the totals line,
-	// which keeps describing everything loaded regardless of how many day
-	// rows are shown.
-	it("caps the day list at 7 and summarizes the rest", () => {
-		render(
-			<SessionsSummary rollup={rollup({ sessions: 90, days: dayRows(9) })} />,
-		);
-		expect(screen.getAllByText(/^Day \d+$/)).toHaveLength(7);
-		expect(screen.getByText(/2 more days/)).toBeTruthy();
-		expect(screen.getByText(/^90 sessions/)).toBeTruthy();
-	});
-
-	it("uses singular wording for exactly one hidden day", () => {
-		render(<SessionsSummary rollup={rollup({ days: dayRows(8) })} />);
-		expect(screen.getByText(/1 more day$/)).toBeTruthy();
-		expect(screen.queryByText(/1 more days/)).toBeNull();
 	});
 
 	it("uses singular form when there is one session", () => {
@@ -117,9 +81,19 @@ describe("SessionsSummary", () => {
 		);
 		expect(screen.queryByText(/1 sessions/)).toBeNull();
 		expect(screen.queryAllByText(/1 session/)).not.toHaveLength(0);
-		expect(screen.queryByText(/1 prompts/)).toBeNull();
-		expect(screen.queryAllByText(/1 prompt/)).not.toHaveLength(0);
-		expect(screen.queryByText(/1 compactions/)).toBeNull();
-		expect(screen.queryAllByText(/1 compaction/)).not.toHaveLength(0);
+	});
+
+	it("says in how many sessions plugins failed", () => {
+		render(<SessionsSummary rollup={rollup()} failedSessions={2} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/Plugins failed in 2 of them\.$/,
+		);
+	});
+
+	it("says nothing about failures when none failed", () => {
+		render(<SessionsSummary rollup={rollup()} />);
+		expect(screen.getByTestId("sessions-headline").textContent).not.toMatch(
+			/failed/i,
+		);
 	});
 });

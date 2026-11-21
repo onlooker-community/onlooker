@@ -33,6 +33,19 @@
 }
 
 /*
+ * The lead sentence spans both columns when there are two, and hides with the
+ * list in the narrow detail pane, where it would describe a list that is not
+ * on screen.
+ */
+.lessons-lead {
+	grid-column: 1 / -1;
+}
+
+.lessons-layout[data-pane="detail"] > .lessons-lead {
+	display: none;
+}
+
+/*
  * The detail pane's two fact panels - Applies to, Why it was trusted.
  * Stacked by default for the same reason .lessons-layout is: Vitest does not
  * process CSS, so the test suite only ever sees the stacked, single-column
@@ -61,8 +74,18 @@
 	 * specificity, later in source order, wins.
 	 */
 	.lessons-layout[data-pane] > .lessons-list,
-	.lessons-layout[data-pane] > .lessons-detail {
+	.lessons-layout[data-pane] > .lessons-detail,
+	.lessons-layout[data-pane] > .lessons-lead {
 		display: block;
+	}
+
+	/*
+	 * An empty pool has nothing to select, so its one panel takes the width
+	 * instead of leaving the detail column blank beside it. After the rule
+	 * above, and carrying one more attribute, so it wins on specificity.
+	 */
+	.lessons-layout[data-empty="true"] {
+		grid-template-columns: 1fr;
 	}
 
 	/* Redundant beside a list that is already on screen. */

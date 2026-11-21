@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, useOutlet } from "react-router-dom";
 import { type LabelMap, listLabels } from "../api/labelsApi";
 import type { Lesson, LessonStatus, RetractableOrg } from "../api/lessonsApi";
@@ -11,6 +11,8 @@ import {
 	Button,
 	Chip,
 	EmptyState,
+	Lead,
+	LeadValue,
 	Panel,
 	Plate,
 	STATUS_ICONS,
@@ -19,6 +21,7 @@ import {
 import { When } from "../components/When";
 import { useLessonPool } from "../hooks/useLessonPool";
 import { entryKeys, projectEntries } from "../lib/projectEntries";
+import { plural } from "../lib/sessionRollup";
 import "./lessons.css";
 
 // The pool, read by a person. A layout route rather than a page: it fetches
@@ -142,11 +145,28 @@ const FILTERS: { value: "" | LessonStatus; label: string; empty?: string }[] = [
 // constant keeps a render from handing it a new array it has to join again.
 const NO_KEYS: readonly string[] = [];
 
+// Still read aloud, not drawn: where an empty state or an error is already on
+// screen saying the same words, a second copy above it is noise to the eye.
+// The region itself stays, for the reason its own comment gives.
+const VISUALLY_HIDDEN = {
+	position: "absolute",
+	width: "1px",
+	height: "1px",
+	margin: "-1px",
+	padding: 0,
+	overflow: "hidden",
+	clip: "rect(0, 0, 0, 0)",
+	whiteSpace: "nowrap",
+	border: 0,
+} as const;
+
 const row = {
 	display: "flex",
 	gap: "var(--space-3)",
-	alignItems: "center",
-	padding: "var(--space-3)",
+	// Top-aligned: a claim runs to two or three lines, and a plate centered
+	// beside them floats at the middle of the row instead of beside its first.
+	alignItems: "flex-start",
+	padding: "0.875rem var(--space-3)",
 	borderBottom: `2px solid ${PALETTE.border}`,
 	textDecoration: "none",
 	color: "var(--ink)",
@@ -301,64 +321,142 @@ export default function LessonsPage() {
 				? `${emptyTitle}${freshSuffix}`
 				: `${lessons.length} lesson${lessons.length === 1 ? "" : "s"}${freshSuffix}`;
 
+	// What the loaded page holds, said as a sentence. It describes the view the
+	// filters leave, not the pool: a project, stack or status narrows it, and
+	// the sentence names each so it cannot be read as a count of everything.
+	// While a cursor remains the rows are only the first pages, so it says
+	// "loaded so far" rather than claiming a total. The active tally is left
+	// off under a status filter, where it would only repeat the filter.
+	// Not a live region: the status paragraph above already announces the
+	// count, and a second one would speak the same change twice.
+	let lead: ReactNode = null;
+	if (!loadError && lessons !== null && lessons.length > 0) {
+		const counted = plural(
+			lessons.length,
+			filter ? `${filter} lesson` : "lesson",
+		);
+		const scope = `${entry ? ` in ${entry.name}` : ""}${stack ? ` for ${stack}` : ""}`;
+		const active = lessons.filter(
+			(lesson) => lesson.status === "active",
+		).length;
+		const tail = filter ? null : active === lessons.length ? (
+			", all active"
+		) : (
+			<>
+				, <LeadValue>{`${active} active`}</LeadValue>
+			</>
+		);
+		lead = (
+			<div className="lessons-lead">
+				<Lead testId="lessons-headline">
+					{cursor === null ? (
+						<>
+							The pool holds <LeadValue>{counted}</LeadValue>
+							{scope}
+							{tail}.
+						</>
+					) : (
+						<>
+							The pool has <LeadValue>{counted}</LeadValue>
+							{scope} loaded so far
+							{tail}.
+						</>
+					)}
+				</Lead>
+			</div>
+		);
+	}
+
+	// The pool is empty and nothing narrows it: the one case where there is
+	// nothing to select and nothing to filter, so the empty state takes the
+	// whole width rather than sitting in a column beside a pane with no job.
+	const emptyPool =
+		!loadError &&
+		lessons !== null &&
+		lessons.length === 0 &&
+		!entry &&
+		!stack &&
+		!filter;
+	// An empty state or an error is on screen saying what the status line says.
+	const stateSpeaks = Boolean(loadError) || (lessons?.length ?? 1) === 0;
+
 	return (
-		<div className="lessons-layout" data-pane={detail ? "detail" : "list"}>
+		<div
+			className="lessons-layout"
+			data-pane={detail ? "detail" : "list"}
+			data-empty={emptyPool && !detail ? "true" : undefined}
+		>
+			{lead}
 			<div className="lessons-list">
-				{entries.length > 0 ? (
-					<div style={{ marginBottom: "1rem" }}>
+				{/*
+				  The filters side by side and wrapping, as the mockup has them,
+				  rather than stacked: two short controls do not each need a
+				  line of a narrow column.
+				*/}
+				<div
+					style={{
+						display: "flex",
+						flexWrap: "wrap",
+						gap: "var(--space-4)",
+						marginBottom: "var(--space-4)",
+					}}
+				>
+					{entries.length > 0 ? (
 						<ProjectFilter
 							entries={entries}
 							value={entry?.name ?? null}
 							onChange={setSelected}
 						/>
-					</div>
-				) : null}
-				<div style={{ marginBottom: "1rem" }}>
-					<label
-						htmlFor="lesson-status"
-						style={{
-							display: "flex",
-							alignItems: "center",
-							gap: "var(--space-1)",
-							marginBottom: "0.35rem",
-							fontFamily: "var(--font-data)",
-							fontSize: "var(--text-data-sm)",
-							letterSpacing: "1px",
-							textTransform: "uppercase",
-							color: PALETTE.muted,
-						}}
-					>
-						<Icon name="MagnifyingGlass" />
-						Status
-					</label>
-					{/*
+					) : null}
+					<div>
+						<label
+							htmlFor="lesson-status"
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: "var(--space-1)",
+								marginBottom: "0.35rem",
+								fontFamily: "var(--font-data)",
+								fontSize: "var(--text-data-sm)",
+								letterSpacing: "1px",
+								textTransform: "uppercase",
+								color: PALETTE.muted,
+							}}
+						>
+							<Icon name="MagnifyingGlass" />
+							Status
+						</label>
+						{/*
 					  A native select rather than a new form primitive. One
 					  filter does not justify a SelectField in form.tsx, and the
 					  native control is what a screen reader and a keyboard
 					  already know how to drive.
 					*/}
-					<select
-						id="lesson-status"
-						ref={statusRef}
-						value={filter}
-						onChange={(event) =>
-							setFilter(event.target.value as "" | LessonStatus)
-						}
-						style={{
-							padding: "0.4rem 0.5rem",
-							background: "var(--ground)",
-							color: "var(--ink)",
-							border: `2px solid ${PALETTE.border}`,
-							borderRadius: 0,
-							fontFamily: "var(--font-body)",
-						}}
-					>
-						{FILTERS.map((option) => (
-							<option key={option.value || "all"} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
+						<select
+							id="lesson-status"
+							ref={statusRef}
+							value={filter}
+							onChange={(event) =>
+								setFilter(event.target.value as "" | LessonStatus)
+							}
+							style={{
+								minHeight: "44px",
+								padding: "0 var(--space-3)",
+								background: "var(--ground)",
+								color: "var(--ink)",
+								border: `2px solid ${PALETTE.border}`,
+								borderRadius: 0,
+								fontFamily: "var(--font-body)",
+								fontSize: "var(--text-body-md)",
+							}}
+						>
+							{FILTERS.map((option) => (
+								<option key={option.value || "all"} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</div>
 				</div>
 				{stack ? (
 					<div
@@ -396,14 +494,18 @@ export default function LessonsPage() {
 				<p
 					role="status"
 					aria-live="polite"
-					style={{
-						margin: "0 0 var(--space-2)",
-						fontFamily: "var(--font-data)",
-						fontSize: "var(--text-data-sm)",
-						letterSpacing: "1px",
-						textTransform: "uppercase",
-						color: PALETTE.muted,
-					}}
+					style={
+						stateSpeaks
+							? VISUALLY_HIDDEN
+							: {
+									margin: "0 0 var(--space-2)",
+									fontFamily: "var(--font-data)",
+									fontSize: "var(--text-data-sm)",
+									letterSpacing: "1px",
+									textTransform: "uppercase",
+									color: PALETTE.muted,
+								}
+					}
 				>
 					{resultSummary}
 				</p>
@@ -457,25 +559,44 @@ export default function LessonsPage() {
 									: "Nothing in the pool holds that status right now."}
 						</EmptyState>
 					) : (
-						<EmptyState
-							title="Nothing has synced yet"
-							icon="ChestTreasure"
-							tone="teal"
-						>
-							Lessons arrive when a machine pushes them.{" "}
-							{/*
-							  A link and not EmptyState's action button. The button
-							  is for Retry; one that navigated would read as an
-							  action and be a link wearing the wrong control.
-							*/}
-							<NavLink to="/machines" style={{ color: PALETTE.accent }}>
-								Connect a machine
-							</NavLink>{" "}
-							to start.
-						</EmptyState>
+						<Panel title="Nothing has synced yet" icon="Eye">
+							<div
+								style={{
+									display: "flex",
+									gap: "var(--space-4)",
+									alignItems: "flex-start",
+								}}
+							>
+								<Plate tone="teal" icon="ChestTreasure" size={32} />
+								<div>
+									<p
+										style={{
+											margin: 0,
+											fontSize: "1.05rem",
+											lineHeight: 1.6,
+										}}
+									>
+										Lessons arrive when a machine pushes them. Once one does,
+										each shows up here with its rationale and the evidence
+										behind it.
+									</p>
+									<p style={{ margin: "var(--space-3) 0 0" }}>
+										{/*
+										  A link and not a button. A button here would read as
+										  an action this page performs, and it is a place to
+										  go.
+										*/}
+										<NavLink to="/machines" style={{ color: PALETTE.accent }}>
+											Connect a machine
+										</NavLink>{" "}
+										to start.
+									</p>
+								</div>
+							</div>
+						</Panel>
 					)
 				) : (
-					<Panel title="The pool">
+					<Panel title="The pool" open>
 						<nav aria-label="Lessons" ref={navRef}>
 							{lessons.map((lesson) => (
 								// NavLink, not Link: it sets aria-current="page" on the
@@ -487,6 +608,8 @@ export default function LessonsPage() {
 									style={({ isActive }) => ({
 										...row,
 										background: isActive ? "var(--panel)" : "transparent",
+										// The open row reads brightest, as well as filled.
+										color: isActive ? "var(--ink-hi)" : "var(--ink)",
 										borderLeft: isActive
 											? `4px solid ${PALETTE.accent}`
 											: "4px solid transparent",
@@ -500,8 +623,9 @@ export default function LessonsPage() {
 										<span
 											style={{
 												display: "block",
-												marginBottom: "var(--space-1)",
+												marginBottom: "var(--space-2)",
 												fontSize: "var(--text-body-md)",
+												lineHeight: 1.5,
 											}}
 										>
 											{lesson.claim}
@@ -550,13 +674,14 @@ export default function LessonsPage() {
 			</div>
 
 			<div className="lessons-detail">
-				{outlet ?? (
-					<Panel>
-						<p style={{ margin: 0, color: PALETTE.muted }}>
-							Select a lesson to read its rationale and evidence.
-						</p>
-					</Panel>
-				)}
+				{outlet ??
+					(lessons !== null && lessons.length === 0 ? null : (
+						<Panel>
+							<p style={{ margin: 0, color: PALETTE.muted }}>
+								Select a lesson to read its rationale and evidence.
+							</p>
+						</Panel>
+					))}
 			</div>
 		</div>
 	);

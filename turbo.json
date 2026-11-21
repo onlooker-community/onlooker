@@ -3,20 +3,14 @@
 	"globalEnv": [],
 	"tasks": {
 		"@onlooker/db#build": {
-			"dependsOn": [
-				"^build"
-			],
-			"outputs": [
-				"dist/**"
-			]
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"]
 		},
 		"@onlooker/db#lint": {
 			"outputs": []
 		},
 		"@onlooker/db#test": {
-			"dependsOn": [
-				"@onlooker/db#build"
-			],
+			"dependsOn": ["@onlooker/db#build"],
 			"outputs": []
 		},
 		"@onlooker/db#typecheck": {
@@ -35,9 +29,7 @@
 			"persistent": true
 		},
 		"build": {
-			"dependsOn": [
-				"^build"
-			],
+			"dependsOn": ["^build"],
 			"env": [
 				"AUDIT_LOG_ENABLED",
 				"AUDIT_LOG_GET_USER_IP",
@@ -82,20 +74,11 @@
 				"PROMETHEUS_ENABLED",
 				"PROMETHEUS_EXPORTER_PORT"
 			],
-			"outputs": [
-				"dist/**",
-				".next/**",
-				"schema/**"
-			]
+			"outputs": ["dist/**", ".next/**", "schema/**"]
 		},
 		"build:dev": {
-			"dependsOn": [
-				"^build:dev"
-			],
-			"outputs": [
-				"dist/**",
-				".next/**"
-			]
+			"dependsOn": ["^build:dev"],
+			"outputs": ["dist/**", ".next/**"]
 		},
 		"clean": {
 			"cache": false,
@@ -106,9 +89,7 @@
 			"persistent": true
 		},
 		"generate": {
-			"dependsOn": [
-				"^generate"
-			]
+			"dependsOn": ["^generate"]
 		},
 		"go": {
 			"cache": false,
@@ -122,18 +103,14 @@
 			"persistent": true
 		},
 		"test": {
-			"dependsOn": [
-				"^build"
-			],
+			"dependsOn": ["^build"],
 			"outputs": []
 		},
 		"test:coverage": {
 			"outputs": []
 		},
 		"typecheck": {
-			"dependsOn": [
-				"^typecheck"
-			],
+			"dependsOn": ["^typecheck"],
 			"outputs": []
 		}
 	},
