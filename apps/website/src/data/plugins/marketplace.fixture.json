@@ -1,9 +1,9 @@
 {
-	"commit": "fd97905b6bd0eaebbac51ae6e3ef843775b6ff3c",
+	"commit": "8aea87e0b9a2ca80ca154b41336799c3910a3a31",
 	"plugins": [
 		{
 			"name": "ecosystem",
-			"version": "0.82.1",
+			"version": "0.82.2",
 			"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Other Onlooker plugins emit their events through it: without it they still run and keep their own files, but write nothing to the shared event log.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
 		},
@@ -93,7 +93,7 @@
 		},
 		{
 			"name": "bursar",
-			"version": "0.9.6",
+			"version": "0.9.7",
 			"description": "Multi-session, per-project budget accounting for the Onlooker ecosystem. Rolls each session's spend into a per-project ledger on SessionEnd and surfaces \"this project burned $X this week\" at SessionStart. Where governor regulates a single session, bursar is the cross-session rollup: it reads governor.session.complete off the shared event bus, degrades to a session count when governor is absent, and emits bursar.* events for audit. Named for the officer who keeps the accounts. Builds on the Onlooker ecosystem plugin.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/bursar/README.md"
 		},
