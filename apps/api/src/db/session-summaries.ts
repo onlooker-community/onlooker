@@ -1,6 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { session_projects, session_summaries } from "@onlooker/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { client } from "./client.js";
 import { BROWSE_MAX_LIMIT, InvalidCursorError } from "./lessons.js";
 
@@ -129,7 +129,10 @@ export async function putSessionSummaries(
 					plugins: row.plugins,
 					prompts: row.prompts,
 					compactions: row.compactions,
-					subordinate: row.subordinate,
+					// A report that didn't see the session's start sends null.
+					// That's "unknown here", not a change, so it keeps what's
+					// stored; only a known value replaces one (ONL-303).
+					subordinate: sql`COALESCE(excluded.subordinate, ${session_summaries.subordinate})`,
 					reported_at: row.reported_at,
 				},
 			});
