@@ -8,6 +8,7 @@ import type { Rollup } from "../lib/sessionRollup";
 function rollup(over: Partial<Rollup> = {}): Rollup {
 	return {
 		sessions: 41,
+		subordinate: 0,
 		durationMs: 66_000_000,
 		days: [
 			{ day: "Wednesday, September 24", sessions: 7, durationMs: 31_200_000 },
@@ -74,6 +75,7 @@ describe("SessionsSummary", () => {
 						plugins: [],
 						prompts: 1,
 						compactions: 1,
+						subordinate: null,
 					},
 					longestMs: 1_800_000,
 				})}

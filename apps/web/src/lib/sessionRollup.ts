@@ -28,6 +28,12 @@ export interface DayGroup {
 
 export interface Rollup {
 	sessions: number;
+	/**
+	 * Loaded sessions left out of every other field here because another
+	 * session or a script started them (ONL-221). Unknown sessions are
+	 * counted, not left out.
+	 */
+	subordinate: number;
 	durationMs: number;
 	/**
 	 * Newest day first. Sorted here rather than inherited from input order,
@@ -128,13 +134,18 @@ export function rollupSessions(
 	sessions: SessionSummary[],
 	hasMore: boolean,
 ): Rollup {
+	// Counted here, not in groupSessionsByDay: the Sessions page's rows still
+	// list spawned sessions, since they are real work. Only "how many sessions
+	// did you have" leaves them out. `=== true` so unknown counts as before.
+	const counted = sessions.filter((session) => session.subordinate !== true);
+
 	let durationMs = 0;
 	let longest: SessionSummary | null = null;
 	let longestMs = -1;
 	let earliest: string | null = null;
 	let latest: string | null = null;
 
-	for (const session of sessions) {
+	for (const session of counted) {
 		const ms = durationMsOf(session);
 		if (ms !== null) {
 			durationMs += ms;
@@ -152,7 +163,7 @@ export function rollupSessions(
 		}
 	}
 
-	const days = groupSessionsByDay(sessions).map((group) => ({
+	const days = groupSessionsByDay(counted).map((group) => ({
 		day: group.day,
 		sessions: group.sessions.length,
 		durationMs: group.sessions.reduce(
@@ -162,7 +173,8 @@ export function rollupSessions(
 	}));
 
 	return {
-		sessions: sessions.length,
+		sessions: counted.length,
+		subordinate: sessions.length - counted.length,
 		durationMs,
 		days,
 		range: earliest && latest ? formatRange(earliest, latest) : "",

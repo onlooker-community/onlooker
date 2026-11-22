@@ -24,6 +24,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 		plugins: [],
 		prompts: 3,
 		compactions: 0,
+		subordinate: null,
 		...over,
 	};
 }
@@ -428,5 +429,53 @@ describe("rollupProjects", () => {
 		]);
 
 		expect(result.unattributed).toBe(1);
+	});
+});
+
+describe("rollupSessions / subordinate", () => {
+	const person = session({ session_id: "p", subordinate: false });
+	const unknown = session({
+		session_id: "u",
+		started_at: "2026-09-24T11:00:00Z",
+		ended_at: "2026-09-24T11:10:00Z",
+		subordinate: null,
+	});
+	const spawned = session({
+		session_id: "s",
+		started_at: "2026-09-24T12:00:00Z",
+		ended_at: "2026-09-24T15:00:00Z",
+		subordinate: true,
+	});
+
+	it("leaves spawned sessions out of every total and says how many", () => {
+		const rollup = rollupSessions([person, unknown, spawned], false);
+
+		expect(rollup.sessions).toBe(2);
+		expect(rollup.subordinate).toBe(1);
+		expect(rollup.durationMs).toBe(40 * 60_000);
+		expect(rollup.days).toEqual([
+			{ day: rollup.days[0].day, sessions: 2, durationMs: 40 * 60_000 },
+		]);
+		// The three-hour spawned session would be the longest if it counted.
+		expect(rollup.longest?.session_id).toBe("p");
+	});
+
+	// Unknown is every row from before CLI 2.16.0. Dropping those would empty
+	// the history; they count as they always have.
+	it("counts unknown sessions as it did before", () => {
+		const rollup = rollupSessions([unknown], false);
+		expect(rollup.sessions).toBe(1);
+		expect(rollup.subordinate).toBe(0);
+	});
+
+	// The list still shows them: groupSessionsByDay is what SessionsPage rows
+	// come from, and spawned sessions are real work.
+	it("leaves groupSessionsByDay alone", () => {
+		const groups = groupSessionsByDay([person, unknown, spawned]);
+		expect(groups.flatMap((g) => g.sessions).map((s) => s.session_id)).toEqual([
+			"s",
+			"u",
+			"p",
+		]);
 	});
 });

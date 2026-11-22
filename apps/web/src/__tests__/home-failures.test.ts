@@ -15,6 +15,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 		plugins: [],
 		prompts: 3,
 		compactions: 0,
+		subordinate: null,
 		...over,
 	};
 }

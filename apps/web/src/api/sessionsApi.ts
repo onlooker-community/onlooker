@@ -63,6 +63,12 @@ export interface SessionSummary {
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+	/**
+	 * True when another session or a script started this one, false when a
+	 * person did, null when unknown (ONL-221). Null for every session synced
+	 * by a CLI older than 2.16.0. Never absent: the API defaults it on read.
+	 */
+	subordinate: boolean | null;
 }
 
 /** One repository's share of a session. Mirrors apps/api's ProjectCount. */
