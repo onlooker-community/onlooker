@@ -40,6 +40,8 @@ export function AllSpawned({
 	complete: boolean;
 	intro?: string;
 }) {
+	// No sessions at all is the caller's empty state, not "all spawned".
+	if (n <= 0) return null;
 	const count = <LeadValue>{plural(n, "session")}</LeadValue>;
 	const one = n === 1;
 	if (complete) {
