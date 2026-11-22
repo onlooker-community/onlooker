@@ -998,6 +998,44 @@ describe("subordinate", () => {
 		expect(await readBack(access)).toBeNull();
 	});
 
+	// ONL-303. A later sync whose window starts after a session's
+	// session.start reports that session with no value. Unknown there means
+	// "this report didn't see", not "it changed", so it keeps what's stored.
+	it.each([
+		[true, 1],
+		[false, 0],
+	])("keeps a stored %s when a re-report has none", async (subordinate, column) => {
+		const access = await signup(`sub-keep-${subordinate}@example.com`);
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate })],
+		});
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate: null })],
+		});
+
+		expect(await stored(machine.id)).toBe(column);
+	});
+
+	it("lets a known value replace a known value", async () => {
+		const access = await signup("sub-replace@example.com");
+		const machine = await mint(access, "laptop");
+
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate: true })],
+		});
+		await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate: false })],
+		});
+
+		expect(await stored(machine.id)).toBe(0);
+	});
+
 	it.each([
 		["a string", "yes"],
 		["a number", 1],
