@@ -944,3 +944,74 @@ describe("counts_by_type", () => {
 		expect(JSON.parse(stored?.counts_by_type ?? "null")).toEqual(curatorTypes);
 	});
 });
+
+describe("subordinate", () => {
+	async function stored(machineId: string): Promise<number | null> {
+		const row = await db()
+			.prepare("SELECT subordinate FROM session_summaries WHERE machine_id = ?")
+			.bind(machineId)
+			.first<{ subordinate: number | null }>();
+		return row?.subordinate ?? null;
+	}
+
+	async function readBack(access: string): Promise<unknown> {
+		const read = await get(access);
+		const body = (await read.json()) as {
+			sessions: { subordinate: unknown }[];
+		};
+		return body.sessions[0].subordinate;
+	}
+
+	it.each([
+		[true, 1],
+		[false, 0],
+	])("stores %s and reads it back", async (subordinate, column) => {
+		const access = await signup(`sub-${subordinate}@example.com`);
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate })],
+		});
+		expect(posted.status).toBe(200);
+
+		expect(await stored(machine.id)).toBe(column);
+		expect(await readBack(access)).toBe(subordinate);
+	});
+
+	// Every CLI before 2.16.0 posts no such field. Unknown is not "a person
+	// started it", so it is stored as null, not false.
+	it.each([
+		["absent", undefined],
+		["null", null],
+	])("stores %s as null", async (label, subordinate) => {
+		const access = await signup(`sub-${label}@example.com`);
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary(subordinate === undefined ? {} : { subordinate })],
+		});
+		expect(posted.status).toBe(200);
+
+		expect(await stored(machine.id)).toBeNull();
+		expect(await readBack(access)).toBeNull();
+	});
+
+	it.each([
+		["a string", "yes"],
+		["a number", 1],
+		["an object", {}],
+	])("rejects %s", async (label, subordinate) => {
+		const access = await signup(
+			`sub-bad-${label.replace(/[^a-z0-9]+/gi, "-")}@example.com`,
+		);
+		const machine = await mint(access, "laptop");
+
+		const posted = await post(machine.token, {
+			schema_version: 1,
+			sessions: [summary({ subordinate })],
+		});
+		expect(posted.status).toBe(400);
+	});
+});

@@ -8,6 +8,7 @@ import type { Rollup } from "../lib/sessionRollup";
 function rollup(over: Partial<Rollup> = {}): Rollup {
 	return {
 		sessions: 41,
+		subordinate: 0,
 		durationMs: 66_000_000,
 		days: [
 			{ day: "Wednesday, September 24", sessions: 7, durationMs: 31_200_000 },
@@ -74,6 +75,7 @@ describe("SessionsSummary", () => {
 						plugins: [],
 						prompts: 1,
 						compactions: 1,
+						subordinate: null,
 					},
 					longestMs: 1_800_000,
 				})}
@@ -94,6 +96,76 @@ describe("SessionsSummary", () => {
 		render(<SessionsSummary rollup={rollup()} />);
 		expect(screen.getByTestId("sessions-headline").textContent).not.toMatch(
 			/failed/i,
+		);
+	});
+
+	// The list below shows every loaded session. Without this sentence, a
+	// headline of 40 over 41 rows reads as a miscount.
+	it("says how many spawned sessions it left out", () => {
+		render(<SessionsSummary rollup={rollup({ subordinate: 3 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/3 more were started by another session or a script and aren't counted\.$/,
+		);
+	});
+
+	it("says nothing about spawned sessions when there were none", () => {
+		render(<SessionsSummary rollup={rollup({ subordinate: 0 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).not.toMatch(
+			/started by another session/,
+		);
+	});
+
+	const allSpawned = (over: Partial<Rollup> = {}) =>
+		rollup({
+			sessions: 0,
+			durationMs: 0,
+			days: [],
+			range: "",
+			subordinate: 3,
+			...over,
+		});
+
+	it("says every session was spawned, in one sentence", () => {
+		render(<SessionsSummary rollup={allSpawned()} failedSessions={2} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 3 sessions, all started by another session or a script, so none are counted.",
+		);
+	});
+
+	it("says it in the singular for one spawned session", () => {
+		render(<SessionsSummary rollup={allSpawned({ subordinate: 1 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 1 session, started by another session or a script, so it isn't counted.",
+		);
+	});
+
+	it("says it as the most recent when every spawned session was capped", () => {
+		render(<SessionsSummary rollup={allSpawned({ complete: false })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"The most recent 3 sessions your machines reported were all started by another session or a script, so none are counted.",
+		);
+	});
+
+	it("says it as the most recent in the singular when capped", () => {
+		render(
+			<SessionsSummary
+				rollup={allSpawned({ complete: false, subordinate: 1 })}
+			/>,
+		);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"The most recent session your machines reported was started by another session or a script, so it isn't counted.",
+		);
+	});
+
+	it("keeps the failure and spawned sentences apart when some counted", () => {
+		render(
+			<SessionsSummary
+				rollup={rollup({ subordinate: 3 })}
+				failedSessions={2}
+			/>,
+		);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 41 sessions, 18h 20m in all, across Sep 3 – Sep 24. Plugins failed in 2 of them. 3 more were started by another session or a script and aren't counted.",
 		);
 	});
 });

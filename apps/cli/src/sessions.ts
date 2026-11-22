@@ -89,6 +89,17 @@ export interface SessionSummary {
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+	/**
+	 * Whether another session or a script started this one (ONL-221), as
+	 * eventlog.ts's `subordinateOf` derived it from session.start. Null when
+	 * no start said: every session from before ecosystem #576, and any whose
+	 * start fell outside the read.
+	 *
+	 * Derived, not read: the fold never sees a payload. The caller hands it
+	 * the map `readEventEnvelopes`'s `onSubordinate` filled, and only this
+	 * boolean leaves the machine - never the parent's id.
+	 */
+	subordinate: boolean | null;
 }
 
 /**
@@ -165,12 +176,19 @@ interface Accumulator {
  * report to sessions whose last event is recent, so a machine that has not
  * synced in a while still reports its recent work.
  *
+ * `subordinate` is consulted only after the last event, never during the
+ * fold, because the caller fills it from the same stream this reads.
+ *
  * Insertion-ordered by first appearance, which for an append-only log means
  * oldest session first. The caller sorts if it wants something else.
  */
 export async function summarizeSessions(
 	events: Iterable<EventEnvelope> | AsyncIterable<EventEnvelope>,
-	opts: { threshold?: number; since?: string } = {},
+	opts: {
+		threshold?: number;
+		since?: string;
+		subordinate?: ReadonlyMap<string, boolean>;
+	} = {},
 ): Promise<SessionSummary[]> {
 	const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
 	const sessions = new Map<string, Accumulator>();
@@ -268,6 +286,7 @@ export async function summarizeSessions(
 			plugins: [...acc.plugins].sort(),
 			prompts: acc.prompts,
 			compactions: acc.compactions,
+			subordinate: opts.subordinate?.get(session_id) ?? null,
 		});
 	}
 	return summaries;

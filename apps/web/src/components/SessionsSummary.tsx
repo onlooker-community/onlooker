@@ -18,6 +18,7 @@
  */
 
 import { formatDurationMs, plural, type Rollup } from "../lib/sessionRollup";
+import { AllSpawned, SpawnedTail } from "./SpawnedSessions";
 import { Lead, LeadValue } from "./ui";
 
 export default function SessionsSummary({
@@ -30,7 +31,7 @@ export default function SessionsSummary({
 }) {
 	// Not an empty state - SessionsPage owns those, and its three variants say
 	// different true things about machines. Rendering nothing lets them speak.
-	if (rollup.sessions === 0) return null;
+	if (rollup.sessions === 0 && rollup.subordinate === 0) return null;
 
 	const total = formatDurationMs(rollup.durationMs);
 	const counted = plural(rollup.sessions, "session");
@@ -54,6 +55,18 @@ export default function SessionsSummary({
 				<LeadValue>{failedSessions.toLocaleString()}</LeadValue> of them.
 			</>
 		) : null;
+	// The rows below list every loaded session, spawned ones included, so a
+	// count that leaves some out has to say so or it reads as a miscount.
+	const subordinateTail = <SpawnedTail n={rollup.subordinate} />;
+
+	// Nothing counted, so no range, duration or failures to describe.
+	if (rollup.sessions === 0) {
+		return (
+			<Lead testId="sessions-headline">
+				<AllSpawned n={rollup.subordinate} complete={rollup.complete} />
+			</Lead>
+		);
+	}
 
 	return (
 		<Lead testId="sessions-headline">
@@ -62,12 +75,14 @@ export default function SessionsSummary({
 					Your machines reported <LeadValue>{counted}</LeadValue>
 					{tail}
 					{span}.{failedTail}
+					{subordinateTail}
 				</>
 			) : (
 				<>
 					The most recent <LeadValue>{counted}</LeadValue> your machines
 					reported{tail}
 					{span}.{failedTail}
+					{subordinateTail}
 				</>
 			)}
 		</Lead>

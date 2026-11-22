@@ -288,6 +288,7 @@ const summary = (session_id: string, pad = 0): SessionSummary => ({
 	plugins: pad > 0 ? ["x".repeat(pad)] : [],
 	prompts: 1,
 	compactions: 0,
+	subordinate: null,
 });
 
 const bytes = (text: string) => new TextEncoder().encode(text).length;

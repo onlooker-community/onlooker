@@ -30,6 +30,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
 		plugins: [],
 		prompts: 3,
 		compactions: 0,
+		subordinate: null,
 		...over,
 	};
 }
@@ -71,6 +72,41 @@ describe("HomeSessionsPanel", () => {
 		renderPanel({ sessions: [session()], complete: false });
 		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
 			"The most recent 1 session your machines reported, 1h 0m in all.",
+		);
+	});
+
+	it("says how many spawned sessions it left out", () => {
+		renderPanel({
+			sessions: [
+				session({ session_id: "a" }),
+				session({ session_id: "b", subordinate: true }),
+				session({ session_id: "c", subordinate: true }),
+			],
+		});
+		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
+			"In the last 7 days your machines reported 1 session, 1h 0m in all. 2 more were started by another session or a script and aren't counted.",
+		);
+	});
+
+	it("says every session was spawned, in one sentence", () => {
+		renderPanel({
+			sessions: [
+				session({ session_id: "a", subordinate: true }),
+				session({ session_id: "b", subordinate: true }),
+			],
+		});
+		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
+			"In the last 7 days your machines reported 2 sessions, all started by another session or a script, so none are counted.",
+		);
+	});
+
+	it("says it as the most recent when capped and all spawned", () => {
+		renderPanel({
+			sessions: [session({ subordinate: true })],
+			complete: false,
+		});
+		expect(screen.getByTestId("home-sessions-headline").textContent).toBe(
+			"The most recent session your machines reported was started by another session or a script, so it isn't counted.",
 		);
 	});
 

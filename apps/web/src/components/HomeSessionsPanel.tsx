@@ -21,6 +21,7 @@ import {
 import DayBar from "./DayBar";
 import { RepositoryName } from "./ProjectName";
 import { PALETTE } from "./palette";
+import { AllSpawned, SpawnedTail } from "./SpawnedSessions";
 import StatBand, { type Stat } from "./StatBand";
 import { Caption, Lead, LeadValue, Panel, Plate } from "./ui";
 
@@ -139,16 +140,24 @@ export default function HomeSessionsPanel({
 	return (
 		<div>
 			<Lead testId="home-sessions-headline">
-				{complete ? (
+				{rollup.sessions === 0 ? (
+					<AllSpawned
+						n={rollup.subordinate}
+						complete={complete}
+						intro="In the last 7 days your machines reported"
+					/>
+				) : complete ? (
 					<>
 						In the last 7 days your machines reported{" "}
 						<LeadValue>{counted}</LeadValue>
 						{tail}.
+						<SpawnedTail n={rollup.subordinate} />
 					</>
 				) : (
 					<>
 						The most recent <LeadValue>{counted}</LeadValue> your machines
 						reported{tail}.
+						<SpawnedTail n={rollup.subordinate} />
 					</>
 				)}
 			</Lead>

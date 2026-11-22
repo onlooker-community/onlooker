@@ -106,8 +106,13 @@ async function reportSessions(
 	since: string,
 ): Promise<{ note: string | null; reported: Set<string> }> {
 	const reported = new Set<string>();
+	// OR, not last-wins: a session resumed several times has several starts,
+	// and one that any start calls spawned was not a person's.
+	const subordinate = new Map<string, boolean>();
 	const { envelopes, unavailable } = await readEventEnvelopes(env, {
 		onSessionStart: (start) => collector.add(start),
+		onSubordinate: (id, spawned) =>
+			subordinate.set(id, spawned || (subordinate.get(id) ?? false)),
 	});
 	if (unavailable !== null) {
 		return { note: `Sessions not reported: ${unavailable}`, reported };
@@ -115,7 +120,7 @@ async function reportSessions(
 
 	let summaries: Awaited<ReturnType<typeof summarizeSessions>>;
 	try {
-		summaries = await summarizeSessions(envelopes, { since });
+		summaries = await summarizeSessions(envelopes, { since, subordinate });
 	} catch (error) {
 		// A failure discovered mid-stream rather than up front - see
 		// `EventLogEnvelopes.unavailable`'s own docstring. Still a local

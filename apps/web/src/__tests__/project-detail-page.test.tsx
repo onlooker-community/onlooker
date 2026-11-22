@@ -76,6 +76,7 @@ function session(id: string) {
 		ended_at: "2026-08-20T09:38:00.000Z",
 		prompts: 6,
 		compactions: 0,
+		subordinate: null,
 		counts_by_prefix: {},
 		counts_by_type: {},
 		counts_by_project: {},

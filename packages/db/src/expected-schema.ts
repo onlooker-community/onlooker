@@ -672,6 +672,12 @@ export const EXPECTED_SCHEMA = {
 				pk: 0,
 			},
 			{
+				name: "subordinate",
+				type: "INTEGER",
+				notnull: 0,
+				pk: 0,
+			},
+			{
 				name: "reported_at",
 				type: "TEXT",
 				notnull: 1,

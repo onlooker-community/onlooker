@@ -115,6 +115,15 @@ function isValidCountsByType(value: unknown): boolean {
 	);
 }
 
+/**
+ * Whether `subordinate` is absent, null or a boolean (ONL-221). Absent is
+ * valid for the reason it is for `counts_by_type`: every CLI older than this
+ * field posts none.
+ */
+function isValidSubordinate(value: unknown): boolean {
+	return value === undefined || value === null || typeof value === "boolean";
+}
+
 /** Whether a candidate has every field putSessionSummaries needs. */
 function isValidSummary(value: unknown): value is SessionSummaryInput {
 	if (typeof value !== "object" || value === null) return false;
@@ -137,7 +146,8 @@ function isValidSummary(value: unknown): value is SessionSummaryInput {
 		Array.isArray(candidate.plugins) &&
 		candidate.plugins.every((plugin) => typeof plugin === "string") &&
 		typeof candidate.prompts === "number" &&
-		typeof candidate.compactions === "number"
+		typeof candidate.compactions === "number" &&
+		isValidSubordinate(candidate.subordinate)
 	);
 }
 

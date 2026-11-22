@@ -435,3 +435,40 @@ describe("summarizeSessions / counts_by_type", () => {
 		expect(summary.counts_by_type["plugin.type0"]).toBe(2);
 	});
 });
+
+describe("summarizeSessions / subordinate", () => {
+	const events = [
+		...run("child", filler(25)),
+		...run("person", filler(25), 30),
+		...run("unknown", filler(25), 60),
+	];
+
+	it("takes each session's bit from the map, null when it has none", async () => {
+		const subordinate = new Map([
+			["child", true],
+			["person", false],
+		]);
+		const summaries = await summarizeSessions(events, { subordinate });
+
+		expect(
+			Object.fromEntries(summaries.map((s) => [s.session_id, s.subordinate])),
+		).toEqual({ child: true, person: false, unknown: null });
+	});
+
+	it("is null for every session when no map is given", async () => {
+		const summaries = await summarizeSessions(events);
+		expect(summaries.map((s) => s.subordinate)).toEqual([null, null, null]);
+	});
+
+	// The map is filled while the stream is read, so it is consulted only
+	// once the fold has drained it - not at each session's first event.
+	it("reads the map after the events, not before", async () => {
+		const subordinate = new Map<string, boolean>();
+		async function* filling() {
+			for (const event of run("late", filler(25))) yield event;
+			subordinate.set("late", true);
+		}
+		const [summary] = await summarizeSessions(filling(), { subordinate });
+		expect(summary.subordinate).toBe(true);
+	});
+});
