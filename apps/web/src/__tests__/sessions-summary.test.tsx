@@ -98,4 +98,37 @@ describe("SessionsSummary", () => {
 			/failed/i,
 		);
 	});
+
+	// The list below shows every loaded session. Without this sentence, a
+	// headline of 40 over 41 rows reads as a miscount.
+	it("says how many spawned sessions it left out", () => {
+		render(<SessionsSummary rollup={rollup({ subordinate: 3 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/3 more were started by another session or a script and aren't counted\.$/,
+		);
+	});
+
+	it("says nothing about spawned sessions when there were none", () => {
+		render(<SessionsSummary rollup={rollup({ subordinate: 0 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).not.toMatch(
+			/started by another session/,
+		);
+	});
+
+	it("still renders when every loaded session was spawned", () => {
+		render(
+			<SessionsSummary
+				rollup={rollup({
+					sessions: 0,
+					durationMs: 0,
+					days: [],
+					range: "",
+					subordinate: 1,
+				})}
+			/>,
+		);
+		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
+			/1 more was started by another session or a script and isn't counted\.$/,
+		);
+	});
 });
