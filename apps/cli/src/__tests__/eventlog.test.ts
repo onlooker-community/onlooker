@@ -13,6 +13,7 @@ import {
 	readEventEnvelopes,
 	scanEvents,
 	scanHooks,
+	subordinateOf,
 } from "../eventlog";
 import type { EventEnvelope } from "../sessions";
 
@@ -1118,5 +1119,72 @@ describe("readEventEnvelopes onSessionStart", () => {
 			},
 		]);
 		expect(JSON.stringify(seen)).not.toContain("working_directory");
+	});
+});
+
+describe("subordinateOf", () => {
+	it.each([
+		["a parent", { parent_session_id: "p1", attended: true }, true],
+		["a parent with attended unknown", { parent_session_id: "p1" }, true],
+		["an unattended start with no parent", { attended: false }, true],
+		["an attended start with no parent", { attended: true }, false],
+		["neither field", { working_directory: "/x" }, null],
+		[
+			"a parent that is not a string",
+			{ parent_session_id: 7, attended: true },
+			false,
+		],
+		["attended that is not a boolean", { attended: "false" }, null],
+		["no payload", undefined, null],
+		["a payload that is not an object", "attended", null],
+	])("%s", (_label, payload, expected) => {
+		expect(subordinateOf(payload)).toBe(expected);
+	});
+});
+
+describe("readEventEnvelopes onSubordinate", () => {
+	it("reports session.start's derived bit and never puts it on the envelope", async () => {
+		const env = withEvents([
+			{
+				event_type: "session.start",
+				session_id: "child",
+				timestamp: "2026-11-22T12:00:00.000Z",
+				payload: { parent_session_id: "parent-1", attended: false },
+			},
+			{
+				event_type: "session.start",
+				session_id: "person",
+				timestamp: "2026-11-22T12:00:01.000Z",
+				payload: { attended: true },
+			},
+			{
+				event_type: "session.start",
+				session_id: "old",
+				timestamp: "2026-11-22T12:00:02.000Z",
+				payload: { working_directory: "/src" },
+			},
+			{
+				// Not a start: a tool event carrying the same fields is ignored.
+				event_type: "tool.used",
+				session_id: "person",
+				timestamp: "2026-11-22T12:00:03.000Z",
+				payload: { parent_session_id: "parent-1" },
+			},
+		]);
+		const calls: [string, boolean][] = [];
+		const { envelopes } = await readEventEnvelopes(env, {
+			onSubordinate: (id, subordinate) => calls.push([id, subordinate]),
+		});
+		const seen = await collect(envelopes);
+
+		expect(calls).toEqual([
+			["child", true],
+			["person", false],
+		]);
+		expect(seen).toHaveLength(4);
+		const text = JSON.stringify(seen);
+		expect(text).not.toContain("parent");
+		expect(text).not.toContain("attended");
+		expect(text).not.toContain("subordinate");
 	});
 });
