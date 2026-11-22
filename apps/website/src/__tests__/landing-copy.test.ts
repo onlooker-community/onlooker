@@ -42,6 +42,10 @@ describe("the landing page", () => {
 	});
 
 	it("shows the blog's latest post", () => {
-		expect(page).toMatch(/<LatestPost post=\{posts\[0\]\} \/>/);
+		expect(page).toMatch(/<LatestLink\s+label="Latest post"/);
+	});
+
+	it("shows the changelog's latest update", () => {
+		expect(page).toMatch(/<LatestLink\s+label="Latest update"/);
 	});
 });

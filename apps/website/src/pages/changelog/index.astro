@@ -1,0 +1,22 @@
+---
+import EntryList from "../../components/changelog/EntryList.astro";
+import { publishedEntries } from "../../data/changelog";
+import Layout from "../../layouts/Layout.astro";
+
+export const prerender = true;
+
+const entries = await publishedEntries();
+---
+
+<Layout
+  title="Changelog — Onlooker"
+  description="What changed in Onlooker each week: plugin releases, site changes and reliability work."
+>
+  <main class="prose-page">
+    <header class="page-header">
+      <p class="eyebrow">Changelog</p>
+      <h1>What changed each week</h1>
+    </header>
+    <EntryList entries={entries} />
+  </main>
+</Layout>
