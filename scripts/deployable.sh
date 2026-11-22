@@ -72,6 +72,8 @@ usage() {
 	echo "usage: $(basename "$0") production|staging|website apps|website" >&2
 	echo "       $(basename "$0") --match apps|website < changed-file-list" >&2
 	echo "       $(basename "$0") --select-sha        < deployments-json" >&2
+	echo "       $(basename "$0") --newer-than <sha>  < deployments-json" >&2
+	echo "       $(basename "$0") --superseded production|staging|website" >&2
 	exit 2
 }
 
@@ -137,6 +139,45 @@ select_sha() {
 	printf '%s\n' "${sha}"
 }
 
+# Read a deployments payload on stdin, print a successfully deployed commit
+# that is newer than $1 - one that has $1 in its history and is not $1. Exits 1
+# when there is none.
+#
+# This is what stops a deploy from moving an environment backwards (ONL-309).
+# The deploy jobs queue with one running slot and one pending slot per group,
+# and GitHub gives the pending slot to whichever job arrived last, not to the
+# newest commit. On 2026-11-22 that let #333's production deploy run after
+# #334's and put the older code back.
+#
+# Every successful record is checked, not just the newest one. A job that
+# finds itself superseded skips its deploy steps but still ends green, so
+# GitHub records a SUCCESS deployment of its older commit, and that record is
+# now the newest. Anchoring on it would let the next commit in between deploy
+# over the newer code anyway.
+#
+# A recorded commit this clone does not have is passed over. Its ancestry
+# cannot be known, and answering "not newer" deploys, which is what the job
+# did before this check existed.
+newer_than() {
+	local head="$1" candidate=""
+
+	while IFS= read -r candidate; do
+		[[ -n "${candidate}" && "${candidate}" != "${head}" ]] || continue
+		git cat-file -e "${candidate}^{commit}" 2>/dev/null || continue
+
+		if git merge-base --is-ancestor "${head}" "${candidate}" 2>/dev/null; then
+			printf '%s\n' "${candidate}"
+			return 0
+		fi
+	done < <(jq -r '
+		.data.repository.deployments.nodes[]?
+		| select(.latestStatus.state == "SUCCESS")
+		| .commitOid
+	' 2>/dev/null)
+
+	return 1
+}
+
 # Ask GitHub for the recent deployments of one environment.
 #
 # One query rather than a listing plus a status call per deployment: the REST
@@ -177,6 +218,34 @@ case "${1:-}" in
 	--select-sha)
 		select_sha
 		exit $?
+		;;
+	--newer-than)
+		[[ -n "${2:-}" ]] || usage
+		newer_than "$2"
+		exit $?
+		;;
+	# Prints the newer commit already live in the environment, or nothing. A
+	# deploy job runs this once it holds its concurrency group, which is the
+	# only point where the answer cannot change before the job acts on it.
+	#
+	# Failing to look prints nothing, so the job deploys - the behavior before
+	# this check. A wrong deploy here is the rollback this guards against, but a
+	# wrong skip would hold back code nobody would know to ship.
+	--superseded)
+		case "${2:-}" in
+			production | staging | website) ;;
+			*) usage ;;
+		esac
+		head_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+		if ! deployments="$(fetch_deployments "$2" 2>/dev/null)"; then
+			echo "deployable: cannot reach the deployments API; deploying rather than guessing" >&2
+			exit 0
+		fi
+		if newer="$(printf '%s' "${deployments}" | newer_than "${head_sha}")"; then
+			echo "deployable: $2 already runs ${newer}, which is newer than ${head_sha}" >&2
+			printf '%s\n' "${newer}"
+		fi
+		exit 0
 		;;
 	production | staging | website) ;;
 	*) usage ;;

@@ -201,6 +201,85 @@ expect_sha "" "no deployments at all yields nothing" "$(payload "")"
 expect_sha "" "nothing successful yields nothing" \
 	"$(payload "$(node aaaa1111 "$(status FAILURE)"),$(node bbbb2222 "$(status ERROR)")")"
 
+echo "deployable.sh: whether newer code is already live"
+
+# expect_newer <expected> <description> <head> <json>
+#
+# Asserts which deployed commit the script reports as newer than <head>, run
+# inside the scratch repository below so ancestry is decided by real commits.
+# An empty expectation means none is newer, and the job deploys. Exit status
+# is asserted for the same reason as in expect_sha.
+expect_newer() {
+	local expected="$1" description="$2" head="$3" json="$4"
+
+	tests=$((tests + 1))
+
+	local expected_exit=0
+	[[ -z "${expected}" ]] && expected_exit=1
+
+	local actual="" actual_exit=0
+	actual="$(cd "${repo}" && printf '%s' "${json}" |
+		"${DEPLOYABLE}" --newer-than "${head}" 2>/dev/null)" ||
+		actual_exit=$?
+
+	if [[ "${actual}" == "${expected}" && "${actual_exit}" == "${expected_exit}" ]]; then
+		echo "  ok    ${description}"
+	else
+		echo "  FAIL  ${description} -> '${actual}' exit ${actual_exit}" \
+			"(expected '${expected}' exit ${expected_exit})"
+		failures=$((failures + 1))
+	fi
+}
+
+# A scratch repository, never this one: main is first <- second <- third, and
+# side branches off first, so it is neither older nor newer than second.
+repo="$(mktemp -d)"
+trap 'rm -rf "${repo}"' EXIT
+commit_in_repo() {
+	git -C "${repo}" -c user.name=test -c user.email=test@example.com \
+		commit --quiet --allow-empty -m "$1"
+	git -C "${repo}" rev-parse HEAD
+}
+git -C "${repo}" init --quiet
+first="$(commit_in_repo first)"
+second="$(commit_in_repo second)"
+third="$(commit_in_repo third)"
+git -C "${repo}" checkout --quiet -b side "${first}"
+side="$(commit_in_repo side)"
+
+expect_newer "${third}" "a newer commit already deployed supersedes this one" "${first}" \
+	"$(payload "$(node "${third}" "$(status SUCCESS)")")"
+
+expect_newer "" "this same commit already deployed is not newer" "${third}" \
+	"$(payload "$(node "${third}" "$(status SUCCESS)")")"
+
+expect_newer "" "an older commit deployed is not newer" "${second}" \
+	"$(payload "$(node "${first}" "$(status SUCCESS)")")"
+
+# The record a superseded job leaves behind. It skips its deploy steps but still
+# ends green, so GitHub marks a deployment of its older commit SUCCESS, and that
+# record is now the newest. Reading only the newest record would let the next
+# commit in between deploy over third - the rollback this check exists to stop.
+expect_newer "${third}" "looks past a newer record of an older commit" "${second}" \
+	"$(payload "$(node "${first}" "$(status SUCCESS)"),$(node "${third}" "$(status SUCCESS)")")"
+
+expect_newer "" "a newer deploy that failed does not count" "${first}" \
+	"$(payload "$(node "${third}" "$(status FAILURE)")")"
+
+expect_newer "" "a newer deploy still in flight does not count" "${first}" \
+	"$(payload "$(node "${third}" "$(status IN_PROGRESS)"),$(node "${second}" null)")"
+
+expect_newer "" "a commit off to the side is not newer" "${second}" \
+	"$(payload "$(node "${side}" "$(status SUCCESS)")")"
+
+# A deployed commit this clone does not have - a force-push removed it, or the
+# fetch was shallow. Ancestry is unknowable, so it is not newer and the job
+# deploys, which is what it did before this check existed.
+expect_newer "" "a deployed commit missing from the clone is not newer" "${first}" \
+	"$(payload "$(node 0000000000000000000000000000000000000001 "$(status SUCCESS)")")"
+
+expect_newer "" "no deployments at all means nothing is newer" "${first}" "$(payload "")"
+
 echo "deployable.sh: usage"
 
 expect_exit 2 "no environment named"
@@ -209,6 +288,9 @@ expect_exit 2 "no surface named" "production"
 expect_exit 2 "a surface that does not exist" "production" "everything"
 expect_exit 2 "--match with no surface" "--match"
 expect_exit 2 "--match with a surface that does not exist" "--match" "everything"
+expect_exit 2 "--newer-than with no commit" "--newer-than"
+expect_exit 2 "--superseded with no environment" "--superseded"
+expect_exit 2 "--superseded with an environment that does not exist" "--superseded" "preprod"
 
 echo
 if ((failures > 0)); then

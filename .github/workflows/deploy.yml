@@ -695,10 +695,64 @@ jobs:
     environment:
       name: staging
       url: https://app-staging.onlooker.dev
+    outputs:
+      # 'true' when staging already ran newer code, so this run deployed
+      # nothing there. deploy-production skips on it.
+      superseded: ${{ steps.current.outputs.newer != '' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The check below decides ancestry against commits deployed earlier,
+          # which a shallow clone does not have.
+          fetch-depth: 0
+
+      # Asked here, once this job holds deploy-staging, and not in `changes`.
+      # Until the job holds the group another run can deploy ahead of it, so an
+      # answer taken earlier can be stale by the time the job acts on it.
+      #
+      # The group keeps one pending job and hands that slot to whichever job
+      # arrived last, not to the newest commit. On 2026-11-22 four merges in
+      # fifteen minutes finished their tests out of order: #333's deploys ran
+      # after #334's and put the older code back in production, and #335's
+      # pending staging job was cancelled outright (ONL-309). So a job whose
+      # commit is older than what is live deploys nothing, and every step
+      # below checks `steps.current.outputs.newer`.
+      #
+      # Such a job still ends green, and GitHub records a successful
+      # deployment of its commit although nothing shipped. scripts/deployable.sh
+      # allows for that: --superseded checks every successful record, not just
+      # the newest, and the change filter can only be handed an older base by
+      # it, which redeploys more and never skips.
+      - name: Check that newer code is not already live
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "newer=$(./scripts/deployable.sh --superseded staging)" >> "$GITHUB_OUTPUT"
+
+      # Skipping is only half of it. The run for main's newest commit may be
+      # the one that lost its pending slot, as #335's did, and then nothing
+      # would ever deploy it. So a superseded push run starts a fresh run of
+      # main, unless main is what is already live. The fresh run arrives last,
+      # so it keeps its slot. A duplicate costs one more queued run; a missing
+      # one strands main.
+      #
+      # Push runs only. A dispatched run never dispatches again, so a main
+      # force-pushed behind what is live cannot loop.
+      - name: Run main again if nothing else will deploy it
+        if: steps.current.outputs.newer != '' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWER: ${{ steps.current.outputs.newer }}
+        run: |
+          main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "${main}" = "${NEWER}" ]; then
+            echo "main (${main}) is already live; nothing to run"
+          else
+            gh workflow run deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main
+          fi
 
       - name: Setup Node.js
+        if: steps.current.outputs.newer == ''
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -709,21 +763,26 @@ jobs:
           package-manager-cache: false
 
       - name: Install pnpm
+        if: steps.current.outputs.newer == ''
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
+        if: steps.current.outputs.newer == ''
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        if: steps.current.outputs.newer == ''
         run: pnpm build
 
       - name: Apply D1 migrations to Staging
+        if: steps.current.outputs.newer == ''
         run: pnpm migrate:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Verify Staging schema matches source
+        if: steps.current.outputs.newer == ''
         run: pnpm --filter @onlooker/db verify:schema onlooker-db-staging staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -751,6 +810,7 @@ jobs:
       # AND remove this guard and the --var in the same diff: that way the
       # revocation is reviewed too.
       - name: Deploy API to Staging
+        if: steps.current.outputs.newer == ''
         run: |
           if [ -z "${OPERATOR_IDS}" ]; then
             echo "::error title=OPERATOR_USER_IDS_STAGING is unset::Staging would deploy with no operator, and nothing downstream would say so. Set the repository secret, or remove this guard and the --var together if no operator is intended."
@@ -775,6 +835,7 @@ jobs:
       # the bundle being shipped, and this is that build. Vite picks prefixed
       # names up from the process environment, so this needs no .env entry.
       - name: Deploy Web to Staging
+        if: steps.current.outputs.newer == ''
         run: pnpm deploy:web:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -801,6 +862,7 @@ jobs:
       # that the API can still say no - directly after the step that applies D1
       # migrations, which is the likeliest way to break saying yes.
       - name: Smoke test Staging
+        if: steps.current.outputs.newer == ''
         env:
           HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_STAGING }}
           HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_STAGING }}
@@ -869,10 +931,17 @@ jobs:
     # A manual run reaches production the same way a push does: only after
     # staging has migrated and deployed cleanly, and only through the approval
     # gate below. The button skips the change filter, never the gate.
+    #
+    # A staging job that found newer code already live deployed nothing: this
+    # commit is older than what staging runs, and the run that put the newer
+    # code there carries it to production too. Skipping here, rather than in
+    # the check below, keeps this job from asking for an approval it would
+    # then ignore (ONL-309).
     if: >-
       !cancelled()
       && github.ref == 'refs/heads/main'
       && needs.test.result == 'success'
+      && needs.deploy-staging.outputs.superseded != 'true'
       && (
         needs.deploy-staging.result == 'success'
         || (
@@ -890,8 +959,38 @@ jobs:
       url: https://app.onlooker.dev
     steps:
       - uses: actions/checkout@v5
+        with:
+          # See deploy-staging: the check needs history.
+          fetch-depth: 0
+
+      # The same check and the same recovery as deploy-staging, against what
+      # production last deployed. This is the half that would have stopped
+      # 2026-11-22's rollback: #333's production job ran after #334's.
+      #
+      # It runs after the approval gate, because the environment's reviewer is
+      # checked before any step. A job that lost the race asks for approval
+      # and then deploys nothing.
+      - name: Check that newer code is not already live
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "newer=$(./scripts/deployable.sh --superseded production)" >> "$GITHUB_OUTPUT"
+
+      - name: Run main again if nothing else will deploy it
+        if: steps.current.outputs.newer != '' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWER: ${{ steps.current.outputs.newer }}
+        run: |
+          main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "${main}" = "${NEWER}" ]; then
+            echo "main (${main}) is already live; nothing to run"
+          else
+            gh workflow run deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main
+          fi
 
       - name: Setup Node.js
+        if: steps.current.outputs.newer == ''
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -902,9 +1001,11 @@ jobs:
           package-manager-cache: false
 
       - name: Install pnpm
+        if: steps.current.outputs.newer == ''
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
+        if: steps.current.outputs.newer == ''
         run: pnpm install --frozen-lockfile
 
       # Every package but the website, which deploys in its own job,
@@ -914,15 +1015,18 @@ jobs:
       # uploads only when VITE_MONITORING_RELEASE is set, which is on Deploy
       # Web to Production, not on this step.
       - name: Build
+        if: steps.current.outputs.newer == ''
         run: pnpm build --filter='!@onlooker/website'
 
       - name: Apply D1 migrations to Production
+        if: steps.current.outputs.newer == ''
         run: pnpm migrate:prod
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Verify Production schema matches source
+        if: steps.current.outputs.newer == ''
         run: pnpm --filter @onlooker/db verify:schema onlooker-db production
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -935,6 +1039,7 @@ jobs:
       # wrong in whichever environment it was not minted for, and wrong here
       # is silent.
       - name: Deploy API to Production
+        if: steps.current.outputs.newer == ''
         run: |
           if [ -z "${OPERATOR_IDS}" ]; then
             echo "::error title=OPERATOR_USER_IDS_PRODUCTION is unset::Production would deploy with no operator, and nothing downstream would say so. Set the repository secret, or remove this guard and the --var together if no operator is intended."
@@ -951,6 +1056,7 @@ jobs:
       # decide what production ships. Each web deploy builds the bundle it
       # deploys, and asserts the bundle calls the API that deploy is named for.
       - name: Deploy Web to Production
+        if: steps.current.outputs.newer == ''
         run: pnpm deploy:web:prod
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -978,6 +1084,7 @@ jobs:
       # move was made because GitHub demonstrably does not keep its own.
       # See onlooker-txcu.5.
       - name: Smoke test Production
+        if: steps.current.outputs.newer == ''
         env:
           HEARTBEAT_EMAIL: ${{ secrets.HEARTBEAT_EMAIL_PRODUCTION }}
           HEARTBEAT_PASSWORD: ${{ secrets.HEARTBEAT_PASSWORD_PRODUCTION }}
@@ -1038,8 +1145,36 @@ jobs:
       url: https://onlooker.dev
     steps:
       - uses: actions/checkout@v5
+        with:
+          # See deploy-staging: the check needs history.
+          fetch-depth: 0
+
+      # The same check and recovery as deploy-staging: the website queues the
+      # same way, so it can lose the same race. A dispatched run redeploys the
+      # API and web app as well, since a manual run ignores the change filter,
+      # and so it also asks for a production approval. That is the price of
+      # recovering through the one input-less button; the race is rare.
+      - name: Check that newer code is not already live
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "newer=$(./scripts/deployable.sh --superseded website)" >> "$GITHUB_OUTPUT"
+
+      - name: Run main again if nothing else will deploy it
+        if: steps.current.outputs.newer != '' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWER: ${{ steps.current.outputs.newer }}
+        run: |
+          main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "${main}" = "${NEWER}" ]; then
+            echo "main (${main}) is already live; nothing to run"
+          else
+            gh workflow run deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main
+          fi
 
       - name: Setup Node.js
+        if: steps.current.outputs.newer == ''
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -1048,15 +1183,18 @@ jobs:
           package-manager-cache: false
 
       - name: Install pnpm
+        if: steps.current.outputs.newer == ''
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install dependencies
+        if: steps.current.outputs.newer == ''
         run: pnpm install --frozen-lockfile
 
       # The packages the website imports, and not the website: Build Website
       # below builds it strictly, on its own, so a GitHub outage fails only
       # that step.
       - name: Build website dependencies
+        if: steps.current.outputs.newer == ''
         run: pnpm build --filter='@onlooker/website^...'
 
       # The website's own build, apart from its dependencies' build because it
@@ -1071,6 +1209,7 @@ jobs:
       # Its dependencies were built by the step above; this builds the website
       # alone, so it does not rebuild them.
       - name: Build Website
+        if: steps.current.outputs.newer == ''
         run: pnpm --filter @onlooker/website build
         env:
           # astro:env reads a boolean as true/false, not 1.
@@ -1102,6 +1241,7 @@ jobs:
       # written into a committed file that would ship a stale commit whenever
       # the flag was forgotten.
       - name: Deploy Website to Production
+        if: steps.current.outputs.newer == ''
         run: pnpm deploy:website --var MONITORING_RELEASE:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
