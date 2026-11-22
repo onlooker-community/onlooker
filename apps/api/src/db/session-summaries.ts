@@ -388,8 +388,8 @@ export async function listSessionSummaries(
 		plugins: JSON.parse(r.plugins) as string[],
 		prompts: r.prompts,
 		compactions: r.compactions,
-		// `== null` covers a D1 that has not run migration 0024 yet, which
-		// returns the field absent rather than null.
+		// `== null` is for NULL rows: every row written before the column
+		// existed, and every session whose start the CLI did not read.
 		subordinate: r.subordinate == null ? null : r.subordinate === 1,
 	}));
 

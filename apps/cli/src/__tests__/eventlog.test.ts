@@ -1135,6 +1135,12 @@ describe("subordinateOf", () => {
 			false,
 		],
 		["attended that is not a boolean", { attended: "false" }, null],
+		["an empty parent", { parent_session_id: "" }, null],
+		[
+			"an empty parent on an attended start",
+			{ parent_session_id: "", attended: true },
+			false,
+		],
 		["no payload", undefined, null],
 		["a payload that is not an object", "attended", null],
 	])("%s", (_label, payload, expected) => {

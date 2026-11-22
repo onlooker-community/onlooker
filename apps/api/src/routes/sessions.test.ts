@@ -1003,7 +1003,9 @@ describe("subordinate", () => {
 		["a number", 1],
 		["an object", {}],
 	])("rejects %s", async (label, subordinate) => {
-		const access = await signup(`sub-bad-${label.length}@example.com`);
+		const access = await signup(
+			`sub-bad-${label.replace(/[^a-z0-9]+/gi, "-")}@example.com`,
+		);
 		const machine = await mint(access, "laptop");
 
 		const posted = await post(machine.token, {
