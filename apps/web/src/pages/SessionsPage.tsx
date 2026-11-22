@@ -38,6 +38,19 @@ function dayTotal(sessions: SessionSummary[]): string {
 	return total ? ` · ${total}` : "";
 }
 
+/**
+ * What a day held, counted the way the headline counts (ONL-305): the
+ * sessions a person started, then how many more another session or a script
+ * started. The rows still list those, so the day says how many it left out.
+ */
+function dayMeta(sessions: SessionSummary[]): string {
+	const counted = countedSessions(sessions);
+	const spawned = sessions.length - counted.length;
+	if (counted.length === 0) return plural(spawned, "spawned session");
+	const tail = spawned > 0 ? ` · ${spawned.toLocaleString()} more spawned` : "";
+	return `${plural(counted.length, "session")}${dayTotal(counted)}${tail}`;
+}
+
 /** How long a session ran, or that it is still running. */
 function durationOf(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "Still running";
@@ -504,8 +517,7 @@ export default function SessionsPage() {
 								color: PALETTE.muted,
 							}}
 						>
-							{plural(group.sessions.length, "session")}
-							{dayTotal(group.sessions)}
+							{dayMeta(group.sessions)}
 						</span>
 					</div>
 					{group.sessions.map((session, index) => {
@@ -558,6 +570,7 @@ export default function SessionsPage() {
 								)}
 								repos={repos}
 								repoCount={Object.keys(session.counts_by_project).length}
+								spawned={session.subordinate === true}
 							/>
 						);
 					})}

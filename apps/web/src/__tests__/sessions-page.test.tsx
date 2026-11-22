@@ -436,6 +436,74 @@ describe("/sessions day sections", () => {
 		expect(heading.nextElementSibling?.textContent).toBe("1 session · 42m");
 	});
 
+	// ONL-305. A day counts the way the headline does, and says what it left
+	// out, so the two can't disagree and the rows below still add up.
+	it("leaves spawned sessions out of a day's count and says how many", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...TWO_DAYS,
+			sessions: [
+				TWO_DAYS.sessions[0],
+				{
+					...TWO_DAYS.sessions[0],
+					session_id: "s3",
+					started_at: "2026-09-16T11:00:00Z",
+					ended_at: "2026-09-16T11:30:00Z",
+					subordinate: true,
+				},
+				TWO_DAYS.sessions[1],
+			],
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+
+		const heading = await screen.findByRole("heading", {
+			level: 2,
+			name: /^Wednesday, September 16$/,
+		});
+		expect(heading.nextElementSibling?.textContent).toBe(
+			"1 session · 42m · 1 more spawned",
+		);
+	});
+
+	it("says a day held only spawned sessions", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...TWO_DAYS,
+			sessions: [
+				TWO_DAYS.sessions[0],
+				{ ...TWO_DAYS.sessions[1], subordinate: true },
+			],
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+
+		const heading = await screen.findByRole("heading", {
+			level: 2,
+			name: /^Tuesday, September 15$/,
+		});
+		expect(heading.nextElementSibling?.textContent).toBe("1 spawned session");
+	});
+
+	it("tags each spawned row, and only those", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...TWO_DAYS,
+			sessions: [
+				TWO_DAYS.sessions[0],
+				{ ...TWO_DAYS.sessions[1], subordinate: true },
+			],
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+
+		const rows = await screen.findAllByTestId("session-row");
+		expect(rows).toHaveLength(2);
+		expect(within(rows[0]).queryByTestId("session-spawned")).toBeNull();
+		const tag = within(rows[1]).getByTestId("session-spawned");
+		expect(tag.textContent).toBe("Spawned");
+		expect(tag.getAttribute("title")).toBe(
+			"Started by another session or a script",
+		);
+	});
+
 	it("says nothing about failures when no plugin failed", async () => {
 		mocks.listSessions.mockResolvedValue(TWO_DAYS);
 		mocks.listMachines.mockResolvedValue(ONE_MACHINE);

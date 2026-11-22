@@ -163,6 +163,7 @@ export default function SessionRow({
 	activity,
 	repos,
 	repoCount,
+	spawned,
 }: {
 	time: string;
 	/**
@@ -202,6 +203,12 @@ export default function SessionRow({
 	 * say "repo" or "repos" without parsing the line it labels.
 	 */
 	repoCount: number;
+	/**
+	 * Another session or a script started this one (ONL-305). The day heading
+	 * and the headline leave it out of their counts; the tag says which row
+	 * that was. False for unknown, which every count includes.
+	 */
+	spawned: boolean;
 }) {
 	return (
 		<div
@@ -237,6 +244,19 @@ export default function SessionRow({
 				{machineName ? (
 					<span style={{ flex: "none", color: PALETTE.muted }}>
 						{machineName}
+					</span>
+				) : null}
+				{spawned ? (
+					<span
+						data-testid="session-spawned"
+						title="Started by another session or a script"
+						style={{
+							flex: "none",
+							color: PALETTE.muted,
+							fontSize: "0.85em",
+						}}
+					>
+						Spawned
 					</span>
 				) : null}
 				{/*
