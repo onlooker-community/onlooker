@@ -16,6 +16,7 @@ import { failuresIn } from "../lib/homeFailures";
 import { pluginActivity } from "../lib/pluginActivity";
 import { projectEntries, projectName } from "../lib/projectEntries";
 import {
+	countedSessions,
 	durationMsOf,
 	formatDurationMs,
 	groupSessionsByDay,
@@ -462,7 +463,7 @@ export default function SessionsPage() {
 			{sessions.length > 0 ? (
 				<SessionsSummary
 					rollup={rollupSessions(sessions, hasMore)}
-					failedSessions={failuresIn(sessions).sessions}
+					failedSessions={failuresIn(countedSessions(sessions)).sessions}
 				/>
 			) : null}
 			{/* Same grouping rollupSessions's own day totals use - see

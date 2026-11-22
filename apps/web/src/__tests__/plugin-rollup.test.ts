@@ -15,6 +15,7 @@ function session(counts_by_type: Record<string, number>): SessionSummary {
 		plugins: [],
 		prompts: 1,
 		compactions: 0,
+		subordinate: null,
 	};
 }
 
