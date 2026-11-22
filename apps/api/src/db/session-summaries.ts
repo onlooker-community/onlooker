@@ -38,6 +38,12 @@ export interface SessionSummaryInput {
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+	/**
+	 * Whether another session or a script started this one (ONL-221). Absent
+	 * from every CLI older than 2.16.0, and null when the CLI could not tell;
+	 * both are stored as null, never as false.
+	 */
+	subordinate?: boolean | null;
 }
 
 /** One repository's share of a session. Mirrors the CLI's own ProjectCount. */
@@ -97,6 +103,11 @@ export async function putSessionSummaries(
 			plugins: JSON.stringify(summary.plugins),
 			prompts: summary.prompts,
 			compactions: summary.compactions,
+			// null for absent as well as null: see SessionSummaryInput.
+			subordinate:
+				typeof summary.subordinate === "boolean"
+					? Number(summary.subordinate)
+					: null,
 			reported_at: reportedAt,
 		};
 
@@ -118,6 +129,7 @@ export async function putSessionSummaries(
 					plugins: row.plugins,
 					prompts: row.prompts,
 					compactions: row.compactions,
+					subordinate: row.subordinate,
 					reported_at: row.reported_at,
 				},
 			});
@@ -179,6 +191,8 @@ export interface SessionSummaryRow {
 	plugins: string[];
 	prompts: number;
 	compactions: number;
+	/** Null when unknown - see SessionSummaryInput. */
+	subordinate: boolean | null;
 }
 
 export interface SessionSummariesPage {
@@ -324,7 +338,7 @@ export async function listSessionSummaries(
 		.prepare(
 			`SELECT machine_id, session_id, started_at, ended_at, event_count,
 			        counts_by_prefix, counts_by_type, counts_by_project, plugins,
-			        prompts, compactions
+			        prompts, compactions, subordinate
 			 FROM session_summaries
 			 WHERE ${where}
 			 ORDER BY started_at DESC, machine_id DESC, session_id DESC
@@ -343,6 +357,7 @@ export async function listSessionSummaries(
 			plugins: string;
 			prompts: number;
 			compactions: number;
+			subordinate?: number | null;
 		}>();
 
 	const rows = results ?? [];
@@ -373,6 +388,9 @@ export async function listSessionSummaries(
 		plugins: JSON.parse(r.plugins) as string[],
 		prompts: r.prompts,
 		compactions: r.compactions,
+		// `== null` covers a D1 that has not run migration 0024 yet, which
+		// returns the field absent rather than null.
+		subordinate: r.subordinate == null ? null : r.subordinate === 1,
 	}));
 
 	const last = sessions.at(-1);

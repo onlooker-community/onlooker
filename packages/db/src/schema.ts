@@ -527,6 +527,16 @@ export const session_summaries = sqliteTable(
 		plugins: text("plugins").notNull(),
 		prompts: integer("prompts").notNull().default(0),
 		compactions: integer("compactions").notNull().default(0),
+		/**
+		 * 1 when another session or a script started this one, 0 when a person
+		 * did, null when nobody knows (ONL-221). Derived on the machine from
+		 * session.start's parent_session_id and attended, which never leave it.
+		 *
+		 * Nullable rather than defaulted to 0: every row written before this
+		 * column, and every session whose start the CLI did not read, is
+		 * unknown, and 0 would claim a person sat down for each of them.
+		 */
+		subordinate: integer("subordinate"),
 		reported_at: text("reported_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
 	(table) => ({

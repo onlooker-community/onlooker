@@ -169,6 +169,13 @@
 			"when": 1794771461461,
 			"tag": "0023_previous_calypso",
 			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "6",
+			"when": 1795327252611,
+			"tag": "0024_outgoing_terrax",
+			"breakpoints": true
 		}
 	]
 }

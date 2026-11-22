@@ -257,6 +257,7 @@ describe("session_summaries", () => {
 			"reported_at",
 			"session_id",
 			"started_at",
+			"subordinate",
 			"user_id",
 		]);
 	});
