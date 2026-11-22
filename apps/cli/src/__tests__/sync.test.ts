@@ -897,6 +897,31 @@ describe("sync reports session summaries", () => {
 		expect(body).not.toContain("attended");
 	});
 
+	// The case above would pass under last-wins too, since spawned is the last
+	// start it sees. Here a later attended resume must not undo it (ONL-306).
+	it("keeps a session spawned when a later start says a person resumed it", async () => {
+		const env = linked();
+		const start = (payload: Record<string, unknown>) => ({
+			...eventEnvelope("s1", "session.start", 30),
+			payload,
+		});
+		withEventLog(env, [
+			start({ attended: false }),
+			start({ attended: true }),
+			...sessionEvents("s1", 25),
+		]);
+		const fetchImpl = routed();
+
+		await sync({ env, fetchImpl });
+
+		const sent = JSON.parse(sessionReports(fetchImpl)[0][1].body) as {
+			sessions: { session_id: string; subordinate: boolean | null }[];
+		};
+		expect(sent.sessions).toEqual([
+			expect.objectContaining({ session_id: "s1", subordinate: true }),
+		]);
+	});
+
 	// The contract every reporting step in this command follows.
 	it("does not fail the sync when reporting sessions fails", async () => {
 		const env = linked();
