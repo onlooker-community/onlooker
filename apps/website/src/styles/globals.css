@@ -228,8 +228,8 @@ body::after {
 	color: var(--accent);
 }
 
-/* The nav is the logo, the Blog link and the tag, and at 48px of side padding
- * the row no longer fits a 360px phone. */
+/* The nav is the logo, the Plugins, Blog and Changelog links and the tag, and
+ * at 48px of side padding the row no longer fits a 360px phone. */
 @media (max-width: 640px) {
 	.site-nav {
 		padding: 20px 16px;
@@ -240,10 +240,10 @@ body::after {
 	}
 }
 
-/* At 360px the logo, the Blog link and the tag are tight in one row, and on a
- * phone the tag is the widest item and the least necessary. The Plugins link
- * returns with ONL-264 and makes this tighter. */
-@media (max-width: 400px) {
+/* The logo, the three links and the tag need about 403px plus padding, so
+ * below 480px the row crowds or overflows. On a phone the tag is the widest
+ * item and the least necessary, so it goes first. */
+@media (max-width: 480px) {
 	.nav-tag {
 		display: none;
 	}
@@ -363,9 +363,6 @@ footer {
 }
 
 @media (max-width: 640px) {
-	.site-nav {
-		padding: 20px 24px;
-	}
 	footer {
 		padding: 20px 24px;
 		flex-direction: column;
@@ -558,13 +555,17 @@ footer {
 	text-decoration-style: dotted;
 }
 
-/* <Term>'s definition, above the term on hover or keyboard focus. CSS only;
- * the one script in Term.astro adds Escape to dismiss it. */
+/* <Term>'s definition, above the term on hover or keyboard focus. The script
+ * in Term.astro adds Escape to dismiss it and keeps it inside the viewport. */
 .term-wrap {
 	position: relative;
 }
 
+/* Hidden with display, not visibility: a hidden tooltip still takes layout,
+ * and one anchored to a term near the right edge widened the page enough to
+ * scroll sideways. allow-discrete keeps the fade where it is supported. */
 .term-tip {
+	display: none;
 	position: absolute;
 	z-index: 10;
 	left: 0;
@@ -582,11 +583,10 @@ footer {
 	border: 1px solid var(--border-2);
 	border-radius: 6px;
 	box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 60%, transparent);
-	visibility: hidden;
 	opacity: 0;
 	transition:
 		opacity 0.15s ease,
-		visibility 0.15s;
+		display 0.15s allow-discrete;
 }
 
 /* Spans the gap to the term, so the pointer can move onto the tooltip
@@ -613,20 +613,28 @@ footer {
 
 .term-wrap:hover .term-tip,
 .term:focus-visible + .term-tip {
-	visibility: visible;
+	display: block;
 	opacity: 1;
+}
+
+@starting-style {
+	.term-wrap:hover .term-tip,
+	.term:focus-visible + .term-tip {
+		opacity: 0;
+	}
 }
 
 /* After the two rules above, at the same specificity, so Escape wins. */
 :root.term-tips-dismissed .term-tip {
-	visibility: hidden;
-	opacity: 0;
+	display: none;
 }
 
 /* No hover on a touch screen: a tap follows the link to the glossary, and a
- * tooltip left open by the tap would sit over the text. */
+ * tooltip left open by the tap would sit over the text. The same selectors as
+ * the showing rules, later, so a tap's sticky :hover can't reopen it. */
 @media (hover: none) {
-	.term-tip {
+	.term-wrap:hover .term-tip,
+	.term:focus-visible + .term-tip {
 		display: none;
 	}
 }

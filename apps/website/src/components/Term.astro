@@ -4,7 +4,8 @@
 // post: the tooltip's id is per term, so a second <Term> for the same id on
 // one page would repeat it.
 //
-// The tooltip is plain CSS (see .term-tip in styles/globals.css). Touch
+// CSS shows and hides the tooltip (see .term-tip in styles/globals.css); the
+// script below dismisses it on Escape and keeps it inside the viewport. Touch
 // screens have no hover, so there a tap simply follows the link.
 import { glossaryEntry, glossaryHref } from "../lib/glossary";
 
@@ -31,5 +32,24 @@ const tipId = `term-tip-${id}`;
 		document.addEventListener(type, () =>
 			root.classList.remove("term-tips-dismissed"),
 		);
+	}
+
+	// The tooltip starts at the term's left edge, so a term near the right of
+	// the column would push it past the viewport. Shift it back in as it opens.
+	const GUTTER = 8;
+	for (const type of ["pointerover", "focusin"]) {
+		document.addEventListener(type, (event) => {
+			const wrap = (event.target as Element).closest?.(".term-wrap");
+			const tip = wrap?.querySelector<HTMLElement>(".term-tip");
+			if (!tip) return;
+			requestAnimationFrame(() => {
+				tip.style.translate = "";
+				const { left, right } = tip.getBoundingClientRect();
+				const over = right - (root.clientWidth - GUTTER);
+				if (over > 0) {
+					tip.style.translate = `${-Math.min(over, left - GUTTER)}px 0`;
+				}
+			});
+		});
 	}
 </script>

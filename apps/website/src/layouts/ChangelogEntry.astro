@@ -1,0 +1,44 @@
+---
+import PluginReleases from "../components/changelog/PluginReleases.astro";
+import {
+	type EntryLike,
+	entryPath,
+	formatWeek,
+	isoDay,
+} from "../lib/changelog-entries";
+import Layout from "./Layout.astro";
+
+interface Props {
+	entry: EntryLike;
+}
+
+const { entry } = Astro.props;
+const { title, summary, weekStart, weekEnd, plugins } = entry.data;
+---
+
+<Layout
+  title={`${title} — Onlooker changelog`}
+  description={summary}
+  ogType="article"
+  publishedTime={weekEnd}
+  canonicalPath={entryPath(entry.id)}
+>
+  <main class="prose-page">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span class="sep">/</span>
+      <a href="/changelog/">Changelog</a>
+    </nav>
+    <article class="prose">
+      <header class="post-header">
+        <h1>{title}</h1>
+        <p class="post-meta">
+          <time datetime={isoDay(weekEnd)}>{formatWeek(weekStart, weekEnd)}</time>
+        </p>
+        <PluginReleases plugins={plugins} />
+      </header>
+      <p>{summary}</p>
+      <slot />
+    </article>
+  </main>
+</Layout>

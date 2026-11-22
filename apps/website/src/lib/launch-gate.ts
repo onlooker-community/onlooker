@@ -12,6 +12,8 @@ export function isPublicBeforeLaunch(pathname: string): boolean {
 		pathname === "/" ||
 		pathname === "/blog" ||
 		pathname.startsWith("/blog/") ||
+		pathname === "/changelog" ||
+		pathname.startsWith("/changelog/") ||
 		pathname === "/plugins" ||
 		pathname.startsWith("/plugins/") ||
 		// One page, linked from posts, so it opens before launch as they do.

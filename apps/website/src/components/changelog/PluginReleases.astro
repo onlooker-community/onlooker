@@ -1,0 +1,22 @@
+---
+import type { EntryData } from "../../lib/changelog-entries";
+
+interface Props {
+	plugins: EntryData["plugins"];
+}
+
+const { plugins } = Astro.props;
+---
+
+{/* Chips, not a heading: a heading would collide with the body's "## Plugins". */}
+{
+  plugins.length > 0 && (
+    <ul class="post-tags" aria-label="Plugin releases this week">
+      {plugins.map((plugin) => (
+        <li>
+          <a href={`/plugins/${plugin.name}/`}>{`${plugin.name} ${plugin.version}`}</a>
+        </li>
+      ))}
+    </ul>
+  )
+}

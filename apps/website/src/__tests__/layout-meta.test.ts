@@ -54,6 +54,12 @@ describe("Layout meta", () => {
 			'<link rel="alternate" type="application/rss+xml" title="Onlooker blog" href="/blog/rss.xml">',
 		);
 	});
+
+	it("advertises the changelog feed too", async () => {
+		expect(await render({})).toContain(
+			'<link rel="alternate" type="application/rss+xml" title="Onlooker changelog" href="/changelog/rss.xml">',
+		);
+	});
 });
 
 describe("Layout nav", () => {
@@ -65,6 +71,18 @@ describe("Layout nav", () => {
 		expect(await render({})).toMatch(
 			/<a class="nav-link" href="\/plugins\/"[^>]*>Plugins<\/a>/,
 		);
+	});
+
+	it("links the changelog from the nav", async () => {
+		expect(await render({})).toMatch(
+			/<a class="nav-link" href="\/changelog\/"[^>]*>Changelog<\/a>/,
+		);
+	});
+
+	it("links the changelog from the footer", async () => {
+		const html = await render({});
+		const footer = html.slice(html.indexOf("<footer"));
+		expect(footer).toMatch(/<a[^>]*href="\/changelog\/"[^>]*>Changelog<\/a>/);
 	});
 });
 

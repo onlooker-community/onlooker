@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { describe, expect, it } from "vitest";
 import Term from "../components/Term.astro";
@@ -8,6 +9,7 @@ import { returnPath } from "../lib/return-path";
 import GlossaryPage from "../pages/glossary.astro";
 
 const BLOG = new URL("../content/blog/", import.meta.url);
+const CHANGELOG = new URL("../content/changelog/", import.meta.url);
 
 describe("GLOSSARY", () => {
 	// The ids are the anchors posts link to, so a duplicate would send one
@@ -66,13 +68,16 @@ describe("undefinedTermIds", () => {
 		expect(undefinedTermIds('<Term\n  id="nope"\n>x</Term>')).toEqual(["nope"]);
 	});
 
-	// Every committed post, so a typo fails `pnpm test` as well as the build.
-	for (const file of readdirSync(BLOG).filter((f) => f.endsWith(".mdx"))) {
-		it(`${file} links only terms the glossary defines`, () => {
-			expect(
-				undefinedTermIds(readFileSync(new URL(file, BLOG), "utf8")),
-			).toEqual([]);
-		});
+	// Every committed post and changelog entry, so a typo fails `pnpm test` as
+	// well as the build.
+	for (const dir of [BLOG, CHANGELOG]) {
+		for (const file of readdirSync(dir).filter((f) => f.endsWith(".mdx"))) {
+			it(`${basename(dir.pathname)}/${file} links only terms the glossary defines`, () => {
+				expect(
+					undefinedTermIds(readFileSync(new URL(file, dir), "utf8")),
+				).toEqual([]);
+			});
+		}
 	}
 });
 
