@@ -864,6 +864,39 @@ describe("sync reports session summaries", () => {
 		expect(message).not.toMatch(/sessions not reported/i);
 	});
 
+	it("reports whether each session was spawned, and never why", async () => {
+		const env = linked();
+		const start = (session_id: string, payload: Record<string, unknown>) => ({
+			...eventEnvelope(session_id, "session.start", 30),
+			payload,
+		});
+		withEventLog(env, [
+			start("child", { parent_session_id: "parent-1", attended: true }),
+			...sessionEvents("child", 25),
+			start("person", { attended: true }),
+			// A resume of the same session that says it was unattended: once
+			// any start says spawned, the session is spawned.
+			start("person", { attended: false }),
+			...sessionEvents("person", 25),
+			...sessionEvents("unknown", 25),
+		]);
+		const fetchImpl = routed();
+
+		await sync({ env, fetchImpl });
+
+		const body = sessionReports(fetchImpl)[0][1].body;
+		const sent = JSON.parse(body) as {
+			sessions: { session_id: string; subordinate: boolean | null }[];
+		};
+		expect(
+			Object.fromEntries(
+				sent.sessions.map((s) => [s.session_id, s.subordinate]),
+			),
+		).toEqual({ child: true, person: true, unknown: null });
+		expect(body).not.toContain("parent-1");
+		expect(body).not.toContain("attended");
+	});
+
 	// The contract every reporting step in this command follows.
 	it("does not fail the sync when reporting sessions fails", async () => {
 		const env = linked();
