@@ -139,6 +139,42 @@ describe("HomeSessionsPanel", () => {
 		expect(screen.getByText("Older days not loaded.")).toBeTruthy();
 	});
 
+	// ONL-304. A spawned session was still loaded, so its day was read: the
+	// counted rows alone would stop the bars short of it.
+	it("stops the bars at the oldest loaded day even when only spawned sessions loaded it", () => {
+		renderPanel({
+			complete: false,
+			sessions: [
+				session({ session_id: "a" }),
+				session({
+					session_id: "b",
+					started_at: "2026-11-16T09:00:00Z",
+					ended_at: "2026-11-16T10:00:00Z",
+					subordinate: true,
+				}),
+			],
+		});
+		for (const day of DAYS.slice(0, 3))
+			expect(screen.getByText(day)).toBeTruthy();
+		for (const day of DAYS.slice(3)) expect(screen.queryByText(day)).toBeNull();
+		expect(screen.getByText("Older days not loaded.")).toBeTruthy();
+	});
+
+	it("draws no unread days as empty when capped and every session was spawned", () => {
+		renderPanel({
+			complete: false,
+			sessions: [
+				session({
+					started_at: "2026-11-17T09:00:00Z",
+					ended_at: "2026-11-17T10:00:00Z",
+					subordinate: true,
+				}),
+			],
+		});
+		for (const day of DAYS.slice(2)) expect(screen.queryByText(day)).toBeNull();
+		expect(screen.getByText("Older days not loaded.")).toBeTruthy();
+	});
+
 	it("draws all seven days and no note when complete", () => {
 		renderPanel({ sessions: [session()] });
 		for (const day of DAYS) expect(screen.getByText(day)).toBeTruthy();
@@ -245,6 +281,26 @@ describe("HomeSessionsPanel", () => {
 			expect(band().getByText("3")).toBeTruthy();
 			expect(band().getByText("plugin failures")).toBeTruthy();
 		});
+
+		// ONL-304. The failures sit beside the session count, so they are over
+		// the same sessions: a script's failures aren't yours.
+		it("leaves out failures from spawned sessions", () => {
+			renderPanel({
+				sessions: [
+					session({
+						session_id: "a",
+						counts_by_type: { "historian.embedder.failed": 1 },
+					}),
+					session({
+						session_id: "b",
+						counts_by_type: { "historian.embedder.failed": 4 },
+						subordinate: true,
+					}),
+				],
+			});
+			expect(band().getByText("plugin failure")).toBeTruthy();
+			expect(band().queryByText("5")).toBeNull();
+		});
 	});
 
 	describe("the captions", () => {
@@ -338,6 +394,20 @@ describe("HomeSessionsPanel", () => {
 			expect(texts).toHaveLength(3);
 			expect(texts[0]).toMatch(/failed 5 times/);
 			expect(screen.getByText("1 more not shown.")).toBeTruthy();
+		});
+
+		it("names no failure from a spawned session", () => {
+			renderPanel({
+				sessions: [
+					session({ session_id: "a" }),
+					session({
+						session_id: "b",
+						counts_by_type: { "historian.embedder.failed": 2 },
+						subordinate: true,
+					}),
+				],
+			});
+			expect(screen.queryByTestId("home-worth-a-look")).toBeNull();
 		});
 	});
 

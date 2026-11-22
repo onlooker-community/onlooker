@@ -13,6 +13,7 @@ import type { SessionSummary } from "../api/sessionsApi";
 import { dayKey } from "../lib/dayKey";
 import { failuresIn } from "../lib/homeFailures";
 import {
+	countedSessions,
 	formatDurationMs,
 	plural,
 	rollupProjects,
@@ -81,10 +82,15 @@ export default function HomeSessionsPanel({
 	const rollup = rollupSessions(sessions, !complete);
 	const byDay = new Map(rollup.days.map((day) => [day.day, day]));
 	// Capped, the pages not loaded are older than every loaded row, so a day
-	// before the oldest loaded one is unknown rather than empty. `rollup.days`
-	// is newest first, so its last entry is the oldest loaded day.
-	const oldestLoaded = rollup.days[rollup.days.length - 1]?.day;
-	const oldestIndex = oldestLoaded ? days.indexOf(oldestLoaded) : -1;
+	// before the oldest loaded one is unknown rather than empty. Taken from
+	// every loaded row, not `rollup.days`: a day only spawned sessions held
+	// was still read, and has no entry there (ONL-304).
+	const oldestStart = sessions.reduce(
+		(oldest, s) => (s.started_at < oldest ? s.started_at : oldest),
+		sessions[0].started_at,
+	);
+	const oldestLoaded = dayKey(oldestStart);
+	const oldestIndex = days.indexOf(oldestLoaded);
 	const drawn =
 		complete || oldestIndex < 0 ? days : days.slice(0, oldestIndex + 1);
 	const busiest = Math.max(
@@ -119,7 +125,8 @@ export default function HomeSessionsPanel({
 				: `Of the days loaded, the busiest was ${busyDays[0]}.`
 			: "Time reported each day, newest first.";
 
-	const failures = failuresIn(sessions);
+	// Over the same sessions as the count beside it, as the Sessions page does.
+	const failures = failuresIn(countedSessions(sessions));
 	const worth = failures.notes.slice(0, WORTH_A_LOOK);
 	const stats: Stat[] = [
 		{
