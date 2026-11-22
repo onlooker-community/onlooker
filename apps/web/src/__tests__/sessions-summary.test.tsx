@@ -115,20 +115,57 @@ describe("SessionsSummary", () => {
 		);
 	});
 
-	it("still renders when every loaded session was spawned", () => {
+	const allSpawned = (over: Partial<Rollup> = {}) =>
+		rollup({
+			sessions: 0,
+			durationMs: 0,
+			days: [],
+			range: "",
+			subordinate: 3,
+			...over,
+		});
+
+	it("says every session was spawned, in one sentence", () => {
+		render(<SessionsSummary rollup={allSpawned()} failedSessions={2} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 3 sessions, all started by another session or a script, so none are counted.",
+		);
+	});
+
+	it("says it in the singular for one spawned session", () => {
+		render(<SessionsSummary rollup={allSpawned({ subordinate: 1 })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 1 session, started by another session or a script, so it isn't counted.",
+		);
+	});
+
+	it("says it as the most recent when every spawned session was capped", () => {
+		render(<SessionsSummary rollup={allSpawned({ complete: false })} />);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"The most recent 3 sessions your machines reported were all started by another session or a script, so none are counted.",
+		);
+	});
+
+	it("says it as the most recent in the singular when capped", () => {
 		render(
 			<SessionsSummary
-				rollup={rollup({
-					sessions: 0,
-					durationMs: 0,
-					days: [],
-					range: "",
-					subordinate: 1,
-				})}
+				rollup={allSpawned({ complete: false, subordinate: 1 })}
 			/>,
 		);
-		expect(screen.getByTestId("sessions-headline").textContent).toMatch(
-			/1 more was started by another session or a script and isn't counted\.$/,
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"The most recent session your machines reported was started by another session or a script, so it isn't counted.",
+		);
+	});
+
+	it("keeps the failure and spawned sentences apart when some counted", () => {
+		render(
+			<SessionsSummary
+				rollup={rollup({ subordinate: 3 })}
+				failedSessions={2}
+			/>,
+		);
+		expect(screen.getByTestId("sessions-headline").textContent).toBe(
+			"Your machines reported 41 sessions, 18h 20m in all, across Sep 3 – Sep 24. Plugins failed in 2 of them. 3 more were started by another session or a script and aren't counted.",
 		);
 	});
 });

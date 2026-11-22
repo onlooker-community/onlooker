@@ -3,6 +3,7 @@ process.env.TZ = "UTC";
 import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../api/sessionsApi";
 import {
+	countedSessions,
 	formatDurationMs,
 	formatRange,
 	groupSessionsByDay,
@@ -462,6 +463,12 @@ describe("rollupSessions / subordinate", () => {
 
 	// Unknown is every row from before CLI 2.16.0. Dropping those would empty
 	// the history; they count as they always have.
+	it("countedSessions keeps unknown and attended, drops spawned", () => {
+		expect(
+			countedSessions([person, unknown, spawned]).map((s) => s.session_id),
+		).toEqual(["p", "u"]);
+	});
+
 	it("counts unknown sessions as it did before", () => {
 		const rollup = rollupSessions([unknown], false);
 		expect(rollup.sessions).toBe(1);

@@ -130,14 +130,23 @@ export function groupSessionsByDay(sessions: SessionSummary[]): DayGroup[] {
 	);
 }
 
+/**
+ * The sessions "how many sessions did you have" counts: everything but those
+ * another session or a script started. `!== true` so unknown counts as before.
+ * One predicate, so a number stated next to the count (failures) is over the
+ * same sessions.
+ */
+export function countedSessions(sessions: SessionSummary[]): SessionSummary[] {
+	return sessions.filter((session) => session.subordinate !== true);
+}
+
 export function rollupSessions(
 	sessions: SessionSummary[],
 	hasMore: boolean,
 ): Rollup {
 	// Counted here, not in groupSessionsByDay: the Sessions page's rows still
-	// list spawned sessions, since they are real work. Only "how many sessions
-	// did you have" leaves them out. `=== true` so unknown counts as before.
-	const counted = sessions.filter((session) => session.subordinate !== true);
+	// list spawned sessions, since they are real work.
+	const counted = countedSessions(sessions);
 
 	let durationMs = 0;
 	let longest: SessionSummary | null = null;

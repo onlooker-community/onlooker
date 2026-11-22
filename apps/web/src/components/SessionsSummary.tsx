@@ -18,6 +18,7 @@
  */
 
 import { formatDurationMs, plural, type Rollup } from "../lib/sessionRollup";
+import { AllSpawned, SpawnedTail } from "./SpawnedSessions";
 import { Lead, LeadValue } from "./ui";
 
 export default function SessionsSummary({
@@ -56,15 +57,16 @@ export default function SessionsSummary({
 		) : null;
 	// The rows below list every loaded session, spawned ones included, so a
 	// count that leaves some out has to say so or it reads as a miscount.
-	const subordinateTail =
-		rollup.subordinate > 0 ? (
-			<>
-				{" "}
-				<LeadValue>{rollup.subordinate.toLocaleString()}</LeadValue> more{" "}
-				{rollup.subordinate === 1 ? "was" : "were"} started by another session
-				or a script and {rollup.subordinate === 1 ? "isn't" : "aren't"} counted.
-			</>
-		) : null;
+	const subordinateTail = <SpawnedTail n={rollup.subordinate} />;
+
+	// Nothing counted, so no range, duration or failures to describe.
+	if (rollup.sessions === 0) {
+		return (
+			<Lead testId="sessions-headline">
+				<AllSpawned n={rollup.subordinate} complete={rollup.complete} />
+			</Lead>
+		);
+	}
 
 	return (
 		<Lead testId="sessions-headline">

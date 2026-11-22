@@ -460,6 +460,27 @@ describe("/sessions day sections", () => {
 		const headline = await screen.findByTestId("sessions-headline");
 		expect(headline.textContent).toMatch(/Plugins failed in 1 of them\./);
 	});
+
+	// "of them" is the sessions the headline counted. A spawned session's
+	// failure is not among them.
+	it("does not count a spawned session's failure in the headline", async () => {
+		mocks.listSessions.mockResolvedValue({
+			...TWO_DAYS,
+			sessions: [
+				{
+					...TWO_DAYS.sessions[0],
+					subordinate: true,
+					counts_by_type: { "historian.embedder.failed": 2 },
+				},
+				{ ...TWO_DAYS.sessions[1], subordinate: false },
+			],
+		});
+		mocks.listMachines.mockResolvedValue(ONE_MACHINE);
+		renderAppAt("/sessions");
+		const headline = await screen.findByTestId("sessions-headline");
+		expect(headline.textContent).toMatch(/reported 1 session,/);
+		expect(headline.textContent).not.toMatch(/failed/i);
+	});
 });
 
 describe("/sessions summary header", () => {
