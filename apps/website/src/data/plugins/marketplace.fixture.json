@@ -1,9 +1,9 @@
 {
-	"commit": "c93fd53d8f0ce31ddcbb94e225c04d4350f1305d",
+	"commit": "5a535a18d08548906897bb622dba1f345ed12614",
 	"plugins": [
 		{
 			"name": "ecosystem",
-			"version": "0.83.0",
+			"version": "0.84.0",
 			"description": "Observability substrate for Claude Code. Provides the shared $ONLOOKER_DIR storage root (default $HOME/.onlooker), canonical schema-validated event emission, session and tool tracking hooks, and prompt rules. Other Onlooker plugins emit their events through it: without it they still run and keep their own files, but write nothing to the shared event log.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/README.md"
 		},
@@ -21,7 +21,7 @@
 		},
 		{
 			"name": "tribunal",
-			"version": "1.10.2",
+			"version": "1.11.0",
 			"description": "Multi-agent execution with LLM-as-a-Judge quality gates. An Actor performs work; a jury of typed Judges scores it against a project-overridable rubric; a Meta-Judge reviews the jury for bias; the gate decides accept, retry, or exhaust. Grounded in LLM-as-a-Judge (Zheng et al. 2023) and LLM-as-a-Meta-Judge (Wu et al. 2024). Builds on the Onlooker ecosystem plugin.",
 			"readmeUrl": "https://github.com/onlooker-community/ecosystem/blob/main/plugins/tribunal/README.md"
 		},
