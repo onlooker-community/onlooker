@@ -48,6 +48,16 @@ These came out of planning. Each one is a way of meeting a rule the spec states.
 4. **`tribunal_discard` takes only `<task_dir>`.** The worktree root is read from the baseline, so the two can't disagree.
 5. **Files git ignores aren't seen.** A build output the actor creates under an ignored path survives a discard, because `git status` doesn't list it.
 6. **The baseline needs a commit to restore to.** In a repository with no commits, `tribunal_baseline_write` fails, and Discard isn't offered.
+7. **Discard fails closed** (added after Task 2's review). Discard validates and loads the baseline once, before changing anything, and returns 1 if it can't. The code first written here sent any jq error down the delete or restore path.
+8. **A pre-run file the actor reverted or deleted is named** (added after Task 2's review). Such a file no longer shows in `git status`, so discard counts every baseline entry missing from it as left.
+9. **Discard returns 3 on a partial failure** (added after Task 2's review). If a file can't be restored or deleted, discard still prints the usual stdout, names the file on stderr as `tribunal: could not restore <path>`, and returns 3.
+10. **The baseline is written atomically** (added after Task 2's review). A failed write leaves no file behind.
+
+11. **A retry of a run with no baseline gets none** (added after Task 5's review). The earlier run's directory is noted as `previous_task_dir` before the new `task_dir` is computed. If the earlier run had no baseline, the retry doesn't write a fresh one, and it doesn't offer Discard.
+12. **The emit step is runnable as written** (added after Task 5's review). `outcome` is among the values set again in each shell. `task_id` is the run being resolved. Discard's exit code, stdout and stderr are captured separately. The example is split into a keep/retry block and a discard block.
+13. **A failed discard asks again** (added after Task 5's review). After exit 1 or 2, the person is asked again with only Keep and Retry. Exit 2 says HEAD moved, "most likely a commit".
+
+Task 2's code blocks below are the version first planned. Commit d5150696 and the fix commit that follows it are the authority. Likewise, Task 5's prose was corrected in its fix round, and the final review changed both again. What shipped in ecosystem #629 (tribunal 1.11.0) is the authority.
 
 ## File structure
 
@@ -359,7 +369,10 @@ Then run `/git-workflow:pr`, with `Refs ONL-308`. Meagan submits and merges it, 
     ```json
     {"root": "<toplevel>", "head": "<sha>", "dirty": [{"path": "<relative path>", "hash": "<blob sha, or \"\" for a deleted file>"}]}
     ```
-  - `tribunal_discard <task_dir>` prints `<restored> <left>`, then each left path on its own line, and returns 0. It returns 1 with no baseline, and 2, touching nothing, when `HEAD` moved.
+  - `tribunal_discard <task_dir>` prints `<restored> <left>`, then each left path on its own line, and returns 0. Its other returns:
+    - **1**, touching nothing, when the baseline is missing or unreadable.
+    - **2**, touching nothing, when `HEAD` moved.
+    - **3** when some files couldn't be restored. They're named on stderr as `tribunal: could not restore <path>`, and stdout is as for 0.
 
 - [ ] **Step 1: Make the worktree**
 
@@ -940,7 +953,8 @@ Then act on the answer:
 - **Discard:** run `tribunal_discard "$task_dir"`.
   - **Exit 0:** the first line is `<restored> <left>`. Each remaining line is a file that had changes before the run and that the actor changed again. Tell the person how many files were restored, and name each file that was left alone so they can sort it out by hand. Emit `decision: discarded` with both counts.
   - **Exit 2:** `HEAD` moved during the run, so the actor committed. Tell the person nothing was restored, and that the commit has to be undone by hand. Emit nothing: the discard they chose didn't happen.
-  - **Exit 1:** the baseline is missing. Tell the person nothing was restored, and emit nothing.
+  - **Exit 1:** the baseline is missing or unreadable. Tell the person nothing was restored, and emit nothing.
+  - **Exit 3:** some files couldn't be restored. They're named on stderr as `tribunal: could not restore <path>`. Stdout is as for exit 0. Tell the person what was restored, which files are left alone, and which couldn't be restored, so they can fix those by hand. Emit `decision: discarded` with the stdout counts, since a discard did happen.
 - **Retry:** emit `decision: retried`. Then start again from "Per-task initialization", with the same task description, rubric and config, carrying the baseline forward as described there. The new run has its own `task_id`.
 - **No answer** (dismissed, or a reply that is none of the three): emit nothing. A rejection without `tribunal.session.resolved` reads as unanswered. Never record a guess.
 
