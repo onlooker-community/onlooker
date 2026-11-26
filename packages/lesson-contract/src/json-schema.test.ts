@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 const withStackBranch = (json: Record<string, any>) =>
 	json.properties.applies_to.anyOf.find(
-		(branch: any) => branch.properties.stack.minItems === 1,
+		(branch: any) => branch.title === "with_stack",
 	);
 
 /**
@@ -63,15 +63,21 @@ describe("emitted JSON Schema", () => {
 	it("publishes the no_stack branch with an empty stack", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
 		const noStack = json.properties.applies_to.anyOf.find(
-			(branch: any) =>
-				branch.properties.scope.properties?.kind?.const === "no_stack",
+			(branch: any) => branch.title === "no_stack",
 		);
 		expect(noStack).toBeDefined();
 		expect(noStack.properties.stack.maxItems).toBe(0);
 	});
 
+	it("publishes both applies_to branches by title", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const titles = json.properties.applies_to.anyOf.map((b: any) => b.title);
+		expect(titles.sort()).toEqual(["no_stack", "with_stack"]);
+	});
+
 	it("keeps an entry required in the with-stack branch", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		expect(withStackBranch(json).properties.stack.minItems).toBe(1);
 		expect(withStackBranch(json)).toBeDefined();
 	});
 

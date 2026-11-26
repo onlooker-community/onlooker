@@ -99,7 +99,7 @@
           }
         },
         "unresolved": {
-          "description": "Stack entries no source could version.",
+          "description": "Stack entries no source could version. An entry that was observed but whose version yields no range belongs in observed_on, not here.",
           "type": "array",
           "items": {
             "type": "string",
@@ -208,7 +208,8 @@
             "file_patterns",
             "task_kinds"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "with_stack"
         },
         {
           "type": "object",
@@ -263,10 +264,11 @@
             "file_patterns",
             "task_kinds"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "no_stack"
         }
       ],
-      "description": "Every key of scope.versions must name an entry in stack. That rule is enforced at ingest, not by this schema, because JSON Schema cannot express a constraint spanning two fields."
+      "description": "The union enforces the pairing of stack and scope: a non-empty stack takes a versioned or version_independent scope, an empty stack takes no_stack. The rule that every key of scope.versions must name an entry in stack is enforced at ingest, not by this schema."
     },
     "visibility": {
       "type": "string",

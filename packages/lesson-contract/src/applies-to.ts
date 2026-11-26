@@ -66,9 +66,10 @@ const ZNoStack = z.strictObject({ kind: z.literal("no_stack") });
  *
  * The version_independent branch demands a justification precisely so that a
  * transform which simply failed has nothing to put there. It cannot default
- * into this branch; it fails validation instead. Librarian stops producing it
- * from contract 2.2.0 (the evidenced-portability design); it stays because
- * pool entries use it.
+ * into this branch; it fails validation instead. The justification is also
+ * what the tribunal's scope_accuracy criterion scores. Librarian stops
+ * producing version_independent at rollout step 5 of the evidenced-portability
+ * design; it stays because pool entries use it.
  */
 export const ZScope = z.discriminatedUnion("kind", [
 	ZVersioned,
@@ -116,24 +117,29 @@ const ZTaskKinds = z.array(z.string().min(1));
  */
 export const ZAppliesTo = z
 	.union([
-		z.strictObject({
-			stack: z.array(z.string().min(1)).min(1),
-			scope: z.discriminatedUnion("kind", [ZVersioned, ZVersionIndependent]),
-			file_patterns: ZFilePatterns,
-			task_kinds: ZTaskKinds,
-			topics: ZTopics,
-		}),
-		z.strictObject({
-			stack: z.array(z.string().min(1)).max(0),
-			scope: ZNoStack,
-			file_patterns: ZFilePatterns,
-			task_kinds: ZTaskKinds,
-			topics: ZTopics,
-		}),
+		z
+			.strictObject({
+				stack: z.array(z.string().min(1)).min(1),
+				scope: z.discriminatedUnion("kind", [ZVersioned, ZVersionIndependent]),
+				file_patterns: ZFilePatterns,
+				task_kinds: ZTaskKinds,
+				topics: ZTopics,
+			})
+			.meta({ title: "with_stack" }),
+		z
+			.strictObject({
+				stack: z.array(z.string().min(1)).max(0),
+				scope: ZNoStack,
+				file_patterns: ZFilePatterns,
+				task_kinds: ZTaskKinds,
+				topics: ZTopics,
+			})
+			.meta({ title: "no_stack" }),
 	])
 	.describe(
-		"Every key of scope.versions must name an entry in stack. That rule " +
-			"is enforced at ingest, not by this schema, because JSON Schema " +
-			"cannot express a constraint spanning two fields.",
+		"The union enforces the pairing of stack and scope: a non-empty stack " +
+			"takes a versioned or version_independent scope, an empty stack takes " +
+			"no_stack. The rule that every key of scope.versions must name an " +
+			"entry in stack is enforced at ingest, not by this schema.",
 	);
 export type TAppliesTo = z.infer<typeof ZAppliesTo>;

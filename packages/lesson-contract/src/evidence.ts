@@ -54,6 +54,9 @@ export const ZEvidence = z.strictObject({
 	unresolved: z
 		.array(z.string().min(1))
 		.optional()
-		.describe("Stack entries no source could version."),
+		.describe(
+			"Stack entries no source could version. An entry that was observed " +
+				"but whose version yields no range belongs in observed_on, not here.",
+		),
 });
 export type TEvidence = z.infer<typeof ZEvidence>;
