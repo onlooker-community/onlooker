@@ -393,4 +393,50 @@ describe("observed versions", () => {
 			),
 		).toEqual(["observed_and_unresolved_disjoint"]);
 	});
+
+	it("reports a repeated unresolved entry once", () => {
+		expect(
+			rules(
+				validLesson({
+					evidence: ev({
+						observed_on: {
+							vite: { version: "5.4.21", source: "lockfile", basis: "head" },
+						},
+						unresolved: ["vite", "vite"],
+					}),
+				}),
+			),
+		).toEqual(["observed_and_unresolved_disjoint"]);
+	});
+
+	describe("on a no_stack lesson", () => {
+		const noStack = (evidence: object) =>
+			validLesson({
+				applies_to: {
+					stack: [],
+					scope: { kind: "no_stack" },
+					file_patterns: [],
+					task_kinds: [],
+				},
+				evidence: ev(evidence),
+			} as Partial<TLesson>);
+
+		it("rejects an observation, since there is no stack to key it", () => {
+			expect(
+				rules(
+					noStack({
+						observed_on: {
+							vite: { version: "5.4.21", source: "lockfile", basis: "head" },
+						},
+					}),
+				),
+			).toEqual(["observed_key_in_stack"]);
+		});
+
+		it("rejects an unresolved entry", () => {
+			expect(rules(noStack({ unresolved: ["Sentry"] }))).toEqual([
+				"unresolved_in_stack",
+			]);
+		});
+	});
 });

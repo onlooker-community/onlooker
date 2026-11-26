@@ -155,7 +155,10 @@ export function checkCrossFieldRules(lesson: TLesson): RuleViolation[] {
 		}
 	}
 
-	for (const name of unresolved) {
+	// unresolved means no source could version the entry. An entry observed but
+	// whose version yields no range lives only in observed_on, so one name in
+	// both lists is a contradiction. Iterate a Set so a repeated name reports once.
+	for (const name of new Set(unresolved)) {
 		if (!declaredStack.has(name)) {
 			violations.push({
 				rule: "unresolved_in_stack",
