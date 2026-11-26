@@ -648,9 +648,11 @@ export default function LessonDetail() {
 
 			<div className="lessons-detail-panels">
 				<Panel title="Applies to" icon="MagnifyingGlass" open>
-					<Field label="Stack">
-						<Chips values={appliesTo.stack} onSelect={filterByStack} />
-					</Field>
+					{appliesTo.stack.length > 0 ? (
+						<Field label="Stack">
+							<Chips values={appliesTo.stack} onSelect={filterByStack} />
+						</Field>
+					) : null}
 
 					<Field label="Scope">
 						{appliesTo.scope.kind === "versioned" ? (
