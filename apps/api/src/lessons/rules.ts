@@ -139,5 +139,36 @@ export function checkCrossFieldRules(lesson: TLesson): RuleViolation[] {
 		}
 	}
 
+	// Delegated from ZEvidence in evidence.ts, for the same cross-field reason
+	// as versions_key_in_stack: an observation of something the lesson does not
+	// name says nothing about when the lesson holds.
+	const declaredStack = new Set(stack);
+	const observed = Object.keys(lesson.evidence.observed_on ?? {});
+	const unresolved = lesson.evidence.unresolved ?? [];
+
+	for (const name of observed) {
+		if (!declaredStack.has(name)) {
+			violations.push({
+				rule: "observed_key_in_stack",
+				message: `evidence.observed_on has a key "${name}" that is not in applies_to.stack`,
+			});
+		}
+	}
+
+	for (const name of unresolved) {
+		if (!declaredStack.has(name)) {
+			violations.push({
+				rule: "unresolved_in_stack",
+				message: `evidence.unresolved names "${name}", which is not in applies_to.stack`,
+			});
+		}
+		if (observed.includes(name)) {
+			violations.push({
+				rule: "observed_and_unresolved_disjoint",
+				message: `"${name}" is both observed and unresolved`,
+			});
+		}
+	}
+
 	return violations;
 }

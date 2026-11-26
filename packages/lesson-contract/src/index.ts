@@ -8,7 +8,12 @@ export {
 	type TCounterObservation,
 	ZCounterObservation,
 } from "./counter-observation.js";
-export { type TEvidence, ZEvidence } from "./evidence.js";
+export {
+	type TEvidence,
+	type TObservation,
+	ZEvidence,
+	ZObservation,
+} from "./evidence.js";
 export {
 	type TConsensus,
 	type TLesson,

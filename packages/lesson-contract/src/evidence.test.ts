@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ZEvidence } from "./evidence.js";
+import { ZEvidence, ZObservation } from "./evidence.js";
 
 const valid = {
 	artifact_ids: ["01KZ45MKAM734ZS7JK24D2DK0R"],
@@ -60,6 +60,59 @@ describe("ZEvidence", () => {
 	it("rejects a project_key that is not 12 hex characters", () => {
 		expect(
 			ZEvidence.safeParse({ ...valid, project_key: "onlooker" }).success,
+		).toBe(false);
+	});
+});
+
+describe("ZEvidence observations", () => {
+	const observed = {
+		vite: { version: "5.4.21", source: "lockfile", basis: "session_commit" },
+		awk: {
+			version: "20200816",
+			source: "probe",
+			basis: "machine",
+			flavor: "bsd",
+		},
+	};
+
+	it("accepts observed versions and unresolved entries", () => {
+		const e = { ...valid, observed_on: observed, unresolved: ["Sentry"] };
+		expect(ZEvidence.parse(e)).toEqual(e);
+	});
+
+	it("still accepts evidence with neither field", () => {
+		expect(ZEvidence.safeParse(valid).success).toBe(true);
+	});
+
+	it("rejects an observation with no version", () => {
+		expect(
+			ZObservation.safeParse({ version: "", source: "lockfile", basis: "head" })
+				.success,
+		).toBe(false);
+	});
+
+	it("rejects a source it does not know", () => {
+		expect(
+			ZObservation.safeParse({ version: "1", source: "guess", basis: "head" })
+				.success,
+		).toBe(false);
+	});
+
+	it("rejects a basis it does not know", () => {
+		expect(
+			ZObservation.safeParse({ version: "1", source: "probe", basis: "now" })
+				.success,
+		).toBe(false);
+	});
+
+	it("rejects an extra key on an observation", () => {
+		expect(
+			ZObservation.safeParse({
+				version: "1",
+				source: "probe",
+				basis: "machine",
+				range: ">=1",
+			}).success,
 		).toBe(false);
 	});
 });
