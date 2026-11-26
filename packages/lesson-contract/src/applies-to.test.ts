@@ -80,8 +80,56 @@ describe("ZAppliesTo", () => {
 		);
 	});
 
-	it("requires at least one stack entry so a lesson cannot match everything", () => {
+	// An empty stack is how a failed transform would mint a lesson that
+	// matches everything, so it is legal only when the scope says so.
+	it("rejects an empty stack under a versioned scope", () => {
 		expect(ZAppliesTo.safeParse({ ...valid, stack: [] }).success).toBe(false);
+	});
+
+	it("rejects an empty stack under a version_independent scope", () => {
+		expect(
+			ZAppliesTo.safeParse({
+				...valid,
+				stack: [],
+				scope: { kind: "version_independent", justification: "j" },
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts an empty stack with the no_stack scope", () => {
+		const noStack = { ...valid, stack: [], scope: { kind: "no_stack" } };
+		expect(ZAppliesTo.parse(noStack)).toEqual(noStack);
+	});
+
+	it("rejects no_stack when the stack names a tool", () => {
+		expect(
+			ZAppliesTo.safeParse({ ...valid, scope: { kind: "no_stack" } }).success,
+		).toBe(false);
+	});
+
+	it("rejects a no_stack scope carrying anything but its kind", () => {
+		expect(
+			ZAppliesTo.safeParse({
+				...valid,
+				stack: [],
+				scope: { kind: "no_stack", justification: "j" },
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts topics beside the stack", () => {
+		const withTopics = { ...valid, topics: ["testing", "refactoring"] };
+		expect(ZAppliesTo.parse(withTopics)).toEqual(withTopics);
+	});
+
+	it("still accepts applicability with no topics field", () => {
+		expect(ZAppliesTo.safeParse(valid).success).toBe(true);
+	});
+
+	it("rejects an empty topic", () => {
+		expect(ZAppliesTo.safeParse({ ...valid, topics: [""] }).success).toBe(
+			false,
+		);
 	});
 
 	// The heart of onlooker-7jn. An empty map used to be legal and meant both

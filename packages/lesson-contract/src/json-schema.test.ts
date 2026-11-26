@@ -8,11 +8,20 @@ import { ZCounterObservation, ZLesson } from "./index.js";
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
+ * applies_to is a union: one branch with a stack, one without. The
+ * with-stack branch is the one whose stack requires an entry.
+ */
+const withStackBranch = (json: Record<string, any>) =>
+	json.properties.applies_to.anyOf.find(
+		(branch: any) => branch.properties.stack.minItems === 1,
+	);
+
+/**
  * The versioned branch of applies_to.scope. Found by discriminator rather than
  * by index so the test does not depend on how zod happens to order oneOf.
  */
 const versionedBranch = (json: Record<string, any>) =>
-	json.properties.applies_to.properties.scope.oneOf.find(
+	withStackBranch(json).properties.scope.oneOf.find(
 		(branch: any) => branch.properties.kind.const === "versioned",
 	);
 
@@ -45,10 +54,25 @@ describe("emitted JSON Schema", () => {
 
 	it("publishes both scope branches so plugins can emit either", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
-		const kinds = json.properties.applies_to.properties.scope.oneOf.map(
+		const kinds = withStackBranch(json).properties.scope.oneOf.map(
 			(branch: any) => branch.properties.kind.const,
 		);
 		expect(kinds.sort()).toEqual(["version_independent", "versioned"]);
+	});
+
+	it("publishes the no_stack branch with an empty stack", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const noStack = json.properties.applies_to.anyOf.find(
+			(branch: any) =>
+				branch.properties.scope.properties?.kind?.const === "no_stack",
+		);
+		expect(noStack).toBeDefined();
+		expect(noStack.properties.stack.maxItems).toBe(0);
+	});
+
+	it("keeps an entry required in the with-stack branch", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		expect(withStackBranch(json)).toBeDefined();
 	});
 
 	it("keeps the ULID pattern on ids", () => {

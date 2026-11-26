@@ -659,6 +659,9 @@ export default function LessonDetail() {
 									([name, range]) => `${name} ${range}`,
 								)}
 							/>
+						) : appliesTo.scope.kind === "no_stack" ? (
+							// Nothing in the stack, so nothing that could have a version.
+							<p style={{ margin: 0 }}>Names no tool, so no version applies.</p>
 						) : (
 							// The justification is the point of this branch: a lesson
 							// with no version constraint never expires, so the reason
@@ -666,6 +669,12 @@ export default function LessonDetail() {
 							<p style={{ margin: 0 }}>{appliesTo.scope.justification}</p>
 						)}
 					</Field>
+
+					{appliesTo.topics && appliesTo.topics.length > 0 ? (
+						<Field label="Topics">
+							<Chips values={appliesTo.topics} />
+						</Field>
+					) : null}
 
 					{appliesTo.file_patterns.length > 0 ? (
 						<Field label="Files">
