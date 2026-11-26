@@ -1,0 +1,115 @@
+---
+title: "The hook that logged 624 successes while being killed"
+description: "Librarian's SessionEnd hook was killed at Claude Code's 1500 ms deadline for five days, and our health log recorded every run as a success. Bash's EXIT trap can't tell a kill from a clean exit, so we stopped asking it to."
+published: 2026-11-26
+tags: ["measurements", "plugins"]
+draft: false
+---
+
+import Term from "../../components/Term.astro";
+
+Every Onlooker <Term id="hook">hook</Term> writes a line to the <Term id="hook-health-log">hook-health log</Term> when it finishes: which hook ran, how long it took, and whether it succeeded. It's the first place we look when a plugin seems quiet. Early on 2026-09-18, the log held 624 records in a row for librarian's SessionEnd hook, and every one said `status: "success"`.
+
+For the last five days of that run, Claude Code had been killing the hook before it finished on most sessions. On those sessions librarian did no work and emitted no `scan.started`, and the log recorded each one as a success.
+
+## What the trap saw
+
+The health log was written by one EXIT trap, installed when a hook registered:
+
+```bash
+trap '_hook_health_on_exit $?' EXIT
+```
+
+The handler branched on the exit code it was given. A `0` became `success` and anything else became `failure`. That looks sound, because a killed shell should exit nonzero.
+
+It does exit nonzero, but the trap never sees that code. When a signal kills a bash script, bash still runs the EXIT trap, and inside the trap `$?` is the status of the last command that *finished*. In a hook that's usually a `jq` call that succeeded. Here is a script that does what our hooks did, killed with SIGTERM partway through a `sleep`:
+
+```bash
+trap 'echo "EXIT trap: \$?=$? BASH_COMMAND=[$BASH_COMMAND]"' EXIT
+jq -n 1 >/dev/null
+sleep 30
+```
+
+```console
+$ bash killed-hook.sh & sleep 0.5; kill -TERM $!; wait $!; echo "shell exit status: $?"
+EXIT trap: $?=0 BASH_COMMAND=[sleep 30]
+shell exit status: 143
+```
+
+The parent sees 143, which is 128 plus SIGTERM's 15. The trap sees 0. We got the same output from bash 3.2, which is what `/usr/bin/env bash` finds on macOS, and from bash 5.3.
+
+## What was actually happening
+
+Claude Code gives the whole batch of SessionEnd hooks 1500 ms, then aborts them. You can raise that window with `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, or with a `timeout` on a SessionEnd hook in your settings. A plugin can't. A `timeout` declared in a plugin's own `hooks.json` doesn't count toward the window. We confirmed this with a three-way probe: a hook with no timeout and a slow hook declaring a 10-second timeout were both killed, while a fast hook declaring the same 10 seconds completed, which shows the probe plugin had loaded. For a plugin hook, 1500 ms is the limit.
+
+Librarian started out well inside it. Its 469 SessionEnd runs before 2026-09-13 had a median of 291 ms and a maximum of 710 ms. But at session end it read the artifacts archivist had written, and it read all of them, starting two `jq` processes per file before checking which were new. That cost grew with every session. On a project with 703 artifacts it took 3,401 ms to return zero results.
+
+From 2026-09-13, 141 of the next 201 runs ended between 1,466 and 1,524 ms. A workload doesn't cluster that tightly at one number, but a deadline does. On 2026-09-18, four runs that had more time while we investigated took 4,000 to 5,171 ms. That's how long the work really took. Every one of the 141 deadline runs was logged as a success.
+
+`duration_ms` didn't flag the kills either. A killed hook's duration is the deadline, so it reads as a hook that's slow but working.
+
+## Two fixes that don't work
+
+The obvious repair is a signal trap next to the EXIT trap: catch TERM, record `terminated`, exit. We measured it, and it's worse than the bug. Bash defers a trapped signal while it waits on a foreground child, so the handler runs only when that child finishes. With a TERM trap installed and `sleep` in the foreground:
+
+| Signal sent to | Handler ran at |
+|---|---|
+| The shell's pid only | +9,630 ms |
+| The process group | +26 ms |
+
+Without the trap, bash dies promptly in both cases. So the signal trap could keep a hook running for nearly ten seconds after the deadline that killed it, and it still couldn't see SIGKILL, which runs no trap at all.
+
+The second idea was to read `BASH_COMMAND` inside the EXIT trap and treat anything other than `exit` as a kill. The repro above shows why that fails. A hook killed during `sleep 30` reports `BASH_COMMAND=[sleep 30]`. A hook that simply ran off the end of its script reports its last command, `[jq -n 1 > /dev/null]`. Neither is an `exit`, and from inside the dying shell the two cases look the same.
+
+## Hooks mark their own completion
+
+So the trap no longer guesses. A hook now says when it has reached an exit it chose, and the trap treats an exit without that mark as a kill:
+
+```bash
+hook_health_exit() {
+	_HOOK_COMPLETED=1
+	builtin exit "${1:-0}"
+}
+
+_hook_health_on_exit() {
+	local exit_code="${1:-0}"
+	if [[ -z "$_HOOK_COMPLETED" ]]; then
+		_hook_health_write "terminated" "terminated_before_completion,last_exit_code=${exit_code}"
+	elif [[ "$exit_code" -eq 0 ]]; then
+		_hook_health_write "success" ""
+	else
+		_hook_health_write "failure" "exit_code=${exit_code}"
+	fi
+	# ...then run any EXIT trap the hook had installed before registering
+}
+```
+
+The exit code is still recorded, as `last_exit_code`, but only for debugging, since it says nothing about whether the hook finished. If the mark is ever lost, the error goes the safe way: a run that finished but lost its mark shows as `terminated`, and nothing shows as a success it didn't earn. The mark is a variable assignment, so it adds no process starts.
+
+That covers SIGTERM, where the trap still runs. SIGKILL needs something that doesn't rely on the dying shell at all. Registering now writes a `started` record with a `run_id` before the hook does any work, and the closing record repeats that `run_id`. If a `started` record's `run_id` never shows up on a closing record, the run was killed with no trap at all.
+
+Making this the rule meant changing every hook. Across 33 registering hooks there were 107 real `exit` statements, and 93 of them now go through `hook_health_exit`. The other 14 are re-entry guards like `[[ "${LIBRARIAN_NESTED:-}" == "1" ]] && exit 0`. They run before the health library is loaded, where `hook_health_exit` doesn't exist yet. They stay a plain `exit`, and since they return before registering, they aren't measured runs. A test in `hook-health.bats` now fails on any bare `exit` that comes after a hook registers, so a new hook can't skip the rule.
+
+The order of the rollout mattered. If the trap had started recording `terminated` before the hooks were converted, all 33 hooks would have been labeled terminated on every run. So the first change ([ecosystem #341](https://github.com/onlooker-community/ecosystem/pull/341)) added the breadcrumb and `hook_health_exit` but left the trap reporting as before. The second ([#343](https://github.com/onlooker-community/ecosystem/pull/343)) converted the exits and switched the trap over in the same diff. Both merged on 2026-09-18.
+
+Librarian's own fixes were separate. [#338](https://github.com/onlooker-community/ecosystem/pull/338) replaced the per-file reads with a single `jq -s`, which took that 3,401 ms read down to 53 ms and stays flat as the corpus grows. [#344](https://github.com/onlooker-community/ecosystem/pull/344) moved librarian's model call to a detached worker, because a single call took about 39 seconds, around 26 times the whole SessionEnd window.
+
+## What the log shows now
+
+Measured on 2026-11-26, over the 416,979 records written since 2026-10-02:
+
+- 208,491 `started`
+- 208,405 `success`
+- 82 `terminated`
+- 1 `failure`
+- 3 `started` records with no closing record
+
+The new statuses caught a real problem within weeks. Archivist's `archivist-mine` hook accounts for 46 of the 82 `terminated` records, and 45 of those ended at about 1,509 ms, the same deadline signature as librarian's. It mined new commits at SessionEnd and saved its progress only once it had mined all of them. On a repo it had fallen behind on, 182 commits back, every run was killed before it could save, and the next session started with the same backlog. [#466](https://github.com/onlooker-community/ecosystem/pull/466) made it save after every commit. [#588](https://github.com/onlooker-community/ecosystem/pull/588) moved the mining to a detached worker, so the hook returns in 62 to 77 ms. Its last `terminated` record is from 2026-11-11.
+
+The old records can't be re-checked. A record written before 2026-09-18 has no `run_id`, so it can't be paired with anything, and we don't count it as an orphan. The 624 librarian successes are still in the log, and still wrong.
+
+## If you write Claude Code hooks
+
+If your hook writes a status from an EXIT trap, `$?` there doesn't tell you whether the hook finished. Have the hook mark its own completion and treat a missing mark as a kill. To catch SIGKILL, write a record when the hook starts.
+
+At SessionEnd, plan for 1500 ms. Raising the window is up to the user, in their settings or environment. A plugin can't raise it, and a `timeout` in your `hooks.json` won't change that. Anything slower belongs in a detached process.
