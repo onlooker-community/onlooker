@@ -8,11 +8,20 @@ import { ZCounterObservation, ZLesson } from "./index.js";
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
+ * applies_to is a union: one branch with a stack, one without. The
+ * with-stack branch is the one whose stack requires an entry.
+ */
+const withStackBranch = (json: Record<string, any>) =>
+	json.properties.applies_to.anyOf.find(
+		(branch: any) => branch.title === "with_stack",
+	);
+
+/**
  * The versioned branch of applies_to.scope. Found by discriminator rather than
  * by index so the test does not depend on how zod happens to order oneOf.
  */
 const versionedBranch = (json: Record<string, any>) =>
-	json.properties.applies_to.properties.scope.oneOf.find(
+	withStackBranch(json).properties.scope.oneOf.find(
 		(branch: any) => branch.properties.kind.const === "versioned",
 	);
 
@@ -45,10 +54,31 @@ describe("emitted JSON Schema", () => {
 
 	it("publishes both scope branches so plugins can emit either", () => {
 		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
-		const kinds = json.properties.applies_to.properties.scope.oneOf.map(
+		const kinds = withStackBranch(json).properties.scope.oneOf.map(
 			(branch: any) => branch.properties.kind.const,
 		);
 		expect(kinds.sort()).toEqual(["version_independent", "versioned"]);
+	});
+
+	it("publishes the no_stack branch with an empty stack", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const noStack = json.properties.applies_to.anyOf.find(
+			(branch: any) => branch.title === "no_stack",
+		);
+		expect(noStack).toBeDefined();
+		expect(noStack.properties.stack.maxItems).toBe(0);
+	});
+
+	it("publishes both applies_to branches by title", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		const titles = json.properties.applies_to.anyOf.map((b: any) => b.title);
+		expect(titles.sort()).toEqual(["no_stack", "with_stack"]);
+	});
+
+	it("keeps an entry required in the with-stack branch", () => {
+		const json = z.toJSONSchema(ZLesson) as Record<string, any>;
+		expect(withStackBranch(json).properties.stack.minItems).toBe(1);
+		expect(withStackBranch(json)).toBeDefined();
 	});
 
 	it("keeps the ULID pattern on ids", () => {

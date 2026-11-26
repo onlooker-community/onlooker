@@ -105,6 +105,33 @@ describe("judge — applicability", () => {
 
 		expect(judge(free, ctx({})).kind).toBe("cannot-tell");
 	});
+
+	// A lesson naming no tool depends on nothing installed, so nothing here
+	// can exclude it.
+	it("applies a no_stack lesson whatever is installed", () => {
+		const v = judge(
+			lesson({
+				applies_to: {
+					...base.applies_to,
+					stack: [],
+					scope: { kind: "no_stack" },
+				},
+			} as Partial<TLesson>),
+			ctx({}),
+		);
+		expect(v.kind).toBe("applies");
+		const withVite = judge(
+			lesson({
+				applies_to: {
+					...base.applies_to,
+					stack: [],
+					scope: { kind: "no_stack" },
+				},
+			} as Partial<TLesson>),
+			ctx({ vite: "5.2.1" }),
+		);
+		expect(withVite.kind).toBe("applies");
+	});
 });
 
 describe("judge — relevance", () => {

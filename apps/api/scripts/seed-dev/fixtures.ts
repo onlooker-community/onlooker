@@ -544,7 +544,9 @@ interface LessonSpec {
 	claim: string;
 	rationale: string;
 	stack: string[];
-	scope: TLesson["applies_to"]["scope"];
+	// Every fixture names a tool, so it never takes the no_stack scope, which
+	// is legal only beside an empty stack.
+	scope: Exclude<TLesson["applies_to"]["scope"], { kind: "no_stack" }>;
 	visibility: TLesson["visibility"];
 	projectKey: string;
 	/** Days, then hours, before now. */

@@ -401,6 +401,31 @@ describe("the detail pane", () => {
 		expect(screen.getByText(VITE.evidence.resolution)).toBeDefined();
 	});
 
+	it("renders a no_stack lesson with its topics and no Stack row", async () => {
+		const NO_STACK = {
+			...VITE,
+			id: "01KZ45MKAM734ZS7JK24D2DK0Y",
+			claim: "Retries need a jitter or they stampede",
+			applies_to: {
+				stack: [],
+				scope: { kind: "no_stack" as const },
+				file_patterns: [],
+				task_kinds: [],
+				topics: ["rate-limiting", "retries"],
+			},
+		};
+		withPool([NO_STACK]);
+		await at(`/lessons/${NO_STACK.id}`);
+		await screen.findByRole("heading", { name: NO_STACK.claim });
+		const pane = within(detailPane());
+		expect(
+			pane.getByText("Names no tool, so no version applies."),
+		).toBeDefined();
+		expect(pane.getByText("rate-limiting")).toBeDefined();
+		expect(pane.getByText("retries")).toBeDefined();
+		expect(pane.queryByText("Stack")).toBeNull();
+	});
+
 	// The author name reaches the detail pane through the same `authors` map
 	// the row reads, carried on through LessonsContext rather than refetched -
 	// the same split LessonDetail.tsx's `own` already makes for ownership.

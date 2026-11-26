@@ -32,6 +32,29 @@ const ZVersions = z
 		minProperties: 1,
 	});
 
+const ZVersioned = z.strictObject({
+	kind: z.literal("versioned"),
+	versions: ZVersions,
+});
+
+const ZVersionIndependent = z.strictObject({
+	kind: z.literal("version_independent"),
+	justification: z
+		.string()
+		.min(1)
+		.describe(
+			"Why this lesson holds regardless of version. Judged, not assumed.",
+		),
+});
+
+/**
+ * A lesson that names no tool. Unlike version_independent it carries no
+ * justification, because nothing is being argued: with an empty stack there
+ * is nothing that could have a version. That is checkable, which is why it
+ * is allowed only beside an empty stack (see ZAppliesTo).
+ */
+const ZNoStack = z.strictObject({ kind: z.literal("no_stack") });
+
 /**
  * How a lesson's applicability is bounded in time.
  *
@@ -44,21 +67,27 @@ const ZVersions = z
  * The version_independent branch demands a justification precisely so that a
  * transform which simply failed has nothing to put there. It cannot default
  * into this branch; it fails validation instead. The justification is also
- * what the tribunal's scope_accuracy criterion scores.
+ * what the tribunal's scope_accuracy criterion scores. Librarian stops
+ * producing version_independent at rollout step 5 of the evidenced-portability
+ * design; it stays because pool entries use it.
  */
 export const ZScope = z.discriminatedUnion("kind", [
-	z.strictObject({ kind: z.literal("versioned"), versions: ZVersions }),
-	z.strictObject({
-		kind: z.literal("version_independent"),
-		justification: z
-			.string()
-			.min(1)
-			.describe(
-				"Why this lesson holds regardless of version. Judged, not assumed.",
-			),
-	}),
+	ZVersioned,
+	ZVersionIndependent,
+	ZNoStack,
 ]);
 export type TScope = z.infer<typeof ZScope>;
+
+const ZTopics = z
+	.array(z.string().min(1))
+	.optional()
+	.describe(
+		"Concepts the lesson is about, such as testing or rate-limiting. " +
+			"Kept out of stack because a concept has no version.",
+	);
+
+const ZFilePatterns = z.array(z.string().min(1));
+const ZTaskKinds = z.array(z.string().min(1));
 
 /**
  * What retrieval matches a lesson against.
@@ -66,6 +95,12 @@ export type TScope = z.infer<typeof ZScope>;
  * scope is the field that makes staleness structural. Scoping a lesson to
  * vite <6 means a session on vite 8 never matches it, so the lesson retires
  * itself by construction rather than waiting for someone to review it.
+ *
+ * Two shapes. With a stack, the stack needs an entry and the scope is
+ * versioned or version_independent. Without one, the scope must be no_stack.
+ * The empty stack used to be refused outright, because it matches every
+ * session; it is legal now only where the scope says so on purpose, so a
+ * transform that simply produced nothing still fails.
  *
  * Every key of scope.versions must name an entry in stack. That is deliberately
  * NOT enforced here, for the same reason ZConsensus does not enforce
@@ -81,15 +116,30 @@ export type TScope = z.infer<typeof ZScope>;
  * constraint is skipped, and skipping it produces a lesson that never expires.
  */
 export const ZAppliesTo = z
-	.strictObject({
-		stack: z.array(z.string().min(1)).min(1),
-		scope: ZScope,
-		file_patterns: z.array(z.string().min(1)),
-		task_kinds: z.array(z.string().min(1)),
-	})
+	.union([
+		z
+			.strictObject({
+				stack: z.array(z.string().min(1)).min(1),
+				scope: z.discriminatedUnion("kind", [ZVersioned, ZVersionIndependent]),
+				file_patterns: ZFilePatterns,
+				task_kinds: ZTaskKinds,
+				topics: ZTopics,
+			})
+			.meta({ title: "with_stack" }),
+		z
+			.strictObject({
+				stack: z.array(z.string().min(1)).max(0),
+				scope: ZNoStack,
+				file_patterns: ZFilePatterns,
+				task_kinds: ZTaskKinds,
+				topics: ZTopics,
+			})
+			.meta({ title: "no_stack" }),
+	])
 	.describe(
-		"Every key of scope.versions must name an entry in stack. That rule " +
-			"is enforced at ingest, not by this schema, because JSON Schema " +
-			"cannot express a constraint spanning two fields.",
+		"The union enforces the pairing of stack and scope: a non-empty stack " +
+			"takes a versioned or version_independent scope, an empty stack takes " +
+			"no_stack. The rule that every key of scope.versions must name an " +
+			"entry in stack is enforced at ingest, not by this schema.",
 	);
 export type TAppliesTo = z.infer<typeof ZAppliesTo>;
