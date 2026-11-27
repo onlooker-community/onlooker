@@ -42,7 +42,11 @@ export default defineConfig({
 		shikiConfig: { theme: "css-variables" },
 	},
 	integrations: [
-		mdx(),
+		// Explicit because the default no longer reaches MDX. Astro 6.4 left
+		// markdown.gfm unset for unified() to fill in, and @astrojs/mdx 5.0.6
+		// still reads markdown.gfm, so it got undefined and skipped remark-gfm:
+		// tables rendered as pipe-filled paragraphs.
+		mdx({ gfm: true }),
 		sentry({
 			org: "onlooker-vw",
 			project: "onlooker-marketing",
