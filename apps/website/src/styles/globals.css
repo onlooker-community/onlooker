@@ -654,6 +654,24 @@ footer {
 	padding-left: 1.4em;
 }
 
+/* Markdown tables. Rules between rows only, the way a post's code blocks sit
+ * on the page without a box around them. */
+.prose table {
+	border-collapse: collapse;
+	font-size: 0.95em;
+}
+
+.prose :is(th, td) {
+	text-align: left;
+	padding: 6px 24px 6px 0;
+	border-bottom: 1px solid var(--border-2);
+}
+
+.prose th {
+	color: var(--text-1);
+	font-weight: 600;
+}
+
 .prose figure svg {
 	display: block;
 	width: 100%;
