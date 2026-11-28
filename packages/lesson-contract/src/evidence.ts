@@ -9,7 +9,9 @@ import { ZProjectKey, ZUlid } from "./primitives.js";
  * package.json, or a probe of the machine. basis says when: at the commit
  * the session ran on, at HEAD because no earlier commit existed, or on the
  * machine when the transform ran. A probe is always "machine", which is why
- * the jury is shown it.
+ * the jury is shown it. A person is the version a person supplied when
+ * nominating a lesson whose entry no source could read; it is never written
+ * over an observed one.
  *
  * flavor is for the tools whose BSD and GNU builds disagree (awk, grep,
  * sed). A version number alone doesn't say which one a lesson was seen on.
@@ -23,6 +25,7 @@ export const ZObservation = z.strictObject({
 		"workflow",
 		"component",
 		"probe",
+		"person",
 	]),
 	basis: z.enum(["session_commit", "head", "machine"]),
 	flavor: z.enum(["gnu", "bsd"]).optional(),
