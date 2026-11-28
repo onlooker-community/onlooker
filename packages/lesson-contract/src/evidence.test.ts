@@ -80,6 +80,16 @@ describe("ZEvidence observations", () => {
 		expect(ZEvidence.parse(e)).toEqual(e);
 	});
 
+	it("accepts a version a person supplied at nomination", () => {
+		expect(
+			ZObservation.safeParse({
+				version: "2024-09-23",
+				source: "person",
+				basis: "machine",
+			}).success,
+		).toBe(true);
+	});
+
 	it("still accepts evidence with neither field", () => {
 		expect(ZEvidence.safeParse(valid).success).toBe(true);
 	});
